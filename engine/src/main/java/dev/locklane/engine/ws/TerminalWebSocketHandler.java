@@ -48,11 +48,13 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        // Authentication itself is enforced upstream (SecurityConfig, #50) — a
+        // handshake reaches here only once Spring Security has already accepted a
+        // session cookie, so getPrincipal() is never null in practice. The null
+        // check is defensive, not load-bearing: this is ownership (#48), not auth.
         String username = wsSession.getPrincipal() != null ? wsSession.getPrincipal().getName() : null;
         Optional<String> owner = sessionRegistry.ownerUsername(sessionId);
         if (owner.isPresent() && !owner.get().equals(username)) {
-            // Not authentication (still open until #50) — this session already has a
-            // different owner, and only that owner may attach to it (#48).
             wsSession.close(CloseStatus.POLICY_VIOLATION.withReason("This session belongs to another user"));
             return;
         }

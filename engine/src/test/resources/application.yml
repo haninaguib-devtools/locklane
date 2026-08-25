@@ -16,3 +16,4 @@ locklane:
   security:
     bootstrap-username: test-user
     bootstrap-password: test-password
+    allowed-origins: http://allowed-test-origin.example

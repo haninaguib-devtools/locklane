@@ -13,11 +13,12 @@ import org.springframework.http.HttpStatus;
 
 /**
  * Wires up session-based login for {@code POST /api/auth/login} /
- * {@code POST /api/auth/logout} (#47), and gates the worktree-session endpoints
- * (list/start, {@code /api/issues/*}{@code /worktrees}) behind it (#48) — the only
- * endpoints with a per-user meaning today; issue/PR data still comes from one
- * shared repo with no per-user boundary until #41 gives it one. Gating the
- * WebSocket session endpoint itself is #50's job.
+ * {@code POST /api/auth/logout} (#47), and gates behind it: the worktree-session
+ * endpoints (list/start, {@code /api/issues/*}{@code /worktrees}, #48), and the
+ * WebSocket session endpoint itself ({@code /ws/sessions/**}, #50) — its origin
+ * restriction lives in {@code WebSocketConfig}, but authentication is enforced here
+ * like every other endpoint. Issue/PR data stays open: it still comes from one
+ * shared repo with no per-user boundary until #41 gives it one.
  */
 @Configuration
 @EnableWebSecurity
@@ -26,15 +27,18 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // Still no CSRF-token flow — the worktree endpoints below are now
-                // the first cookie-authenticated, state-changing surface, so this is
-                // a real (if lower-severity than "no auth at all") gap being
-                // knowingly carried forward: fixing it needs an Angular-side change
-                // (reading a CSRF cookie, sending it back as a header) outside this
-                // task's engine/** scope. Revisit with #49's client work.
+                // Still no CSRF-token flow — the gated endpoints below are
+                // cookie-authenticated, state-changing (worktree creation) or
+                // long-lived (the WebSocket handshake), so this is a real (if
+                // lower-severity than "no auth at all") gap being knowingly carried
+                // forward across #48, #49, and now #50: the fix needs an
+                // Angular-side change (reading a CSRF cookie, sending it back as a
+                // header) outside engine/**'s scope, and #49's client work landed
+                // without adding one either.
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/issues/*/worktrees").authenticated()
+                        .requestMatchers("/ws/sessions/**").authenticated()
                         .anyRequest().permitAll())
                 .formLogin(form -> form
                         .loginProcessingUrl("/api/auth/login")
