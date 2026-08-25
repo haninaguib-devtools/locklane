@@ -2,12 +2,25 @@
   <div class="brand">locklane</div>
 
   <div class="controls">
-    <input
-      type="search"
-      class="filter-input"
-      placeholder="filter cases…"
-      [(ngModel)]="filterText"
-    />
+    <div class="filter-row">
+      <input
+        type="search"
+        class="filter-input"
+        placeholder="filter cases…"
+        [(ngModel)]="filterText"
+      />
+      <button
+        type="button"
+        class="refresh"
+        [class.spinning]="refreshing"
+        [disabled]="refreshing"
+        (click)="refresh()"
+        aria-label="Refresh issues"
+        title="Refresh issues"
+      >
+        ⟳
+      </button>
+    </div>
     <label class="opened-toggle">
       <input type="checkbox" [(ngModel)]="hideShipped" />
       opened issues

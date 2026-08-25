@@ -28,6 +28,7 @@ export class SidenavComponent implements OnInit {
 
   private tree: TreeNode[] = [];
   loading = true;
+  refreshing = false;
   error = false;
 
   // Neither persists across reloads, matching the old app (#22's Goal).
@@ -37,14 +38,27 @@ export class SidenavComponent implements OnInit {
   openMenuFor: number | null = null;
 
   ngOnInit(): void {
+    this.load(() => (this.loading = false));
+  }
+
+  refresh(): void {
+    if (this.refreshing) {
+      return;
+    }
+    this.refreshing = true;
+    this.load(() => (this.refreshing = false));
+  }
+
+  private load(onDone: () => void): void {
     this.issuesService.tree().subscribe({
       next: (tree) => {
         this.tree = tree;
-        this.loading = false;
+        this.error = false;
+        onDone();
       },
       error: () => {
-        this.loading = false;
         this.error = true;
+        onDone();
       },
     });
   }
