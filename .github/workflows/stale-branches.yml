@@ -1,0 +1,26 @@
+# Scheduled, report-only check (issue #39): confirms every merged/closed PR's head
+# branch (wip/*, fix/*) actually got deleted on origin, catching a forge:pr-merge /
+# forge:pr-close invocation that silently omitted the active backend's
+# branch-deletion flag (docs/adapters/FORGE.md). Never deletes anything itself —
+# scripts/check-stale-branches.sh only reports.
+name: Stale branches
+
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Report merged/closed PR branches still on origin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/check-stale-branches.sh
