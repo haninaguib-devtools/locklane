@@ -104,6 +104,73 @@ describe('MainContentComponent', () => {
     fixture.componentInstance.selectWorktree('other-worktree');
 
     expect(fixture.componentInstance.selectedWorktree).toBe('other-worktree');
+    expect(fixture.componentInstance.selectedWorktreeDir).toBeNull();
     expect(fixture.componentInstance.issue?.number).toBe(7); // unchanged, no reload
+  });
+
+  it('starting a session adds the returned worktree and selects it', () => {
+    const fixture = TestBed.createComponent(MainContentComponent);
+    fixture.componentInstance.issueNumber = 8;
+    fixture.componentInstance.ngOnChanges({
+      issueNumber: { currentValue: 8, previousValue: null, firstChange: true, isFirstChange: () => true },
+    });
+    const issue: GhIssue = { number: 8, title: 'T', state: 'OPEN', labels: [], body: '', createdAt: '', updatedAt: '' };
+    const detail: IssueDetail = {
+      number: 8,
+      recordPath: null,
+      checks: { passing: 0, failing: 0, pending: 0 },
+      branch: null,
+      prNumber: null,
+      prState: null,
+      prDraft: false,
+      flowSteps: [],
+    };
+    httpMock.expectOne('/api/issues/8').flush(issue);
+    httpMock.expectOne('/api/issues/8/detail').flush(detail);
+    httpMock.expectOne('/api/issues/8/worktrees').flush([]);
+
+    fixture.componentInstance.startSession();
+    expect(fixture.componentInstance.starting).toBeTrue();
+
+    httpMock
+      .expectOne({ url: '/api/issues/8/worktrees', method: 'POST' })
+      .flush({ worktreeId: '8-new-session', workingDirectory: '/tmp/repo-8' });
+
+    expect(fixture.componentInstance.starting).toBeFalse();
+    expect(fixture.componentInstance.startError).toBeFalse();
+    expect(fixture.componentInstance.worktreeIds).toEqual(['8-new-session']);
+    expect(fixture.componentInstance.selectedWorktree).toBe('8-new-session');
+    expect(fixture.componentInstance.selectedWorktreeDir).toBe('/tmp/repo-8');
+  });
+
+  it('a failed start reports an error and stops the spinner without touching worktreeIds', () => {
+    const fixture = TestBed.createComponent(MainContentComponent);
+    fixture.componentInstance.issueNumber = 8;
+    fixture.componentInstance.ngOnChanges({
+      issueNumber: { currentValue: 8, previousValue: null, firstChange: true, isFirstChange: () => true },
+    });
+    const issue: GhIssue = { number: 8, title: 'T', state: 'OPEN', labels: [], body: '', createdAt: '', updatedAt: '' };
+    const detail: IssueDetail = {
+      number: 8,
+      recordPath: null,
+      checks: { passing: 0, failing: 0, pending: 0 },
+      branch: null,
+      prNumber: null,
+      prState: null,
+      prDraft: false,
+      flowSteps: [],
+    };
+    httpMock.expectOne('/api/issues/8').flush(issue);
+    httpMock.expectOne('/api/issues/8/detail').flush(detail);
+    httpMock.expectOne('/api/issues/8/worktrees').flush([]);
+
+    fixture.componentInstance.startSession();
+    httpMock
+      .expectOne({ url: '/api/issues/8/worktrees', method: 'POST' })
+      .error(new ProgressEvent('network error'));
+
+    expect(fixture.componentInstance.starting).toBeFalse();
+    expect(fixture.componentInstance.startError).toBeTrue();
+    expect(fixture.componentInstance.worktreeIds).toEqual([]);
   });
 });
