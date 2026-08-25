@@ -49,6 +49,11 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-websocket</artifactId>
     </dependency>
+    <!-- Session-based login and password hashing (#47). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
     <!-- SQLite persistence (#6): JdbcTemplate over the SQLite JDBC driver, plus
          Boot's schema.sql auto-initialization — no ORM/dialect needed for one table. -->
     <dependency>
