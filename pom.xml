@@ -9,8 +9,8 @@
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
-  <!-- Aggregator only. The Angular client module is added by a later task. -->
   <modules>
+    <module>client</module>
     <module>engine</module>
   </modules>
 </project>
