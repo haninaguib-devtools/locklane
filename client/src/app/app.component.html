@@ -1,11 +1,20 @@
-<div class="shell">
-  <aside class="sidebar" [style.width.px]="sidebarWidth">
-    <app-sidenav [selected]="selectedIssue" (selectedChange)="select($event)" />
-  </aside>
-  <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
-  @if (selectedIssue !== null) {
-    <app-main-content [issueNumber]="selectedIssue" />
-  } @else {
-    <div class="empty-state">select an issue to begin</div>
-  }
-</div>
+@if (!isLoggedIn()) {
+  <app-login />
+} @else {
+  <div class="authed">
+    <div class="topbar">
+      <button type="button" class="logout" (click)="logout()">Log out</button>
+    </div>
+    <div class="shell">
+      <aside class="sidebar" [style.width.px]="sidebarWidth">
+        <app-sidenav [selected]="selectedIssue" (selectedChange)="select($event)" />
+      </aside>
+      <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
+      @if (selectedIssue !== null) {
+        <app-main-content [issueNumber]="selectedIssue" />
+      } @else {
+        <div class="empty-state">select an issue to begin</div>
+      }
+    </div>
+  </div>
+}
