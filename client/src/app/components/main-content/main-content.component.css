@@ -16,3 +16,10 @@
   font-size: 13px;
   background: var(--window);
 }
+
+.start-error {
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}

@@ -11,4 +11,14 @@ describe('WorktreeTabsComponent', () => {
 
     expect(emitted).toBe('174-rename-toggle');
   });
+
+  it('emits start when requested', () => {
+    const c = new WorktreeTabsComponent();
+    let started = false;
+    c.start.subscribe(() => (started = true));
+
+    c.start.emit();
+
+    expect(started).toBeTrue();
+  });
 });

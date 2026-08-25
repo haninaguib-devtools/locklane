@@ -22,6 +22,10 @@ export class MainContentComponent implements OnChanges {
   detail: IssueDetail | null = null;
   worktreeIds: string[] = [];
   selectedWorktree: string | null = null;
+  selectedWorktreeDir: string | null = null;
+
+  starting = false;
+  startError = false;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['issueNumber']) {
@@ -34,6 +38,8 @@ export class MainContentComponent implements OnChanges {
     this.detail = null;
     this.worktreeIds = [];
     this.selectedWorktree = null;
+    this.selectedWorktreeDir = null;
+    this.startError = false;
 
     this.issuesService.get(number).subscribe((issue) => {
       this.issue = issue;
@@ -49,5 +55,23 @@ export class MainContentComponent implements OnChanges {
 
   selectWorktree(id: string): void {
     this.selectedWorktree = id;
+    this.selectedWorktreeDir = null;
+  }
+
+  startSession(): void {
+    this.starting = true;
+    this.startError = false;
+    this.issuesService.startSession(this.issueNumber).subscribe({
+      next: ({ worktreeId, workingDirectory }) => {
+        this.worktreeIds = [...this.worktreeIds, worktreeId];
+        this.selectedWorktree = worktreeId;
+        this.selectedWorktreeDir = workingDirectory;
+        this.starting = false;
+      },
+      error: () => {
+        this.starting = false;
+        this.startError = true;
+      },
+    });
   }
 }

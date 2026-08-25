@@ -82,4 +82,14 @@ describe('IssuesService', () => {
     expect(req.request.method).toBe('GET');
     req.flush(['5-slug']);
   });
+
+  it('starts a session via POST /api/issues/{number}/worktrees', () => {
+    service
+      .startSession(5)
+      .subscribe((result) => expect(result).toEqual({ worktreeId: '5-slug', workingDirectory: '/tmp/repo-5' }));
+
+    const req = httpMock.expectOne('/api/issues/5/worktrees');
+    expect(req.request.method).toBe('POST');
+    req.flush({ worktreeId: '5-slug', workingDirectory: '/tmp/repo-5' });
+  });
 });

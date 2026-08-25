@@ -6,10 +6,15 @@
   <app-worktree-tabs
     [worktreeIds]="worktreeIds"
     [selected]="selectedWorktree"
+    [starting]="starting"
     (selectedChange)="selectWorktree($event)"
+    (start)="startSession()"
   />
+  @if (startError) {
+    <div class="start-error">could not start a session — try again</div>
+  }
   @if (selectedWorktree) {
-    <app-terminal [worktreeId]="selectedWorktree" />
+    <app-terminal [worktreeId]="selectedWorktree" [dir]="selectedWorktreeDir" />
   } @else {
     <div class="no-session">no live session for this issue yet</div>
   }
