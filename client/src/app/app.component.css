@@ -3,9 +3,34 @@
   height: 100vh;
 }
 
+.authed {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logout {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .shell {
   display: flex;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .sidebar {

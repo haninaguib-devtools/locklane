@@ -1,7 +1,9 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { SidenavComponent } from './components/sidenav/sidenav.component';
 import { MainContentComponent } from './components/main-content/main-content.component';
 import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-resizer.component';
+import { LoginComponent } from './components/login/login.component';
+import { AuthService } from './services/auth.service';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
 
 const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
@@ -9,11 +11,15 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [SidenavComponent, MainContentComponent, SidebarResizerComponent],
+  imports: [SidenavComponent, MainContentComponent, SidebarResizerComponent, LoginComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
 })
 export class AppComponent {
+  private readonly auth = inject(AuthService);
+
+  readonly isLoggedIn = this.auth.isLoggedIn;
+
   selectedIssue: number | null = null;
   sidebarWidth = loadWidth();
 
@@ -24,6 +30,10 @@ export class AppComponent {
   setSidebarWidth(width: number): void {
     this.sidebarWidth = width;
     saveWidth(width);
+  }
+
+  logout(): void {
+    this.auth.logout().subscribe();
   }
 }
 

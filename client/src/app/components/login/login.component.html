@@ -1,0 +1,17 @@
+<div class="login-shell">
+  <form class="login-card" (ngSubmit)="submit()">
+    <h1>locklane</h1>
+    <label>
+      Username
+      <input name="username" type="text" [(ngModel)]="username" autocomplete="username" required />
+    </label>
+    <label>
+      Password
+      <input name="password" type="password" [(ngModel)]="password" autocomplete="current-password" required />
+    </label>
+    @if (error) {
+      <p class="error">{{ error }}</p>
+    }
+    <button type="submit" [disabled]="submitting">{{ submitting ? 'Logging in…' : 'Log in' }}</button>
+  </form>
+</div>
