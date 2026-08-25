@@ -33,3 +33,12 @@ export interface IssueDetail {
   prDraft: boolean;
   flowSteps: FlowStep[];
 }
+
+// Mirrors dev.locklane.engine.github.TreeNode.
+export interface TreeNode {
+  number: number;
+  title: string;
+  kind: 'INITIATIVE' | 'TASK';
+  state: string;
+  children: TreeNode[];
+}

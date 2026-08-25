@@ -1,0 +1,15 @@
+<div
+  class="handle"
+  role="separator"
+  aria-orientation="vertical"
+  [attr.aria-valuemin]="min"
+  [attr.aria-valuemax]="max"
+  [attr.aria-valuenow]="width"
+  aria-label="Resize the sidebar"
+  tabindex="0"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event)"
+  (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerUp($event)"
+  (keydown)="onKeyDown($event)"
+></div>

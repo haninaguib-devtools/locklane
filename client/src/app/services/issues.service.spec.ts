@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { IssuesService } from './issues.service';
-import { GhIssue, IssueDetail } from '../models/issue.model';
+import { GhIssue, IssueDetail, TreeNode } from '../models/issue.model';
 
 describe('IssuesService', () => {
   let service: IssuesService;
@@ -62,6 +62,17 @@ describe('IssuesService', () => {
     const req = httpMock.expectOne('/api/issues/5/detail');
     expect(req.request.method).toBe('GET');
     req.flush(detail);
+  });
+
+  it('fetches the issue tree from GET /api/issues/tree', () => {
+    const tree: TreeNode[] = [
+      { number: 1, title: 'Initiative', kind: 'INITIATIVE', state: 'OPEN', children: [] },
+    ];
+    service.tree().subscribe((result) => expect(result).toEqual(tree));
+
+    const req = httpMock.expectOne('/api/issues/tree');
+    expect(req.request.method).toBe('GET');
+    req.flush(tree);
   });
 
   it('fetches worktree ids from GET /api/issues/{number}/worktrees', () => {

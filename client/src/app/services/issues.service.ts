@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { GhIssue, IssueDetail } from '../models/issue.model';
+import { GhIssue, IssueDetail, TreeNode } from '../models/issue.model';
 
 @Injectable({ providedIn: 'root' })
 export class IssuesService {
@@ -9,6 +9,10 @@ export class IssuesService {
 
   list(): Observable<GhIssue[]> {
     return this.http.get<GhIssue[]>('/api/issues');
+  }
+
+  tree(): Observable<TreeNode[]> {
+    return this.http.get<TreeNode[]>('/api/issues/tree');
   }
 
   get(number: number): Observable<GhIssue> {

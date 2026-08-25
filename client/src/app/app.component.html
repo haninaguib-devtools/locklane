@@ -1,5 +1,8 @@
 <div class="shell">
-  <app-sidenav [selected]="selectedIssue" (selectedChange)="select($event)" />
+  <aside class="sidebar" [style.width.px]="sidebarWidth">
+    <app-sidenav [selected]="selectedIssue" (selectedChange)="select($event)" />
+  </aside>
+  <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
   @if (selectedIssue !== null) {
     <app-main-content [issueNumber]="selectedIssue" />
   } @else {

@@ -1,26 +1,89 @@
 <nav class="sidenav">
   <div class="brand">locklane</div>
-  <div class="label">cases</div>
+
+  <div class="controls">
+    <input
+      type="search"
+      class="filter-input"
+      placeholder="filter cases…"
+      [(ngModel)]="filterText"
+    />
+    <label class="opened-toggle">
+      <input type="checkbox" [(ngModel)]="hideShipped" />
+      opened issues
+    </label>
+  </div>
+
   @if (loading) {
     <div class="state">loading…</div>
   } @else if (error) {
     <div class="state">could not load issues</div>
   } @else {
+    @if (pinnedNodes.length > 0) {
+      <div class="label">pinned</div>
+      <ul>
+        <ng-container *ngTemplateOutlet="rows; context: { nodes: pinnedNodes }" />
+      </ul>
+    }
+
+    <div class="label">cases</div>
+    @if (mainNodes.length === 0) {
+      <div class="state">no matching cases</div>
+    }
     <ul>
-      @for (issue of issues; track issue.number) {
-        <li>
-          <button
-            type="button"
-            class="issue"
-            [class.active]="issue.number === selected"
-            (click)="select(issue)"
-          >
-            <span class="issue-number">#{{ issue.number }}</span>
-            <span class="issue-title">{{ issue.title }}</span>
-            <span class="issue-state">{{ issue.state.toLowerCase() }}</span>
-          </button>
-        </li>
-      }
+      <ng-container *ngTemplateOutlet="rows; context: { nodes: mainNodes }" />
     </ul>
   }
 </nav>
+
+<ng-template #rows let-nodes="nodes">
+  @for (node of nodes; track node.number) {
+    <li>
+      <div class="row" [class.active]="node.number === selected" (click)="select(node.number)">
+        @if (node.children.length > 0) {
+          <button
+            type="button"
+            class="twist"
+            [class.expanded]="!isCollapsed(node)"
+            (click)="toggleCollapse(node, $event)"
+            [attr.aria-label]="isCollapsed(node) ? 'Expand' : 'Collapse'"
+          >
+            ▸
+          </button>
+        } @else {
+          <span class="twist-gap"></span>
+        }
+
+        <span class="issue-number">#{{ node.number }}</span>
+        <span class="issue-title" [class.initiative-title]="node.kind === 'INITIATIVE'">{{
+          node.title
+        }}</span>
+        <span class="issue-state">{{ node.state.toLowerCase() }}</span>
+
+        <div class="menu-wrap">
+          <button
+            type="button"
+            class="kebab"
+            (click)="toggleMenu(node.number, $event)"
+            aria-label="Row actions"
+          >
+            ⋮
+          </button>
+          @if (openMenuFor === node.number) {
+            <div class="menu" role="menu">
+              <button type="button" role="menuitem" (click)="togglePin(node.number, $event)">
+                {{ isPinned(node.number) ? 'Unpin' : 'Pin' }}
+              </button>
+            </div>
+          }
+        </div>
+      </div>
+
+      @if (node.children.length > 0 && !isCollapsed(node)) {
+        <ul class="branch">
+          <ng-container *ngTemplateOutlet="rows; context: { nodes: node.children }" />
+        </ul>
+      }
+    </li>
+  }
+</ng-template>
