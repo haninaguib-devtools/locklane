@@ -14,11 +14,12 @@ import org.springframework.http.HttpStatus;
 /**
  * Wires up session-based login for {@code POST /api/auth/login} /
  * {@code POST /api/auth/logout} (#47), and gates behind it: the worktree-session
- * endpoints (list/start, {@code /api/issues/*}{@code /worktrees}, #48), and the
- * WebSocket session endpoint itself ({@code /ws/sessions/**}, #50) — its origin
- * restriction lives in {@code WebSocketConfig}, but authentication is enforced here
- * like every other endpoint. Issue/PR data stays open: it still comes from one
- * shared repo with no per-user boundary until #41 gives it one.
+ * endpoints (list/start, {@code /api/issues/*}{@code /worktrees}, #48; the
+ * cross-issue listing at {@code /api/consoles}, #32), and the WebSocket session
+ * endpoint itself ({@code /ws/sessions/**}, #50) — its origin restriction lives in
+ * {@code WebSocketConfig}, but authentication is enforced here like every other
+ * endpoint. Issue/PR data stays open: it still comes from one shared repo with no
+ * per-user boundary until #41 gives it one.
  */
 @Configuration
 @EnableWebSecurity
@@ -38,6 +39,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/issues/*/worktrees").authenticated()
+                        .requestMatchers("/api/consoles").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
                         .anyRequest().permitAll())
                 .formLogin(form -> form

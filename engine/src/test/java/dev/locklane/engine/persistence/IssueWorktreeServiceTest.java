@@ -79,4 +79,20 @@ class IssueWorktreeServiceTest {
         assertThat(service.worktreeIdsForIssue(174, "alice"))
                 .containsExactlyInAnyOrder("174-alices-session", "174-unclaimed-session");
     }
+
+    @Test
+    void allWorktreeIdsSpansEveryIssueButExcludesNonConformingIdsAndOtherUsers(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("174-rename-toggle", dbDir.resolve("wt1"), now, "alice");
+        repository.recordAttach("175-something", dbDir.resolve("wt2"), now, "alice");
+        repository.recordAttach("main", dbDir.resolve("wt3"), now, "alice");
+        repository.recordAttach("175-bobs-session", dbDir.resolve("wt4"), now, "bob");
+        repository.recordAttach("174-unclaimed-session", dbDir.resolve("wt5"), now, null);
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        assertThat(service.allWorktreeIds("alice")).containsExactlyInAnyOrder(
+                "174-rename-toggle", "175-something", "174-unclaimed-session");
+    }
 }

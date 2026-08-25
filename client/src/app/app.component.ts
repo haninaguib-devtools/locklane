@@ -6,6 +6,7 @@ import { SidenavComponent } from './components/sidenav/sidenav.component';
 import { MainContentComponent } from './components/main-content/main-content.component';
 import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-resizer.component';
 import { LoginComponent } from './components/login/login.component';
+import { ConsoleIndicatorComponent } from './components/console-indicator/console-indicator.component';
 import { AuthService } from './services/auth.service';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
 
@@ -14,7 +15,13 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [SidenavComponent, MainContentComponent, SidebarResizerComponent, LoginComponent],
+  imports: [
+    SidenavComponent,
+    MainContentComponent,
+    SidebarResizerComponent,
+    LoginComponent,
+    ConsoleIndicatorComponent,
+  ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
 })

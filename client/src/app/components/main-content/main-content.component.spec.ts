@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { MainContentComponent } from './main-content.component';
 import { AgentStore } from '../../services/agent-store';
+import { ActiveConsoleStore } from '../../services/active-console-store';
 import { GhIssue, IssueDetail } from '../../models/issue.model';
 
 describe('MainContentComponent', () => {
@@ -10,6 +11,7 @@ describe('MainContentComponent', () => {
 
   beforeEach(() => {
     localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.activeConsoleByIssue');
     TestBed.configureTestingModule({
       imports: [MainContentComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -20,6 +22,7 @@ describe('MainContentComponent', () => {
   afterEach(() => {
     httpMock.verify();
     localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.activeConsoleByIssue');
   });
 
   function init(number: number): ReturnType<typeof TestBed.createComponent<MainContentComponent>> {
@@ -79,6 +82,33 @@ describe('MainContentComponent', () => {
     expect(fixture.componentInstance.tabs[0].label).toBe('wtree · claude');
   });
 
+  it('restores the remembered active console when it is still open', () => {
+    TestBed.inject(ActiveConsoleStore).set(7, '7-rename-toggle');
+    const fixture = init(7);
+
+    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+
+    expect(fixture.componentInstance.selectedConsole).toBe('7-rename-toggle');
+  });
+
+  it('falls back to the first console when the remembered one is gone', () => {
+    TestBed.inject(ActiveConsoleStore).set(7, '7-closed-session');
+    const fixture = init(7);
+
+    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+
+    expect(fixture.componentInstance.selectedConsole).toBe('7-main-a1b2c3d4');
+  });
+
+  it('switching tabs remembers the new active console for the issue', () => {
+    const fixture = init(7);
+    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+
+    fixture.componentInstance.selectConsole('7-rename-toggle');
+
+    expect(TestBed.inject(ActiveConsoleStore).get(7)).toBe('7-rename-toggle');
+  });
+
   it('has no selected console when the issue has none yet', () => {
     const fixture = init(8);
 
@@ -115,6 +145,7 @@ describe('MainContentComponent', () => {
     expect(fixture.componentInstance.tabs[0].label).toBe('main · codex');
     expect(fixture.componentInstance.selectedConsole).toBe('8-main-a1b2c3d4');
     expect(TestBed.inject(AgentStore).get('8-main-a1b2c3d4')).toBe('codex');
+    expect(TestBed.inject(ActiveConsoleStore).get(8)).toBe('8-main-a1b2c3d4');
   });
 
   it('a worktree request that reuses the existing session only re-selects its tab', () => {

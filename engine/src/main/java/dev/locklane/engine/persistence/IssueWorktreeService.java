@@ -39,7 +39,22 @@ public class IssueWorktreeService {
     public List<String> worktreeIdsForIssue(int issueNumber, String requestingUsername) {
         return repository.findAll().stream()
                 .filter(record -> matchesIssue(record.worktreeId(), issueNumber))
-                .filter(record -> record.ownerUsername() == null || record.ownerUsername().equals(requestingUsername))
+                .filter(record -> isVisibleTo(record, requestingUsername))
+                .map(WorktreeSessionRecord::worktreeId)
+                .toList();
+    }
+
+    /**
+     * Every worktree id {@code requestingUsername} may see, across all issues
+     * (#32's header indicator/picker) — same visibility rule as
+     * {@link #worktreeIdsForIssue}, minus the single-issue filter. A bare
+     * {@code "main"} or other id with no issue-number prefix is excluded: the
+     * picker has nowhere to navigate an id that belongs to no issue.
+     */
+    public List<String> allWorktreeIds(String requestingUsername) {
+        return repository.findAll().stream()
+                .filter(record -> ISSUE_PREFIXED.matcher(record.worktreeId()).find())
+                .filter(record -> isVisibleTo(record, requestingUsername))
                 .map(WorktreeSessionRecord::worktreeId)
                 .toList();
     }
@@ -47,5 +62,9 @@ public class IssueWorktreeService {
     private static boolean matchesIssue(String worktreeId, int issueNumber) {
         Matcher m = ISSUE_PREFIXED.matcher(worktreeId);
         return m.find() && Integer.parseInt(m.group(1)) == issueNumber;
+    }
+
+    private static boolean isVisibleTo(WorktreeSessionRecord record, String requestingUsername) {
+        return record.ownerUsername() == null || record.ownerUsername().equals(requestingUsername);
     }
 }

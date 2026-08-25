@@ -2,6 +2,7 @@ import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/cor
 import { GhIssue, IssueDetail } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { AgentStore } from '../../services/agent-store';
+import { ActiveConsoleStore } from '../../services/active-console-store';
 import { IssueHeaderComponent } from '../issue-header/issue-header.component';
 import { FlowStripComponent } from '../flow-strip/flow-strip.component';
 import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
@@ -27,6 +28,7 @@ interface OpenConsole {
 export class MainContentComponent implements OnChanges {
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
+  private readonly activeConsoleStore = inject(ActiveConsoleStore);
 
   @Input({ required: true }) issueNumber!: number;
 
@@ -61,13 +63,15 @@ export class MainContentComponent implements OnChanges {
     });
     this.issuesService.worktrees(number).subscribe((ids) => {
       this.consoles = ids.map((id) => ({ id, dir: null, agent: this.agentStore.get(id) }));
-      this.selectedConsole = ids[0] ?? null;
+      const remembered = this.activeConsoleStore.get(number);
+      this.selectedConsole = remembered && ids.includes(remembered) ? remembered : (ids[0] ?? null);
       this.relabel();
     });
   }
 
   selectConsole(id: string): void {
     this.selectedConsole = id;
+    this.activeConsoleStore.set(this.issueNumber, id);
   }
 
   openConsole(request: OpenConsoleRequest): void {
@@ -86,6 +90,7 @@ export class MainContentComponent implements OnChanges {
           this.relabel();
         }
         this.selectedConsole = worktreeId;
+        this.activeConsoleStore.set(this.issueNumber, worktreeId);
         this.starting = false;
       },
       error: () => {
