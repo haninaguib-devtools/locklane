@@ -3,30 +3,31 @@ package dev.locklane.engine.github;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Covers #4's done-when directly, against a fake {@link GhClient} — no real gh
- * process, no Spring context, no timing dependency on the scheduled refresh.
+ * Covers #4's and #16's done-when directly, against a fake {@link GhClient} — no
+ * real gh process, no Spring context, no timing dependency on the scheduled refresh.
  */
 class GhIssueCacheTest {
 
     @Test
     void aColdCacheFallsBackToALiveFetch() {
-        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First")));
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of());
         GhIssueCache cache = new GhIssueCache(fake);
 
         List<GhIssue> result = cache.issues();
 
         assertThat(result).extracting(GhIssue::number).containsExactly(1);
-        assertThat(fake.callCount()).isEqualTo(1);
+        assertThat(fake.issueCallCount()).isEqualTo(1);
     }
 
     @Test
     void aWarmCacheDoesNotRefetchOnEveryCall() {
-        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First")));
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of());
         GhIssueCache cache = new GhIssueCache(fake);
 
         cache.refresh();
@@ -35,16 +36,16 @@ class GhIssueCacheTest {
         cache.issues();
 
         // One call from refresh(); issues() served all three reads from memory.
-        assertThat(fake.callCount()).isEqualTo(1);
+        assertThat(fake.issueCallCount()).isEqualTo(1);
     }
 
     @Test
     void refreshReplacesThePreviouslyCachedData() {
-        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First")));
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of());
         GhIssueCache cache = new GhIssueCache(fake);
         cache.refresh();
 
-        fake.setIssues(List.of(issue(1, "First"), issue(2, "Second")));
+        fake.setIssues(List.of(issue(1, "First", "OPEN"), issue(2, "Second", "OPEN")));
         cache.refresh();
 
         assertThat(cache.issues()).extracting(GhIssue::number).containsExactly(1, 2);
@@ -52,7 +53,7 @@ class GhIssueCacheTest {
 
     @Test
     void aFailedRefreshKeepsServingTheLastGoodData() {
-        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First")));
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of());
         GhIssueCache cache = new GhIssueCache(fake);
         cache.refresh(); // warms the cache with issue 1
 
@@ -64,24 +65,62 @@ class GhIssueCacheTest {
 
     @Test
     void issueLooksUpByNumberAndIsEmptyWhenUnknown() {
-        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First"), issue(2, "Second")));
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN"), issue(2, "Second", "OPEN")), List.of());
         GhIssueCache cache = new GhIssueCache(fake);
 
         assertThat(cache.issue(2)).map(GhIssue::title).contains("Second");
         assertThat(cache.issue(99)).isEmpty();
     }
 
-    private static GhIssue issue(int number, String title) {
-        return new GhIssue(number, title, "OPEN", List.of(), "", "", "");
+    @Test
+    void pullRequestForIssueMatchesOnTheWipBranchConvention() {
+        FakeGhClient fake = new FakeGhClient(List.of(), List.of(
+                pr(10, "OPEN", "wip/2-some-slug"),
+                pr(11, "OPEN", "wip/3-other-slug")));
+        GhIssueCache cache = new GhIssueCache(fake);
+
+        assertThat(cache.pullRequestForIssue(2)).map(GhPullRequest::number).contains(10);
+        assertThat(cache.pullRequestForIssue(3)).map(GhPullRequest::number).contains(11);
+        assertThat(cache.pullRequestForIssue(99)).isEmpty();
+    }
+
+    @Test
+    void pullRequestForIssueIgnoresBranchesThatDoNotMatchTheConvention() {
+        FakeGhClient fake = new FakeGhClient(List.of(), List.of(
+                pr(10, "OPEN", "some-random-branch"),
+                pr(11, "OPEN", "fix/typo")));
+        GhIssueCache cache = new GhIssueCache(fake);
+
+        assertThat(cache.pullRequestForIssue(10)).isEmpty();
+    }
+
+    @Test
+    void pullRequestForIssuePicksTheNewestWhenMoreThanOneMatches() {
+        FakeGhClient fake = new FakeGhClient(List.of(), List.of(
+                pr(10, "CLOSED", "wip/2-first-attempt"),
+                pr(20, "OPEN", "wip/2-second-attempt")));
+        GhIssueCache cache = new GhIssueCache(fake);
+
+        assertThat(cache.pullRequestForIssue(2)).map(GhPullRequest::number).contains(20);
+    }
+
+    private static GhIssue issue(int number, String title, String state) {
+        return new GhIssue(number, title, state, List.of(), "", "", "");
+    }
+
+    private static GhPullRequest pr(int number, String state, String headRefName) {
+        return new GhPullRequest(number, "PR " + number, state, false, headRefName);
     }
 
     private static final class FakeGhClient implements GhClient {
         private List<GhIssue> issues;
-        private final AtomicInteger calls = new AtomicInteger();
+        private final List<GhPullRequest> pullRequests;
+        private final AtomicInteger issueCalls = new AtomicInteger();
         private boolean failNext;
 
-        FakeGhClient(List<GhIssue> issues) {
+        FakeGhClient(List<GhIssue> issues, List<GhPullRequest> pullRequests) {
             this.issues = issues;
+            this.pullRequests = pullRequests;
         }
 
         void setIssues(List<GhIssue> issues) {
@@ -92,18 +131,28 @@ class GhIssueCacheTest {
             this.failNext = true;
         }
 
-        int callCount() {
-            return calls.get();
+        int issueCallCount() {
+            return issueCalls.get();
         }
 
         @Override
         public List<GhIssue> issues() {
-            calls.incrementAndGet();
+            issueCalls.incrementAndGet();
             if (failNext) {
                 failNext = false;
                 throw new GhUnavailableException("simulated failure", null);
             }
             return issues;
+        }
+
+        @Override
+        public List<GhPullRequest> pullRequests() {
+            return pullRequests;
+        }
+
+        @Override
+        public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
+            return Optional.empty();
         }
     }
 }
