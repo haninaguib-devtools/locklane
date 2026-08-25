@@ -1,0 +1,18 @@
+@if (issue) {
+  <app-issue-header [issue]="issue" [detail]="detail" />
+  @if (detail) {
+    <app-flow-strip [steps]="detail.flowSteps" />
+  }
+  <app-worktree-tabs
+    [worktreeIds]="worktreeIds"
+    [selected]="selectedWorktree"
+    (selectedChange)="selectWorktree($event)"
+  />
+  @if (selectedWorktree) {
+    <app-terminal [worktreeId]="selectedWorktree" />
+  } @else {
+    <div class="no-session">no live session for this issue yet</div>
+  }
+} @else {
+  <div class="loading">loading issue #{{ issueNumber }}…</div>
+}
