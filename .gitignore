@@ -1,0 +1,29 @@
+# OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+Desktop.ini
+
+# IDEs / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.history/
+
+# Agent tooling: local, per-machine settings — never committed. These sit beside
+# `.claude/skills/`, which is a protected surface, so a stray local file here is the
+# likeliest accidental commit next to one.
+.claude/settings.local.json
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs and scratch
+*.log
+tmp/
+scratch/

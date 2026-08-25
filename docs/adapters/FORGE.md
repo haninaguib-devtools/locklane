@@ -1,0 +1,189 @@
+# Forge adapter
+
+The workflow's code-hosting backend — the thing that hosts pull requests, reviews, CI
+status, and the merge button. Skills never name a vendor: they invoke the named `forge:*`
+operations below, and this file maps each to a concrete command for the **active
+backend**:
+
+```
+active-backend: github
+```
+
+Swapping forges (GitHub → GitLab, …) means editing this file only. Plain git (branches,
+worktrees, commits, fetch/push) is identical everywhere and is **not** abstracted here —
+skills run raw `git` directly.
+
+## Vocabulary
+
+The workflow says **PR** everywhere. On GitLab that is a **merge request (MR)**; `glab`
+is GitLab's CLI twin of `gh`. "Draft" is a first-class flag on both (GitLab also accepts
+a `Draft:` title prefix). The tracker and the forge are independent choices: GitHub + a
+Jira tracker, GitLab for both, etc. — see `docs/adapters/TRACKER.md`.
+
+## Operations
+
+### `forge:pr-create-draft <title> <body>` — open a draft PR from the pushed branch
+
+Include the tracker's auto-close phrase in the body when the tracker supports it
+(`tracker:auto-close-on-merge`).
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr create --draft --title "<title>" --body "<body>"` |
+| GitLab | `glab mr create --draft --title "<title>" --description "<body>"` |
+
+### `forge:pr-create <title> <body>` — open a non-draft PR (the `/t-fix` path)
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr create --title "<title>" --body "<body>"` |
+| GitLab | `glab mr create --title "<title>" --description "<body>"` |
+
+### `forge:pr-ready <pr>` — take the PR out of draft
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr ready <pr>` |
+| GitLab | `glab mr update <pr> --ready` |
+
+### `forge:pr-draft <pr>` — put the PR back into draft
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr ready <pr> --undo` |
+| GitLab | `glab mr update <pr> --draft` |
+
+### `forge:pr-diff <pr>` — the complete diff
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr diff <pr>` |
+| GitLab | `glab mr diff <pr>` |
+
+### `forge:pr-files <pr>` — changed paths only
+
+Contract: this feeds the protected-surface check in `/t-ship` and `/t-review`, so it must
+emit **every** changed path, **one bare repository-relative path per line and nothing
+else**. Output that is not a plain path list fails in the unsafe direction: no line
+matches any protected pattern, so a protected surface reads as unprotected and the
+mandatory plan-and-review gate silently disappears. Verify a new backend's command by
+eye before trusting it — a wrong command here does not error, it under-reports.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr diff <pr> --name-only` |
+| GitLab | `git -c core.quotePath=false diff --name-only origin/main...<head-branch>` — `glab` has no name-only mode, and post-processing `glab mr diff` output is what makes this operation fail open |
+
+### `forge:pr-review <pr> <body>` — post review findings as one review comment
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr review <pr> --comment --body "<body>"` |
+| GitLab | `glab mr note <pr> --message "<body>"` |
+
+### `forge:pr-reviews <pr>` — read the reviews and review comments on a PR, newest last
+
+Contract: returns each review's body and the time it was submitted, so a caller can find
+the **latest** one, read its `readiness:` verdict and its `## Pending human checks`
+section, and tell whether commits landed after it (`forge:pr-view` carries the head
+commit's time). `/t-ship`, `/t-review`, `/t-work`, and `/t-status` all depend on this.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr view <pr> --json reviews,comments` (reviews carry `submittedAt`) |
+| GitLab | `glab mr view <pr> --comments` (or `glab api "projects/:id/merge_requests/<pr>/notes"`) |
+
+### `forge:pr-view <pr>` — the PR's own metadata
+
+Contract: at minimum the web URL (shown at `/t-ship`'s gate), draft-vs-ready state, head
+branch, head commit and its timestamp, and mergeability against the base branch
+(`/t-ship` precondition 4). Mergeability is computed asynchronously on both backends and
+may legitimately return `UNKNOWN`/`checking` right after a push — callers retry a few
+times and then report it as unsettled, never as clean.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr view <pr> --json url,isDraft,headRefName,headRefOid,mergeable,mergeStateStatus,commits` |
+| GitLab | `glab mr view <pr>` (or `glab api "projects/:id/merge_requests/<pr>"` for `web_url`, `draft`, `sha`, `merge_status`) |
+
+### `forge:pr-checks <pr>` — CI status for the PR's head
+
+Contract: distinguish "no CI configured" (acceptable, said out loud) from failing.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr checks <pr>` |
+| GitLab | `glab ci status --branch <branch>` (or `glab mr view <pr>` for the pipeline line) |
+
+### `forge:pr-merge <pr> <subject> <body>` — squash-merge with an explicit commit message, deleting the branch
+
+Contract: the squash commit's subject and body are **fully specified by the skill** —
+never the forge's autogenerated default — and must end up exactly as given.
+
+**Branch deletion here is not remote-only.** `gh`'s `--delete-branch` removes the local
+branch as well as the remote one, and switches the checkout to the default branch when it
+was on the deleted branch. Treat the branch as *possibly already gone* after this
+operation: a caller's own cleanup must check before deleting, and must not treat a
+missing branch as a failure.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr merge <pr> --squash --delete-branch --subject "<subject>" --body "<body>"` |
+| GitLab | `glab mr merge <pr> --squash --remove-source-branch --squash-message "<subject>\n\n<body>"` (verify the repo is set to squash; see Bootstrap) |
+
+### `forge:pr-close <pr> <comment>` — close without merging, deleting the branch
+
+Same deletion caveat as `forge:pr-merge`: on `gh` this removes the local branch too.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr close <pr> --delete-branch --comment "<comment>"` |
+| GitLab | `glab mr note <pr> --message "<comment>"` then `glab mr close <pr>`; delete the branch with the leased push in `/t-cancel` |
+
+### `forge:pr-find-by-task <id>` — the PR for a task, resolved from its branch
+
+Contract: returns every PR, any state, whose head branch matches `wip/<id>-*` (the id
+lowercased — `PROJ-142` → `proj-142`, ADR-001 §D4). **Neither backend's `--head` flag
+accepts a glob**, and passing one returns an empty list rather than an error — which
+reads as "this task has no PR" and, in `/t-cancel`, skips closing a PR that exists. So
+list and filter client-side on the head branch name.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr list --state all --limit 200 --json number,state,headRefName,url` then keep rows whose `headRefName` starts `wip/<id>-` |
+| GitLab | `glab mr list --all --output json` then keep rows whose `source_branch` starts `wip/<id>-` |
+
+Same completeness rule as `forge:pr-list`: a result sitting at the page limit is an
+incomplete scan, reported as one, never as "no PR exists".
+
+### `forge:pr-list` — enumerate PRs
+
+Variants a skill may ask for: open PRs; merged PRs (id, title, head branch); all-state
+PRs for a given head branch (an exact name, never a glob — see
+`forge:pr-find-by-task`).
+
+Contract: the listing must be **complete** for what the caller asked. Paginate or raise
+the page size until it is; a result sitting exactly at the page limit is an incomplete
+scan and is reported as one, never presented as a total (ADR-001 §D6). The `--limit`
+values below are starting points, not ceilings.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh pr list --state open` · `gh pr list --state merged --limit 100 --json number,title,headRefName` · `gh pr list --head <branch> --state all` |
+| GitLab | `glab mr list` · `glab mr list --merged` · `glab mr list --source-branch <branch> --all` |
+
+### `forge:pr-approval` — where a human approves, when approval rules are configured
+
+| Backend | Behavior |
+|---|---|
+| GitHub | PR approval review; enforced by branch protection. |
+| GitLab | MR approval; enforced by approval rules + protected branches. |
+
+## Bootstrap
+
+Repo settings as code (squash-only merges, delete-branch-on-merge, protected `main`):
+
+| Backend | Where |
+|---|---|
+| GitHub | `scripts/github-bootstrap.sh` |
+| GitLab | Write `scripts/gitlab-bootstrap.sh` when adopting: `glab api` PUT on the project (`squash_option=always`, `remove_source_branch_after_merge=true`) and on protected branches (`push_access_level=0` for `main`). |

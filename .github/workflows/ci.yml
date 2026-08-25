@@ -1,0 +1,133 @@
+# Mechanical enforcement (workflow §9): the checks AGENTS.md §Checks names, run on every
+# PR and on main. The `consistency` job's name is the status-check context
+# `scripts/github-bootstrap.sh` marks required in branch protection — renaming the job
+# means updating that script in the same change.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  consistency:
+    name: consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Cross-artifact document consistency
+        run: ./scripts/consistency-check.sh
+
+  # CONSTITUTION.md §1.2 makes "a record rides in its PR" non-optional, and workflow §1.4
+  # prefers a rule the build enforces over one the model must remember. A `fix/` branch is
+  # the no-issue path (ADR-001 §D2) and carries no record by design, so it is exempt.
+  # The exemption is keyed on the branch prefix, which is also how /t-fix's own path is
+  # named. That is checkable: a `fix/` branch must look like a meaning-free fix (tiny, and
+  # touching no protected surface), or it is a task branch wearing the wrong prefix to
+  # skip the record requirement.
+  record:
+    name: record
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: A task PR carries its own task record
+        env:
+          # Both refs go through env, never straight into the script: git ref names allow
+          # characters the shell would interpret.
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          base="origin/$BASE_REF"
+          # Keep the list on disk and feed it with --stdin: `xargs` behaves differently
+          # between GNU and BSD on empty input, and can batch on a very large diff.
+          # core.quotePath=false so a non-ASCII path is not quoted and octal-escaped,
+          # which would make the protected-surface gate below see nothing.
+          git -c core.quotePath=false diff --name-only "$base"...HEAD > /tmp/changed
+          count=$(grep -c . /tmp/changed || true)
+
+          if [ "$count" -eq 0 ]; then
+            echo "FAIL: this PR changes no files."
+            exit 1
+          fi
+
+          if [[ "$HEAD_REF" == fix/* ]]; then
+            # /t-fix eligibility (ADR-001 §D2): no protected surface, and small.
+            # Exit 0 = protected, 1 = none, 2 = nothing checked. Only 1 may continue.
+            # `&& pp=0 || pp=$?`, never a bare `cmd; pp=$?`: Actions runs this under
+            # `bash -e`, and a bare call exits the step on the *success* case (1 = none
+            # protected) before pp is ever assigned — inverting the check silently.
+            bash scripts/protected-paths.sh --stdin < /tmp/changed && pp=0 || pp=$?
+            if [ "$pp" -eq 0 ]; then
+              echo "FAIL: a fix/ branch touches the protected surface(s) listed above."
+              echo "  The no-issue path forbids that; open it with /t-open instead."
+              exit 1
+            elif [ "$pp" -ne 1 ]; then
+              echo "FAIL: the protected-path check did not run (exit $pp)."
+              exit 1
+            fi
+            if [ "$count" -gt 2 ]; then
+              echo "FAIL: a fix/ branch changes $count files; the no-issue path allows at most 2."
+              echo "  A task branch must be wip/<id>-<slug> and carry a record."
+              exit 1
+            fi
+            # /t-fix's guidance is "~10 changed lines" — a judgment, deliberately fuzzy.
+            # CI enforces a hard outer bound instead: enough headroom that a legitimate
+            # fix never trips it, low enough that a task cannot hide behind the prefix.
+            # --numstat prints "-" for a binary file, which would read as 0 lines and let
+            # a large blob under the bound. A meaning-free fix is never binary.
+            if git -c core.quotePath=false diff --numstat "$base"...HEAD | grep -q '^-'; then
+              echo "FAIL: a fix/ branch changes a binary file."
+              echo "  The no-issue path is for text with no semantic content."
+              exit 1
+            fi
+            lines=$(git -c core.quotePath=false diff --numstat "$base"...HEAD \
+                    | awk '{ added += $1; removed += $2 } END { print added + removed + 0 }')
+            if [ "$lines" -gt 20 ]; then
+              echo "FAIL: a fix/ branch changes $lines lines; the outer bound is 20."
+              echo "  /t-fix's own guidance is ~10; well past it means this is a task."
+              exit 1
+            fi
+            echo "OK: meaning-free fix path ($count files, $lines lines), no record expected."
+            exit 0
+          fi
+
+          # Task branches: wip/<id>-<slug>. The id is numeric (GitHub/GitLab) or a
+          # tracker key such as PROJ-142 (Jira) — matching only up to the first hyphen
+          # would truncate a key to "PROJ" and let any PROJ record satisfy the check.
+          # (delimiter is # — the alternation below contains |)
+          id=$(printf '%s' "$HEAD_REF" | sed -n -E 's#^wip/([0-9]+|[A-Za-z]+-[0-9]+)-.+#\1#p')
+          if [ -z "$id" ]; then
+            echo "FAIL: branch '$HEAD_REF' is neither wip/<id>-<slug> nor fix/<slug>."
+            exit 1
+          fi
+          # Record filenames lowercase the key (ADR-001 §D4); branch names do too, but
+          # compare case-insensitively so a stray uppercase branch fails loudly elsewhere
+          # rather than silently here.
+          id_lc=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
+          # The bucket is computable from the id (ADR-001 §D4): the numeric part rounded
+          # down to the nearest 100, zero-padded to 6 digits. Checking the exact bucket
+          # is what makes that claim true — any-bucket matching would let 999900/142-x.md
+          # satisfy task 142.
+          num=$(printf '%s' "$id_lc" | sed -n -E 's#^[a-z]*-?([0-9]+)$#\1#p')
+          if [ -z "$num" ]; then
+            echo "FAIL: cannot derive a numeric part from id '$id'."
+            exit 1
+          fi
+          bucket=$(printf '%06d' $(( (10#$num / 100) * 100 )))
+          if grep -qE "^docs/tasks/${bucket}/${id_lc}-[^/]+\.md$" /tmp/changed; then
+            echo "OK: the diff carries the record for task $id at docs/tasks/${bucket}/."
+          else
+            echo "FAIL: no docs/tasks/${bucket}/${id_lc}-<slug>.md in this diff."
+            echo "  Every task PR carries its own record (CONSTITUTION.md §1.2);"
+            echo "  a record for another task, or in another bucket, does not satisfy this."
+            exit 1
+          fi
+
+  # Add the project's build/test command here as a third job once the stack exists —
+  # AGENTS.md §Checks item 1 is the single place that names it.

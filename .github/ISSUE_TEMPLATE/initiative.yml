@@ -1,0 +1,20 @@
+# Mirrors /t-open's initiative shape (.claude/skills/t-open/SKILL.md — the source of
+# truth) per docs/architecture/issue-templates.md. Change the skill first.
+name: Initiative
+description: "Tracking issue: overall intent plus ordered child tasks. Several PRs."
+labels: ["initiative"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: The overall intent and constraints settled so far. Self-sufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Tasks
+      description: 'Task list of children, one per line: "- [ ] #151 ..." — list only children that are already clear. If the decomposition is unknown, the only child is a design task whose merged output determines the rest.'
+    validations:
+      required: true

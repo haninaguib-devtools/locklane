@@ -1,0 +1,50 @@
+# Mirrors /t-open's body template (.claude/skills/t-open/SKILL.md — the source of
+# truth) per docs/architecture/issue-templates.md. Change the skill first.
+name: Task
+description: One deliverable, one PR. The shape /t-open produces.
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: "One paragraph. Self-sufficient: a fresh session must be able to work the task from this issue alone."
+    validations:
+      required: true
+  - type: textarea
+    id: done-when
+    attributes:
+      label: Done when
+      description: "Observable, checkable criteria."
+    validations:
+      required: true
+  - type: input
+    id: scope
+    attributes:
+      label: Scope
+      description: "One line: the paths or area this may touch."
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: "Explicit exclusions. Each deferred item gets its own issue — open it now."
+  # These two fields are MACHINE-READ. The pipeline reads the tokens `Part of: #n` and
+  # `Blocked-by: #n` (/t-work's blocker gate, /t-status's blocked state, /t-cancel's
+  # dependent and parent sweeps). A form renders a field as "### <label>" followed by the
+  # value, so the token cannot come from the label — the placeholder puts it in the value
+  # instead. The consuming skills also accept a bare "#151" under these headings
+  # (docs/architecture/issue-templates.md), so both shapes work; the full token is
+  # preferred because it survives copy-paste out of the form.
+  - type: input
+    id: part-of
+    attributes:
+      label: Part of
+      description: "Its tracking issue. Write the whole token, `Part of: #150`. Leave empty for standalone tasks."
+      placeholder: "Part of: #150"
+  - type: textarea
+    id: blocked-by
+    attributes:
+      label: Blocked by
+      description: "One per line. Write the whole token, `Blocked-by: #151`, so the reference stays readable wherever it is quoted."
+      placeholder: "Blocked-by: #151"
