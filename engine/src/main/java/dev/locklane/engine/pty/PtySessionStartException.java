@@ -1,9 +1,9 @@
 package dev.locklane.engine.pty;
 
-/** The pseudo-terminal process for a worktree failed to start. */
+/** The pseudo-terminal process for a session failed to start. */
 public class PtySessionStartException extends RuntimeException {
 
-    public PtySessionStartException(String worktreeId, Throwable cause) {
-        super("Failed to start PTY session for worktree '" + worktreeId + "'", cause);
+    public PtySessionStartException(String sessionId, Throwable cause) {
+        super("Failed to start PTY session '" + sessionId + "'", cause);
     }
 }
