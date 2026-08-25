@@ -41,6 +41,26 @@ describe('AuthService', () => {
     expect(service.isLoggedIn()).toBe(false);
   });
 
+  it('restores isLoggedIn when GET /api/auth/me confirms the session', () => {
+    service.checkSession().subscribe();
+
+    const req = httpMock.expectOne('/api/auth/me');
+    expect(req.request.method).toBe('GET');
+    req.flush({ username: 'hani' });
+
+    expect(service.isLoggedIn()).toBe(true);
+  });
+
+  it('stays logged out when GET /api/auth/me answers 401', () => {
+    let emitted: boolean | undefined;
+    service.checkSession().subscribe((v) => (emitted = v));
+
+    httpMock.expectOne('/api/auth/me').flush(null, { status: 401, statusText: 'Unauthorized' });
+
+    expect(emitted).toBe(false);
+    expect(service.isLoggedIn()).toBe(false);
+  });
+
   it('logs out by POSTing to /api/auth/logout', () => {
     service.login('hani', 's3cret').subscribe();
     httpMock.expectOne('/api/auth/login').flush(null);

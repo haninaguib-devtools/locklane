@@ -13,7 +13,8 @@ import org.springframework.http.HttpStatus;
 
 /**
  * Wires up session-based login for {@code POST /api/auth/login} /
- * {@code POST /api/auth/logout} (#47), and gates behind it: the worktree-session
+ * {@code POST /api/auth/logout} (#47) plus the session check at
+ * {@code GET /api/auth/me} (#58), and gates behind it: the worktree-session
  * endpoints (list/start, {@code /api/issues/*}{@code /worktrees}, #48; the
  * cross-issue listing at {@code /api/consoles}, #32), and the WebSocket session
  * endpoint itself ({@code /ws/sessions/**}, #50) — its origin restriction lives in
@@ -38,6 +39,7 @@ public class SecurityConfig {
                 // without adding one either.
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/auth/me").authenticated()
                         .requestMatchers("/api/issues/*/worktrees").authenticated()
                         .requestMatchers("/api/consoles").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
