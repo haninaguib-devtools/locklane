@@ -11,3 +11,8 @@ spring:
 locklane:
   # Where the engine keeps its own durable state (currently: the SQLite database).
   data-dir: ${user.home}/.locklane
+  # The repo root, for reading docs/tasks/ (#16). Default assumes the process is
+  # started with engine/ as the working directory (true for `mvn spring-boot:run`
+  # from the repo root, or `mvn -f engine/pom.xml ...`) — override this property for
+  # any other launch shape (e.g. running the packaged jar from a different cwd).
+  project-root: ${user.dir}/..
