@@ -39,4 +39,18 @@ until someone notices the branch list by eye. Shipping task #36 left
   (Claude, 2026-08-25).
 
 ## Deviations / notes
-- none
+- `/t-review 39` (subagent, PR #40 review, 2026-08-25) found a high-severity bug: the
+  original `scripts/check-stale-branches.sh` never checked whether its `gh pr list` or
+  `gh api .../branches/<branch>` calls actually succeeded, so a `gh` failure (bad
+  token, rate limit, outage) reported the same "OK, nothing stale" success line and
+  exit 0 as a genuinely clean scan — exactly the kind of silent miss the check exists
+  to catch. Fixed in fix mode (Claude, 2026-08-25): both calls' exit status is now
+  checked; either failure prints `FAIL: ...` and exits 2, a distinct code from clean
+  (0) and stale-found (1). Verified by reproducing the reviewer's exact repro
+  (`GH_TOKEN=invalid_bad_token_xyz`) and confirming it now fails loudly with exit 2,
+  then re-running with a valid token to confirm the real check still finds the same 3
+  stale branches as before.
+- The same review also raised a medium finding (a PR listing truncated at the 200-row
+  page limit still reports "OK" rather than "incomplete") — not addressed here per
+  Fix mode scope (only the named high finding); noted for the human to decide whether
+  to fold into a follow-up.

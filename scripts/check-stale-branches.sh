@@ -6,8 +6,14 @@
 # forge:pr-close) — an invocation that omits it leaves the branch lingering with
 # nothing surfacing the miss until someone notices the branch list by eye (task #36).
 #
-# Report-only: never deletes anything (issue #39 non-goal). Exit 0 = no stale branch
-# found; 1 = at least one reported, listed on stdout.
+# Report-only: never deletes anything (issue #39 non-goal).
+#
+# Exit codes — callers MUST distinguish 2 from 0: a scan that could not complete is not
+# a clean pass. A check whose only externally visible signal is its exit code must never
+# let "GitHub call failed" and "verified clean" produce the same 0.
+#   0  ran to completion, no stale branch found
+#   1  ran to completion, at least one stale branch found (listed on stdout)
+#   2  the scan itself did not complete (a `gh` call failed) — reported, not silenced
 #
 # Requires: gh (authenticated), jq. Run from the repository root.
 set -uo pipefail
@@ -25,8 +31,11 @@ to_epoch() {
 
 now=$(date -u +%s)
 
-prs=$(gh pr list --state all --limit 200 \
-  --json number,headRefName,state,mergedAt,closedAt,url)
+if ! prs=$(gh pr list --state all --limit 200 \
+  --json number,headRefName,state,mergedAt,closedAt,url); then
+  echo "FAIL: gh pr list failed — could not scan for stale branches." >&2
+  exit 2
+fi
 
 count=$(printf '%s' "$prs" | jq 'length')
 if [ "$count" -ge 200 ]; then
@@ -60,9 +69,16 @@ while IFS=$'\t' read -r number head state mergedAt closedAt url; do
     continue
   fi
 
-  if gh api "repos/{owner}/{repo}/branches/$head" >/dev/null 2>&1; then
+  branch_err=""
+  if branch_err=$(gh api "repos/{owner}/{repo}/branches/$head" 2>&1 >/dev/null); then
     echo "STALE: PR #$number ($state) — branch '$head' still exists on origin — $url"
     stale=1
+  elif ! printf '%s' "$branch_err" | grep -q '404'; then
+    # Any non-404 failure (auth, rate limit, network, ...) means we don't actually know
+    # whether this branch exists — reporting "not stale" here would be exactly the
+    # silent false-clean this check exists to prevent.
+    echo "FAIL: could not check whether branch '$head' still exists: $branch_err" >&2
+    exit 2
   fi
 done < <(printf '%s' "$prs" | jq -r '.[] | [.number, .headRefName, .state, .mergedAt, .closedAt, .url] | @tsv')
 
