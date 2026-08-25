@@ -102,8 +102,9 @@ any other change to this list.
 
 ## 4. Stack & architecture
 
-*(reserved: stack and architecture constraints — add each as a one-line rule here with
-a pointer to the ADR that ratified it.)*
+1. Spring Boot engine + Angular PWA client + SQLite for durable non-binding state, with
+   one persistent PTY (pseudo-terminal) session per git worktree, reattachable from any
+   browser, from anywhere — never a job queue (ADR-002).
 
 ## Amendment
 
