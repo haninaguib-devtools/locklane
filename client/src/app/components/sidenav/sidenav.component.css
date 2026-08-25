@@ -1,16 +1,42 @@
 .sidenav {
-  width: 240px;
-  flex: none;
-  background: var(--sidebar);
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
+  width: 100%;
   height: 100%;
+  background: var(--sidebar);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand {
   padding: 16px 16px 4px;
   font-weight: 600;
   font-size: 14px;
+}
+
+.controls {
+  padding: 4px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filter-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.opened-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
 }
 
 .label {
@@ -22,7 +48,7 @@
 }
 
 .state {
-  padding: 12px 16px;
+  padding: 8px 16px;
   font-size: 12px;
   color: var(--faint);
 }
@@ -31,27 +57,50 @@ ul {
   list-style: none;
 }
 
-.issue {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  width: 100%;
-  text-align: left;
-  padding: 8px 16px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 12px;
+ul.branch {
+  margin-left: 24px;
+  border-left: 1.5px solid var(--border);
 }
 
-.issue:hover {
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px 6px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  position: relative;
+}
+
+.row:hover {
   background: var(--bg);
 }
 
-.issue.active {
+.row.active {
   background: var(--panel);
   border-left: 2px solid var(--accent);
-  padding-left: 14px;
+  padding-left: 6px;
+}
+
+.twist,
+.twist-gap {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.twist {
+  border: none;
+  background: none;
+  color: var(--faint);
+  font-size: 9px;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.twist.expanded {
+  transform: rotate(90deg);
 }
 
 .issue-number {
@@ -66,9 +115,60 @@ ul {
   white-space: nowrap;
 }
 
+.issue-title.initiative-title {
+  font-weight: 600;
+}
+
 .issue-state {
   flex: none;
   color: var(--muted);
   font-size: 10px;
   text-transform: uppercase;
+}
+
+.menu-wrap {
+  position: relative;
+  flex: none;
+}
+
+.kebab {
+  border: none;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  visibility: hidden;
+}
+
+.row:hover .kebab,
+.row:focus-within .kebab {
+  visibility: visible;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(53, 50, 44, 0.15);
+  min-width: 90px;
+}
+
+.menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.menu button:hover {
+  background: var(--bg);
 }

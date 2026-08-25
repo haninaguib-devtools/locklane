@@ -8,6 +8,12 @@
   height: 100%;
 }
 
+.sidebar {
+  flex: none;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+
 .empty-state {
   flex: 1;
   display: flex;

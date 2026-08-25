@@ -1,0 +1,27 @@
+/* The host defaults to display:inline with no defined height, which collapses this
+   flex item to zero height -- found by checking the rendered handle's own bounding
+   box, not assumed. */
+:host {
+  display: block;
+  height: 100%;
+  flex: none;
+}
+
+.handle {
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.handle:hover,
+.handle:active,
+.handle:focus-visible {
+  background: var(--border);
+}
+
+.handle:focus-visible {
+  outline: 2px solid var(--blue, var(--accent));
+  outline-offset: -2px;
+}
