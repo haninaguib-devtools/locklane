@@ -27,10 +27,14 @@ export class IssuesService {
     return this.http.get<string[]>(`/api/issues/${number}/worktrees`);
   }
 
-  startSession(number: number): Observable<{ worktreeId: string; workingDirectory: string }> {
+  startSession(
+    number: number,
+    worktree = true,
+  ): Observable<{ worktreeId: string; workingDirectory: string }> {
     return this.http.post<{ worktreeId: string; workingDirectory: string }>(
       `/api/issues/${number}/worktrees`,
       {},
+      { params: { worktree } },
     );
   }
 }

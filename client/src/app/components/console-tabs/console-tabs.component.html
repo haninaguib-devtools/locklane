@@ -1,0 +1,46 @@
+<div class="tabs" role="tablist">
+  @for (tab of tabs; track tab.id) {
+    <button
+      type="button"
+      role="tab"
+      class="tab"
+      [class.active]="tab.id === selected"
+      [attr.aria-selected]="tab.id === selected"
+      (click)="select(tab.id)"
+    >
+      {{ tab.label }}
+    </button>
+  }
+  @if (tabs.length === 0) {
+    <span class="empty">no consoles yet for this issue</span>
+  }
+  <button
+    type="button"
+    class="plus"
+    [disabled]="starting"
+    [attr.aria-expanded]="pickerOpen"
+    aria-label="open a new console"
+    (click)="togglePicker()"
+  >
+    {{ starting ? '…' : '+' }}
+  </button>
+
+  @if (pickerOpen) {
+    <div class="picker">
+      <div class="picker-group">
+        <span class="picker-label">where</span>
+        <button type="button" [class.chosen]="location === 'worktree'" (click)="location = 'worktree'">
+          worktree
+        </button>
+        <button type="button" [class.chosen]="location === 'main'" (click)="location = 'main'">main</button>
+      </div>
+      <div class="picker-group">
+        <span class="picker-label">agent</span>
+        <button type="button" [class.chosen]="agent === 'claude'" (click)="agent = 'claude'">claude</button>
+        <button type="button" [class.chosen]="agent === 'codex'" (click)="agent = 'codex'">codex</button>
+        <button type="button" [class.chosen]="agent === 'shell'" (click)="agent = 'shell'">shell</button>
+      </div>
+      <button type="button" class="picker-open" (click)="confirmOpen()">open</button>
+    </div>
+  }
+</div>

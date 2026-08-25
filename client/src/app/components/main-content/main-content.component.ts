@@ -1,28 +1,40 @@
 import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
 import { GhIssue, IssueDetail } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
+import { AgentStore } from '../../services/agent-store';
 import { IssueHeaderComponent } from '../issue-header/issue-header.component';
 import { FlowStripComponent } from '../flow-strip/flow-strip.component';
-import { WorktreeTabsComponent } from '../worktree-tabs/worktree-tabs.component';
+import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
+import { ConsoleTab, labelConsoles } from '../console-tabs/console-labels';
 import { TerminalComponent } from '../terminal/terminal.component';
+
+// One console tab's client-side state. `dir` is only known for a session this
+// page just started — reconnects leave it null and the engine resolves the
+// working directory from its own records.
+interface OpenConsole {
+  id: string;
+  dir: string | null;
+  agent: string | null;
+}
 
 @Component({
   selector: 'app-main-content',
   standalone: true,
-  imports: [IssueHeaderComponent, FlowStripComponent, WorktreeTabsComponent, TerminalComponent],
+  imports: [IssueHeaderComponent, FlowStripComponent, ConsoleTabsComponent, TerminalComponent],
   templateUrl: './main-content.component.html',
   styleUrl: './main-content.component.css',
 })
 export class MainContentComponent implements OnChanges {
   private readonly issuesService = inject(IssuesService);
+  private readonly agentStore = inject(AgentStore);
 
   @Input({ required: true }) issueNumber!: number;
 
   issue: GhIssue | null = null;
   detail: IssueDetail | null = null;
-  worktreeIds: string[] = [];
-  selectedWorktree: string | null = null;
-  selectedWorktreeDir: string | null = null;
+  consoles: OpenConsole[] = [];
+  tabs: ConsoleTab[] = [];
+  selectedConsole: string | null = null;
 
   starting = false;
   startError = false;
@@ -36,9 +48,9 @@ export class MainContentComponent implements OnChanges {
   private load(number: number): void {
     this.issue = null;
     this.detail = null;
-    this.worktreeIds = [];
-    this.selectedWorktree = null;
-    this.selectedWorktreeDir = null;
+    this.consoles = [];
+    this.tabs = [];
+    this.selectedConsole = null;
     this.startError = false;
 
     this.issuesService.get(number).subscribe((issue) => {
@@ -48,24 +60,32 @@ export class MainContentComponent implements OnChanges {
       this.detail = detail;
     });
     this.issuesService.worktrees(number).subscribe((ids) => {
-      this.worktreeIds = ids;
-      this.selectedWorktree = ids[0] ?? null;
+      this.consoles = ids.map((id) => ({ id, dir: null, agent: this.agentStore.get(id) }));
+      this.selectedConsole = ids[0] ?? null;
+      this.relabel();
     });
   }
 
-  selectWorktree(id: string): void {
-    this.selectedWorktree = id;
-    this.selectedWorktreeDir = null;
+  selectConsole(id: string): void {
+    this.selectedConsole = id;
   }
 
-  startSession(): void {
+  openConsole(request: OpenConsoleRequest): void {
     this.starting = true;
     this.startError = false;
-    this.issuesService.startSession(this.issueNumber).subscribe({
+    this.issuesService.startSession(this.issueNumber, request.worktree).subscribe({
       next: ({ worktreeId, workingDirectory }) => {
-        this.worktreeIds = [...this.worktreeIds, worktreeId];
-        this.selectedWorktree = worktreeId;
-        this.selectedWorktreeDir = workingDirectory;
+        // A worktree request reuses the issue's existing worktree session when
+        // one exists (#29) — then there is no new tab to add, just select it.
+        if (!this.consoles.some((c) => c.id === worktreeId)) {
+          this.agentStore.set(worktreeId, request.agent);
+          this.consoles = [
+            ...this.consoles,
+            { id: worktreeId, dir: workingDirectory, agent: request.agent },
+          ];
+          this.relabel();
+        }
+        this.selectedConsole = worktreeId;
         this.starting = false;
       },
       error: () => {
@@ -73,5 +93,11 @@ export class MainContentComponent implements OnChanges {
         this.startError = true;
       },
     });
+  }
+
+  private relabel(): void {
+    this.tabs = labelConsoles(
+      this.consoles.map((c) => ({ id: c.id, agent: (c.agent as ConsoleTab['agent']) ?? null })),
+    );
   }
 }

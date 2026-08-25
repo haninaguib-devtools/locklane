@@ -3,20 +3,27 @@
   @if (detail) {
     <app-flow-strip [steps]="detail.flowSteps" />
   }
-  <app-worktree-tabs
-    [worktreeIds]="worktreeIds"
-    [selected]="selectedWorktree"
+  <app-console-tabs
+    [tabs]="tabs"
+    [selected]="selectedConsole"
     [starting]="starting"
-    (selectedChange)="selectWorktree($event)"
-    (start)="startSession()"
+    (selectedChange)="selectConsole($event)"
+    (open)="openConsole($event)"
   />
   @if (startError) {
-    <div class="start-error">could not start a session — try again</div>
+    <div class="start-error">could not open a console — try again</div>
   }
-  @if (selectedWorktree) {
-    <app-terminal [worktreeId]="selectedWorktree" [dir]="selectedWorktreeDir" />
-  } @else {
-    <div class="no-session">no live session for this issue yet</div>
+  @for (console of consoles; track console.id) {
+    <app-terminal
+      [class.tab-hidden]="console.id !== selectedConsole"
+      [sessionId]="console.id"
+      [dir]="console.dir"
+      [cmd]="console.agent"
+      [active]="console.id === selectedConsole"
+    />
+  }
+  @if (consoles.length === 0) {
+    <div class="no-session">no live console for this issue yet</div>
   }
 } @else {
   <div class="loading">loading issue #{{ issueNumber }}…</div>

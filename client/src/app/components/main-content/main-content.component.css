@@ -17,6 +17,12 @@
   background: var(--window);
 }
 
+/* A non-selected console tab stays mounted (its WebSocket and scrollback live
+   in the component) but takes no space; the terminal re-fits on activation. */
+app-terminal.tab-hidden {
+  display: none;
+}
+
 .start-error {
   padding: 6px 16px;
   font-size: 12px;
