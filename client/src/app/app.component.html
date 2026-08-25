@@ -7,11 +7,11 @@
     </div>
     <div class="shell">
       <aside class="sidebar" [style.width.px]="sidebarWidth">
-        <app-sidenav [selected]="selectedIssue" (selectedChange)="select($event)" />
+        <app-sidenav [selected]="selectedIssue()" (selectedChange)="select($event)" />
       </aside>
       <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
-      @if (selectedIssue !== null) {
-        <app-main-content [issueNumber]="selectedIssue" />
+      @if (selectedIssue(); as issue) {
+        <app-main-content [issueNumber]="issue" />
       } @else {
         <div class="empty-state">select an issue to begin</div>
       }

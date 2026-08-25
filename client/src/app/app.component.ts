@@ -1,4 +1,7 @@
 import { Component, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
+import { filter, map } from 'rxjs';
 import { SidenavComponent } from './components/sidenav/sidenav.component';
 import { MainContentComponent } from './components/main-content/main-content.component';
 import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-resizer.component';
@@ -17,14 +20,27 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
 })
 export class AppComponent {
   private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   readonly isLoggedIn = this.auth.isLoggedIn;
 
-  selectedIssue: number | null = null;
+  // The selected issue lives in the URL (`/issues/:id`), not in component
+  // state -- re-derived from the route on every navigation so a direct load
+  // of `/issues/:id`, a browser back/forward, or a shared link all select the
+  // right issue.
+  readonly selectedIssue = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map(() => this.currentIssueId()),
+    ),
+    { initialValue: this.currentIssueId() },
+  );
+
   sidebarWidth = loadWidth();
 
   select(issueNumber: number): void {
-    this.selectedIssue = issueNumber;
+    this.router.navigate(['/issues', issueNumber]);
   }
 
   setSidebarWidth(width: number): void {
@@ -34,6 +50,12 @@ export class AppComponent {
 
   logout(): void {
     this.auth.logout().subscribe();
+  }
+
+  private currentIssueId(): number | null {
+    const raw = this.route.snapshot.firstChild?.paramMap.get('id') ?? null;
+    const id = raw !== null ? Number(raw) : NaN;
+    return Number.isFinite(id) ? id : null;
   }
 }
 
