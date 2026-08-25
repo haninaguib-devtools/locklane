@@ -1,0 +1,3 @@
+locklane:
+  # Keep the Spring context test out of the real home directory.
+  data-dir: ${java.io.tmpdir}/locklane-engine-test
