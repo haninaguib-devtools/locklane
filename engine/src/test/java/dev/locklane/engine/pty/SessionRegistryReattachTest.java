@@ -1,5 +1,7 @@
 package dev.locklane.engine.pty;
 
+import dev.locklane.engine.persistence.TestSqliteDatabases;
+import dev.locklane.engine.persistence.WorktreeSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -12,13 +14,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Covers #5's done-when: a new attach reaches the same already-running session,
- * with output produced while no client was attached still present.
+ * with output produced while no client was attached still present. Also covers
+ * #6's done-when as it applies to this class: a worktree's last-known state is
+ * visible even when this process has no live session for it (SessionRegistryDatabase
+ * dev.locklane.engine.persistence.WorktreeSessionRepositoryTest covers the
+ * restart-survival itself, at the repository level).
  */
 class SessionRegistryReattachTest {
 
     @Test
     void startsOneSessionPerWorktreeAndKeepsItRunning(@TempDir Path workDir) {
-        SessionRegistry registry = new SessionRegistry();
+        SessionRegistry registry = newRegistry(workDir);
         PtySession session = registry.attach("worktree-a", workDir);
 
         assertThat(session.worktreeId()).isEqualTo("worktree-a");
@@ -27,7 +33,7 @@ class SessionRegistryReattachTest {
 
     @Test
     void reattachingReturnsTheSameRunningSessionWithItsBufferedOutput(@TempDir Path workDir) {
-        SessionRegistry registry = new SessionRegistry();
+        SessionRegistry registry = newRegistry(workDir);
         String worktreeId = "worktree-b";
 
         PtySession first = registry.attach(worktreeId, workDir);
@@ -49,11 +55,29 @@ class SessionRegistryReattachTest {
 
     @Test
     void differentWorktreesGetDifferentSessions(@TempDir Path workDir) {
-        SessionRegistry registry = new SessionRegistry();
+        SessionRegistry registry = newRegistry(workDir);
         PtySession a = registry.attach("worktree-c", workDir);
         PtySession b = registry.attach("worktree-d", workDir);
 
         assertThat(a).isNotSameAs(b);
+    }
+
+    @Test
+    void lastKnownWorkingDirectoryIsVisibleWithNoLiveSessionInThisRegistry(@TempDir Path dbDir, @TempDir Path workDir) {
+        WorktreeSessionRepository sharedRepository = TestSqliteDatabases.newRepository(dbDir);
+        SessionRegistry firstRegistry = new SessionRegistry(sharedRepository);
+        firstRegistry.attach("worktree-e", workDir);
+
+        // A second, independent registry instance — standing in for a fresh process
+        // after a restart — sharing only the persisted state, never the in-memory map.
+        SessionRegistry secondRegistry = new SessionRegistry(sharedRepository);
+
+        assertThat(secondRegistry.find("worktree-e")).isEmpty();
+        assertThat(secondRegistry.lastKnownWorkingDirectory("worktree-e")).contains(workDir);
+    }
+
+    private static SessionRegistry newRegistry(Path dbDir) {
+        return new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
     }
 
     private static void waitUntil(Supplier<Boolean> condition, Duration timeout) {

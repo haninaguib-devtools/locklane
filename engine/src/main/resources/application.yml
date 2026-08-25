@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: locklane-engine
+  sql:
+    init:
+      # Boot only auto-runs schema.sql for what it detects as an embedded database;
+      # a file-based SQLite DataSource needs this said explicitly. schema.sql uses
+      # CREATE TABLE IF NOT EXISTS, so running it on every startup is idempotent.
+      mode: always
+
+locklane:
+  # Where the engine keeps its own durable state (currently: the SQLite database).
+  data-dir: ${user.home}/.locklane

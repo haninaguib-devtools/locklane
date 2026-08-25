@@ -24,6 +24,17 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter</artifactId>
     </dependency>
+    <!-- SQLite persistence (#6): JdbcTemplate over the SQLite JDBC driver, plus
+         Boot's schema.sql auto-initialization — no ORM/dialect needed for one table. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>3.49.1.0</version>
+    </dependency>
     <!-- Pseudo-terminal allocation (#5 plan). The agent CLIs are interactive terminal
          programs; ProcessBuilder gives them pipes, and they refuse to run on one
          ("Error: stdin is not a terminal"). pty4j carries the native helpers for
