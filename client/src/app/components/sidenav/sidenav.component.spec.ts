@@ -147,4 +147,48 @@ describe('SidenavComponent', () => {
     const initiative = fixture.componentInstance.mainNodes[0];
     expect(initiative.children.map((c) => c.number)).toEqual([2]);
   });
+
+  it('refresh() re-fetches the tree and updates the list in place', () => {
+    const fixture = TestBed.createComponent(SidenavComponent);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/issues/tree').flush(tree());
+
+    fixture.componentInstance.refresh();
+    expect(fixture.componentInstance.refreshing).toBeTrue();
+
+    const updated: TreeNode[] = [
+      ...tree(),
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', children: [] },
+    ];
+    httpMock.expectOne('/api/issues/tree').flush(updated);
+
+    expect(fixture.componentInstance.refreshing).toBeFalse();
+    expect(fixture.componentInstance.mainNodes.map((n) => n.number)).toEqual([1, 4, 5]);
+  });
+
+  it('refresh() is a no-op while a refresh is already in flight', () => {
+    const fixture = TestBed.createComponent(SidenavComponent);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/issues/tree').flush(tree());
+
+    fixture.componentInstance.refresh();
+    fixture.componentInstance.refresh();
+
+    // Only one in-flight request: the second refresh() call was a no-op.
+    httpMock.expectOne('/api/issues/tree').flush(tree());
+    expect(fixture.componentInstance.refreshing).toBeFalse();
+  });
+
+  it('refresh() surfaces an error without clearing the existing list', () => {
+    const fixture = TestBed.createComponent(SidenavComponent);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/issues/tree').flush(tree());
+
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/issues/tree').error(new ProgressEvent('network error'));
+
+    expect(fixture.componentInstance.refreshing).toBeFalse();
+    expect(fixture.componentInstance.error).toBeTrue();
+    expect(fixture.componentInstance.mainNodes.map((n) => n.number)).toEqual([1, 4]);
+  });
 });

@@ -20,14 +20,50 @@
   gap: 6px;
 }
 
+.filter-row {
+  display: flex;
+  gap: 6px;
+}
+
 .filter-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--panel);
   font-size: 12px;
   color: var(--text);
+}
+
+.refresh {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.refresh:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.refresh.spinning {
+  animation: refresh-spin 0.8s linear infinite;
+}
+
+@keyframes refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .opened-toggle {
