@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.security.Principal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -17,20 +18,31 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class WorktreeControllerTest {
 
+    private static final Principal ALICE = () -> "alice";
+
     @Test
     void returnsTheWorktreeIdsForAnIssue(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        repository.recordAttach("174-rename-toggle", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"));
+        repository.recordAttach("174-rename-toggle", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "alice");
         WorktreeController controller = controller(dbDir, repository, List.of());
 
-        assertThat(controller.worktrees(174)).containsExactly("174-rename-toggle");
+        assertThat(controller.worktrees(174, ALICE)).containsExactly("174-rename-toggle");
     }
 
     @Test
     void returnsAnEmptyListForAnIssueWithNoWorktrees(@TempDir Path dbDir) {
         WorktreeController controller = controller(dbDir, TestSqliteDatabases.newRepository(dbDir), List.of());
 
-        assertThat(controller.worktrees(1)).isEmpty();
+        assertThat(controller.worktrees(1, ALICE)).isEmpty();
+    }
+
+    @Test
+    void doesNotReturnAnotherUsersWorktree(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        repository.recordAttach("174-bobs-session", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "bob");
+        WorktreeController controller = controller(dbDir, repository, List.of());
+
+        assertThat(controller.worktrees(174, ALICE)).isEmpty();
     }
 
     private static WorktreeController controller(Path dbDir, WorktreeSessionRepository repository, List<GhIssue> issues) {

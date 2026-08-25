@@ -38,19 +38,26 @@ public class SessionRegistry {
      * Returns the session's running process, starting one if none exists yet. A
      * {@code null} launch command falls back to the default shell — the launch
      * command only matters for a session's first attach; a reattach reaches the
-     * process already running, whatever it was started with.
+     * process already running, whatever it was started with. {@code ownerUsername}
+     * (nullable) is stamped as the session's owner on a first attach only (#48) —
+     * see {@link dev.locklane.engine.persistence.WorktreeSessionRepository#recordAttach}.
      */
-    public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand) {
+    public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand, String ownerUsername) {
         String[] command = launchCommand != null ? launchCommand : shellCommand;
         PtySession session = sessions.computeIfAbsent(sessionId,
                 id -> new PtySession(id, workingDirectory, command, System.getenv()));
-        repository.recordAttach(sessionId, workingDirectory, Instant.now());
+        repository.recordAttach(sessionId, workingDirectory, Instant.now(), ownerUsername);
         return session;
     }
 
-    /** Attaches with the default shell. */
+    /** Attaches with the default shell and no recorded owner. */
     public PtySession attach(String sessionId, Path workingDirectory) {
-        return attach(sessionId, workingDirectory, null);
+        return attach(sessionId, workingDirectory, null, null);
+    }
+
+    /** Attaches with no recorded owner. */
+    public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand) {
+        return attach(sessionId, workingDirectory, launchCommand, null);
     }
 
     public Optional<PtySession> find(String sessionId) {
@@ -64,6 +71,15 @@ public class SessionRegistry {
      */
     public Optional<Path> lastKnownWorkingDirectory(String sessionId) {
         return repository.find(sessionId).map(WorktreeSessionRecord::workingDirectory);
+    }
+
+    /**
+     * The session's recorded owner, or empty when it has none — no session with
+     * this id exists yet, or it was created before per-user ownership existed / by
+     * an unauthenticated attach (#48). Either way, treated as unclaimed.
+     */
+    public Optional<String> ownerUsername(String sessionId) {
+        return repository.find(sessionId).map(WorktreeSessionRecord::ownerUsername);
     }
 
     private static String[] defaultShellCommand() {

@@ -16,15 +16,15 @@ class IssueWorktreeServiceTest {
     void returnsWorktreeIdsMatchingTheIssuePrefix(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");
-        repository.recordAttach("174-rename-toggle", dbDir.resolve("wt1"), now);
-        repository.recordAttach("174-other-attempt", dbDir.resolve("wt2"), now);
-        repository.recordAttach("175-something", dbDir.resolve("wt3"), now);
+        repository.recordAttach("174-rename-toggle", dbDir.resolve("wt1"), now, "alice");
+        repository.recordAttach("174-other-attempt", dbDir.resolve("wt2"), now, "alice");
+        repository.recordAttach("175-something", dbDir.resolve("wt3"), now, "alice");
 
         IssueWorktreeService service = new IssueWorktreeService(repository);
 
-        assertThat(service.worktreeIdsForIssue(174))
+        assertThat(service.worktreeIdsForIssue(174, "alice"))
                 .containsExactlyInAnyOrder("174-rename-toggle", "174-other-attempt");
-        assertThat(service.worktreeIdsForIssue(175)).containsExactly("175-something");
+        assertThat(service.worktreeIdsForIssue(175, "alice")).containsExactly("175-something");
     }
 
     @Test
@@ -32,23 +32,23 @@ class IssueWorktreeServiceTest {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         IssueWorktreeService service = new IssueWorktreeService(repository);
 
-        assertThat(service.worktreeIdsForIssue(999)).isEmpty();
+        assertThat(service.worktreeIdsForIssue(999, "alice")).isEmpty();
     }
 
     @Test
     void nonConformingWorktreeIdsAreExcludedRatherThanThrowing(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");
-        repository.recordAttach("main", dbDir.resolve("wt1"), now);
-        repository.recordAttach("not-numeric-prefix", dbDir.resolve("wt2"), now);
-        repository.recordAttach("174-rename-toggle", dbDir.resolve("wt3"), now);
+        repository.recordAttach("main", dbDir.resolve("wt1"), now, "alice");
+        repository.recordAttach("not-numeric-prefix", dbDir.resolve("wt2"), now, "alice");
+        repository.recordAttach("174-rename-toggle", dbDir.resolve("wt3"), now, "alice");
 
         IssueWorktreeService service = new IssueWorktreeService(repository);
 
         // "main" and non-conforming ids never match any issue number.
-        assertThat(service.worktreeIdsForIssue(174)).containsExactly("174-rename-toggle");
+        assertThat(service.worktreeIdsForIssue(174, "alice")).containsExactly("174-rename-toggle");
         for (int n = 0; n < 1000; n++) {
-            assertThat(service.worktreeIdsForIssue(n)).doesNotContain("main", "not-numeric-prefix");
+            assertThat(service.worktreeIdsForIssue(n, "alice")).doesNotContain("main", "not-numeric-prefix");
         }
     }
 
@@ -56,13 +56,27 @@ class IssueWorktreeServiceTest {
     void doesNotFalselyMatchAnIssueNumberThatIsAPrefixOfAnother(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");
-        repository.recordAttach("174-rename-toggle", dbDir.resolve("wt1"), now);
-        repository.recordAttach("1740-other-issue", dbDir.resolve("wt2"), now);
+        repository.recordAttach("174-rename-toggle", dbDir.resolve("wt1"), now, "alice");
+        repository.recordAttach("1740-other-issue", dbDir.resolve("wt2"), now, "alice");
 
         IssueWorktreeService service = new IssueWorktreeService(repository);
 
         // Issue 174's worktree must not accidentally capture issue 1740's.
-        List<String> forIssue174 = service.worktreeIdsForIssue(174);
+        List<String> forIssue174 = service.worktreeIdsForIssue(174, "alice");
         assertThat(forIssue174).containsExactly("174-rename-toggle");
+    }
+
+    @Test
+    void excludesAnotherUsersSessionButIncludesAnUnclaimedOne(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("174-alices-session", dbDir.resolve("wt1"), now, "alice");
+        repository.recordAttach("174-bobs-session", dbDir.resolve("wt2"), now, "bob");
+        repository.recordAttach("174-unclaimed-session", dbDir.resolve("wt3"), now, null);
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        assertThat(service.worktreeIdsForIssue(174, "alice"))
+                .containsExactlyInAnyOrder("174-alices-session", "174-unclaimed-session");
     }
 }

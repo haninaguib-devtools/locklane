@@ -29,11 +29,18 @@ public class IssueWorktreeService {
         this.repository = repository;
     }
 
-    /** Worktree ids known for this issue, empty if none. */
-    public List<String> worktreeIdsForIssue(int issueNumber) {
+    /**
+     * Worktree ids known for this issue that {@code requestingUsername} may see,
+     * empty if none — a session owned by a different user is excluded (#48); one
+     * with no recorded owner (created before per-user ownership existed, or by an
+     * unauthenticated attach, still possible until #50) is treated as unclaimed and
+     * included for anyone.
+     */
+    public List<String> worktreeIdsForIssue(int issueNumber, String requestingUsername) {
         return repository.findAll().stream()
+                .filter(record -> matchesIssue(record.worktreeId(), issueNumber))
+                .filter(record -> record.ownerUsername() == null || record.ownerUsername().equals(requestingUsername))
                 .map(WorktreeSessionRecord::worktreeId)
-                .filter(id -> matchesIssue(id, issueNumber))
                 .toList();
     }
 

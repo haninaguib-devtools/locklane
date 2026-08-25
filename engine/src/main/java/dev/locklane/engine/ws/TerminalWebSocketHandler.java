@@ -12,6 +12,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -47,8 +48,17 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        String username = wsSession.getPrincipal() != null ? wsSession.getPrincipal().getName() : null;
+        Optional<String> owner = sessionRegistry.ownerUsername(sessionId);
+        if (owner.isPresent() && !owner.get().equals(username)) {
+            // Not authentication (still open until #50) — this session already has a
+            // different owner, and only that owner may attach to it (#48).
+            wsSession.close(CloseStatus.POLICY_VIOLATION.withReason("This session belongs to another user"));
+            return;
+        }
+
         String[] launchCommand = resolveLaunchCommand(queryParam(wsSession, "cmd"));
-        PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launchCommand);
+        PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launchCommand, username);
 
         // Replay everything produced so far before subscribing, so nothing produced
         // between the snapshot and the subscription taking effect is lost or

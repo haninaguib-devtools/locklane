@@ -13,10 +13,11 @@ import org.springframework.http.HttpStatus;
 
 /**
  * Wires up session-based login for {@code POST /api/auth/login} /
- * {@code POST /api/auth/logout} (#47). Deliberately does not gate any existing
- * endpoint — {@code authorizeHttpRequests()} stays open everywhere else; scoping
- * existing data by the authenticated user (#48) and gating the WebSocket session
- * endpoint (#50) are follow-up tasks that build on this login mechanism.
+ * {@code POST /api/auth/logout} (#47), and gates the worktree-session endpoints
+ * (list/start, {@code /api/issues/*}{@code /worktrees}) behind it (#48) — the only
+ * endpoints with a per-user meaning today; issue/PR data still comes from one
+ * shared repo with no per-user boundary until #41 gives it one. Gating the
+ * WebSocket session endpoint itself is #50's job.
  */
 @Configuration
 @EnableWebSecurity
@@ -25,12 +26,16 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // No CSRF-token flow for the SPA yet — every other endpoint is
-                // permitAll() anyway, so CSRF only matters once #48/#50 start gating
-                // state-changing endpoints by session; revisit then (e.g. a
-                // cookie-based double-submit token an Angular interceptor can read).
+                // Still no CSRF-token flow — the worktree endpoints below are now
+                // the first cookie-authenticated, state-changing surface, so this is
+                // a real (if lower-severity than "no auth at all") gap being
+                // knowingly carried forward: fixing it needs an Angular-side change
+                // (reading a CSRF cookie, sending it back as a header) outside this
+                // task's engine/** scope. Revisit with #49's client work.
                 .csrf(csrf -> csrf.disable())
-                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/issues/*/worktrees").authenticated()
+                        .anyRequest().permitAll())
                 .formLogin(form -> form
                         .loginProcessingUrl("/api/auth/login")
                         .successHandler((request, response, authentication) ->
