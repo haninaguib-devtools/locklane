@@ -9,30 +9,27 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Covers #48's session-ownership done-when over a real network connection: a
  * session belongs to whoever first attaches to it, and a different authenticated
- * user is rejected rather than silently let in. The WebSocket endpoint itself does
- * not yet require authentication (#50) — an unauthenticated attach still works and
- * leaves the session unclaimed, covered separately below.
+ * user is rejected rather than silently let in. Since #50, an unauthenticated
+ * connection cannot reach ownership at all — that failure mode is covered here too,
+ * since it is the other half of the same "who may attach" story.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class WebSocketSessionOwnershipIntegrationTest {
@@ -49,16 +46,18 @@ class WebSocketSessionOwnershipIntegrationTest {
     @Test
     void aSecondUserCannotAttachToTheFirstUsersSession(@TempDir Path workDir) throws Exception {
         String worktreeId = "ws-ownership-a";
-        String aliceCookie = loginAs("ws-owner-alice", "alice-password");
-        String bobCookie = loginAs("ws-owner-bob", "bob-password");
+        String aliceCookie = login("ws-owner-alice", "alice-password");
+        String bobCookie = login("ws-owner-bob", "bob-password");
 
         RecordingHandler aliceHandler = new RecordingHandler();
-        WebSocketSession aliceSession = connect(aliceHandler, aliceCookie, uri(worktreeId, workDir));
+        WebSocketSession aliceSession =
+                AuthenticatedWebSocketClients.connect(aliceHandler, aliceCookie, uri(worktreeId, workDir));
         aliceSession.sendMessage(new TextMessage("echo alices-output\n"));
         waitUntil(() -> aliceHandler.combined().contains("alices-output"), Duration.ofSeconds(5));
 
         RecordingHandler bobHandler = new RecordingHandler();
-        WebSocketSession bobSession = connect(bobHandler, bobCookie, uriWithoutDir(worktreeId));
+        WebSocketSession bobSession =
+                AuthenticatedWebSocketClients.connect(bobHandler, bobCookie, uriWithoutDir(worktreeId));
 
         waitUntil(() -> !bobSession.isOpen(), Duration.ofSeconds(5));
         assertThat(bobHandler.closeStatus).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
@@ -69,58 +68,39 @@ class WebSocketSessionOwnershipIntegrationTest {
     @Test
     void theOwningUserCanReattach(@TempDir Path workDir) throws Exception {
         String worktreeId = "ws-ownership-b";
-        String aliceCookie = loginAs("ws-owner-alice-2", "alice-password");
+        String aliceCookie = login("ws-owner-alice-2", "alice-password");
 
         RecordingHandler first = new RecordingHandler();
-        WebSocketSession firstSession = connect(first, aliceCookie, uri(worktreeId, workDir));
+        WebSocketSession firstSession =
+                AuthenticatedWebSocketClients.connect(first, aliceCookie, uri(worktreeId, workDir));
         firstSession.sendMessage(new TextMessage("echo first-connection\n"));
         waitUntil(() -> first.combined().contains("first-connection"), Duration.ofSeconds(5));
         firstSession.close();
         waitUntil(() -> !firstSession.isOpen(), Duration.ofSeconds(5));
 
         RecordingHandler second = new RecordingHandler();
-        WebSocketSession secondSession = connect(second, aliceCookie, uriWithoutDir(worktreeId));
+        WebSocketSession secondSession =
+                AuthenticatedWebSocketClients.connect(second, aliceCookie, uriWithoutDir(worktreeId));
         waitUntil(secondSession::isOpen, Duration.ofSeconds(5));
 
         secondSession.close();
     }
 
     @Test
-    void anUnauthenticatedAttachStillWorksAndLeavesTheSessionUnclaimed(@TempDir Path workDir) throws Exception {
+    void anUnauthenticatedAttachIsRejected(@TempDir Path workDir) {
         String worktreeId = "ws-ownership-anon-" + Instant.now().toEpochMilli();
-
         RecordingHandler anonHandler = new RecordingHandler();
-        WebSocketSession anonSession = new StandardWebSocketClient().execute(anonHandler, uri(worktreeId, workDir)).get();
-        anonSession.sendMessage(new TextMessage("echo anon-output\n"));
-        waitUntil(() -> anonHandler.combined().contains("anon-output"), Duration.ofSeconds(5));
 
-        anonSession.close();
+        // No session cookie at all -- Spring Security (#50) must refuse the
+        // handshake before it ever reaches TerminalWebSocketHandler, so the
+        // client-side connect future fails rather than resolving to an open session.
+        assertThatThrownBy(() ->
+                new StandardWebSocketClient().execute(anonHandler, uri(worktreeId, workDir)).get())
+                .isInstanceOf(ExecutionException.class);
     }
 
-    private WebSocketSession connect(RecordingHandler handler, String sessionCookie, String uri) throws Exception {
-        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
-        headers.add("Cookie", sessionCookie);
-        return new StandardWebSocketClient().execute(handler, headers, URI.create(uri)).get();
-    }
-
-    /** Bootstraps a user directly (no signup endpoint exists), logs in, returns the session cookie header value. */
-    private String loginAs(String username, String password) throws Exception {
-        if (userRepository.findByUsername(username).isEmpty()) {
-            userRepository.create(username, passwordEncoder.encode(password), Instant.now());
-        }
-
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:%d/api/auth/login".formatted(port)))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString("username=%s&password=%s".formatted(username, password)))
-                .build();
-        HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
-        assertThat(response.statusCode()).isEqualTo(200);
-
-        return response.headers().firstValue("Set-Cookie")
-                .map(cookie -> cookie.split(";", 2)[0])
-                .orElseThrow(() -> new AssertionError("Login did not set a session cookie"));
+    private String login(String username, String password) throws Exception {
+        return AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder, username, password);
     }
 
     private String uri(String worktreeId, Path workDir) {

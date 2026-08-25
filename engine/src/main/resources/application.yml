@@ -23,3 +23,7 @@ locklane:
     # LOCKLANE_SECURITY_BOOTSTRAP_PASSWORD) before this is ever reachable off localhost.
     bootstrap-username: admin
     bootstrap-password: changeme
+    # Comma-separated origins allowed to open a /ws/sessions/** connection (#50).
+    # Defaults cover local dev only (the Angular dev server via proxy.conf.json, and
+    # the bundled jar's own port) — override for any real deployment.
+    allowed-origins: http://localhost:4200,http://localhost:8080

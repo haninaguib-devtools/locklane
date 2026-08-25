@@ -24,9 +24,10 @@ public class WorktreeSessionRepository {
 
     /**
      * Records that a worktree was attached to, inserting it the first time it is
-     * seen. {@code ownerUsername} (nullable — an unauthenticated attach, still
-     * possible until #50) is stamped only on that first insert; a later reattach
-     * never overwrites it, so ownership sticks to whoever created the session (#48).
+     * seen. {@code ownerUsername} (nullable — an unauthenticated attach, no longer
+     * possible since #50 requires auth on the WebSocket endpoint itself) is stamped
+     * only on that first insert; a later reattach never overwrites it, so ownership
+     * sticks to whoever created the session (#48).
      */
     public void recordAttach(String worktreeId, Path workingDirectory, Instant now, String ownerUsername) {
         jdbcTemplate.update("""

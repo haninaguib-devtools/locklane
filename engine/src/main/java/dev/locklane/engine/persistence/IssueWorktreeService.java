@@ -33,8 +33,8 @@ public class IssueWorktreeService {
      * Worktree ids known for this issue that {@code requestingUsername} may see,
      * empty if none — a session owned by a different user is excluded (#48); one
      * with no recorded owner (created before per-user ownership existed, or by an
-     * unauthenticated attach, still possible until #50) is treated as unclaimed and
-     * included for anyone.
+     * unauthenticated attach, no longer possible since #50 requires auth on the
+     * WebSocket endpoint itself) is treated as unclaimed and included for anyone.
      */
     public List<String> worktreeIdsForIssue(int issueNumber, String requestingUsername) {
         return repository.findAll().stream()
