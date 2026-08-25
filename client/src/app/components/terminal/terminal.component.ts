@@ -12,6 +12,9 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import { TerminalSession } from '../../services/terminal-session';
 
+// One console tab's terminal. An instance is bound to a single session for its
+// whole life (#30: every tab stays mounted and connected, hidden with CSS when
+// not selected, so switching tabs never drops a connection or its scrollback).
 @Component({
   selector: 'app-terminal',
   standalone: true,
@@ -19,18 +22,19 @@ import { TerminalSession } from '../../services/terminal-session';
   styleUrl: './terminal.component.css',
 })
 export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
-  @Input({ required: true }) worktreeId!: string;
+  @Input({ required: true }) sessionId!: string;
   @Input() dir: string | null = null;
+  @Input() cmd: string | null = null;
+  /** Whether this tab is the visible one — xterm can only size itself while visible. */
+  @Input() active = true;
 
   @ViewChild('container', { static: true }) container!: ElementRef<HTMLDivElement>;
 
   private term: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
   private session: TerminalSession | null = null;
-  private viewReady = false;
 
   ngAfterViewInit(): void {
-    this.viewReady = true;
     this.term = new Terminal({
       fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
       fontSize: 13,
@@ -40,18 +44,18 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     this.fitAddon = new FitAddon();
     this.term.loadAddon(this.fitAddon);
     this.term.open(this.container.nativeElement);
-    this.fitAddon.fit();
+    if (this.active) {
+      this.fitAddon.fit();
+    }
     this.term.onData((input) => this.session?.send(input));
     this.connect();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (!this.viewReady) {
-      return;
-    }
-    if (changes['worktreeId'] && !changes['worktreeId'].firstChange) {
-      this.term?.clear();
-      this.connect();
+    // A hidden container has no dimensions, so the fit is deferred to the
+    // moment the tab becomes visible again.
+    if (changes['active'] && this.active && this.fitAddon) {
+      setTimeout(() => this.fitAddon?.fit());
     }
   }
 
@@ -61,8 +65,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   private connect(): void {
-    this.session?.close();
-    this.session = new TerminalSession(this.worktreeId, this.dir);
+    this.session = new TerminalSession(this.sessionId, this.dir, this.cmd);
     this.session.connect(
       (text) => this.term?.write(text),
       () => {
