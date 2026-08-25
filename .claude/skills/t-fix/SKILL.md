@@ -78,8 +78,12 @@ primary one (the parent of `git rev-parse --path-format=absolute --git-common-di
    This confirmation *is* this path's review (ADR-001 §D2) — there is no issue, no
    record, and no cold read behind it, so it is the only human gate the change ever
    meets. Do not merge on silence.
-6. On confirmation: `forge:pr-merge <pr>` — subject `<title> (#<pr>)`, body
-   "No semantic content (ADR-001): <one line>." Then return the checkout to a clean,
+6. On confirmation: **before composing the merge command, re-read
+   `docs/adapters/FORGE.md`'s `forge:pr-merge` row and check the exact command string you
+   are about to run against it** — a command missing the active backend's
+   branch-deletion flag (`--delete-branch` on GitHub) merges silently and leaves the
+   branch stranded on `origin` (#39). `forge:pr-merge <pr>` — subject `<title> (#<pr>)`,
+   body "No semantic content (ADR-001): <one line>." Then return the checkout to a clean,
    current `main` and remove the merged branch, exactly as `/t-ship` does:
 
    ```bash
