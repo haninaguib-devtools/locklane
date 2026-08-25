@@ -8,22 +8,32 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** Serves the sidenav issue list, issue header, and "?" popup data. */
+/** Serves the sidenav issue list/tree, issue header, and "?" popup data. */
 @RestController
 @RequestMapping("/api/issues")
 public class IssueController {
 
     private final GhIssueCache cache;
     private final IssueDetailService detailService;
+    private final IssueTreeService treeService;
 
-    public IssueController(GhIssueCache cache, IssueDetailService detailService) {
+    public IssueController(GhIssueCache cache, IssueDetailService detailService, IssueTreeService treeService) {
         this.cache = cache;
         this.detailService = detailService;
+        this.treeService = treeService;
     }
 
     @GetMapping
     public List<GhIssue> list() {
         return cache.issues();
+    }
+
+    // Registered before "/{number}" in source order; Spring matches the literal
+    // "/tree" segment ahead of the "{number}" path variable regardless, but keeping
+    // them adjacent here documents that the two must never collide.
+    @GetMapping("/tree")
+    public List<TreeNode> tree() {
+        return treeService.tree();
     }
 
     @GetMapping("/{number}")

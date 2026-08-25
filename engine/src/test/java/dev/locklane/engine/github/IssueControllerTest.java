@@ -66,7 +66,8 @@ class IssueControllerTest {
         FixedGhClient fake = new FixedGhClient(issues);
         GhIssueCache cache = new GhIssueCache(fake);
         IssueDetailService detailService = new IssueDetailService(cache, fake, root.toString());
-        return new IssueController(cache, detailService);
+        IssueTreeService treeService = new IssueTreeService(cache);
+        return new IssueController(cache, detailService, treeService);
     }
 
     private static final class FixedGhClient implements GhClient {
