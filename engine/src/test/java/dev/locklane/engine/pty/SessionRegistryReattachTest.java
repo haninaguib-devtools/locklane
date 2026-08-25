@@ -27,8 +27,29 @@ class SessionRegistryReattachTest {
         SessionRegistry registry = newRegistry(workDir);
         PtySession session = registry.attach("worktree-a", workDir);
 
-        assertThat(session.worktreeId()).isEqualTo("worktree-a");
+        assertThat(session.sessionId()).isEqualTo("worktree-a");
         assertThat(session.isAlive()).isTrue();
+    }
+
+    @Test
+    void attachStartsTheGivenLaunchCommandInsteadOfTheDefaultShell(@TempDir Path workDir) {
+        SessionRegistry registry = newRegistry(workDir);
+
+        PtySession session = registry.attach("with-command", workDir, new String[] {"/bin/sh", "-c", "echo picked-command; exec /bin/sh"});
+
+        waitUntil(() -> session.bufferedOutput().contains("picked-command"), Duration.ofSeconds(5));
+    }
+
+    @Test
+    void twoSessionsCanShareTheSameWorkingDirectory(@TempDir Path workDir) {
+        SessionRegistry registry = newRegistry(workDir);
+
+        PtySession a = registry.attach("session-in-shared-dir-1", workDir);
+        PtySession b = registry.attach("session-in-shared-dir-2", workDir);
+
+        assertThat(a).isNotSameAs(b);
+        assertThat(a.isAlive()).isTrue();
+        assertThat(b.isAlive()).isTrue();
     }
 
     @Test

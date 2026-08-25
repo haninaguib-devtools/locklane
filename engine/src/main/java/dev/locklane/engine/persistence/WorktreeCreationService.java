@@ -48,11 +48,38 @@ public class WorktreeCreationService {
      * it can for an already-known worktree; it must be told directly, to pass as
      * {@code ?dir=} on the first attach (#7). Empty if the issue itself is not
      * known.
+     *
+     * <p>Equivalent to {@code startSession(issueNumber, true)} — kept for existing
+     * callers that only ever want a worktree.
      */
     public Optional<StartedSession> startSession(int issueNumber) {
+        return startSession(issueNumber, true);
+    }
+
+    /**
+     * As above, but a console can also be opened directly against the main checkout:
+     * when {@code useWorktree} is {@code false}, no {@code git worktree add} runs and
+     * no worktree needs to exist — the working directory is simply the main checkout,
+     * and a fresh session id is minted so several such consoles (including several on
+     * the main checkout, #29) can coexist for the same issue.
+     */
+    public Optional<StartedSession> startSession(int issueNumber, boolean useWorktree) {
+        if (!useWorktree) {
+            if (issueCache.issue(issueNumber).isEmpty()) {
+                return Optional.empty();
+            }
+            String sessionId = issueNumber + "-main-" + shortId();
+            return Optional.of(new StartedSession(sessionId, projectRoot.toString()));
+        }
+
         Path worktreePath = projectRoot.resolveSibling(repoName() + "-" + issueNumber);
 
-        List<String> existing = issueWorktreeService.worktreeIdsForIssue(issueNumber);
+        // Excludes main-checkout session ids (shaped "<n>-main-<suffix>", minted just
+        // above): they match the issue's numeric prefix but were never a worktree.
+        String mainSessionPrefix = issueNumber + "-main-";
+        List<String> existing = issueWorktreeService.worktreeIdsForIssue(issueNumber).stream()
+                .filter(id -> !id.startsWith(mainSessionPrefix))
+                .toList();
         if (!existing.isEmpty()) {
             return Optional.of(new StartedSession(existing.get(0), worktreePath.toString()));
         }
@@ -69,6 +96,10 @@ public class WorktreeCreationService {
             createWorktree(branch, worktreePath);
         }
         return Optional.of(new StartedSession(worktreeId, worktreePath.toString()));
+    }
+
+    private static String shortId() {
+        return java.util.UUID.randomUUID().toString().substring(0, 8);
     }
 
     public record StartedSession(String worktreeId, String workingDirectory) {

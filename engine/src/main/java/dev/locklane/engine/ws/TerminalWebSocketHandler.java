@@ -15,11 +15,14 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Attaches a browser client to a worktree's {@link PtySession} over WebSocket:
- * {@code /ws/sessions/{worktreeId}[?dir=<path>]}. {@code dir} is required only the
- * first time a worktree is seen; after that its working directory is already known
- * (in-memory if the session is still live, or from SQLite via
- * {@link SessionRegistry#lastKnownWorkingDirectory} after a restart).
+ * Attaches a browser client to a session's {@link PtySession} over WebSocket:
+ * {@code /ws/sessions/{sessionId}[?dir=<path>][&cmd=<claude|codex|shell>]}. {@code dir}
+ * is required only the first time a session is seen; after that its working directory
+ * is already known (in-memory if the session is still live, or from SQLite via
+ * {@link SessionRegistry#lastKnownWorkingDirectory} after a restart). {@code cmd}
+ * chooses what a brand-new session launches — an agent CLI (e.g. {@code claude},
+ * {@code codex}) or a plain shell (the default, when {@code cmd} is absent or
+ * {@code shell}) — and is ignored on a reattach to an already-running session.
  *
  * <p>Closing a connection never kills the underlying session (#7's done-when) — only
  * this connection's subscription is torn down, so the session keeps running and
@@ -36,15 +39,16 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession wsSession) throws Exception {
-        String worktreeId = worktreeId(wsSession);
-        Path workingDirectory = resolveWorkingDirectory(wsSession, worktreeId);
+        String sessionId = sessionId(wsSession);
+        Path workingDirectory = resolveWorkingDirectory(wsSession, sessionId);
         if (workingDirectory == null) {
             wsSession.close(CloseStatus.BAD_DATA.withReason(
-                    "Unknown worktree '" + worktreeId + "': pass ?dir=<path> to start one"));
+                    "Unknown session '" + sessionId + "': pass ?dir=<path> to start one"));
             return;
         }
 
-        PtySession session = sessionRegistry.attach(worktreeId, workingDirectory);
+        String[] launchCommand = resolveLaunchCommand(queryParam(wsSession, "cmd"));
+        PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launchCommand);
 
         // Replay everything produced so far before subscribing, so nothing produced
         // between the snapshot and the subscription taking effect is lost or
@@ -56,8 +60,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     protected void handleTextMessage(WebSocketSession wsSession, TextMessage message) {
-        String worktreeId = worktreeId(wsSession);
-        sessionRegistry.find(worktreeId).ifPresent(session -> session.write(message.getPayload()));
+        String sessionId = sessionId(wsSession);
+        sessionRegistry.find(sessionId).ifPresent(session -> session.write(message.getPayload()));
     }
 
     @Override
@@ -82,17 +86,25 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    private static String worktreeId(WebSocketSession wsSession) {
+    private static String sessionId(WebSocketSession wsSession) {
         String path = wsSession.getUri().getPath();
         return path.substring(path.lastIndexOf('/') + 1);
     }
 
-    private Path resolveWorkingDirectory(WebSocketSession wsSession, String worktreeId) {
+    private Path resolveWorkingDirectory(WebSocketSession wsSession, String sessionId) {
         String dirParam = queryParam(wsSession, "dir");
         if (dirParam != null) {
             return Path.of(dirParam);
         }
-        return sessionRegistry.lastKnownWorkingDirectory(worktreeId).orElse(null);
+        return sessionRegistry.lastKnownWorkingDirectory(sessionId).orElse(null);
+    }
+
+    /** {@code null} (absent or "shell") defers to {@link SessionRegistry}'s default shell. */
+    private static String[] resolveLaunchCommand(String cmd) {
+        if (cmd == null || cmd.isBlank() || cmd.equals("shell")) {
+            return null;
+        }
+        return new String[] {cmd};
     }
 
     private static String queryParam(WebSocketSession wsSession, String name) {

@@ -15,8 +15,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * One long-lived pseudo-terminal process for a single worktree, independent of any
- * client connection. A background thread drains its output into an in-memory buffer
+ * One long-lived pseudo-terminal process for a single session, independent of any
+ * client connection. A session's identity is its own — separate from whatever
+ * working directory (main checkout or worktree) it happens to run in, so more than
+ * one session can point at the same directory — and it runs whatever launch command
+ * it was started with (a plain shell, or an agent CLI such as {@code claude} or
+ * {@code codex}). A background thread drains its output into an in-memory buffer
  * continuously — regardless of whether a client is currently attached — so the
  * process never blocks on a full pipe, and a client that reattaches later sees
  * everything produced while it was gone. Live output is also pushed to any
@@ -25,14 +29,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class PtySession {
 
-    private final String worktreeId;
+    private final String sessionId;
     private final PtyProcess process;
     private final OutputBuffer output = new OutputBuffer();
     private final Set<OutputListener> listeners = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    PtySession(String worktreeId, Path workingDirectory, String[] command, Map<String, String> environment) {
-        this.worktreeId = worktreeId;
+    PtySession(String sessionId, Path workingDirectory, String[] command, Map<String, String> environment) {
+        this.sessionId = sessionId;
         try {
             this.process = new PtyProcessBuilder()
                     .setCommand(command)
@@ -40,9 +44,9 @@ public final class PtySession {
                     .setEnvironment(environment)
                     .start();
         } catch (IOException e) {
-            throw new PtySessionStartException(worktreeId, e);
+            throw new PtySessionStartException(sessionId, e);
         }
-        Thread drainThread = new Thread(this::drain, "pty-drain-" + worktreeId);
+        Thread drainThread = new Thread(this::drain, "pty-drain-" + sessionId);
         drainThread.setDaemon(true);
         drainThread.start();
     }
@@ -68,8 +72,8 @@ public final class PtySession {
         }
     }
 
-    public String worktreeId() {
-        return worktreeId;
+    public String sessionId() {
+        return sessionId;
     }
 
     /** Everything the session has produced so far, from the start of the buffer. */
@@ -83,7 +87,7 @@ public final class PtySession {
             stdin.write(input.getBytes(StandardCharsets.UTF_8));
             stdin.flush();
         } catch (IOException e) {
-            throw new PtySessionIoException(worktreeId, e);
+            throw new PtySessionIoException(sessionId, e);
         }
     }
 

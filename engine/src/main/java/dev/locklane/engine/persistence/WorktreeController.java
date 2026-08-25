@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -30,9 +31,14 @@ public class WorktreeController {
         return service.worktreeIdsForIssue(number);
     }
 
+    /**
+     * Starts a new session for the issue. {@code worktree=false} opens it directly
+     * against the main checkout instead — no {@code git worktree add} required (#29).
+     */
     @PostMapping("/{number}/worktrees")
-    public ResponseEntity<Map<String, String>> startSession(@PathVariable int number) {
-        return creationService.startSession(number)
+    public ResponseEntity<Map<String, String>> startSession(@PathVariable int number,
+            @RequestParam(defaultValue = "true") boolean worktree) {
+        return creationService.startSession(number, worktree)
                 .map(started -> ResponseEntity.ok(
                         Map.of("worktreeId", started.worktreeId(), "workingDirectory", started.workingDirectory())))
                 .orElseGet(() -> ResponseEntity.notFound().build());

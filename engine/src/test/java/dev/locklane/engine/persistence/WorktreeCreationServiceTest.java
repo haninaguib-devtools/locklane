@@ -46,6 +46,38 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
+    void withoutAWorktreeTheSessionUsesTheMainCheckoutAndNoGitWorktreeRuns(@TempDir Path root) throws IOException {
+        Files.createDirectories(root);
+        GhIssue issue = new GhIssue(11, "Console on main", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(root, TestSqliteDatabases.newRepository(root), List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> result = service.startSession(11, false);
+
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory).contains(root.toString());
+        assertThat(root.resolveSibling(root.getFileName() + "-11")).doesNotExist();
+    }
+
+    @Test
+    void withoutAWorktreeEachCallStartsAFreshSessionId(@TempDir Path root) throws IOException {
+        Files.createDirectories(root);
+        GhIssue issue = new GhIssue(12, "Two consoles on main", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(root, TestSqliteDatabases.newRepository(root), List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> first = service.startSession(12, false);
+        Optional<WorktreeCreationService.StartedSession> second = service.startSession(12, false);
+
+        assertThat(first).map(WorktreeCreationService.StartedSession::worktreeId).isNotEqualTo(
+                second.map(WorktreeCreationService.StartedSession::worktreeId));
+    }
+
+    @Test
+    void withoutAWorktreeAnUnknownIssueIsEmpty(@TempDir Path root) {
+        WorktreeCreationService service = service(root, TestSqliteDatabases.newRepository(root), List.of());
+
+        assertThat(service.startSession(404, false)).isEmpty();
+    }
+
+    @Test
     void unknownIssueIsEmpty(@TempDir Path root) {
         WorktreeCreationService service = service(root, TestSqliteDatabases.newRepository(root), List.of());
 
