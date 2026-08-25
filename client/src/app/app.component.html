@@ -1,0 +1,8 @@
+<div class="shell">
+  <app-sidenav [selected]="selectedIssue" (selectedChange)="select($event)" />
+  @if (selectedIssue !== null) {
+    <app-main-content [issueNumber]="selectedIssue" />
+  } @else {
+    <div class="empty-state">select an issue to begin</div>
+  }
+</div>

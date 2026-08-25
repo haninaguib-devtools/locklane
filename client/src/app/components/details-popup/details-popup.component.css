@@ -1,0 +1,68 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(53, 50, 44, 0.2);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 56px 16px 0 0;
+  z-index: 20;
+}
+
+.popup {
+  width: 320px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(53, 50, 44, 0.18);
+  overflow: hidden;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.close {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+dl {
+  padding: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+}
+
+dt {
+  font-size: 11px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+dd {
+  font-size: 12px;
+  font-family: var(--mono);
+  word-break: break-word;
+}
+
+.loading {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--faint);
+}

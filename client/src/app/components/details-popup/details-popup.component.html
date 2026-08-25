@@ -1,0 +1,20 @@
+<div class="backdrop" (click)="closed.emit()">
+  <div class="popup" (click)="$event.stopPropagation()">
+    <div class="popup-header">
+      <span>task details</span>
+      <button type="button" class="close" (click)="closed.emit()" aria-label="Close">×</button>
+    </div>
+    @if (detail) {
+      <dl>
+        <dt>record</dt>
+        <dd>{{ detail.recordPath ?? 'no record yet' }}</dd>
+        <dt>checks</dt>
+        <dd>{{ checksLabel(detail) }}</dd>
+        <dt>branch &amp; PR</dt>
+        <dd>{{ branchLabel(detail) }}</dd>
+      </dl>
+    } @else {
+      <p class="loading">loading…</p>
+    }
+  </div>
+</div>

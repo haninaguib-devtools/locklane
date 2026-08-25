@@ -1,0 +1,26 @@
+<nav class="sidenav">
+  <div class="brand">locklane</div>
+  <div class="label">cases</div>
+  @if (loading) {
+    <div class="state">loading…</div>
+  } @else if (error) {
+    <div class="state">could not load issues</div>
+  } @else {
+    <ul>
+      @for (issue of issues; track issue.number) {
+        <li>
+          <button
+            type="button"
+            class="issue"
+            [class.active]="issue.number === selected"
+            (click)="select(issue)"
+          >
+            <span class="issue-number">#{{ issue.number }}</span>
+            <span class="issue-title">{{ issue.title }}</span>
+            <span class="issue-state">{{ issue.state.toLowerCase() }}</span>
+          </button>
+        </li>
+      }
+    </ul>
+  }
+</nav>

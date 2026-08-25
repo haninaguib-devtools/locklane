@@ -1,0 +1,15 @@
+<div class="flow-strip">
+  @for (step of steps; track step.name; let i = $index) {
+    <span class="step" [class.done]="step.done" [class.current]="i === currentIndex()">
+      @if (step.done) {
+        <span class="mark">✓</span>
+      } @else if (i === currentIndex()) {
+        <span class="mark dot">●</span>
+      }
+      {{ step.name }}
+    </span>
+    @if (!$last) {
+      <span class="connector"></span>
+    }
+  }
+</div>

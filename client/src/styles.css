@@ -1,0 +1,42 @@
+/* Design tokens carrying the running app's visual style forward unchanged (#3's
+   Goal): off-white/gray surfaces, minimal borders, small-caps-ish muted labels. */
+:root {
+  --bg: #e9e6e1;
+  --window: #faf9f7;
+  --sidebar: #f3f1ed;
+  --panel: #ffffff;
+  --border: #ddd8d0;
+  --border-soft: #e9e5df;
+  --text: #35322c;
+  --muted: #837c72;
+  --faint: #aaa398;
+  --accent: #c15f3c;
+  --accent-soft: #f7e9e2;
+  --green: #5c8a4e;
+  --green-soft: #ecf3e8;
+  --amber: #b07f1a;
+  --amber-soft: #f9efda;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--window);
+  color: var(--text);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
