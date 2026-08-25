@@ -8,7 +8,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -16,13 +19,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * client connection. A background thread drains its output into an in-memory buffer
  * continuously — regardless of whether a client is currently attached — so the
  * process never blocks on a full pipe, and a client that reattaches later sees
- * everything produced while it was gone.
+ * everything produced while it was gone. Live output is also pushed to any
+ * currently-{@link #subscribe subscribed} listener, which is how a network transport
+ * (e.g. WebSocket, #7) streams it to a browser in real time.
  */
 public final class PtySession {
 
     private final String worktreeId;
     private final PtyProcess process;
     private final OutputBuffer output = new OutputBuffer();
+    private final Set<OutputListener> listeners = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     PtySession(String worktreeId, Path workingDirectory, String[] command, Map<String, String> environment) {
@@ -48,6 +54,14 @@ public final class PtySession {
             int n;
             while ((n = in.read(chunk)) != -1) {
                 output.append(chunk, n);
+                if (!listeners.isEmpty()) {
+                    // Defensive copy: `chunk` is reused on the next loop iteration, so a
+                    // listener that hands this off asynchronously must not see it mutate.
+                    byte[] copy = Arrays.copyOf(chunk, n);
+                    for (OutputListener listener : listeners) {
+                        listener.onOutput(copy);
+                    }
+                }
             }
         } catch (IOException ignored) {
             // The process ended or its pty closed; nothing more to drain.
@@ -73,6 +87,17 @@ public final class PtySession {
         }
     }
 
+    /**
+     * Registers a listener for output produced from now on (past output is available
+     * via {@link #bufferedOutput()}). Returns a handle whose {@code close()}
+     * unsubscribes — callers must call it when they stop listening, or the listener
+     * (and whatever it holds) leaks for the session's lifetime.
+     */
+    public AutoCloseable subscribe(OutputListener listener) {
+        listeners.add(listener);
+        return () -> listeners.remove(listener);
+    }
+
     public boolean isAlive() {
         return process.isAlive();
     }
@@ -81,5 +106,10 @@ public final class PtySession {
         if (closed.compareAndSet(false, true)) {
             process.destroy();
         }
+    }
+
+    @FunctionalInterface
+    public interface OutputListener {
+        void onOutput(byte[] chunk);
     }
 }

@@ -1,3 +1,12 @@
+# Boot resolves classpath:/application.yml to a single file — test-classes comes
+# before classes on the test classpath, so this REPLACES src/main/resources/
+# application.yml entirely for tests rather than merging with it. Every setting the
+# app needs at runtime has to be repeated here, not just the ones being overridden.
+spring:
+  sql:
+    init:
+      mode: always
+
 locklane:
-  # Keep the Spring context test out of the real home directory.
+  # Keep tests out of the real home directory.
   data-dir: ${java.io.tmpdir}/locklane-engine-test
