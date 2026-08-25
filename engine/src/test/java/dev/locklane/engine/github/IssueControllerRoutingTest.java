@@ -2,6 +2,7 @@ package dev.locklane.engine.github;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -20,9 +21,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * "/tree" segment must resolve to {@link IssueController#tree()}, not be swallowed
  * by the "/{number}" path variable (which would otherwise fail to parse "tree" as
  * an int). Worth testing directly rather than assuming, since the two mappings sit
- * on the same controller under the same prefix.
+ * on the same controller under the same prefix. Security filters are switched off
+ * (#47) — this slice never loads the app's own {@code SecurityConfig}, so without
+ * that it would fall back to Spring Boot's auto-configured default-secure chain,
+ * which is irrelevant to what this test is checking.
  */
 @WebMvcTest(IssueController.class)
+@AutoConfigureMockMvc(addFilters = false)
 class IssueControllerRoutingTest {
 
     @Autowired

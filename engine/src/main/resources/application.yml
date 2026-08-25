@@ -9,10 +9,17 @@ spring:
       mode: always
 
 locklane:
-  # Where the engine keeps its own durable state (currently: the SQLite database).
+  # Where the engine keeps its own durable state (currently: the SQLite database, and
+  # the encryption key file (#47) alongside it).
   data-dir: ${user.home}/.locklane
   # The repo root, for reading docs/tasks/ (#16). Default assumes the process is
   # started with engine/ as the working directory (true for `mvn spring-boot:run`
   # from the repo root, or `mvn -f engine/pom.xml ...`) — override this property for
   # any other launch shape (e.g. running the packaged jar from a different cwd).
   project-root: ${user.dir}/..
+  security:
+    # The single account created on first run if no user exists yet (#47). MUST be
+    # overridden (env vars LOCKLANE_SECURITY_BOOTSTRAP_USERNAME /
+    # LOCKLANE_SECURITY_BOOTSTRAP_PASSWORD) before this is ever reachable off localhost.
+    bootstrap-username: admin
+    bootstrap-password: changeme
