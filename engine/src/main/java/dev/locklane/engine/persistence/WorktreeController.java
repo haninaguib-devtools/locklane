@@ -10,10 +10,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.security.Principal;
 import java.util.List;
 import java.util.Map;
 
-/** Serves the worktree-tabs row for an issue, and starts a new session on demand. */
+/**
+ * Serves the worktree-tabs row for an issue, and starts a new session on demand.
+ * Both endpoints require authentication ({@code SecurityConfig}) and see only
+ * sessions the caller owns, or that have no recorded owner (#48).
+ */
 @RestController
 @RequestMapping("/api/issues")
 public class WorktreeController {
@@ -27,8 +32,8 @@ public class WorktreeController {
     }
 
     @GetMapping("/{number}/worktrees")
-    public List<String> worktrees(@PathVariable int number) {
-        return service.worktreeIdsForIssue(number);
+    public List<String> worktrees(@PathVariable int number, Principal principal) {
+        return service.worktreeIdsForIssue(number, principal.getName());
     }
 
     /**
@@ -37,8 +42,8 @@ public class WorktreeController {
      */
     @PostMapping("/{number}/worktrees")
     public ResponseEntity<Map<String, String>> startSession(@PathVariable int number,
-            @RequestParam(defaultValue = "true") boolean worktree) {
-        return creationService.startSession(number, worktree)
+            @RequestParam(defaultValue = "true") boolean worktree, Principal principal) {
+        return creationService.startSession(number, worktree, principal.getName())
                 .map(started -> ResponseEntity.ok(
                         Map.of("worktreeId", started.worktreeId(), "workingDirectory", started.workingDirectory())))
                 .orElseGet(() -> ResponseEntity.notFound().build());

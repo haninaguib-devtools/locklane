@@ -35,7 +35,7 @@ class WorktreeCreationServiceTest {
     @Test
     void reusesAnExistingWorktreeWithoutTouchingGit(@TempDir Path root) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
-        repository.recordAttach("9-already-running", root.resolve("wt"), Instant.now());
+        repository.recordAttach("9-already-running", root.resolve("wt"), Instant.now(), null);
         WorktreeCreationService service = service(root, repository, List.of());
 
         // No GhIssue for #9 is supplied to the fake client, so if this reached the

@@ -53,7 +53,7 @@ public class WorktreeCreationService {
      * callers that only ever want a worktree.
      */
     public Optional<StartedSession> startSession(int issueNumber) {
-        return startSession(issueNumber, true);
+        return startSession(issueNumber, true, null);
     }
 
     /**
@@ -64,6 +64,15 @@ public class WorktreeCreationService {
      * the main checkout, #29) can coexist for the same issue.
      */
     public Optional<StartedSession> startSession(int issueNumber, boolean useWorktree) {
+        return startSession(issueNumber, useWorktree, null);
+    }
+
+    /**
+     * As above, but only an existing session {@code requestingUsername} may see
+     * (their own, or one with no recorded owner, #48) is reused — a session another
+     * user owns is invisible here, same as it is in {@link IssueWorktreeService}.
+     */
+    public Optional<StartedSession> startSession(int issueNumber, boolean useWorktree, String requestingUsername) {
         if (!useWorktree) {
             if (issueCache.issue(issueNumber).isEmpty()) {
                 return Optional.empty();
@@ -77,7 +86,7 @@ public class WorktreeCreationService {
         // Excludes main-checkout session ids (shaped "<n>-main-<suffix>", minted just
         // above): they match the issue's numeric prefix but were never a worktree.
         String mainSessionPrefix = issueNumber + "-main-";
-        List<String> existing = issueWorktreeService.worktreeIdsForIssue(issueNumber).stream()
+        List<String> existing = issueWorktreeService.worktreeIdsForIssue(issueNumber, requestingUsername).stream()
                 .filter(id -> !id.startsWith(mainSessionPrefix))
                 .toList();
         if (!existing.isEmpty()) {
