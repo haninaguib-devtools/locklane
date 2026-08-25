@@ -1,0 +1,18 @@
+<div class="indicator">
+  <button type="button" class="badge" [attr.aria-expanded]="open" (click)="toggle()">
+    consoles ({{ entries.length }})
+  </button>
+  @if (open) {
+    <div class="picker" role="menu">
+      @if (entries.length === 0) {
+        <div class="empty">no open consoles</div>
+      }
+      @for (entry of entries; track entry.sessionId) {
+        <button type="button" class="entry" role="menuitem" (click)="jumpTo(entry)">
+          <span class="issue">#{{ entry.issueNumber }} {{ entry.issueTitle }}</span>
+          <span class="meta">{{ entry.label }}</span>
+        </button>
+      }
+    </div>
+  }
+</div>

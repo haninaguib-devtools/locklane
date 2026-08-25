@@ -27,6 +27,12 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/auth/login').flush(null);
   }
 
+  /** The header's app-console-indicator fetches these on every init (#32). */
+  function flushConsoleIndicator(): void {
+    httpMock.expectOne('/api/consoles').flush([]);
+    httpMock.expectOne('/api/issues').flush([]);
+  }
+
   function flushIssue(number: number): void {
     httpMock.expectOne(`/api/issues/${number}`).flush({
       number,
@@ -68,6 +74,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     httpMock.expectOne('/api/issues/tree').flush([]);
+    flushConsoleIndicator();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.empty-state')?.textContent).toContain('select an issue');
   });
@@ -77,6 +84,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     httpMock.expectOne('/api/issues/tree').flush([]);
+    flushConsoleIndicator();
 
     fixture.componentInstance.select(42);
     tick();
@@ -99,6 +107,7 @@ describe('AppComponent', () => {
 
     expect(fixture.componentInstance.selectedIssue()).toBe(7);
     httpMock.expectOne('/api/issues/tree').flush([]);
+    flushConsoleIndicator();
     flushIssue(7);
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-main-content')).toBeTruthy();
@@ -109,6 +118,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     httpMock.expectOne('/api/issues/tree').flush([]);
+    flushConsoleIndicator();
 
     fixture.componentInstance.select(42);
     tick();
@@ -124,6 +134,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     httpMock.expectOne('/api/issues/tree').flush([]);
+    flushConsoleIndicator();
 
     fixture.componentInstance.logout();
     httpMock.expectOne('/api/auth/logout').flush(null);
