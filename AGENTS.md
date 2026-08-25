@@ -121,10 +121,8 @@ runs, and every stage's reports:
 
 Where a skill says "run the checks", the current check set is:
 
-1. **(none yet — no stack exists.)** When it does, the project's build/test command
-   (`npm test`, `cargo test`, `./gradlew check`, …) is named *here*, and nowhere else,
-   then added to `.github/workflows/ci.yml`. Until this line names a command there is no
-   check 1 to run: say that plainly rather than reporting tests that do not exist.
+1. `./mvnw -B test` (Maven, from the repo root) — builds every module and runs its
+   test suite. Added to `.github/workflows/ci.yml`.
 2. `./scripts/consistency-check.sh` — cross-artifact document consistency.
 3. `git diff` review against the task's declared scope (always applicable).
 
