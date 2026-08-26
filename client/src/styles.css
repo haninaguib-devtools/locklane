@@ -40,3 +40,11 @@ button {
   font: inherit;
   color: inherit;
 }
+
+/* FitAddon measures .terminal's own box for available space but only subtracts
+   padding on the .xterm element itself, so the inset must live there, not on
+   .terminal (#122) — and it must be global, since view encapsulation can't
+   reach the runtime-created .xterm element. */
+.terminal .xterm {
+  padding: 8px;
+}
