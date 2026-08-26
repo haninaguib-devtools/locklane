@@ -12,10 +12,11 @@ export interface ConsoleTab extends ConsoleInfo {
   label: string;
 }
 
-// Main-checkout session ids are minted as "<issue>-main-<random8>" (#29);
-// everything else under an issue is a worktree session.
+// Main-checkout session ids are minted as "<projectId>-<issue>-main-<random8>"
+// (#29, project-prefixed since #43); everything else under an issue is a
+// worktree session.
 export function isMainSession(id: string): boolean {
-  return /^\d+-main-/.test(id);
+  return /^\d+-\d+-main-/.test(id);
 }
 
 /**

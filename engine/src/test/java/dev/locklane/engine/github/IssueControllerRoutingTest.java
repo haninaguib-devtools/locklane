@@ -47,7 +47,7 @@ class IssueControllerRoutingTest {
         when(treeService.tree()).thenReturn(
                 List.of(new TreeNode(1, "Initiative", "INITIATIVE", "OPEN", List.of())));
 
-        mockMvc.perform(get("/api/issues/tree"))
+        mockMvc.perform(get("/api/projects/1/issues/tree"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].number").value(1))
                 .andExpect(jsonPath("$[0].kind").value("INITIATIVE"));
@@ -58,7 +58,7 @@ class IssueControllerRoutingTest {
         when(cache.issue(eq(5))).thenReturn(
                 Optional.of(new GhIssue(5, "Five", "OPEN", List.of(), "", "", "")));
 
-        mockMvc.perform(get("/api/issues/5"))
+        mockMvc.perform(get("/api/projects/1/issues/5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.number").value(5));
     }

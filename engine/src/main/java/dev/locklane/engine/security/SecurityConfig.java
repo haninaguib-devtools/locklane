@@ -15,13 +15,20 @@ import org.springframework.http.HttpStatus;
  * Wires up session-based login for {@code POST /api/auth/login} /
  * {@code POST /api/auth/logout} (#47) plus the session check at
  * {@code GET /api/auth/me} (#58), and gates behind it: the worktree-session
- * endpoints (list/start, {@code /api/issues/*}{@code /worktrees}, #48; the
- * cross-issue listing at {@code /api/consoles}, #32), the project CRUD endpoints
- * ({@code /api/projects/**}, #42), and the WebSocket session endpoint itself
- * ({@code /ws/sessions/**}, #50) — its origin restriction lives in
- * {@code WebSocketConfig}, but authentication is enforced here like every other
- * endpoint. Issue/PR data stays open: it still comes from one shared repo with no
- * per-user boundary until #41 gives it one.
+ * endpoints (list/start under {@code /api/projects/{projectId}/issues/{number}/worktrees},
+ * #48, nested under a project id since #43; the cross-issue listing under
+ * {@code /api/projects/{projectId}/consoles}, #32), the project CRUD endpoints
+ * (list/create at {@code /api/projects}, delete at
+ * {@code /api/projects/{id}}, retry at {@code /api/projects/{id}/retry}, #42), and
+ * the WebSocket session endpoint itself (every path under {@code /ws/sessions/},
+ * #50) — its origin restriction lives in {@code WebSocketConfig}, but
+ * authentication is enforced here like every other endpoint. Issue/PR data stays
+ * open: it still comes from one shared repo with no per-user boundary until a
+ * follow-up to #43 gives it one (see #43's task record) — despite living under
+ * {@code /api/projects/{projectId}/issues} since #43's renesting, so the matchers
+ * below are deliberately precise (single path-segment wildcards, not a blanket
+ * match on everything under {@code /api/projects}) to avoid sweeping that open
+ * surface into this gate.
  */
 @Configuration
 @EnableWebSecurity
@@ -41,9 +48,12 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/me").authenticated()
-                        .requestMatchers("/api/issues/*/worktrees").authenticated()
-                        .requestMatchers("/api/consoles").authenticated()
-                        .requestMatchers("/api/projects/**").authenticated()
+                        .requestMatchers("/api/projects").authenticated()
+                        .requestMatchers("/api/projects/*").authenticated()
+                        .requestMatchers("/api/projects/*/retry").authenticated()
+                        .requestMatchers("/api/projects/*/issues/*/worktrees").authenticated()
+                        .requestMatchers("/api/projects/*/issues/*/worktrees/*").authenticated()
+                        .requestMatchers("/api/projects/*/consoles").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
                         .anyRequest().permitAll())
                 .formLogin(form -> form

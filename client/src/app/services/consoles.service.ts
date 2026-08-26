@@ -7,9 +7,12 @@ export class ConsolesService {
   private readonly http = inject(HttpClient);
   private readonly closed$ = new Subject<void>();
 
-  /** Every open console session id the caller may see, across all issues (#32). */
-  list(): Observable<string[]> {
-    return this.http.get<string[]>('/api/consoles');
+  /**
+   * Every open console session id the caller may see, across all of one project's
+   * issues (#32) — nested under a project id since #43.
+   */
+  list(projectId: number): Observable<string[]> {
+    return this.http.get<string[]>(`/api/projects/${projectId}/consoles`);
   }
 
   /**

@@ -17,12 +17,12 @@ describe('ConsolesService', () => {
 
   afterEach(() => httpMock.verify());
 
-  it('lists open consoles from GET /api/consoles', () => {
-    service.list().subscribe((result) => expect(result).toEqual(['7-main-a1b2c3d4', '8-slug']));
+  it('lists open consoles from GET /api/projects/{projectId}/consoles', () => {
+    service.list(1).subscribe((result) => expect(result).toEqual(['1-7-main-a1b2c3d4', '1-8-slug']));
 
-    const req = httpMock.expectOne('/api/consoles');
+    const req = httpMock.expectOne('/api/projects/1/consoles');
     expect(req.request.method).toBe('GET');
-    req.flush(['7-main-a1b2c3d4', '8-slug']);
+    req.flush(['1-7-main-a1b2c3d4', '1-8-slug']);
   });
 
   it('notifies onClosed subscribers when a console is closed', () => {

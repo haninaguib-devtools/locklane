@@ -1,4 +1,4 @@
-import { Component, EventEmitter, HostListener, Input, OnInit, Output, inject } from '@angular/core';
+import { Component, EventEmitter, HostListener, Input, OnChanges, Output, SimpleChanges, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TreeNode } from '../../models/issue.model';
@@ -18,11 +18,12 @@ import { filterPinnedTree, filterTree } from './tree-filter';
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })
-export class SidenavComponent implements OnInit {
+export class SidenavComponent implements OnChanges {
   private readonly issuesService = inject(IssuesService);
   private readonly pinStore = inject(PinStore);
   private readonly collapseStore = inject(CollapseStore);
 
+  @Input({ required: true }) projectId!: number;
   @Input() selected: number | null = null;
   @Output() selectedChange = new EventEmitter<number>();
 
@@ -37,8 +38,14 @@ export class SidenavComponent implements OnInit {
 
   openMenuFor: number | null = null;
 
-  ngOnInit(): void {
-    this.load(() => (this.loading = false));
+  // Angular keeps this component mounted across a projectId change (the parent's
+  // @if only tears down on a falsy transition), so the reload lives in
+  // ngOnChanges rather than ngOnInit -- it still fires once on the initial bind.
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['projectId']) {
+      this.loading = true;
+      this.load(() => (this.loading = false));
+    }
   }
 
   refresh(): void {
@@ -50,7 +57,7 @@ export class SidenavComponent implements OnInit {
   }
 
   private load(onDone: () => void): void {
-    this.issuesService.tree().subscribe({
+    this.issuesService.tree(this.projectId).subscribe({
       next: (tree) => {
         this.tree = tree;
         this.error = false;

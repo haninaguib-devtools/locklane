@@ -2,7 +2,6 @@ package dev.locklane.engine.persistence;
 
 import dev.locklane.engine.github.GhIssue;
 import dev.locklane.engine.github.GhIssueCache;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -22,6 +21,12 @@ import java.util.regex.Pattern;
  * is the whole point of this app's agent model (ADR-002); a session that silently
  * reused the main checkout would undermine that. See the task record for the full
  * reasoning.
+ *
+ * <p>Since #43, the checkout a session is created against is resolved per project
+ * (each project's own workarea, from {@link ProjectRepository}) rather than a
+ * single fixed root — issue data itself stays global (a separate, deferred
+ * concern; see #43's task record), but where a worktree lives on disk always
+ * follows the project id in the request.
  */
 @Service
 public class WorktreeCreationService {
@@ -31,40 +36,41 @@ public class WorktreeCreationService {
 
     private final GhIssueCache issueCache;
     private final IssueWorktreeService issueWorktreeService;
-    private final Path projectRoot;
+    private final ProjectRepository projectRepository;
 
     public WorktreeCreationService(GhIssueCache issueCache, IssueWorktreeService issueWorktreeService,
-            @Value("${locklane.project-root}") String projectRoot) {
+            ProjectRepository projectRepository) {
         this.issueCache = issueCache;
         this.issueWorktreeService = issueWorktreeService;
-        this.projectRoot = Path.of(projectRoot).normalize();
+        this.projectRepository = projectRepository;
     }
 
     /**
      * Starts (or, if one already exists, simply reports) the one worktree session
-     * for an issue, including its working directory — a brand new worktree has no
-     * persisted session yet (nothing has attached to it via WebSocket to record
-     * one, #6/#15), so the client cannot resolve that directory on its own the way
-     * it can for an already-known worktree; it must be told directly, to pass as
-     * {@code ?dir=} on the first attach (#7). Empty if the issue itself is not
-     * known.
+     * for a project's issue, including its working directory — a brand new worktree
+     * has no persisted session yet (nothing has attached to it via WebSocket to
+     * record one, #6/#15), so the client cannot resolve that directory on its own
+     * the way it can for an already-known worktree; it must be told directly, to
+     * pass as {@code ?dir=} on the first attach (#7). Empty if the project or the
+     * issue itself is not known.
      *
-     * <p>Equivalent to {@code startSession(issueNumber, true)} — kept for existing
-     * callers that only ever want a worktree.
+     * <p>Equivalent to {@code startSession(projectId, issueNumber, true, null)} —
+     * kept for existing callers that only ever want a worktree.
      */
-    public Optional<StartedSession> startSession(int issueNumber) {
-        return startSession(issueNumber, true, null);
+    public Optional<StartedSession> startSession(long projectId, int issueNumber) {
+        return startSession(projectId, issueNumber, true, null);
     }
 
     /**
-     * As above, but a console can also be opened directly against the main checkout:
-     * when {@code useWorktree} is {@code false}, no {@code git worktree add} runs and
-     * no worktree needs to exist — the working directory is simply the main checkout,
-     * and a fresh session id is minted so several such consoles (including several on
-     * the main checkout, #29) can coexist for the same issue.
+     * As above, but a console can also be opened directly against the project's
+     * main checkout: when {@code useWorktree} is {@code false}, no
+     * {@code git worktree add} runs and no worktree needs to exist — the working
+     * directory is simply the project's checkout, and a fresh session id is minted
+     * so several such consoles (including several on the main checkout, #29) can
+     * coexist for the same project's issue.
      */
-    public Optional<StartedSession> startSession(int issueNumber, boolean useWorktree) {
-        return startSession(issueNumber, useWorktree, null);
+    public Optional<StartedSession> startSession(long projectId, int issueNumber, boolean useWorktree) {
+        return startSession(projectId, issueNumber, useWorktree, null);
     }
 
     /**
@@ -72,21 +78,29 @@ public class WorktreeCreationService {
      * (their own, or one with no recorded owner, #48) is reused — a session another
      * user owns is invisible here, same as it is in {@link IssueWorktreeService}.
      */
-    public Optional<StartedSession> startSession(int issueNumber, boolean useWorktree, String requestingUsername) {
+    public Optional<StartedSession> startSession(long projectId, int issueNumber, boolean useWorktree,
+            String requestingUsername) {
+        Optional<ProjectRecord> project = projectRepository.findById(projectId);
+        if (project.isEmpty() || project.get().status() != ProjectStatus.READY) {
+            return Optional.empty();
+        }
+        Path projectRoot = project.get().workareaPath();
+
         if (!useWorktree) {
             if (issueCache.issue(issueNumber).isEmpty()) {
                 return Optional.empty();
             }
-            String sessionId = issueNumber + "-main-" + shortId();
+            String sessionId = projectId + "-" + issueNumber + "-main-" + shortId();
             return Optional.of(new StartedSession(sessionId, projectRoot.toString()));
         }
 
-        Path worktreePath = projectRoot.resolveSibling(repoName() + "-" + issueNumber);
+        Path worktreePath = projectRoot.resolveSibling(repoName(projectRoot) + "-" + issueNumber);
 
-        // Excludes main-checkout session ids (shaped "<n>-main-<suffix>", minted just
-        // above): they match the issue's numeric prefix but were never a worktree.
-        String mainSessionPrefix = issueNumber + "-main-";
-        List<String> existing = issueWorktreeService.worktreeIdsForIssue(issueNumber, requestingUsername).stream()
+        // Excludes main-checkout session ids (shaped "<projectId>-<issueNumber>-main-<suffix>",
+        // minted just above): they match the project/issue prefix but were never a worktree.
+        String mainSessionPrefix = projectId + "-" + issueNumber + "-main-";
+        List<String> existing = issueWorktreeService.worktreeIdsForIssue(projectId, issueNumber, requestingUsername)
+                .stream()
                 .filter(id -> !id.startsWith(mainSessionPrefix))
                 .toList();
         if (!existing.isEmpty()) {
@@ -98,11 +112,12 @@ public class WorktreeCreationService {
             return Optional.empty();
         }
 
-        String worktreeId = issueNumber + "-" + slug(issue.get().title());
-        String branch = "wip/" + worktreeId;
+        String slug = slug(issue.get().title());
+        String worktreeId = projectId + "-" + issueNumber + "-" + slug;
+        String branch = "wip/" + issueNumber + "-" + slug;
 
         if (!Files.exists(worktreePath)) {
-            createWorktree(branch, worktreePath);
+            createWorktree(branch, worktreePath, projectRoot);
         }
         return Optional.of(new StartedSession(worktreeId, worktreePath.toString()));
     }
@@ -114,7 +129,7 @@ public class WorktreeCreationService {
     public record StartedSession(String worktreeId, String workingDirectory) {
     }
 
-    private void createWorktree(String branch, Path worktreePath) {
+    private void createWorktree(String branch, Path worktreePath, Path projectRoot) {
         run("git", "-C", projectRoot.toString(), "fetch", "--prune", "origin");
 
         boolean branchExists =
@@ -133,7 +148,7 @@ public class WorktreeCreationService {
         }
     }
 
-    private String repoName() {
+    private static String repoName(Path projectRoot) {
         Path name = projectRoot.getFileName();
         return name != null ? name.toString() : "repo";
     }

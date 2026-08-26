@@ -8,9 +8,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** Serves the sidenav issue list/tree, issue header, and "?" popup data. */
+/**
+ * Serves the sidenav issue list/tree, issue header, and "?" popup data. Nested under
+ * a project id since #43, though the data itself still comes from one shared repo
+ * for every project — a separate, deferred concern (see #43's task record).
+ */
 @RestController
-@RequestMapping("/api/issues")
+@RequestMapping("/api/projects/{projectId}/issues")
 public class IssueController {
 
     private final GhIssueCache cache;

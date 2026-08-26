@@ -6,10 +6,21 @@ import { provideRouter, Router } from '@angular/router';
 import { AppComponent } from './app.component';
 import { AuthService } from './services/auth.service';
 import { SidenavComponent } from './components/sidenav/sidenav.component';
+import { Project } from './models/issue.model';
 import { routes } from './app.routes';
 
 describe('AppComponent', () => {
   let httpMock: HttpTestingController;
+
+  const PROJECT: Project = {
+    id: 1,
+    name: 'proj',
+    gitUrl: 'url',
+    workareaPath: '/tmp/proj',
+    defaultBranch: 'main',
+    status: 'READY',
+    createdAt: '',
+  };
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -27,14 +38,28 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/auth/login').flush(null);
   }
 
+  /**
+   * Navigates to '/' and resolves it to /projects/1/issues via the
+   * default-project guard (#43) -- done before the component exists, the same
+   * way a direct load of a concrete URL already worked, so AppComponent's
+   * initial route-derived state is correct from construction rather than
+   * depending on a later NavigationEnd event.
+   */
+  function navigateToDefaultProject(): void {
+    TestBed.inject(Router).navigateByUrl('/');
+    tick();
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    tick();
+  }
+
   /** The header's app-console-indicator fetches these on every init (#32). */
   function flushConsoleIndicator(): void {
-    httpMock.expectOne('/api/consoles').flush([]);
-    httpMock.expectOne('/api/issues').flush([]);
+    httpMock.expectOne('/api/projects/1/consoles').flush([]);
+    httpMock.expectOne('/api/projects/1/issues').flush([]);
   }
 
   function flushIssue(number: number): void {
-    httpMock.expectOne(`/api/issues/${number}`).flush({
+    httpMock.expectOne(`/api/projects/1/issues/${number}`).flush({
       number,
       title: 'T',
       state: 'OPEN',
@@ -43,7 +68,7 @@ describe('AppComponent', () => {
       createdAt: '',
       updatedAt: '',
     });
-    httpMock.expectOne(`/api/issues/${number}/detail`).flush({
+    httpMock.expectOne(`/api/projects/1/issues/${number}/detail`).flush({
       number,
       recordPath: null,
       checks: { passing: 0, failing: 0, pending: 0 },
@@ -53,7 +78,7 @@ describe('AppComponent', () => {
       prDraft: false,
       flowSteps: [],
     });
-    httpMock.expectOne(`/api/issues/${number}/worktrees`).flush([]);
+    httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush([]);
   }
 
   it('should create the app', () => {
@@ -61,52 +86,66 @@ describe('AppComponent', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('shows only the login screen when not authenticated', () => {
+  it('shows only the login screen when not authenticated', fakeAsync(() => {
+    // Not logged in -- the default-project guard's own call comes back
+    // unauthorized; AppComponent's login/shell split is independent of routing.
+    TestBed.inject(Router).navigateByUrl('/');
+    tick();
+    httpMock.expectOne('/api/projects').flush(null, { status: 401, statusText: 'Unauthorized' });
+    tick();
+
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
+
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-login')).toBeTruthy();
     expect(compiled.querySelector('.shell')).toBeFalsy();
-  });
+  }));
 
-  it('shows an empty state until an issue is selected', () => {
+  it('shows an empty state until an issue is selected', fakeAsync(() => {
     logIn();
+    navigateToDefaultProject();
+
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushConsoleIndicator();
+
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.empty-state')?.textContent).toContain('select an issue');
-  });
+  }));
 
-  it('selecting an issue navigates to /issues/:id and shows the main content area', fakeAsync(() => {
+  it('selecting an issue navigates to /projects/:projectId/issues/:id and shows the main content area', fakeAsync(() => {
     logIn();
+    navigateToDefaultProject();
+
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushConsoleIndicator();
 
     fixture.componentInstance.select(42);
     tick();
     fixture.detectChanges();
 
-    expect(TestBed.inject(Router).url).toBe('/issues/42');
+    expect(TestBed.inject(Router).url).toBe('/projects/1/issues/42');
     flushIssue(42);
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-main-content')).toBeTruthy();
     expect(compiled.querySelector('.empty-state')).toBeFalsy();
   }));
 
-  it('loading /issues/:id directly selects that issue', fakeAsync(() => {
+  it('loading /projects/:projectId/issues/:id directly selects that project and issue', fakeAsync(() => {
     logIn();
-    TestBed.inject(Router).navigateByUrl('/issues/7');
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues/7');
     tick();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
 
+    expect(fixture.componentInstance.selectedProjectId()).toBe(1);
     expect(fixture.componentInstance.selectedIssue()).toBe(7);
-    httpMock.expectOne('/api/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushConsoleIndicator();
     flushIssue(7);
     const compiled = fixture.nativeElement as HTMLElement;
@@ -115,9 +154,11 @@ describe('AppComponent', () => {
 
   it('passes the selected issue to the sidenav for highlighting', fakeAsync(() => {
     logIn();
+    navigateToDefaultProject();
+
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushConsoleIndicator();
 
     fixture.componentInstance.select(42);
@@ -129,11 +170,13 @@ describe('AppComponent', () => {
     expect(sidenav.componentInstance.selected).toBe(42);
   }));
 
-  it('returns to the login screen after logging out', () => {
+  it('returns to the login screen after logging out', fakeAsync(() => {
     logIn();
+    navigateToDefaultProject();
+
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushConsoleIndicator();
 
     fixture.componentInstance.logout();
@@ -143,5 +186,5 @@ describe('AppComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-login')).toBeTruthy();
     expect(compiled.querySelector('.shell')).toBeFalsy();
-  });
+  }));
 });

@@ -18,13 +18,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Serves the worktree-tabs row for an issue, starts a new session on demand, and
- * closes one for good. All three endpoints require authentication
+ * Serves the worktree-tabs row for a project's issue, starts a new session on
+ * demand, and closes one for good. All three endpoints require authentication
  * ({@code SecurityConfig}) and see only sessions the caller owns, or that have no
- * recorded owner (#48).
+ * recorded owner (#48). Nested under a project id since #43 — worktrees live inside
+ * that project's own checkout.
  */
 @RestController
-@RequestMapping("/api/issues")
+@RequestMapping("/api/projects/{projectId}/issues")
 public class WorktreeController {
 
     private final IssueWorktreeService service;
@@ -39,18 +40,20 @@ public class WorktreeController {
     }
 
     @GetMapping("/{number}/worktrees")
-    public List<String> worktrees(@PathVariable int number, Principal principal) {
-        return service.worktreeIdsForIssue(number, principal.getName());
+    public List<String> worktrees(@PathVariable long projectId, @PathVariable int number, Principal principal) {
+        return service.worktreeIdsForIssue(projectId, number, principal.getName());
     }
 
     /**
-     * Starts a new session for the issue. {@code worktree=false} opens it directly
-     * against the main checkout instead — no {@code git worktree add} required (#29).
+     * Starts a new session for the project's issue. {@code worktree=false} opens it
+     * directly against the project's main checkout instead — no
+     * {@code git worktree add} required (#29). 404 for an unknown or not-yet-ready
+     * project, same as an unknown issue.
      */
     @PostMapping("/{number}/worktrees")
-    public ResponseEntity<Map<String, String>> startSession(@PathVariable int number,
+    public ResponseEntity<Map<String, String>> startSession(@PathVariable long projectId, @PathVariable int number,
             @RequestParam(defaultValue = "true") boolean worktree, Principal principal) {
-        return creationService.startSession(number, worktree, principal.getName())
+        return creationService.startSession(projectId, number, worktree, principal.getName())
                 .map(started -> ResponseEntity.ok(
                         Map.of("worktreeId", started.worktreeId(), "workingDirectory", started.workingDirectory())))
                 .orElseGet(() -> ResponseEntity.notFound().build());
@@ -62,9 +65,9 @@ public class WorktreeController {
      * see, same visibility rule as {@link #worktrees}.
      */
     @DeleteMapping("/{number}/worktrees/{worktreeId}")
-    public ResponseEntity<Void> closeSession(@PathVariable int number, @PathVariable String worktreeId,
-            Principal principal) {
-        if (!service.worktreeIdsForIssue(number, principal.getName()).contains(worktreeId)) {
+    public ResponseEntity<Void> closeSession(@PathVariable long projectId, @PathVariable int number,
+            @PathVariable String worktreeId, Principal principal) {
+        if (!service.worktreeIdsForIssue(projectId, number, principal.getName()).contains(worktreeId)) {
             return ResponseEntity.notFound().build();
         }
         sessionRegistry.close(worktreeId);
