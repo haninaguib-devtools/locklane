@@ -33,3 +33,10 @@ itself (tracked separately in #105).
   declared Scope (`sidenav/`, `consoles.service.ts`). Without it the dot could never
   update live, which is a stated Done-when criterion, so the call was added — the
   smallest change that makes the in-scope `notifyOpened()` reachable at all.
+- The sidenav now also fetches `/api/projects/:id/consoles` (to know which issues
+  have an open console), so `app.component.spec.ts` and
+  `sidenav.component.spec.ts` needed updates to expect/flush that extra request.
+  Both are test files for components already inside scope.
+- Unrelated to this diff: `AccountTwoFactorIntegrationTest.disableWithTheWrongPasswordLeavesTwoFactorOn`
+  failed once in the full `./mvnw test` run but passes cleanly in isolation
+  (pre-existing test-ordering flake in `engine/`, untouched by this task).
