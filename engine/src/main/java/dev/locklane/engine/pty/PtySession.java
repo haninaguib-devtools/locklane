@@ -10,6 +10,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +31,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class PtySession {
 
+    // Fills gaps only (#63) — an explicit TERM/COLORTERM the caller's environment
+    // already carries (e.g. the engine itself launched from a real terminal) is left
+    // alone; this only rescues the common case where it is launched some other way
+    // (an IDE run configuration, systemd, ...) and inherits neither at all, which
+    // otherwise leaves every CLI running inside a session assuming no color support.
+    private static final Map<String, String> DEFAULT_TERMINAL_ENV =
+            Map.of("TERM", "xterm-256color", "COLORTERM", "truecolor");
+
     private final String sessionId;
     private final PtyProcess process;
     private final OutputBuffer output = new OutputBuffer();
@@ -43,7 +52,7 @@ public final class PtySession {
             this.process = new PtyProcessBuilder()
                     .setCommand(command)
                     .setDirectory(workingDirectory.toString())
-                    .setEnvironment(environment)
+                    .setEnvironment(withDefaultTerminalEnv(environment))
                     .setInitialColumns(initialColumns)
                     .setInitialRows(initialRows)
                     .start();
@@ -113,6 +122,12 @@ public final class PtySession {
     /** Tells the running process its terminal changed size (SIGWINCH on Unix). */
     public void resize(int columns, int rows) {
         process.setWinSize(new WinSize(columns, rows));
+    }
+
+    private static Map<String, String> withDefaultTerminalEnv(Map<String, String> environment) {
+        Map<String, String> merged = new HashMap<>(environment);
+        DEFAULT_TERMINAL_ENV.forEach(merged::putIfAbsent);
+        return merged;
     }
 
     void close() {
