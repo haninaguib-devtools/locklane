@@ -3,8 +3,11 @@
 } @else {
   <div class="authed">
     <div class="topbar">
-      <app-console-indicator />
-      <button type="button" class="logout" (click)="logout()">Log out</button>
+      <div class="brand">LockLane</div>
+      <div class="topbar-actions">
+        <app-console-indicator />
+        <button type="button" class="logout" (click)="logout()">Log out</button>
+      </div>
     </div>
     <div class="shell">
       <aside class="sidebar" [style.width.px]="sidebarWidth">
