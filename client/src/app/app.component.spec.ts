@@ -329,6 +329,9 @@ describe('AppComponent', () => {
     // Opening the dialog closes the menu behind it.
     expect(compiled.querySelector('.account-menu')).toBeFalsy();
 
+    httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
+    fixture.detectChanges();
+
     compiled.querySelector<HTMLButtonElement>('app-settings-dialog .close')!.click();
     fixture.detectChanges();
     expect(compiled.querySelector('app-settings-dialog')).toBeFalsy();

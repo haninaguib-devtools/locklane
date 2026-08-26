@@ -4,6 +4,87 @@
       <span>settings</span>
       <button type="button" class="close" (click)="closed.emit()" aria-label="Close">×</button>
     </div>
-    <div class="popup-body"></div>
+    <div class="popup-body">
+      <section class="section">
+        <h2>Two-factor authentication</h2>
+
+        @if (loadError(); as message) {
+          <p class="error">{{ message }}</p>
+        } @else if (stage() === 'loading') {
+          <p class="muted">Loading…</p>
+        } @else if (stage() === 'off') {
+          <p class="muted">
+            Two-factor authentication is off. Turning it on requires an authenticator app
+            such as Google Authenticator or 1Password.
+          </p>
+          <div class="actions">
+            <button type="button" (click)="startEnroll()">Enable two-factor authentication</button>
+          </div>
+        } @else if (stage() === 'enrolling') {
+          <p class="muted">
+            Scan this QR code with your authenticator app, or enter the key manually, then
+            enter the 6-digit code it generates.
+          </p>
+
+          @if (enrollment(); as e) {
+            <img class="qr" [src]="e.qrCodeDataUri" alt="QR code for two-factor enrollment" />
+            <p class="secret">{{ e.manualKey }}</p>
+
+            <form (ngSubmit)="confirmEnroll()">
+              <label>
+                Code
+                <input
+                  type="text"
+                  name="confirmCode"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  [(ngModel)]="confirmCode"
+                  [disabled]="confirming"
+                  required
+                  autofocus
+                />
+              </label>
+
+              @if (confirmError; as message) {
+                <p class="error">{{ message }}</p>
+              }
+
+              <div class="actions">
+                <button type="submit" [disabled]="!confirmCode.trim() || confirming">
+                  {{ confirming ? 'Confirming…' : 'Confirm' }}
+                </button>
+                <button type="button" class="secondary" (click)="cancelEnroll()">Cancel</button>
+              </div>
+            </form>
+          }
+        } @else {
+          <p class="muted">Two-factor authentication is enabled.</p>
+
+          <form (ngSubmit)="disable()">
+            <label>
+              Current password
+              <input
+                type="password"
+                name="disablePassword"
+                autocomplete="current-password"
+                [(ngModel)]="password"
+                [disabled]="disabling"
+                required
+              />
+            </label>
+
+            @if (disableError; as message) {
+              <p class="error">{{ message }}</p>
+            }
+
+            <div class="actions">
+              <button type="submit" class="danger" [disabled]="!password || disabling">
+                {{ disabling ? 'Disabling…' : 'Disable two-factor authentication' }}
+              </button>
+            </div>
+          </form>
+        }
+      </section>
+    </div>
   </div>
 </div>

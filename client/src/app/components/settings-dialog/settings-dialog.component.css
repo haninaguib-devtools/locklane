@@ -39,9 +39,102 @@
   line-height: 1;
 }
 
-/* Empty until #91 fills it -- the min-height keeps the shell from collapsing to
-   a bare title bar. */
 .popup-body {
   padding: 12px;
   min-height: 120px;
+}
+
+.section h2 {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.qr {
+  display: block;
+  width: 160px;
+  height: 160px;
+  margin: 0 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.secret {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-bottom: 10px;
+  word-break: break-all;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 12px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.error {
+  font-size: 12px;
+  color: var(--danger, #b3432b);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.actions button.secondary {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.actions button.danger {
+  background: var(--danger, #b3432b);
+}
+
+.actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
