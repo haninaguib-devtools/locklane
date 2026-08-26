@@ -13,6 +13,7 @@ locklane:
   # Same default as src/main/resources/application.yml — tests also run with
   # engine/ as the working directory, so this resolves to the real repo root.
   project-root: ${user.dir}/..
+  workarea-root: ${locklane.data-dir}/workareas
   security:
     bootstrap-username: test-user
     bootstrap-password: test-password
