@@ -39,6 +39,14 @@ None.
   `overflow-y: auto`, terminal scrollback), so the page never needs to scroll; clipping
   at the root removes the scrollbars' feedback into layout and the loop has no fuel
   (hani, 2026-08-26).
+- Rewrap fix (scope-expanded, see Deviations): the terminal's ResizeObserver fit is
+  debounced 150ms (`FIT_QUIET_MS` in `terminal.component.ts`) so a drag or live window
+  resize produces one fit — and therefore one PTY column change and one CLI redraw —
+  after the size settles, instead of one per pixel. The mount-time fit and the
+  tab-activation fit stay immediate: those are single events where a visible 150ms lag
+  would be pure loss. No spec added — the component has none today (it is a thin wrapper
+  over xterm's DOM), and simulating ResizeObserver in the test rig wasn't judged worth
+  it for a timing guard (hani, 2026-08-26).
 
 ## Deviations / notes
 - Deviation from the issue's Done-when: "shrinking the window so it genuinely overflows
@@ -49,8 +57,15 @@ None.
   Done-when requires anyway.
 - Could not visually verify in a real browser this session (no Chrome extension
   connection available) — needs the human eyeball check called for in Done-when.
-- Related but separate defect, out of scope here (proposed as its own issue): dragging
-  the sidenav slider refits the terminal on every pixel of movement, sending the server
-  a stream of column-count changes whose reflow can permanently rewrap scrollback
-  ("console wraps around sometimes"). Wants a debounced fit / resize-on-drag-end in
-  `terminal.component.ts`, outside this task's scope.
+- Scope expanded with hani's in-session approval (2026-08-26): the related rewrap defect
+  — dragging the sidenav slider (or live-resizing the window) refits the terminal on
+  every pixel of movement, streaming column-count changes to the server whose reflow
+  permanently rewraps CLI scrollback ("claude cli wraps") — is fixed *in this task*
+  rather than split to its own issue. Hani chose bundling over shipping the scrollbar
+  fix alone (option 2 of 2 offered). Adds
+  `client/src/app/components/terminal/terminal.component.ts` to the issue's original
+  Scope of `app.component.css`; the issue body stays as opened, per the
+  intent-changes-live-in-the-record rule.
+- Residual known behavior, not a defect of this task: a *single* settled resize can
+  still rewrap old CLI output a little — inherent to terminals + full-width CLI
+  redraws — but it is one-shot instead of continuous.

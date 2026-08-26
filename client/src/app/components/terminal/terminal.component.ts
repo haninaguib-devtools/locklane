@@ -35,6 +35,14 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   private session: TerminalSession | null = null;
   private resizeSub: IDisposable | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private pendingFit: ReturnType<typeof setTimeout> | null = null;
+
+  /* A sidenav-slider drag or live window resize fires the ResizeObserver on
+     every pixel. Fitting on each tick streams a column count per pixel to the
+     server, and each reflow rewraps the CLI's full-width output into scrollback
+     for good (#117). One fit after the size settles keeps a resize to a single
+     redraw. */
+  private static readonly FIT_QUIET_MS = 150;
 
   ngAfterViewInit(): void {
     this.term = new Terminal({
@@ -56,10 +64,17 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     this.resizeSub = this.term.onResize(({ cols, rows }) => this.session?.resize(cols, rows));
     // xterm's FitAddon never observes its own container; nothing previously
     // reacted to the browser window (or a split/panel) changing size at all (#62).
+    // Debounced, not immediate — see FIT_QUIET_MS.
     this.resizeObserver = new ResizeObserver(() => {
-      if (this.active) {
-        this.fitAddon?.fit();
+      if (this.pendingFit !== null) {
+        clearTimeout(this.pendingFit);
       }
+      this.pendingFit = setTimeout(() => {
+        this.pendingFit = null;
+        if (this.active) {
+          this.fitAddon?.fit();
+        }
+      }, TerminalComponent.FIT_QUIET_MS);
     });
     this.resizeObserver.observe(this.container.nativeElement);
     this.connect();
@@ -74,6 +89,9 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.pendingFit !== null) {
+      clearTimeout(this.pendingFit);
+    }
     this.resizeObserver?.disconnect();
     this.resizeSub?.dispose();
     this.session?.close();
