@@ -51,7 +51,7 @@ class UserRepositoryTest {
         repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
         repository.startTotpEnrollment("hani", "encrypted-secret");
 
-        assertThat(repository.enableTotp("hani"))
+        assertThat(repository.enableTotp("hani", "encrypted-secret"))
                 .as("one row changed — the enrollment was there to confirm")
                 .isEqualTo(1);
         assertThat(repository.findByUsername("hani").orElseThrow().totpEnabled()).isTrue();
@@ -67,7 +67,7 @@ class UserRepositoryTest {
         UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
         repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
 
-        assertThat(repository.enableTotp("hani"))
+        assertThat(repository.enableTotp("hani", "encrypted-secret"))
                 .as("no rows changed, and the caller has to be able to tell — reporting 2FA on "
                         + "here would promise a second factor the account cannot produce")
                 .isEqualTo(0);
@@ -75,6 +75,23 @@ class UserRepositoryTest {
         assertThat(repository.findByUsername("hani").orElseThrow().totpEnabled())
                 .as("2FA must never be on against a NULL secret — that is an account locked out "
                         + "of a factor it has no way to produce")
+                .isFalse();
+    }
+
+    @Test
+    void enablingWithAStaleSecretDoesNothing(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+        repository.startTotpEnrollment("hani", "second-encrypted-secret");
+
+        assertThat(repository.enableTotp("hani", "first-encrypted-secret"))
+                .as("the row's secret was replaced by a later enroll, so the ciphertext this "
+                        + "caller verified matches no row — 0 rows changed, not 1")
+                .isEqualTo(0);
+
+        assertThat(repository.findByUsername("hani").orElseThrow().totpEnabled())
+                .as("2FA must never be enabled against a secret different from the one that was "
+                        + "actually verified")
                 .isFalse();
     }
 
