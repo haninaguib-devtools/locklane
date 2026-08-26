@@ -1,0 +1,29 @@
+<div class="overview">
+  @if (detail) {
+    <dl class="details">
+      <dt>record</dt>
+      <dd>
+        @if (detail.recordPath && issueUrl) {
+          <a [href]="issueUrl" target="_blank" rel="noopener">{{ detail.recordPath }}</a>
+        } @else {
+          {{ detail.recordPath ?? 'no record yet' }}
+        }
+      </dd>
+      <dt>checks</dt>
+      <dd>{{ checksLabel(detail) }}</dd>
+      <dt>branch &amp; PR</dt>
+      <dd>
+        @if (prUrl) {
+          <a [href]="prUrl" target="_blank" rel="noopener">{{ branchLabel(detail) }}</a>
+        } @else {
+          {{ branchLabel(detail) }}
+        }
+      </dd>
+    </dl>
+  } @else {
+    <p class="loading">loading…</p>
+  }
+  @if (issue.body) {
+    <pre class="body">{{ issue.body }}</pre>
+  }
+</div>

@@ -6,8 +6,7 @@
   height: 100%;
 }
 
-.loading,
-.no-session {
+.loading {
   flex: 1;
   display: flex;
   align-items: center;
@@ -17,8 +16,9 @@
   background: var(--window);
 }
 
-/* A non-selected console tab stays mounted (its WebSocket and scrollback live
-   in the component) but takes no space; the terminal re-fits on activation. */
+/* The inactive tab stays mounted -- a console holds a live PTY connection
+   that must survive switching to Overview or another console and back. */
+app-overview-tab.tab-hidden,
 app-terminal.tab-hidden {
   display: none;
 }

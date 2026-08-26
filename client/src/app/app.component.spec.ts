@@ -62,9 +62,17 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/issues').flush([]);
   }
 
-  /** The sidenav fetches its own project list and each project's tree (#44). */
+  /**
+   * The sidenav fetches its own project list and each project's tree (#44). Both
+   * callers of this helper load an issue directly from the initial route, so
+   * MainContentComponent is already mounted in the same change-detection pass and
+   * fires its own project-list fetch (#96) alongside the sidenav's -- two requests
+   * for the same URL, not one.
+   */
   function flushSidenav(): void {
-    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
   }
 
@@ -103,6 +111,12 @@ describe('AppComponent', () => {
       prDraft: false,
       flowSteps: [],
     });
+    // MainContentComponent's own project-list fetch, to derive the overview tab's
+    // GitHub links (#96). Usually a fresh request here, but when the issue was
+    // already selected on the initial route, MainContentComponent mounted in the
+    // same change-detection pass as the sidenav and flushSidenav() already
+    // flushed it alongside the sidenav's own -- so 0 or 1, never asserted at 1.
+    httpMock.match('/api/projects').forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush([]);
   }
 

@@ -1,13 +1,13 @@
 @if (issue) {
-  <app-issue-header [issue]="issue" [detail]="detail" />
+  <app-issue-header [issue]="issue" />
   @if (detail) {
     <app-flow-strip [steps]="detail.flowSteps" />
   }
   <app-console-tabs
     [tabs]="tabs"
-    [selected]="selectedConsole"
+    [selected]="activeTab"
     [starting]="starting"
-    (selectedChange)="selectConsole($event)"
+    (selectedChange)="onTabSelected($event)"
     (open)="openConsole($event)"
     (close)="closeConsole($event)"
   />
@@ -17,17 +17,20 @@
   @if (closeError) {
     <div class="action-error">could not close that console — try again</div>
   }
+  <app-overview-tab
+    [class.tab-hidden]="activeTab !== overviewId"
+    [issue]="issue"
+    [detail]="detail"
+    [repoWebUrl]="repoWebUrl"
+  />
   @for (console of consoles; track console.id) {
     <app-terminal
-      [class.tab-hidden]="console.id !== selectedConsole"
+      [class.tab-hidden]="console.id !== activeTab"
       [sessionId]="console.id"
       [dir]="console.dir"
       [cmd]="console.agent"
-      [active]="console.id === selectedConsole"
+      [active]="console.id === activeTab"
     />
-  }
-  @if (consoles.length === 0) {
-    <div class="no-session">no live console for this issue yet</div>
   }
 } @else {
   <div class="loading">loading issue #{{ issueNumber }}…</div>

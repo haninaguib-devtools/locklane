@@ -1,15 +1,26 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { IssueDetail } from '../../models/issue.model';
+import { Component, Input } from '@angular/core';
+import { GhIssue, IssueDetail } from '../../models/issue.model';
 
 @Component({
-  selector: 'app-details-popup',
+  selector: 'app-overview-tab',
   standalone: true,
-  templateUrl: './details-popup.component.html',
-  styleUrl: './details-popup.component.css',
+  templateUrl: './overview-tab.component.html',
+  styleUrl: './overview-tab.component.css',
 })
-export class DetailsPopupComponent {
+export class OverviewTabComponent {
+  @Input({ required: true }) issue!: GhIssue;
   @Input() detail: IssueDetail | null = null;
-  @Output() closed = new EventEmitter<void>();
+  @Input() repoWebUrl: string | null = null;
+
+  get issueUrl(): string | null {
+    return this.repoWebUrl ? `${this.repoWebUrl}/issues/${this.issue.number}` : null;
+  }
+
+  get prUrl(): string | null {
+    return this.repoWebUrl && this.detail?.prNumber
+      ? `${this.repoWebUrl}/pull/${this.detail.prNumber}`
+      : null;
+  }
 
   checksLabel(detail: IssueDetail): string {
     const { passing, failing, pending } = detail.checks;

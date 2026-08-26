@@ -4,7 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { MainContentComponent } from './main-content.component';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
-import { GhIssue, IssueDetail } from '../../models/issue.model';
+import { GhIssue, IssueDetail, Project } from '../../models/issue.model';
 
 describe('MainContentComponent', () => {
   let httpMock: HttpTestingController;
@@ -56,8 +56,21 @@ describe('MainContentComponent', () => {
       prDraft: false,
       flowSteps: [{ name: 'open', done: true }],
     };
+    const projects: Project[] = [
+      {
+        id: 1,
+        name: 'repo',
+        gitUrl: 'https://github.com/org/repo.git',
+        workareaPath: '/tmp/repo',
+        defaultBranch: 'main',
+        status: 'READY',
+        createdAt: '',
+      },
+    ];
+
     httpMock.expectOne(`/api/projects/1/issues/${number}`).flush(issue);
     httpMock.expectOne(`/api/projects/1/issues/${number}/detail`).flush(detail);
+    httpMock.expectOne('/api/projects').flush(projects);
     httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush(consoleIds);
   }
 
@@ -211,5 +224,80 @@ describe('MainContentComponent', () => {
 
     expect(fixture.componentInstance.closeError).toBeTrue();
     expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['1-7-main-a1b2c3d4']);
+  });
+
+  it('defaults to the overview tab and derives the repo web url from the project', () => {
+    const fixture = init(7);
+    respond(7, []);
+
+    expect(fixture.componentInstance.activeTab).toBe('overview');
+    expect(fixture.componentInstance.repoWebUrl).toBe('https://github.com/org/repo');
+  });
+
+  it('switches to a console tab and back to overview', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4']);
+
+    fixture.componentInstance.selectConsole('1-7-main-a1b2c3d4');
+    expect(fixture.componentInstance.activeTab).toBe('1-7-main-a1b2c3d4');
+
+    fixture.componentInstance.selectOverview();
+    expect(fixture.componentInstance.activeTab).toBe('overview');
+  });
+
+  it('dispatches a merged tab-strip click to selectOverview or selectConsole', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4']);
+
+    fixture.componentInstance.onTabSelected('1-7-main-a1b2c3d4');
+    expect(fixture.componentInstance.activeTab).toBe('1-7-main-a1b2c3d4');
+
+    fixture.componentInstance.onTabSelected('overview');
+    expect(fixture.componentInstance.activeTab).toBe('overview');
+  });
+
+  it('opening a console switches the active tab to it', () => {
+    const fixture = init(8);
+    respond(8, []);
+
+    fixture.componentInstance.openConsole({ worktree: false, agent: 'codex' });
+    httpMock
+      .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
+      .flush({ worktreeId: '1-8-main-a1b2c3d4', workingDirectory: '/tmp/repo' });
+
+    expect(fixture.componentInstance.activeTab).toBe('1-8-main-a1b2c3d4');
+  });
+
+  it('closing the active console falls back to the next remaining tab', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
+    fixture.componentInstance.selectConsole('1-7-main-a1b2c3d4');
+
+    fixture.componentInstance.closeConsole('1-7-main-a1b2c3d4');
+    httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
+
+    expect(fixture.componentInstance.activeTab).toBe('1-7-rename-toggle');
+  });
+
+  it('closing the only active console falls back to overview', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4']);
+    fixture.componentInstance.selectConsole('1-7-main-a1b2c3d4');
+
+    fixture.componentInstance.closeConsole('1-7-main-a1b2c3d4');
+    httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
+
+    expect(fixture.componentInstance.activeTab).toBe('overview');
+  });
+
+  it('closing a console that is not the active tab leaves the active tab alone', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
+    fixture.componentInstance.selectConsole('1-7-rename-toggle');
+
+    fixture.componentInstance.closeConsole('1-7-main-a1b2c3d4');
+    httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
+
+    expect(fixture.componentInstance.activeTab).toBe('1-7-rename-toggle');
   });
 });

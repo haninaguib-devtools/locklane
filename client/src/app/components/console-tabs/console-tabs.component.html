@@ -1,4 +1,16 @@
 <div class="tabs" role="tablist">
+  <span class="tab-wrap" [class.active]="overviewId === selected">
+    <button
+      type="button"
+      role="tab"
+      class="tab"
+      [class.active]="overviewId === selected"
+      [attr.aria-selected]="overviewId === selected"
+      (click)="select(overviewId)"
+    >
+      Overview
+    </button>
+  </span>
   @for (tab of tabs; track tab.id) {
     <span class="tab-wrap" [class.active]="tab.id === selected">
       <button
@@ -20,9 +32,6 @@
         ×
       </button>
     </span>
-  }
-  @if (tabs.length === 0) {
-    <span class="empty">no consoles yet for this issue</span>
   }
   <div class="plus-wrap">
     <button
