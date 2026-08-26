@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { Agent } from '../../services/agent-store';
 import { ConsoleTab } from './console-labels';
 
@@ -35,5 +35,23 @@ export class ConsoleTabsComponent {
   confirmOpen(): void {
     this.pickerOpen = false;
     this.open.emit({ worktree: this.location === 'worktree', agent: this.agent });
+  }
+
+  // Bound to `document` (not the host) so a click anywhere else on the page reaches
+  // it, including outside this component entirely.
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.pickerOpen) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest('app-console-tabs')) {
+      this.pickerOpen = false;
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    this.pickerOpen = false;
   }
 }
