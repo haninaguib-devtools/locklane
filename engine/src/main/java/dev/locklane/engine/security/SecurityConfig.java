@@ -14,7 +14,11 @@ import org.springframework.http.HttpStatus;
 /**
  * Wires up session-based login for {@code POST /api/auth/login} /
  * {@code POST /api/auth/logout} (#47) plus the session check at
- * {@code GET /api/auth/me} (#58), and gates behind it: the worktree-session
+ * {@code GET /api/auth/me} (#58), and gates behind it: the two-factor
+ * enrollment endpoints for the signed-in account (everything under
+ * {@code /api/account/2fa/}, #88 — turning 2FA on and off is account
+ * self-service, so it presupposes a session rather than establishing one);
+ * the worktree-session
  * endpoints (list/start under {@code /api/projects/{projectId}/issues/{number}/worktrees},
  * #48, nested under a project id since #43; the cross-issue listing under
  * {@code /api/projects/{projectId}/consoles}, #32), the project CRUD endpoints
@@ -48,6 +52,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/me").authenticated()
+                        .requestMatchers("/api/account/2fa/**").authenticated()
                         .requestMatchers("/api/projects").authenticated()
                         .requestMatchers("/api/projects/*").authenticated()
                         .requestMatchers("/api/projects/*/retry").authenticated()
