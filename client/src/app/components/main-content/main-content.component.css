@@ -17,6 +17,42 @@
   background: var(--window);
 }
 
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 8px 4px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.tab-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The inactive tab's panel stays mounted -- the console panel holds a live PTY
+   connection that must survive switching to Overview and back. */
+.tab-panel.tab-hidden {
+  display: none;
+}
+
 /* A non-selected console tab stays mounted (its WebSocket and scrollback live
    in the component) but takes no space; the terminal re-fits on activation. */
 app-terminal.tab-hidden {

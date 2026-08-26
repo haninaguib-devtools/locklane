@@ -1,0 +1,49 @@
+.overview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--window);
+}
+
+.body {
+  margin: 0;
+  padding: 16px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.details {
+  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+dt {
+  font-size: 11px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+dd {
+  font-size: 12px;
+  font-family: var(--mono);
+  word-break: break-word;
+}
+
+dd a {
+  color: var(--accent);
+}
+
+.loading {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--faint);
+}

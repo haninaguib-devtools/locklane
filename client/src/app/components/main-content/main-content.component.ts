@@ -1,14 +1,18 @@
 import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
 import { GhIssue, IssueDetail } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
+import { ProjectsService } from '../../services/projects.service';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { ConsolesService } from '../../services/consoles.service';
 import { IssueHeaderComponent } from '../issue-header/issue-header.component';
-import { FlowStripComponent } from '../flow-strip/flow-strip.component';
+import { OverviewTabComponent } from '../overview-tab/overview-tab.component';
 import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
 import { ConsoleTab, labelConsoles } from '../console-tabs/console-labels';
 import { TerminalComponent } from '../terminal/terminal.component';
+import { repoWebUrl } from './repo-web-url';
+
+export type IssuePageTab = 'overview' | 'console';
 
 // One console tab's client-side state. `dir` is only known for a session this
 // page just started — reconnects leave it null and the engine resolves the
@@ -22,12 +26,13 @@ interface OpenConsole {
 @Component({
   selector: 'app-main-content',
   standalone: true,
-  imports: [IssueHeaderComponent, FlowStripComponent, ConsoleTabsComponent, TerminalComponent],
+  imports: [IssueHeaderComponent, OverviewTabComponent, ConsoleTabsComponent, TerminalComponent],
   templateUrl: './main-content.component.html',
   styleUrl: './main-content.component.css',
 })
 export class MainContentComponent implements OnChanges {
   private readonly issuesService = inject(IssuesService);
+  private readonly projectsService = inject(ProjectsService);
   private readonly consolesService = inject(ConsolesService);
   private readonly agentStore = inject(AgentStore);
   private readonly activeConsoleStore = inject(ActiveConsoleStore);
@@ -37,6 +42,8 @@ export class MainContentComponent implements OnChanges {
 
   issue: GhIssue | null = null;
   detail: IssueDetail | null = null;
+  repoWebUrl: string | null = null;
+  activeTab: IssuePageTab = 'overview';
   consoles: OpenConsole[] = [];
   tabs: ConsoleTab[] = [];
   selectedConsole: string | null = null;
@@ -51,9 +58,15 @@ export class MainContentComponent implements OnChanges {
     }
   }
 
+  selectTab(tab: IssuePageTab): void {
+    this.activeTab = tab;
+  }
+
   private load(projectId: number, number: number): void {
     this.issue = null;
     this.detail = null;
+    this.repoWebUrl = null;
+    this.activeTab = 'overview';
     this.consoles = [];
     this.tabs = [];
     this.selectedConsole = null;
@@ -65,6 +78,10 @@ export class MainContentComponent implements OnChanges {
     });
     this.issuesService.detail(projectId, number).subscribe((detail) => {
       this.detail = detail;
+    });
+    this.projectsService.list().subscribe((projects) => {
+      const project = projects.find((p) => p.id === projectId);
+      this.repoWebUrl = project ? repoWebUrl(project.gitUrl) : null;
     });
     this.issuesService.worktrees(projectId, number).subscribe((ids) => {
       this.consoles = ids.map((id) => ({ id, dir: null, agent: this.agentStore.get(id) }));

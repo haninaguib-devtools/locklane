@@ -34,13 +34,4 @@ describe('IssueHeaderComponent', () => {
 
     expect(c.shortDescription).toBe('');
   });
-
-  it('starts with the popup closed', () => {
-    const c = new IssueHeaderComponent();
-    expect(c.popupOpen).toBeFalse();
-    c.togglePopup();
-    expect(c.popupOpen).toBeTrue();
-    c.togglePopup();
-    expect(c.popupOpen).toBeFalse();
-  });
 });

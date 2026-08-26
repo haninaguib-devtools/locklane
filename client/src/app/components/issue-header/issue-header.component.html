@@ -1,17 +1,9 @@
 <div class="header">
-  <div class="title-row">
-    <h1>
-      {{ issue.title }}
-      <span class="number">#{{ issue.number }}</span>
-    </h1>
-    <button type="button" class="help-icon" (click)="togglePopup()" aria-label="Task details">
-      ?
-    </button>
-  </div>
+  <h1>
+    {{ issue.title }}
+    <span class="number">#{{ issue.number }}</span>
+  </h1>
   @if (shortDescription) {
     <p class="description">{{ shortDescription }}</p>
   }
 </div>
-@if (popupOpen) {
-  <app-details-popup [detail]="detail" (closed)="togglePopup()" />
-}

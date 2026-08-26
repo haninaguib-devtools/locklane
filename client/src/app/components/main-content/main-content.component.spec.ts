@@ -4,7 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { MainContentComponent } from './main-content.component';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
-import { GhIssue, IssueDetail } from '../../models/issue.model';
+import { GhIssue, IssueDetail, Project } from '../../models/issue.model';
 
 describe('MainContentComponent', () => {
   let httpMock: HttpTestingController;
@@ -56,8 +56,21 @@ describe('MainContentComponent', () => {
       prDraft: false,
       flowSteps: [{ name: 'open', done: true }],
     };
+    const projects: Project[] = [
+      {
+        id: 1,
+        name: 'repo',
+        gitUrl: 'https://github.com/org/repo.git',
+        workareaPath: '/tmp/repo',
+        defaultBranch: 'main',
+        status: 'READY',
+        createdAt: '',
+      },
+    ];
+
     httpMock.expectOne(`/api/projects/1/issues/${number}`).flush(issue);
     httpMock.expectOne(`/api/projects/1/issues/${number}/detail`).flush(detail);
+    httpMock.expectOne('/api/projects').flush(projects);
     httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush(consoleIds);
   }
 
@@ -211,5 +224,24 @@ describe('MainContentComponent', () => {
 
     expect(fixture.componentInstance.closeError).toBeTrue();
     expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['1-7-main-a1b2c3d4']);
+  });
+
+  it('defaults to the overview tab and derives the repo web url from the project', () => {
+    const fixture = init(7);
+    respond(7, []);
+
+    expect(fixture.componentInstance.activeTab).toBe('overview');
+    expect(fixture.componentInstance.repoWebUrl).toBe('https://github.com/org/repo');
+  });
+
+  it('switches to the console tab and back', () => {
+    const fixture = init(7);
+    respond(7, []);
+
+    fixture.componentInstance.selectTab('console');
+    expect(fixture.componentInstance.activeTab).toBe('console');
+
+    fixture.componentInstance.selectTab('overview');
+    expect(fixture.componentInstance.activeTab).toBe('overview');
   });
 });
