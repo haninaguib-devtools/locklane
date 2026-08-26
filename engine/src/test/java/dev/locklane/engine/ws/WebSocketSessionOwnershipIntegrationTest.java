@@ -52,7 +52,7 @@ class WebSocketSessionOwnershipIntegrationTest {
         RecordingHandler aliceHandler = new RecordingHandler();
         WebSocketSession aliceSession =
                 AuthenticatedWebSocketClients.connect(aliceHandler, aliceCookie, uri(worktreeId, workDir));
-        aliceSession.sendMessage(new TextMessage("echo alices-output\n"));
+        aliceSession.sendMessage(new TextMessage("0echo alices-output\n"));
         waitUntil(() -> aliceHandler.combined().contains("alices-output"), Duration.ofSeconds(5));
 
         RecordingHandler bobHandler = new RecordingHandler();
@@ -73,7 +73,7 @@ class WebSocketSessionOwnershipIntegrationTest {
         RecordingHandler first = new RecordingHandler();
         WebSocketSession firstSession =
                 AuthenticatedWebSocketClients.connect(first, aliceCookie, uri(worktreeId, workDir));
-        firstSession.sendMessage(new TextMessage("echo first-connection\n"));
+        firstSession.sendMessage(new TextMessage("0echo first-connection\n"));
         waitUntil(() -> first.combined().contains("first-connection"), Duration.ofSeconds(5));
         firstSession.close();
         waitUntil(() -> !firstSession.isOpen(), Duration.ofSeconds(5));

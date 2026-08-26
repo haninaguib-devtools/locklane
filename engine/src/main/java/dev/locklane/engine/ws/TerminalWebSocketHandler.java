@@ -17,19 +17,30 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Attaches a browser client to a session's {@link PtySession} over WebSocket:
- * {@code /ws/sessions/{sessionId}[?dir=<path>][&cmd=<claude|codex|shell>]}. {@code dir}
- * is required only the first time a session is seen; after that its working directory
- * is already known (in-memory if the session is still live, or from SQLite via
+ * {@code /ws/sessions/{sessionId}[?dir=<path>][&cmd=<claude|codex|shell>][&cols=<n>&rows=<n>]}.
+ * {@code dir} is required only the first time a session is seen; after that its working
+ * directory is already known (in-memory if the session is still live, or from SQLite via
  * {@link SessionRegistry#lastKnownWorkingDirectory} after a restart). {@code cmd}
  * chooses what a brand-new session launches — an agent CLI (e.g. {@code claude},
  * {@code codex}) or a plain shell (the default, when {@code cmd} is absent or
  * {@code shell}) — and is ignored on a reattach to an already-running session.
+ * {@code cols}/{@code rows} size a brand-new session's PTY to the browser terminal's
+ * actual size instead of a hardcoded default (#62); once attached, later size changes
+ * arrive as resize messages (see below), not new query parameters.
  *
  * <p>Closing a connection never kills the underlying session (#7's done-when) — only
  * this connection's subscription is torn down, so the session keeps running and
  * producing output for the next client to reattach and replay.
+ *
+ * <p>An inbound text message carries a one-character type tag the client always
+ * prepends (#62) — {@code '0'} for keystroke input, {@code '1'} for a resize — so a
+ * keystroke's own bytes are never mistaken for the tag: the client wraps every
+ * message it sends rather than ever forwarding raw terminal bytes on their own.
  */
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
+
+    private static final char INPUT = '0';
+    private static final char RESIZE = '1';
 
     private final SessionRegistry sessionRegistry;
     private final Map<String, AutoCloseable> subscriptions = new ConcurrentHashMap<>();
@@ -60,7 +71,10 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         }
 
         String[] launchCommand = resolveLaunchCommand(queryParam(wsSession, "cmd"));
-        PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launchCommand, username);
+        Integer columns = parseIntParam(wsSession, "cols");
+        Integer rows = parseIntParam(wsSession, "rows");
+        PtySession session =
+                sessionRegistry.attach(sessionId, workingDirectory, launchCommand, username, columns, rows);
 
         // Replay everything produced so far before subscribing, so nothing produced
         // between the snapshot and the subscription taking effect is lost or
@@ -72,8 +86,35 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     protected void handleTextMessage(WebSocketSession wsSession, TextMessage message) {
+        String payload = message.getPayload();
+        if (payload.isEmpty()) {
+            return;
+        }
+        char type = payload.charAt(0);
+        String body = payload.substring(1);
         String sessionId = sessionId(wsSession);
-        sessionRegistry.find(sessionId).ifPresent(session -> session.write(message.getPayload()));
+        sessionRegistry.find(sessionId).ifPresent(session -> {
+            if (type == INPUT) {
+                session.write(body);
+            } else if (type == RESIZE) {
+                resize(session, body);
+            }
+        });
+    }
+
+    /** {@code body} is {@code "<columns>x<rows>"} (e.g. {@code "120x40"}); malformed is ignored. */
+    private static void resize(PtySession session, String body) {
+        int separator = body.indexOf('x');
+        if (separator < 0) {
+            return;
+        }
+        try {
+            int columns = Integer.parseInt(body.substring(0, separator));
+            int rows = Integer.parseInt(body.substring(separator + 1));
+            session.resize(columns, rows);
+        } catch (NumberFormatException ignored) {
+            // Not a resize this handler can act on; nothing productive to do with it.
+        }
     }
 
     @Override
@@ -117,6 +158,18 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             return null;
         }
         return new String[] {cmd};
+    }
+
+    private static Integer parseIntParam(WebSocketSession wsSession, String name) {
+        String raw = queryParam(wsSession, name);
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static String queryParam(WebSocketSession wsSession, String name) {

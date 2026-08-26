@@ -59,7 +59,7 @@ class WebSocketOriginRestrictionIntegrationTest {
                 .execute(handler, headers, URI.create(uri(worktreeId, workDir)))
                 .get();
 
-        session.sendMessage(new TextMessage("echo from-allowed-origin\n"));
+        session.sendMessage(new TextMessage("0echo from-allowed-origin\n"));
         waitUntil(() -> handler.combined().contains("from-allowed-origin"), Duration.ofSeconds(5));
 
         session.close();
