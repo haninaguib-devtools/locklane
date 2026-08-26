@@ -124,10 +124,11 @@ public class AccountTwoFactorController {
         }
 
         // The read above saw a secret, but nothing holds it there: a disable from another
-        // session can clear it in between, and the UPDATE is scoped to a row that still has
-        // one. Zero rows means the enrollment went away, and saying "enabled" here would
-        // leave the user believing in a second factor that does not exist.
-        if (userRepository.enableTotp(username) == 0) {
+        // session can clear it in between (#88), or a fresh enroll can replace it with a
+        // different pending secret (#106). Scoping the UPDATE to the exact ciphertext just
+        // verified means either case leaves zero rows matched, and saying "enabled" here
+        // would otherwise leave the user believing in a second factor that is not theirs.
+        if (userRepository.enableTotp(username, user.totpSecret()) == 0) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", "that enrollment was cleared before it could be confirmed; start again"));
         }

@@ -7,11 +7,13 @@ import dev.locklane.engine.persistence.UserRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
@@ -40,7 +42,15 @@ class AccountTwoFactorIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
+    /**
+     * A spy, not a plain {@code @Autowired} bean: {@link
+     * #confirmDoesNotEnableTwoFactorAgainstASecretReplacedMidRequest()} needs to inject a
+     * concurrent enrollment into the exact instant between {@code confirm}'s read of the pending
+     * secret and its update, which no amount of sequential setup can reproduce — a real second
+     * request would have to land in a window measured in nanoseconds. Every other test uses this
+     * field exactly as a plain {@code UserRepository}; a spy with nothing stubbed just delegates.
+     */
+    @MockitoSpyBean
     private UserRepository userRepository;
 
     @Autowired
@@ -51,11 +61,13 @@ class AccountTwoFactorIntegrationTest {
     /**
      * The test database is a file that outlives a single test, so 2FA state has to be cleared
      * on the way in as well as out — otherwise the order tests happen to run in decides whether
-     * an enrollment is already pending.
+     * an enrollment is already pending. Resetting the spy here too means a stub left behind by
+     * one test (deliberately, to simulate a race) can never leak into the next.
      */
     @BeforeEach
     @AfterEach
     void clearTwoFactorState() {
+        Mockito.reset(userRepository);
         userRepository.disableTotp(USERNAME);
     }
 
@@ -148,6 +160,45 @@ class AccountTwoFactorIntegrationTest {
         mockMvc.perform(confirmWith(session, totpService.currentCode(secret, Instant.now())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(true));
+    }
+
+    /**
+     * The hole #106 closes: a second enrollment (someone else's, on a stolen session, or the
+     * same user re-scanning) can replace the pending secret in the instant between {@code
+     * confirm} reading it and updating the row. Before the fix, the UPDATE was scoped only to
+     * "some secret is present", so it would enable 2FA anyway — against the *new* secret, even
+     * though the code the user typed only ever proved they held the *old* one.
+     *
+     * <p>A real race would need another request to land in a window a few machine instructions
+     * wide, which no amount of thread juggling reproduces reliably. Instead, the spy intercepts
+     * {@code confirm}'s own read of the pending secret and, right after it returns that secret to
+     * the caller (exactly as a genuine read would), performs the replacement as a side effect —
+     * so {@code confirm} verifies the code against the secret it actually read, then updates
+     * against a row that has already moved on. Everything else in {@code confirm} runs
+     * unmodified.
+     */
+    @Test
+    void confirmDoesNotEnableTwoFactorAgainstASecretReplacedMidRequest() throws Exception {
+        MockHttpSession session = login();
+        String firstSecret = enroll(session).get("manualKey").asText();
+        String validCodeForFirstSecret = totpService.currentCode(firstSecret, Instant.now());
+
+        Mockito.doAnswer(invocation -> {
+            Object result = invocation.callRealMethod();
+            userRepository.startTotpEnrollment(USERNAME, "replaced-by-a-second-enrollment");
+            return result;
+        }).when(userRepository).findByUsername(USERNAME);
+
+        mockMvc.perform(confirmWith(session, validCodeForFirstSecret))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error")
+                        .value("that enrollment was cleared before it could be confirmed; start again"));
+
+        Mockito.reset(userRepository);
+        assertThat(userRepository.findByUsername(USERNAME).orElseThrow().totpEnabled())
+                .as("the code only ever proved the FIRST secret; 2FA must not switch on against "
+                        + "whatever secret is on the row by the time the update runs")
+                .isFalse();
     }
 
     @Test
