@@ -9,7 +9,7 @@ import {
   ViewChild,
 } from '@angular/core';
 import { FitAddon } from '@xterm/addon-fit';
-import { Terminal } from '@xterm/xterm';
+import { IDisposable, Terminal } from '@xterm/xterm';
 import { TerminalSession } from '../../services/terminal-session';
 
 // One console tab's terminal. An instance is bound to a single session for its
@@ -33,6 +33,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   private term: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
   private session: TerminalSession | null = null;
+  private resizeSub: IDisposable | null = null;
+  private resizeObserver: ResizeObserver | null = null;
 
   ngAfterViewInit(): void {
     this.term = new Terminal({
@@ -48,6 +50,18 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       this.fitAddon.fit();
     }
     this.term.onData((input) => this.session?.send(input));
+    // Fires for every size xterm settles on — the initial fit above, a later
+    // tab-becomes-active fit, and the ResizeObserver-driven fit below — so the
+    // server's PTY is told every time, not just once at connect.
+    this.resizeSub = this.term.onResize(({ cols, rows }) => this.session?.resize(cols, rows));
+    // xterm's FitAddon never observes its own container; nothing previously
+    // reacted to the browser window (or a split/panel) changing size at all (#62).
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.active) {
+        this.fitAddon?.fit();
+      }
+    });
+    this.resizeObserver.observe(this.container.nativeElement);
     this.connect();
   }
 
@@ -60,12 +74,20 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeSub?.dispose();
     this.session?.close();
     this.term?.dispose();
   }
 
   private connect(): void {
-    this.session = new TerminalSession(this.sessionId, this.dir, this.cmd);
+    this.session = new TerminalSession(
+      this.sessionId,
+      this.dir,
+      this.cmd,
+      this.term?.cols ?? null,
+      this.term?.rows ?? null,
+    );
     this.session.connect(
       (text) => this.term?.write(text),
       () => {

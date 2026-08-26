@@ -2,6 +2,7 @@ package dev.locklane.engine.pty;
 
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
+import com.pty4j.WinSize;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,13 +36,16 @@ public final class PtySession {
     private final Set<OutputListener> listeners = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    PtySession(String sessionId, Path workingDirectory, String[] command, Map<String, String> environment) {
+    PtySession(String sessionId, Path workingDirectory, String[] command, Map<String, String> environment,
+            int initialColumns, int initialRows) {
         this.sessionId = sessionId;
         try {
             this.process = new PtyProcessBuilder()
                     .setCommand(command)
                     .setDirectory(workingDirectory.toString())
                     .setEnvironment(environment)
+                    .setInitialColumns(initialColumns)
+                    .setInitialRows(initialRows)
                     .start();
         } catch (IOException e) {
             throw new PtySessionStartException(sessionId, e);
@@ -104,6 +108,11 @@ public final class PtySession {
 
     public boolean isAlive() {
         return process.isAlive();
+    }
+
+    /** Tells the running process its terminal changed size (SIGWINCH on Unix). */
+    public void resize(int columns, int rows) {
+        process.setWinSize(new WinSize(columns, rows));
     }
 
     void close() {

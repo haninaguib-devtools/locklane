@@ -25,6 +25,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class SessionRegistry {
 
+    // pty4j's own default when nobody says otherwise — used only for a session's
+    // first attach; a browser terminal reports its real size moments later (#62).
+    private static final int DEFAULT_COLUMNS = 80;
+    private static final int DEFAULT_ROWS = 24;
+
     private final Map<String, PtySession> sessions = new ConcurrentHashMap<>();
     private final String[] shellCommand;
     private final WorktreeSessionRepository repository;
@@ -43,9 +48,22 @@ public class SessionRegistry {
      * see {@link dev.locklane.engine.persistence.WorktreeSessionRepository#recordAttach}.
      */
     public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand, String ownerUsername) {
+        return attach(sessionId, workingDirectory, launchCommand, ownerUsername, null, null);
+    }
+
+    /**
+     * As above, but a brand-new session's PTY starts at the given size instead of
+     * pty4j's own default — {@code columns}/{@code rows} are only consulted the first
+     * time a session is seen; a reattach reaches the process already running, at
+     * whatever size it already is (a client that cares sends a resize once attached).
+     */
+    public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand, String ownerUsername,
+            Integer columns, Integer rows) {
         String[] command = launchCommand != null ? launchCommand : shellCommand;
+        int initialColumns = columns != null ? columns : DEFAULT_COLUMNS;
+        int initialRows = rows != null ? rows : DEFAULT_ROWS;
         PtySession session = sessions.computeIfAbsent(sessionId,
-                id -> new PtySession(id, workingDirectory, command, System.getenv()));
+                id -> new PtySession(id, workingDirectory, command, System.getenv(), initialColumns, initialRows));
         repository.recordAttach(sessionId, workingDirectory, Instant.now(), ownerUsername);
         return session;
     }

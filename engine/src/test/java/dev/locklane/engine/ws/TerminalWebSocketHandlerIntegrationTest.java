@@ -45,7 +45,7 @@ class TerminalWebSocketHandlerIntegrationTest {
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri(worktreeId, workDir));
 
-        session.sendMessage(new TextMessage("echo hello-over-the-wire\n"));
+        session.sendMessage(new TextMessage("0echo hello-over-the-wire\n"));
         waitUntil(() -> client.combined().contains("hello-over-the-wire"), Duration.ofSeconds(5));
 
         session.close();
@@ -59,7 +59,7 @@ class TerminalWebSocketHandlerIntegrationTest {
 
         RecordingHandler first = new RecordingHandler();
         WebSocketSession firstSession = AuthenticatedWebSocketClients.connect(first, cookie, uri(worktreeId, workDir));
-        firstSession.sendMessage(new TextMessage("echo produced-before-disconnect\n"));
+        firstSession.sendMessage(new TextMessage("0echo produced-before-disconnect\n"));
         waitUntil(() -> first.combined().contains("produced-before-disconnect"), Duration.ofSeconds(5));
 
         firstSession.close(); // the client disconnecting — the session must survive this
@@ -73,14 +73,64 @@ class TerminalWebSocketHandlerIntegrationTest {
 
         waitUntil(() -> second.combined().contains("produced-before-disconnect"), Duration.ofSeconds(5));
 
-        secondSession.sendMessage(new TextMessage("echo produced-after-reattach\n"));
+        secondSession.sendMessage(new TextMessage("0echo produced-after-reattach\n"));
         waitUntil(() -> second.combined().contains("produced-after-reattach"), Duration.ofSeconds(5));
 
         secondSession.close();
     }
 
+    @Test
+    void aNewSessionsPtyStartsAtTheRequestedSize(@TempDir Path workDir) throws Exception {
+        String worktreeId = "ws-worktree-initial-size";
+        String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
+                "ws-handler-initial-size", "password-initial-size");
+        RecordingHandler client = new RecordingHandler();
+        WebSocketSession session =
+                AuthenticatedWebSocketClients.connect(client, cookie, uriWithSize(worktreeId, workDir, 150, 45));
+
+        session.sendMessage(new TextMessage("0stty size\n"));
+        waitUntil(() -> client.combined().contains("45 150"), Duration.ofSeconds(5));
+
+        session.close();
+    }
+
+    @Test
+    void aClientCanResizeTheSessionsPtyAfterAttaching(@TempDir Path workDir) throws Exception {
+        String worktreeId = "ws-worktree-resize";
+        String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
+                "ws-handler-resize", "password-resize");
+        RecordingHandler client = new RecordingHandler();
+        WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri(worktreeId, workDir));
+
+        session.sendMessage(new TextMessage("1120x40"));
+        session.sendMessage(new TextMessage("0stty size\n"));
+        waitUntil(() -> client.combined().contains("40 120"), Duration.ofSeconds(5));
+
+        session.close();
+    }
+
+    @Test
+    void aMalformedResizeMessageIsIgnoredRatherThanBreakingTheConnection(@TempDir Path workDir) throws Exception {
+        String worktreeId = "ws-worktree-bad-resize";
+        String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
+                "ws-handler-bad-resize", "password-bad-resize");
+        RecordingHandler client = new RecordingHandler();
+        WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri(worktreeId, workDir));
+
+        session.sendMessage(new TextMessage("1not-a-size"));
+        session.sendMessage(new TextMessage("0echo still-alive-after-bad-resize\n"));
+        waitUntil(() -> client.combined().contains("still-alive-after-bad-resize"), Duration.ofSeconds(5));
+
+        session.close();
+    }
+
     private String uri(String worktreeId, Path workDir) {
         return "ws://localhost:%d/ws/sessions/%s?dir=%s".formatted(port, worktreeId, workDir);
+    }
+
+    private String uriWithSize(String worktreeId, Path workDir, int cols, int rows) {
+        return "ws://localhost:%d/ws/sessions/%s?dir=%s&cols=%d&rows=%d".formatted(port, worktreeId, workDir, cols,
+                rows);
     }
 
     private String uriWithoutDir(String worktreeId) {
