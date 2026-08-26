@@ -24,6 +24,56 @@ class UserRepositoryTest {
     }
 
     @Test
+    void aNewUserHasNoTotpSecretAndTwoFactorOff(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        UserRecord created = repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+
+        assertThat(created.totpSecret()).isNull();
+        assertThat(created.totpEnabled()).isFalse();
+    }
+
+    @Test
+    void aStartedEnrollmentIsStoredButLeavesTwoFactorOff(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+
+        repository.startTotpEnrollment("hani", "encrypted-secret");
+
+        UserRecord found = repository.findByUsername("hani").orElseThrow();
+        assertThat(found.totpSecret()).isEqualTo("encrypted-secret");
+        assertThat(found.totpEnabled()).isFalse();
+    }
+
+    @Test
+    void enablingTurnsTwoFactorOnAndDisablingForgetsTheSecret(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+        repository.startTotpEnrollment("hani", "encrypted-secret");
+
+        repository.enableTotp("hani");
+        assertThat(repository.findByUsername("hani").orElseThrow().totpEnabled()).isTrue();
+
+        repository.disableTotp("hani");
+        UserRecord after = repository.findByUsername("hani").orElseThrow();
+        assertThat(after.totpEnabled()).isFalse();
+        assertThat(after.totpSecret()).isNull();
+    }
+
+    @Test
+    void enablingWithNoSecretStoredDoesNothing(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+
+        repository.enableTotp("hani");
+
+        assertThat(repository.findByUsername("hani").orElseThrow().totpEnabled())
+                .as("2FA must never be on against a NULL secret — that is an account locked out "
+                        + "of a factor it has no way to produce")
+                .isFalse();
+    }
+
+    @Test
     void unknownUsernameIsNotFound(@TempDir Path dbDir) {
         UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
 

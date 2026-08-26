@@ -74,6 +74,14 @@
       <artifactId>pty4j</artifactId>
       <version>0.12.13</version>
     </dependency>
+    <!-- The QR code for TOTP enrollment (#88): zxing turns the otpauth:// URI into a
+         module grid, and the PNG itself is written with the JDK's own ImageIO — which is
+         why only `core` is here and not the `javase` companion artifact. -->
+    <dependency>
+      <groupId>com.google.zxing</groupId>
+      <artifactId>core</artifactId>
+      <version>3.5.4</version>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
