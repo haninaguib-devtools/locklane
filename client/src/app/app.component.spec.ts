@@ -256,4 +256,91 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-login')).toBeTruthy();
     expect(compiled.querySelector('.shell')).toBeFalsy();
   }));
+
+  /**
+   * The account menu (#90). `logIn()` signs in as 'someone', so that is the name
+   * the menu header shows and 's' the avatar's initial.
+   */
+  function openedApp(): ReturnType<typeof TestBed.createComponent<AppComponent>> {
+    logIn();
+    navigateToDefaultProject();
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    flushSidenavAndSummary();
+    flushConsoleIndicator();
+    return fixture;
+  }
+
+  it('shows the avatar button instead of a flat logout button', fakeAsync(() => {
+    const fixture = openedApp();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.logout')).toBeFalsy();
+    expect(compiled.querySelector('.avatar')?.textContent?.trim()).toBe('s');
+    expect(compiled.querySelector('.account-menu')).toBeFalsy();
+  }));
+
+  it('toggles the account menu from the avatar, showing the username, a separator, Settings and Sign out', fakeAsync(() => {
+    const fixture = openedApp();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('.account-identity')?.textContent?.trim()).toBe('someone');
+    expect(compiled.querySelector('.account-separator')).toBeTruthy();
+    const items = Array.from(compiled.querySelectorAll('.account-item')).map((el) =>
+      el.textContent?.trim(),
+    );
+    expect(items).toEqual(['Settings', 'Sign out']);
+
+    compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
+    fixture.detectChanges();
+    expect(compiled.querySelector('.account-menu')).toBeFalsy();
+  }));
+
+  it('dismisses the account menu on an outside click', fakeAsync(() => {
+    const fixture = openedApp();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
+    fixture.detectChanges();
+    expect(compiled.querySelector('.account-menu')).toBeTruthy();
+
+    document.body.click();
+    fixture.detectChanges();
+    expect(compiled.querySelector('.account-menu')).toBeFalsy();
+  }));
+
+  it('opens the settings dialog from the menu and closes it again', fakeAsync(() => {
+    const fixture = openedApp();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
+    fixture.detectChanges();
+    compiled.querySelectorAll<HTMLButtonElement>('.account-item')[0].click();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-settings-dialog')).toBeTruthy();
+    // Opening the dialog closes the menu behind it.
+    expect(compiled.querySelector('.account-menu')).toBeFalsy();
+
+    compiled.querySelector<HTMLButtonElement>('app-settings-dialog .close')!.click();
+    fixture.detectChanges();
+    expect(compiled.querySelector('app-settings-dialog')).toBeFalsy();
+  }));
+
+  it('signs out from the menu through the existing logout call', fakeAsync(() => {
+    const fixture = openedApp();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
+    fixture.detectChanges();
+    compiled.querySelectorAll<HTMLButtonElement>('.account-item')[1].click();
+
+    httpMock.expectOne('/api/auth/logout').flush(null);
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-login')).toBeTruthy();
+  }));
 });

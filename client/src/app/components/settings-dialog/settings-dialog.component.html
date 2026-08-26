@@ -1,0 +1,9 @@
+<div class="backdrop" (click)="closed.emit()">
+  <div class="popup" role="dialog" aria-modal="true" aria-label="Settings" (click)="$event.stopPropagation()">
+    <div class="popup-header">
+      <span>settings</span>
+      <button type="button" class="close" (click)="closed.emit()" aria-label="Close">×</button>
+    </div>
+    <div class="popup-body"></div>
+  </div>
+</div>

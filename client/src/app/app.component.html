@@ -8,7 +8,30 @@
         @if (selectedProjectId(); as projectId) {
           <app-console-indicator [projectId]="projectId" />
         }
-        <button type="button" class="logout" (click)="logout()">Log out</button>
+        <div class="account">
+          <button
+            type="button"
+            class="avatar"
+            [attr.aria-expanded]="menuOpen"
+            aria-haspopup="menu"
+            [attr.aria-label]="'Account menu for ' + (username() ?? 'the signed-in user')"
+            (click)="toggleMenu($event)"
+          >
+            {{ avatarInitial() }}
+          </button>
+          @if (menuOpen) {
+            <div class="account-menu" role="menu">
+              <div class="account-identity">{{ username() ?? 'signed in' }}</div>
+              <div class="account-separator"></div>
+              <button type="button" class="account-item" role="menuitem" (click)="openSettings()">
+                Settings
+              </button>
+              <button type="button" class="account-item" role="menuitem" (click)="logout()">
+                Sign out
+              </button>
+            </div>
+          }
+        </div>
       </div>
     </div>
     <div class="shell">
@@ -31,5 +54,8 @@
         <div class="empty-state">select a project to begin</div>
       }
     </div>
+    @if (settingsOpen) {
+      <app-settings-dialog (closed)="closeSettings()" />
+    }
   </div>
 }

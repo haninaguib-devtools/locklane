@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, HostListener, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -8,6 +8,7 @@ import { ProjectSummaryComponent } from './components/project-summary/project-su
 import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-resizer.component';
 import { LoginComponent } from './components/login/login.component';
 import { ConsoleIndicatorComponent } from './components/console-indicator/console-indicator.component';
+import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
 import { AuthService } from './services/auth.service';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
 
@@ -23,6 +24,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     SidebarResizerComponent,
     LoginComponent,
     ConsoleIndicatorComponent,
+    SettingsDialogComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -33,6 +35,13 @@ export class AppComponent {
   private readonly route = inject(ActivatedRoute);
 
   readonly isLoggedIn = this.auth.isLoggedIn;
+  readonly username = this.auth.username;
+
+  // The header's account menu (#90) and the settings dialog it opens. Both are plain
+  // fields rather than signals: nothing derives from them, and the template reads
+  // them directly.
+  menuOpen = false;
+  settingsOpen = false;
 
   // The selected project/issue lives in the URL
   // (`/projects/:projectId/issues/:id`), not in component state -- re-derived from
@@ -80,7 +89,39 @@ export class AppComponent {
     saveWidth(width);
   }
 
+  // The avatar shows the first letter of the signed-in username; '?' stands in until
+  // the session check has answered, which is the only window where it is unknown.
+  readonly avatarInitial = computed(() => this.username()?.trim().charAt(0) || '?');
+
+  toggleMenu(event: Event): void {
+    // Without this the document listener below sees this same click and closes the
+    // menu in the same tick it was opened.
+    event.stopPropagation();
+    this.menuOpen = !this.menuOpen;
+  }
+
+  // Bound to `document` so a click anywhere else on the page dismisses the menu.
+  @HostListener('document:click')
+  closeMenu(): void {
+    this.menuOpen = false;
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    this.menuOpen = false;
+  }
+
+  openSettings(): void {
+    this.menuOpen = false;
+    this.settingsOpen = true;
+  }
+
+  closeSettings(): void {
+    this.settingsOpen = false;
+  }
+
   logout(): void {
+    this.menuOpen = false;
     this.auth.logout().subscribe();
   }
 

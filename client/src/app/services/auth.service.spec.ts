@@ -17,8 +17,9 @@ describe('AuthService', () => {
 
   afterEach(() => httpMock.verify());
 
-  it('starts logged out', () => {
+  it('starts logged out, with no username', () => {
     expect(service.isLoggedIn()).toBe(false);
+    expect(service.username()).toBeNull();
   });
 
   it('logs in by POSTing form-encoded credentials to /api/auth/login', () => {
@@ -31,6 +32,7 @@ describe('AuthService', () => {
     req.flush(null);
 
     expect(service.isLoggedIn()).toBe(true);
+    expect(service.username()).toBe('hani');
   });
 
   it('does not flip isLoggedIn on a failed login', () => {
@@ -39,6 +41,7 @@ describe('AuthService', () => {
     httpMock.expectOne('/api/auth/login').flush(null, { status: 401, statusText: 'Unauthorized' });
 
     expect(service.isLoggedIn()).toBe(false);
+    expect(service.username()).toBeNull();
   });
 
   it('restores isLoggedIn when GET /api/auth/me confirms the session', () => {
@@ -49,6 +52,7 @@ describe('AuthService', () => {
     req.flush({ username: 'hani' });
 
     expect(service.isLoggedIn()).toBe(true);
+    expect(service.username()).toBe('hani');
   });
 
   it('stays logged out when GET /api/auth/me answers 401', () => {
@@ -59,6 +63,7 @@ describe('AuthService', () => {
 
     expect(emitted).toBe(false);
     expect(service.isLoggedIn()).toBe(false);
+    expect(service.username()).toBeNull();
   });
 
   it('logs out by POSTing to /api/auth/logout', () => {
@@ -71,5 +76,6 @@ describe('AuthService', () => {
     req.flush(null);
 
     expect(service.isLoggedIn()).toBe(false);
+    expect(service.username()).toBeNull();
   });
 });
