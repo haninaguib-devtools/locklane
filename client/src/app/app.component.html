@@ -13,17 +13,22 @@
     </div>
     <div class="shell">
       <aside class="sidebar" [style.width.px]="sidebarWidth">
-        <app-sidenav [selected]="selectedTarget()" (selectedChange)="select($event)" />
+        <app-sidenav
+          [selected]="selectedTarget()"
+          [selectedProject]="selectedIssue() === null ? selectedProjectId() : null"
+          (selectedChange)="select($event)"
+          (projectSelected)="selectProject($event)"
+        />
       </aside>
       <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
       @if (selectedProjectId(); as projectId) {
         @if (selectedIssue(); as issue) {
           <app-main-content [projectId]="projectId" [issueNumber]="issue" />
         } @else {
-          <div class="empty-state">select an issue to begin</div>
+          <app-project-summary [projectId]="projectId" />
         }
       } @else {
-        <div class="empty-state">select an issue to begin</div>
+        <div class="empty-state">select a project to begin</div>
       }
     </div>
   </div>

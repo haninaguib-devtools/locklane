@@ -4,6 +4,7 @@ import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { filter, map } from 'rxjs';
 import { ProjectIssue, SidenavComponent } from './components/sidenav/sidenav.component';
 import { MainContentComponent } from './components/main-content/main-content.component';
+import { ProjectSummaryComponent } from './components/project-summary/project-summary.component';
 import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-resizer.component';
 import { LoginComponent } from './components/login/login.component';
 import { ConsoleIndicatorComponent } from './components/console-indicator/console-indicator.component';
@@ -18,6 +19,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
   imports: [
     SidenavComponent,
     MainContentComponent,
+    ProjectSummaryComponent,
     SidebarResizerComponent,
     LoginComponent,
     ConsoleIndicatorComponent,
@@ -65,6 +67,12 @@ export class AppComponent {
 
   select(target: ProjectIssue): void {
     this.router.navigate(['/projects', target.projectId, 'issues', target.issueNumber]);
+  }
+
+  // A project with no issue segment is the project's own summary page (#85) -- the
+  // same URL `defaultProjectRedirect` already lands on.
+  selectProject(projectId: number): void {
+    this.router.navigate(['/projects', projectId, 'issues']);
   }
 
   setSidebarWidth(width: number): void {

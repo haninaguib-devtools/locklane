@@ -9,7 +9,8 @@ import { ProjectsService } from './services/projects.service';
 export const routes: Routes = [
   { path: 'projects/:projectId/issues/:id', children: [] },
   // A project with no issue selected yet -- the default-project redirect below
-  // lands here, and AppComponent shows its empty state until one is picked.
+  // lands here, and so does clicking a project's name in the sidenav. Since #85
+  // AppComponent renders the project's own summary here rather than an empty state.
   { path: 'projects/:projectId/issues', children: [] },
   // No project-picker UI exists yet (#44/#45) -- landing at '/' with no project id
   // picked resolves to the first project the caller can see (#43), so the app keeps

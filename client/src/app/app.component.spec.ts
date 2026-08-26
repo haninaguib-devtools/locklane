@@ -64,6 +64,21 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
   }
 
+  /**
+   * The same two fetches, when more than one component is asking for them in the
+   * same change-detection pass: with no issue selected the project summary (#85)
+   * repeats the sidenav's project-list and tree calls to derive its own counts, so
+   * `expectOne` would see two of each.
+   */
+  function flushSidenavAndSummary(): void {
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([PROJECT]));
+    const trees = httpMock.match('/api/projects/1/issues/tree');
+    expect(trees.length).toBe(2);
+    trees.forEach((request) => request.flush([]));
+  }
+
   function flushIssue(number: number): void {
     httpMock.expectOne(`/api/projects/1/issues/${number}`).flush({
       number,
@@ -108,17 +123,65 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('.shell')).toBeFalsy();
   }));
 
-  it('shows an empty state until an issue is selected', fakeAsync(() => {
+  it('shows the project summary until an issue is selected (#85)', fakeAsync(() => {
     logIn();
     navigateToDefaultProject();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    flushSidenav();
+    flushSidenavAndSummary();
     flushConsoleIndicator();
+    fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.empty-state')?.textContent).toContain('select an issue');
+    expect(compiled.querySelector('app-project-summary')).toBeTruthy();
+    expect(compiled.querySelector('.empty-state')).toBeFalsy();
+    expect(compiled.textContent).toContain('proj');
+  }));
+
+  it('selecting a project navigates to /projects/:projectId/issues and shows its summary (#85)', fakeAsync(() => {
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues/7');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    flushSidenav();
+    flushConsoleIndicator();
+    flushIssue(7);
+
+    fixture.componentInstance.selectProject(1);
+    tick();
+    fixture.detectChanges();
+
+    expect(TestBed.inject(Router).url).toBe('/projects/1/issues');
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('app-project-summary')).toBeTruthy();
+    expect(compiled.querySelector('app-main-content')).toBeFalsy();
+  }));
+
+  it('tells the sidenav which project is selected only while no issue is (#85)', fakeAsync(() => {
+    logIn();
+    navigateToDefaultProject();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    flushSidenavAndSummary();
+    flushConsoleIndicator();
+
+    const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
+    expect(sidenav.componentInstance.selectedProject).toBe(1);
+
+    fixture.componentInstance.select({ projectId: 1, issueNumber: 42 });
+    tick();
+    fixture.detectChanges();
+    flushIssue(42);
+
+    expect(sidenav.componentInstance.selectedProject).toBeNull();
   }));
 
   it('selecting an issue navigates to /projects/:projectId/issues/:id and shows the main content area', fakeAsync(() => {
@@ -127,7 +190,7 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    flushSidenav();
+    flushSidenavAndSummary();
     flushConsoleIndicator();
 
     fixture.componentInstance.select({ projectId: 1, issueNumber: 42 });
@@ -138,7 +201,7 @@ describe('AppComponent', () => {
     flushIssue(42);
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-main-content')).toBeTruthy();
-    expect(compiled.querySelector('.empty-state')).toBeFalsy();
+    expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
   it('loading /projects/:projectId/issues/:id directly selects that project and issue', fakeAsync(() => {
@@ -164,7 +227,7 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    flushSidenav();
+    flushSidenavAndSummary();
     flushConsoleIndicator();
 
     fixture.componentInstance.select({ projectId: 1, issueNumber: 42 });
@@ -182,7 +245,7 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    flushSidenav();
+    flushSidenavAndSummary();
     flushConsoleIndicator();
 
     fixture.componentInstance.logout();

@@ -103,13 +103,32 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px 4px;
+  margin-top: 10px;
+  padding: 6px 12px 6px 8px;
   cursor: pointer;
 }
 
+.section-header:hover {
+  background: var(--bg);
+}
+
+.section-header.active {
+  background: var(--panel);
+  border-left: 2px solid var(--accent);
+  padding-left: 6px;
+}
+
+/* Outweighs .issue-title.initiative-title (12px/600) so the project reads as the
+   heading of everything under it, and starts at the same inset as its rows. */
 .section-header .project-label {
-  padding: 0;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .project-status {
