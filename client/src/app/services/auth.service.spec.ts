@@ -23,7 +23,8 @@ describe('AuthService', () => {
   });
 
   it('logs in by POSTing form-encoded credentials to /api/auth/login', () => {
-    service.login('hani', 's3cret').subscribe();
+    let result: { twoFactorRequired: boolean } | undefined;
+    service.login('hani', 's3cret').subscribe((r) => (result = r));
 
     const req = httpMock.expectOne('/api/auth/login');
     expect(req.request.method).toBe('POST');
@@ -31,8 +32,43 @@ describe('AuthService', () => {
     expect(req.request.body).toBe('username=hani&password=s3cret');
     req.flush(null);
 
+    expect(result?.twoFactorRequired).toBe(false);
     expect(service.isLoggedIn()).toBe(true);
     expect(service.username()).toBe('hani');
+  });
+
+  it('reports a pending 2FA challenge without flipping isLoggedIn', () => {
+    let result: { twoFactorRequired: boolean } | undefined;
+    service.login('hani', 's3cret').subscribe((r) => (result = r));
+
+    httpMock.expectOne('/api/auth/login').flush({ twoFactorRequired: true });
+
+    expect(result?.twoFactorRequired).toBe(true);
+    expect(service.isLoggedIn()).toBe(false);
+    expect(service.username()).toBeNull();
+  });
+
+  it('completes a pending login by POSTing the code to /api/auth/2fa/verify', () => {
+    service.login('hani', 's3cret').subscribe();
+    httpMock.expectOne('/api/auth/login').flush({ twoFactorRequired: true });
+
+    service.verifyTwoFactor('123456').subscribe();
+    const req = httpMock.expectOne('/api/auth/2fa/verify');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ code: '123456' });
+    req.flush({ username: 'hani' });
+
+    expect(service.isLoggedIn()).toBe(true);
+    expect(service.username()).toBe('hani');
+  });
+
+  it('stays logged out when the 2FA code is rejected', () => {
+    service.verifyTwoFactor('000000').subscribe({ error: () => {} });
+
+    httpMock.expectOne('/api/auth/2fa/verify').flush(null, { status: 401, statusText: 'Unauthorized' });
+
+    expect(service.isLoggedIn()).toBe(false);
+    expect(service.username()).toBeNull();
   });
 
   it('does not flip isLoggedIn on a failed login', () => {

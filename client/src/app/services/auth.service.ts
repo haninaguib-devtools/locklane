@@ -4,6 +4,11 @@ import { Observable, catchError, map, of, tap } from 'rxjs';
 
 const FORM_HEADERS = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' });
 
+/** What a successful `POST /api/auth/login` meant: session established, or a code pending. */
+export interface LoginResult {
+  twoFactorRequired: boolean;
+}
+
 /**
  * The engine's login/logout are Spring Security's `formLogin` endpoints (#47) --
  * cookie-session-based, expecting `username`/`password` as form fields, not JSON.
@@ -14,6 +19,11 @@ const FORM_HEADERS = new HttpHeaders({ 'Content-Type': 'application/x-www-form-u
  * `username` (#90) is the signed-in account's name, for the header's account menu.
  * It comes from whichever call established the session -- the credentials on login,
  * the `/api/auth/me` body on a restore -- and is cleared on logout.
+ *
+ * With 2FA on the account (#89), correct credentials still answer 200 but the body
+ * says `{"twoFactorRequired": true}` and the session is only *pending* -- `login`
+ * surfaces that in its {@link LoginResult} without flipping `isLoggedIn`, and
+ * `verifyTwoFactor` posts the 6-digit code that completes the login.
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -23,13 +33,29 @@ export class AuthService {
   readonly isLoggedIn = this.loggedIn.asReadonly();
   readonly username = this.user.asReadonly();
 
-  login(username: string, password: string): Observable<void> {
+  login(username: string, password: string): Observable<LoginResult> {
     const body = new HttpParams().set('username', username).set('password', password);
-    return this.http.post<void>('/api/auth/login', body.toString(), { headers: FORM_HEADERS }).pipe(
-      tap(() => {
+    return this.http
+      .post<{ twoFactorRequired?: boolean } | null>('/api/auth/login', body.toString(), { headers: FORM_HEADERS })
+      .pipe(
+        map((response) => ({ twoFactorRequired: response?.twoFactorRequired === true })),
+        tap(({ twoFactorRequired }) => {
+          if (!twoFactorRequired) {
+            this.loggedIn.set(true);
+            this.user.set(username);
+          }
+        }),
+      );
+  }
+
+  /** Completes a login left pending by {@link login} -- errors with 401 on a wrong code. */
+  verifyTwoFactor(code: string): Observable<void> {
+    return this.http.post<{ username?: string }>('/api/auth/2fa/verify', { code }).pipe(
+      tap((response) => {
         this.loggedIn.set(true);
-        this.user.set(username);
+        this.user.set(response?.username ?? null);
       }),
+      map(() => undefined),
     );
   }
 
