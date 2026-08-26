@@ -1,11 +1,9 @@
 import { Component, Input } from '@angular/core';
 import { GhIssue, IssueDetail } from '../../models/issue.model';
-import { FlowStripComponent } from '../flow-strip/flow-strip.component';
 
 @Component({
   selector: 'app-overview-tab',
   standalone: true,
-  imports: [FlowStripComponent],
   templateUrl: './overview-tab.component.html',
   styleUrl: './overview-tab.component.css',
 })

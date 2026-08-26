@@ -1,6 +1,6 @@
 import { Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { Agent } from '../../services/agent-store';
-import { ConsoleTab } from './console-labels';
+import { ConsoleTab, OVERVIEW_TAB_ID } from './console-labels';
 
 export interface OpenConsoleRequest {
   worktree: boolean;
@@ -14,6 +14,9 @@ export interface OpenConsoleRequest {
   styleUrl: './console-tabs.component.css',
 })
 export class ConsoleTabsComponent {
+  // Exposed for the template's Overview tab, pinned first in the same strip (#96).
+  readonly overviewId = OVERVIEW_TAB_ID;
+
   @Input() tabs: ConsoleTab[] = [];
   @Input() selected: string | null = null;
   @Input() starting = false;

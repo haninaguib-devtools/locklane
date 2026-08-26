@@ -1,58 +1,37 @@
 @if (issue) {
   <app-issue-header [issue]="issue" />
-  <div class="tab-bar" role="tablist">
-    <button
-      type="button"
-      role="tab"
-      class="tab"
-      [class.active]="activeTab === 'overview'"
-      [attr.aria-selected]="activeTab === 'overview'"
-      (click)="selectTab('overview')"
-    >
-      Overview
-    </button>
-    <button
-      type="button"
-      role="tab"
-      class="tab"
-      [class.active]="activeTab === 'console'"
-      [attr.aria-selected]="activeTab === 'console'"
-      (click)="selectTab('console')"
-    >
-      Console
-    </button>
-  </div>
-  <div class="tab-panel" [class.tab-hidden]="activeTab !== 'overview'">
-    <app-overview-tab [issue]="issue" [detail]="detail" [repoWebUrl]="repoWebUrl" />
-  </div>
-  <div class="tab-panel console-panel" [class.tab-hidden]="activeTab !== 'console'">
-    <app-console-tabs
-      [tabs]="tabs"
-      [selected]="selectedConsole"
-      [starting]="starting"
-      (selectedChange)="selectConsole($event)"
-      (open)="openConsole($event)"
-      (close)="closeConsole($event)"
+  @if (detail) {
+    <app-flow-strip [steps]="detail.flowSteps" />
+  }
+  <app-console-tabs
+    [tabs]="tabs"
+    [selected]="activeTab"
+    [starting]="starting"
+    (selectedChange)="onTabSelected($event)"
+    (open)="openConsole($event)"
+    (close)="closeConsole($event)"
+  />
+  @if (startError) {
+    <div class="action-error">could not open a console — try again</div>
+  }
+  @if (closeError) {
+    <div class="action-error">could not close that console — try again</div>
+  }
+  <app-overview-tab
+    [class.tab-hidden]="activeTab !== overviewId"
+    [issue]="issue"
+    [detail]="detail"
+    [repoWebUrl]="repoWebUrl"
+  />
+  @for (console of consoles; track console.id) {
+    <app-terminal
+      [class.tab-hidden]="console.id !== activeTab"
+      [sessionId]="console.id"
+      [dir]="console.dir"
+      [cmd]="console.agent"
+      [active]="console.id === activeTab"
     />
-    @if (startError) {
-      <div class="action-error">could not open a console — try again</div>
-    }
-    @if (closeError) {
-      <div class="action-error">could not close that console — try again</div>
-    }
-    @for (console of consoles; track console.id) {
-      <app-terminal
-        [class.tab-hidden]="console.id !== selectedConsole"
-        [sessionId]="console.id"
-        [dir]="console.dir"
-        [cmd]="console.agent"
-        [active]="console.id === selectedConsole"
-      />
-    }
-    @if (consoles.length === 0) {
-      <div class="no-session">no live console for this issue yet</div>
-    }
-  </div>
+  }
 } @else {
   <div class="loading">loading issue #{{ issueNumber }}…</div>
 }

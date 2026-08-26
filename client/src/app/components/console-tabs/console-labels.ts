@@ -1,5 +1,10 @@
 import { Agent } from '../../services/agent-store';
 
+// The Overview pseudo-tab's id: it sits in the same tab strip as open consoles
+// (#96) but isn't a real session, so it needs a value no real console id can
+// collide with.
+export const OVERVIEW_TAB_ID = 'overview';
+
 // A console open under an issue: the engine's session id, plus the agent the
 // client remembers launching it with (null when unknown — another browser
 // opened it, or storage was cleared).

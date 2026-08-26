@@ -1,7 +1,4 @@
 <div class="overview">
-  @if (issue.body) {
-    <pre class="body">{{ issue.body }}</pre>
-  }
   @if (detail) {
     <dl class="details">
       <dt>record</dt>
@@ -23,8 +20,10 @@
         }
       </dd>
     </dl>
-    <app-flow-strip [steps]="detail.flowSteps" />
   } @else {
     <p class="loading">loading…</p>
+  }
+  @if (issue.body) {
+    <pre class="body">{{ issue.body }}</pre>
   }
 </div>

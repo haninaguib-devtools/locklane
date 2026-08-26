@@ -6,13 +6,12 @@ import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { ConsolesService } from '../../services/consoles.service';
 import { IssueHeaderComponent } from '../issue-header/issue-header.component';
+import { FlowStripComponent } from '../flow-strip/flow-strip.component';
 import { OverviewTabComponent } from '../overview-tab/overview-tab.component';
 import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
-import { ConsoleTab, labelConsoles } from '../console-tabs/console-labels';
+import { ConsoleTab, OVERVIEW_TAB_ID, labelConsoles } from '../console-tabs/console-labels';
 import { TerminalComponent } from '../terminal/terminal.component';
 import { repoWebUrl } from './repo-web-url';
-
-export type IssuePageTab = 'overview' | 'console';
 
 // One console tab's client-side state. `dir` is only known for a session this
 // page just started — reconnects leave it null and the engine resolves the
@@ -26,7 +25,13 @@ interface OpenConsole {
 @Component({
   selector: 'app-main-content',
   standalone: true,
-  imports: [IssueHeaderComponent, OverviewTabComponent, ConsoleTabsComponent, TerminalComponent],
+  imports: [
+    IssueHeaderComponent,
+    FlowStripComponent,
+    OverviewTabComponent,
+    ConsoleTabsComponent,
+    TerminalComponent,
+  ],
   templateUrl: './main-content.component.html',
   styleUrl: './main-content.component.css',
 })
@@ -40,10 +45,14 @@ export class MainContentComponent implements OnChanges {
   @Input({ required: true }) projectId!: number;
   @Input({ required: true }) issueNumber!: number;
 
+  // Exposed for the template: which tab in the merged strip (#96) is showing
+  // right now, either the Overview sentinel or an open console's id.
+  readonly overviewId = OVERVIEW_TAB_ID;
+
   issue: GhIssue | null = null;
   detail: IssueDetail | null = null;
   repoWebUrl: string | null = null;
-  activeTab: IssuePageTab = 'overview';
+  activeTab: string = OVERVIEW_TAB_ID;
   consoles: OpenConsole[] = [];
   tabs: ConsoleTab[] = [];
   selectedConsole: string | null = null;
@@ -58,15 +67,23 @@ export class MainContentComponent implements OnChanges {
     }
   }
 
-  selectTab(tab: IssuePageTab): void {
-    this.activeTab = tab;
+  onTabSelected(id: string): void {
+    if (id === OVERVIEW_TAB_ID) {
+      this.selectOverview();
+    } else {
+      this.selectConsole(id);
+    }
+  }
+
+  selectOverview(): void {
+    this.activeTab = OVERVIEW_TAB_ID;
   }
 
   private load(projectId: number, number: number): void {
     this.issue = null;
     this.detail = null;
     this.repoWebUrl = null;
-    this.activeTab = 'overview';
+    this.activeTab = OVERVIEW_TAB_ID;
     this.consoles = [];
     this.tabs = [];
     this.selectedConsole = null;
@@ -93,6 +110,7 @@ export class MainContentComponent implements OnChanges {
 
   selectConsole(id: string): void {
     this.selectedConsole = id;
+    this.activeTab = id;
     this.activeConsoleStore.set(this.issueNumber, id);
   }
 
@@ -112,8 +130,7 @@ export class MainContentComponent implements OnChanges {
           this.relabel();
           this.consolesService.notifyOpened();
         }
-        this.selectedConsole = worktreeId;
-        this.activeConsoleStore.set(this.issueNumber, worktreeId);
+        this.selectConsole(worktreeId);
         this.starting = false;
       },
       error: () => {
@@ -135,6 +152,9 @@ export class MainContentComponent implements OnChanges {
           if (next) {
             this.activeConsoleStore.set(this.issueNumber, next);
           }
+        }
+        if (this.activeTab === id) {
+          this.activeTab = this.selectedConsole ?? OVERVIEW_TAB_ID;
         }
         this.consolesService.notifyClosed();
       },

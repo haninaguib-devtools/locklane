@@ -38,4 +38,23 @@ a second "Console" tab.
   inactive terminal panes, so switching tabs doesn't tear down a live PTY session.
 
 ## Deviations / notes
-- none
+- After the first pass, the human asked for two changes (approved in the moment):
+  1. **One merged tab strip, not two.** Instead of a separate "Overview" / "Console"
+     tab bar sitting above `console-tabs`, "Overview" is now a permanent, unclosable
+     first tab inside `console-tabs` itself — the same strip that lists open consoles
+     and the "+" button. `console-tabs` gained the `OVERVIEW_TAB_ID` sentinel
+     (`console-labels.ts`) for this; `main-content`'s `activeTab` now holds either that
+     sentinel or an open console's id, replacing the old `activeTab: 'overview' |
+     'console'` union. The separate "Console" tab is gone.
+  2. **Flow-strip moves back out of the Overview tab**, directly below the header —
+     "how it used to be" before this task, and now always visible regardless of which
+     tab (Overview or a console) is selected, since it's a pipeline-progress indicator,
+     not per-tab content. `overview-tab` no longer renders it. Within the Overview tab,
+     the record/checks/branch details pane now comes before the full description
+     (previously the other way around).
+  - Net effect on defaults: landing on an issue still defaults to the Overview tab
+    (unchanged), even when a console was remembered as last-active for that issue —
+    including via the header's "jump to an open console" picker (#32), which now lands
+    on Overview rather than the console's terminal directly, needing one extra click to
+    reach it. Not raised by the human's ask; flagging here rather than fixing
+    unprompted.
