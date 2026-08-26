@@ -97,4 +97,11 @@ already in.
 
 ## Deviations / notes
 
-- none
+- **The review's blocker finding is a pre-existing flake, not caused by this task**
+  (Claude, 2026-08-26). `SessionRegistryReattachTest.closeStopsTheSessionAndForgetsItsRecord`
+  fails on this machine with the same `AssertionError: condition not met within PT5S` at
+  `SessionRegistryReattachTest.java:96`/`137` on unmodified `main` (checked out at
+  `/Users/haninaguib/Projects/haninaguib/devtools/locklane`, commit `52d7181`), with none
+  of this PR's changes present. It is a PTY session-liveness timing assertion unrelated
+  to schema/migration content. No code change made; re-review should confirm this is out
+  of scope for task 107.
