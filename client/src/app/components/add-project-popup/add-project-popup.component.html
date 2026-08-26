@@ -1,0 +1,43 @@
+<div class="backdrop" (click)="closed.emit()">
+  <div class="popup" (click)="$event.stopPropagation()">
+    <div class="popup-header">
+      <span>add project</span>
+      <button type="button" class="close" (click)="closed.emit()" aria-label="Close">×</button>
+    </div>
+    <form (ngSubmit)="submit()">
+      <label>
+        git repo URL
+        <input
+          type="text"
+          name="gitUrl"
+          placeholder="https://github.com/org/repo.git"
+          [(ngModel)]="gitUrl"
+          (ngModelChange)="onUrlChange()"
+          [disabled]="submitting"
+          autofocus
+        />
+      </label>
+      <label>
+        name (optional)
+        <input
+          type="text"
+          name="name"
+          placeholder="derived from the URL"
+          [(ngModel)]="name"
+          (ngModelChange)="onNameChange()"
+          [disabled]="submitting"
+        />
+      </label>
+
+      @if (error) {
+        <p class="error">{{ error }}</p>
+      }
+
+      <div class="actions">
+        <button type="submit" [disabled]="!gitUrl.trim() || submitting">
+          {{ submitting ? 'adding…' : 'add project' }}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

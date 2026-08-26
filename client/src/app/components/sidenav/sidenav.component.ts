@@ -1,4 +1,4 @@
-import { Component, EventEmitter, HostListener, OnInit, Output, Input, inject } from '@angular/core';
+import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { forkJoin, map, of, switchMap } from 'rxjs';
@@ -8,7 +8,11 @@ import { ProjectsService } from '../../services/projects.service';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
+import { AddProjectPopupComponent } from '../add-project-popup/add-project-popup.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
+
+/** How often a project still cloning is re-checked, until it settles (#45). */
+const CLONE_POLL_MS = 3000;
 
 /** One issue, resolved to the project id it's selected/pinned/collapsed within (#44). */
 export interface ProjectIssue {
@@ -33,11 +37,11 @@ interface PinnedGroup {
 @Component({
   selector: 'app-sidenav',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet],
+  imports: [FormsModule, NgTemplateOutlet, AddProjectPopupComponent],
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })
-export class SidenavComponent implements OnInit {
+export class SidenavComponent implements OnInit, OnDestroy {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
   private readonly pinStore = inject(PinStore);
@@ -52,14 +56,21 @@ export class SidenavComponent implements OnInit {
   refreshing = false;
   error = false;
 
+  showAddProject = false;
+
   // Neither persists across reloads, matching the old app (#22's Goal).
   filterText = '';
   hideShipped = true;
 
   private openMenuFor: string | null = null;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
   ngOnInit(): void {
     this.load(() => (this.loading = false));
+  }
+
+  ngOnDestroy(): void {
+    this.clearPoll();
   }
 
   refresh(): void {
@@ -68,6 +79,32 @@ export class SidenavComponent implements OnInit {
     }
     this.refreshing = true;
     this.load(() => (this.refreshing = false));
+  }
+
+  openAddProject(): void {
+    this.showAddProject = true;
+  }
+
+  onProjectCreated(): void {
+    this.showAddProject = false;
+    this.refresh();
+  }
+
+  onAddProjectClosed(): void {
+    this.showAddProject = false;
+  }
+
+  retryProject(projectId: number, event: Event): void {
+    event.stopPropagation();
+    this.projectsService.retry(projectId).subscribe(() => this.refresh());
+  }
+
+  deleteProject(projectId: number, event: Event): void {
+    event.stopPropagation();
+    if (!confirm('Delete this project? This cannot be undone.')) {
+      return;
+    }
+    this.projectsService.delete(projectId).subscribe(() => this.refresh());
   }
 
   private load(onDone: () => void): void {
@@ -89,12 +126,29 @@ export class SidenavComponent implements OnInit {
           this.sections = sections;
           this.error = false;
           onDone();
+          this.schedulePollIfNeeded();
         },
         error: () => {
           this.error = true;
           onDone();
         },
       });
+  }
+
+  /** Re-checks project status while any project is still cloning (#45), until it settles. */
+  private schedulePollIfNeeded(): void {
+    this.clearPoll();
+    const stillCloning = this.sections.some((s) => s.project.status === 'CLONING');
+    if (stillCloning) {
+      this.pollTimer = setTimeout(() => this.load(() => {}), CLONE_POLL_MS);
+    }
+  }
+
+  private clearPoll(): void {
+    if (this.pollTimer !== null) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
   }
 
   get projectSections(): Section[] {
