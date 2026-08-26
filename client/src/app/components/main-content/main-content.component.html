@@ -12,7 +12,10 @@
     (close)="closeConsole($event)"
   />
   @if (startError) {
-    <div class="start-error">could not open a console — try again</div>
+    <div class="action-error">could not open a console — try again</div>
+  }
+  @if (closeError) {
+    <div class="action-error">could not close that console — try again</div>
   }
   @for (console of consoles; track console.id) {
     <app-terminal

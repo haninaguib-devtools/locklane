@@ -24,4 +24,13 @@ describe('ConsolesService', () => {
     expect(req.request.method).toBe('GET');
     req.flush(['7-main-a1b2c3d4', '8-slug']);
   });
+
+  it('notifies onClosed subscribers when a console is closed', () => {
+    let notified = false;
+    service.onClosed.subscribe(() => (notified = true));
+
+    service.notifyClosed();
+
+    expect(notified).toBeTrue();
+  });
 });

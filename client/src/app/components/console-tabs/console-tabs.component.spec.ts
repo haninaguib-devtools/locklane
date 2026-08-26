@@ -58,4 +58,30 @@ describe('ConsoleTabsComponent', () => {
 
     expect(c.pickerOpen).toBeFalse();
   });
+
+  it('emits close only after the user confirms', () => {
+    const c = new ConsoleTabsComponent();
+    spyOn(window, 'confirm').and.returnValue(true);
+    let emitted: string | undefined;
+    c.close.subscribe((id) => (emitted = id));
+    const event = new Event('click');
+    const stopSpy = spyOn(event, 'stopPropagation');
+
+    c.closeTab('7-rename-toggle', event);
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(stopSpy).toHaveBeenCalled();
+    expect(emitted).toBe('7-rename-toggle');
+  });
+
+  it('emits nothing when the user cancels the confirmation', () => {
+    const c = new ConsoleTabsComponent();
+    spyOn(window, 'confirm').and.returnValue(false);
+    let emitted: string | undefined;
+    c.close.subscribe((id) => (emitted = id));
+
+    c.closeTab('7-rename-toggle', new Event('click'));
+
+    expect(emitted).toBeUndefined();
+  });
 });

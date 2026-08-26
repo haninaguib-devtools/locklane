@@ -175,4 +175,39 @@ describe('MainContentComponent', () => {
     expect(fixture.componentInstance.startError).toBeTrue();
     expect(fixture.componentInstance.consoles).toEqual([]);
   });
+
+  it('closing a console asks the server to end it, then drops its tab', () => {
+    const fixture = init(7);
+    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+
+    fixture.componentInstance.closeConsole('7-main-a1b2c3d4');
+    httpMock.expectOne('/api/issues/7/worktrees/7-main-a1b2c3d4').flush(null);
+
+    expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['7-rename-toggle']);
+    expect(fixture.componentInstance.closeError).toBeFalse();
+  });
+
+  it('closing the selected console selects the next remaining one and remembers it', () => {
+    const fixture = init(7);
+    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+
+    fixture.componentInstance.closeConsole('7-main-a1b2c3d4');
+    httpMock.expectOne('/api/issues/7/worktrees/7-main-a1b2c3d4').flush(null);
+
+    expect(fixture.componentInstance.selectedConsole).toBe('7-rename-toggle');
+    expect(TestBed.inject(ActiveConsoleStore).get(7)).toBe('7-rename-toggle');
+  });
+
+  it('a failed close reports an error and leaves the tab in place', () => {
+    const fixture = init(7);
+    respond(7, ['7-main-a1b2c3d4']);
+
+    fixture.componentInstance.closeConsole('7-main-a1b2c3d4');
+    httpMock
+      .expectOne('/api/issues/7/worktrees/7-main-a1b2c3d4')
+      .error(new ProgressEvent('network error'));
+
+    expect(fixture.componentInstance.closeError).toBeTrue();
+    expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['7-main-a1b2c3d4']);
+  });
 });

@@ -37,4 +37,9 @@ export class IssuesService {
       { params: { worktree } },
     );
   }
+
+  /** Ends a session for good (#75) — kills it server-side, not just this tab's view of it. */
+  closeSession(number: number, worktreeId: string): Observable<void> {
+    return this.http.delete<void>(`/api/issues/${number}/worktrees/${worktreeId}`);
+  }
 }

@@ -3,6 +3,7 @@ import { GhIssue, IssueDetail } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
+import { ConsolesService } from '../../services/consoles.service';
 import { IssueHeaderComponent } from '../issue-header/issue-header.component';
 import { FlowStripComponent } from '../flow-strip/flow-strip.component';
 import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
@@ -27,6 +28,7 @@ interface OpenConsole {
 })
 export class MainContentComponent implements OnChanges {
   private readonly issuesService = inject(IssuesService);
+  private readonly consolesService = inject(ConsolesService);
   private readonly agentStore = inject(AgentStore);
   private readonly activeConsoleStore = inject(ActiveConsoleStore);
 
@@ -40,6 +42,7 @@ export class MainContentComponent implements OnChanges {
 
   starting = false;
   startError = false;
+  closeError = false;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['issueNumber']) {
@@ -54,6 +57,7 @@ export class MainContentComponent implements OnChanges {
     this.tabs = [];
     this.selectedConsole = null;
     this.startError = false;
+    this.closeError = false;
 
     this.issuesService.get(number).subscribe((issue) => {
       this.issue = issue;
@@ -101,15 +105,24 @@ export class MainContentComponent implements OnChanges {
   }
 
   closeConsole(id: string): void {
-    this.consoles = this.consoles.filter((c) => c.id !== id);
-    this.relabel();
-    if (this.selectedConsole === id) {
-      const next = this.consoles[0]?.id ?? null;
-      this.selectedConsole = next;
-      if (next) {
-        this.activeConsoleStore.set(this.issueNumber, next);
-      }
-    }
+    this.closeError = false;
+    this.issuesService.closeSession(this.issueNumber, id).subscribe({
+      next: () => {
+        this.consoles = this.consoles.filter((c) => c.id !== id);
+        this.relabel();
+        if (this.selectedConsole === id) {
+          const next = this.consoles[0]?.id ?? null;
+          this.selectedConsole = next;
+          if (next) {
+            this.activeConsoleStore.set(this.issueNumber, next);
+          }
+        }
+        this.consolesService.notifyClosed();
+      },
+      error: () => {
+        this.closeError = true;
+      },
+    });
   }
 
   private relabel(): void {

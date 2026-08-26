@@ -108,6 +108,20 @@ public class SessionRegistry {
         return new String[] {shell, "-i"};
     }
 
+    /**
+     * Explicitly closes one session (#75) — unlike a client disconnecting, this ends
+     * the process for good and forgets the session's durable record, so it will not
+     * reappear on a later list or reattach. A no-op for an id that names no live or
+     * recorded session.
+     */
+    public void close(String sessionId) {
+        PtySession session = sessions.remove(sessionId);
+        if (session != null) {
+            session.close();
+        }
+        repository.delete(sessionId);
+    }
+
     /** Stops every running session. Orphan processes are not left behind on shutdown. */
     @PreDestroy
     void closeAll() {
