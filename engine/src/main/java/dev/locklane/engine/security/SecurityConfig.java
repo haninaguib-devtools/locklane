@@ -18,17 +18,17 @@ import org.springframework.http.HttpStatus;
  * endpoints (list/start under {@code /api/projects/{projectId}/issues/{number}/worktrees},
  * #48, nested under a project id since #43; the cross-issue listing under
  * {@code /api/projects/{projectId}/consoles}, #32), the project CRUD endpoints
- * (list/create at {@code /api/projects}, delete at
- * {@code /api/projects/{id}}, retry at {@code /api/projects/{id}/retry}, #42), and
- * the WebSocket session endpoint itself (every path under {@code /ws/sessions/},
- * #50) — its origin restriction lives in {@code WebSocketConfig}, but
- * authentication is enforced here like every other endpoint. Issue/PR data stays
- * open: it still comes from one shared repo with no per-user boundary until a
- * follow-up to #43 gives it one (see #43's task record) — despite living under
- * {@code /api/projects/{projectId}/issues} since #43's renesting, so the matchers
- * below are deliberately precise (single path-segment wildcards, not a blanket
- * match on everything under {@code /api/projects}) to avoid sweeping that open
- * surface into this gate.
+ * (list/create at {@code /api/projects}, delete at {@code /api/projects/{id}},
+ * retry at {@code /api/projects/{id}/retry}, #42; storing a project's GitHub token
+ * at {@code /api/projects/{id}/github-token}, #81), and the WebSocket session
+ * endpoint itself (every path under {@code /ws/sessions/}, #50) — its origin
+ * restriction lives in {@code WebSocketConfig}, but authentication is enforced
+ * here like every other endpoint. Issue/PR reads themselves stay open (no
+ * per-user boundary) even though each project's own token, #81, scopes which
+ * repo they come from — the matchers below are deliberately precise
+ * (single path-segment wildcards, not a blanket match on everything under
+ * {@code /api/projects}) so the open {@code /api/projects/{projectId}/issues}
+ * paths never get swept into this gate.
  */
 @Configuration
 @EnableWebSecurity
@@ -51,6 +51,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects").authenticated()
                         .requestMatchers("/api/projects/*").authenticated()
                         .requestMatchers("/api/projects/*/retry").authenticated()
+                        .requestMatchers("/api/projects/*/github-token").authenticated()
                         .requestMatchers("/api/projects/*/issues/*/worktrees").authenticated()
                         .requestMatchers("/api/projects/*/issues/*/worktrees/*").authenticated()
                         .requestMatchers("/api/projects/*/consoles").authenticated()

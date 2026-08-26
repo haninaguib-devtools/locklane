@@ -5,14 +5,33 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/** Fetches issues and PRs by running gh as a subprocess. */
+/**
+ * Fetches issues and PRs by running gh as a subprocess, scoped to one project (#81):
+ * every call runs with {@code workingDirectory} as its cwd, so gh resolves the repo
+ * from that directory's own git remote (the same auto-detection that already worked
+ * for the engine's own checkout, now applied per project) — never an explicit
+ * {@code --repo}, which would need parsing an owner/repo out of an arbitrary git URL
+ * string. {@code token}, when present, is passed as {@code GH_TOKEN} so the call
+ * authenticates as that project's own identity instead of whatever `gh auth login`
+ * session the host happens to have; {@code null} falls back to that ambient session
+ * (exactly today's single-project behavior, for a project with no token stored).
+ */
 public class CliGhClient implements GhClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private final Path workingDirectory;
+    private final String token;
+
+    public CliGhClient(Path workingDirectory, String token) {
+        this.workingDirectory = workingDirectory;
+        this.token = token;
+    }
 
     @Override
     public List<GhIssue> issues() {
@@ -98,9 +117,13 @@ public class CliGhClient implements GhClient {
                 new ChecksSummary(pass, fail, pending));
     }
 
-    private static String run(String... command) {
+    private String run(String... command) {
         try {
-            Process process = new ProcessBuilder(command).start();
+            ProcessBuilder builder = new ProcessBuilder(command).directory(workingDirectory.toFile());
+            if (token != null && !token.isBlank()) {
+                builder.environment().put("GH_TOKEN", token);
+            }
+            Process process = builder.start();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
             int exit = process.waitFor();

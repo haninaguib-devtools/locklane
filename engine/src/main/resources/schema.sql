@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS users (
 -- workarea directory, asynchronously. default_branch is unknown until the clone
 -- completes (it is discovered, not requested), so it starts NULL; status moves
 -- CLONING -> READY (with default_branch filled in) or CLONING -> FAILED.
+-- github_token (#81) is NULL until the user stores one; when set, it is a Base64
+-- AES-GCM blob (TokenCipher), never plaintext. NULL means issue/PR fetches for this
+-- project fall back to whatever `gh` identity is already authenticated for its own
+-- checkout directory, same as before this column existed.
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -31,5 +35,6 @@ CREATE TABLE IF NOT EXISTS projects (
     workarea_path TEXT NOT NULL,
     default_branch TEXT,
     status TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    github_token TEXT
 );

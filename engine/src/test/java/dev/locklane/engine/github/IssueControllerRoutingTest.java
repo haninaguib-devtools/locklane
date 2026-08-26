@@ -10,7 +10,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -18,13 +17,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Confirms the real Spring routing decision for #21's new endpoint: the literal
- * "/tree" segment must resolve to {@link IssueController#tree()}, not be swallowed
+ * "/tree" segment must resolve to {@link IssueController#tree}, not be swallowed
  * by the "/{number}" path variable (which would otherwise fail to parse "tree" as
  * an int). Worth testing directly rather than assuming, since the two mappings sit
  * on the same controller under the same prefix. Security filters are switched off
  * (#47) — this slice never loads the app's own {@code SecurityConfig}, so without
  * that it would fall back to Spring Boot's auto-configured default-secure chain,
  * which is irrelevant to what this test is checking.
+ *
+ * <p>Since #81, {@link IssueController} resolves everything through
+ * {@link ProjectGhResources} rather than injecting {@code GhIssueCache} et al.
+ * directly (they are no longer Spring beans, built per project instead) — so that
+ * is the one thing this slice mocks, with real per-project services wired to a
+ * {@link FixedGhClient} behind it.
  */
 @WebMvcTest(IssueController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -34,18 +39,14 @@ class IssueControllerRoutingTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private GhIssueCache cache;
-
-    @MockitoBean
-    private IssueDetailService detailService;
-
-    @MockitoBean
-    private IssueTreeService treeService;
+    private ProjectGhResources resources;
 
     @Test
     void treeRouteResolvesToTheTreeEndpoint() throws Exception {
-        when(treeService.tree()).thenReturn(
-                List.of(new TreeNode(1, "Initiative", "INITIATIVE", "OPEN", List.of())));
+        GhIssueCache cache = new GhIssueCache(
+                new FixedGhClient(List.of(new GhIssue(1, "Initiative", "OPEN", List.of("initiative"), "", "", ""))));
+        when(resources.forProject(1L)).thenReturn(
+                Optional.of(new ProjectGhContext(null, cache, null, new IssueTreeService(cache))));
 
         mockMvc.perform(get("/api/projects/1/issues/tree"))
                 .andExpect(status().isOk())
@@ -55,11 +56,42 @@ class IssueControllerRoutingTest {
 
     @Test
     void numericPathStillResolvesToTheSingleIssueLookup() throws Exception {
-        when(cache.issue(eq(5))).thenReturn(
-                Optional.of(new GhIssue(5, "Five", "OPEN", List.of(), "", "", "")));
+        GhIssueCache cache = new GhIssueCache(
+                new FixedGhClient(List.of(new GhIssue(5, "Five", "OPEN", List.of(), "", "", ""))));
+        when(resources.forProject(1L)).thenReturn(Optional.of(new ProjectGhContext(null, cache, null, null)));
 
         mockMvc.perform(get("/api/projects/1/issues/5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.number").value(5));
+    }
+
+    @Test
+    void anUnknownProjectIsNotFound() throws Exception {
+        when(resources.forProject(999L)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/projects/999/issues/5")).andExpect(status().isNotFound());
+    }
+
+    private static final class FixedGhClient implements GhClient {
+        private final List<GhIssue> issues;
+
+        FixedGhClient(List<GhIssue> issues) {
+            this.issues = issues;
+        }
+
+        @Override
+        public List<GhIssue> issues() {
+            return issues;
+        }
+
+        @Override
+        public List<GhPullRequest> pullRequests() {
+            return List.of();
+        }
+
+        @Override
+        public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
+            return Optional.empty();
+        }
     }
 }

@@ -26,6 +26,17 @@ class GhIssueCacheTest {
     }
 
     @Test
+    void aColdCacheWithAFailingClientReturnsAnEmptyListRatherThanThrowing() {
+        // #81: a project with no (working) token/access fails every gh call -- the
+        // caller gets a clear, documented empty result, not an unhandled exception.
+        FakeGhClient fake = new FakeGhClient(List.of(), List.of());
+        fake.failNextCall();
+        GhIssueCache cache = new GhIssueCache(fake);
+
+        assertThat(cache.issues()).isEmpty();
+    }
+
+    @Test
     void aWarmCacheDoesNotRefetchOnEveryCall() {
         FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of());
         GhIssueCache cache = new GhIssueCache(fake);
