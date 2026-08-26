@@ -1,6 +1,12 @@
+/* The shell is a full-window app whose panels scroll internally (sidenav,
+   project summary, terminal scrollback) — the page itself must never scroll.
+   overflow: hidden is load-bearing: the terminal refits itself whenever its
+   box resizes, and a page-level scrollbar changes that box, so letting the
+   page scroll creates a fit → scrollbar → resize → refit oscillation (#117). */
 :host {
   display: block;
-  height: 100vh;
+  height: 100%;
+  overflow: hidden;
 }
 
 .authed {
