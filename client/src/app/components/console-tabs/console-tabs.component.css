@@ -33,8 +33,12 @@
   color: var(--faint);
 }
 
-.plus {
+.plus-wrap {
+  position: relative;
   margin-left: 8px;
+}
+
+.plus {
   padding: 4px 10px;
   font-size: 12px;
   border: 1px solid var(--border);
@@ -57,7 +61,7 @@
 .picker {
   position: absolute;
   top: calc(100% + 4px);
-  right: 16px;
+  right: 0;
   z-index: 10;
   display: flex;
   flex-direction: column;

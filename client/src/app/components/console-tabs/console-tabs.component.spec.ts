@@ -28,4 +28,34 @@ describe('ConsoleTabsComponent', () => {
     expect(emitted).toEqual({ worktree: false, agent: 'codex' });
     expect(c.pickerOpen).toBeFalse();
   });
+
+  it('closes the picker on a click outside it', () => {
+    const c = new ConsoleTabsComponent();
+    c.pickerOpen = true;
+
+    c.onDocumentClick({ target: document.createElement('div') } as unknown as MouseEvent);
+
+    expect(c.pickerOpen).toBeFalse();
+  });
+
+  it('leaves the picker open on a click inside the component', () => {
+    const c = new ConsoleTabsComponent();
+    c.pickerOpen = true;
+    const host = document.createElement('app-console-tabs');
+    const insideButton = document.createElement('button');
+    host.appendChild(insideButton);
+
+    c.onDocumentClick({ target: insideButton } as unknown as MouseEvent);
+
+    expect(c.pickerOpen).toBeTrue();
+  });
+
+  it('closes the picker on Escape', () => {
+    const c = new ConsoleTabsComponent();
+    c.pickerOpen = true;
+
+    c.onEscape();
+
+    expect(c.pickerOpen).toBeFalse();
+  });
 });
