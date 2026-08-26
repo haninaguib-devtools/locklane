@@ -6,11 +6,34 @@
 
   <groupId>dev.locklane</groupId>
   <artifactId>locklane</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <!-- The single source of the project version (#97): every module's <parent><version>
+       reads ${revision} rather than a literal string, so a bump only ever touches this
+       property. Native Maven "CI-friendly versions" support resolves it reactor-wide;
+       nothing else (flatten-maven-plugin, a release process) is needed for a local or
+       CI build. -->
+  <version>${revision}</version>
   <packaging>pom</packaging>
+
+  <properties>
+    <revision>0.1.0-SNAPSHOT</revision>
+  </properties>
 
   <modules>
     <module>client</module>
     <module>engine</module>
   </modules>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- engine parents here rather than to spring-boot-starter-parent (#97), so this
+           import is what keeps its dependency versions pinned the same way. -->
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>3.5.4</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 </project>
