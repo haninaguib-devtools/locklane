@@ -1,17 +1,40 @@
 <div class="login-shell">
-  <form class="login-card" (ngSubmit)="submit()">
-    <h1>locklane</h1>
-    <label>
-      Username
-      <input name="username" type="text" [(ngModel)]="username" autocomplete="username" required />
-    </label>
-    <label>
-      Password
-      <input name="password" type="password" [(ngModel)]="password" autocomplete="current-password" required />
-    </label>
-    @if (error) {
-      <p class="error">{{ error }}</p>
-    }
-    <button type="submit" [disabled]="submitting">{{ submitting ? 'Logging in…' : 'Log in' }}</button>
-  </form>
+  @if (step === 'credentials') {
+    <form class="login-card" (ngSubmit)="submit()">
+      <h1>locklane</h1>
+      <label>
+        Username
+        <input name="username" type="text" [(ngModel)]="username" autocomplete="username" required />
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" [(ngModel)]="password" autocomplete="current-password" required />
+      </label>
+      @if (error) {
+        <p class="error">{{ error }}</p>
+      }
+      <button type="submit" [disabled]="submitting">{{ submitting ? 'Logging in…' : 'Log in' }}</button>
+    </form>
+  } @else {
+    <form class="login-card" (ngSubmit)="submitCode()">
+      <h1>locklane</h1>
+      <p class="hint">Enter the 6-digit code from your authenticator app.</p>
+      <label>
+        Code
+        <input
+          name="code"
+          type="text"
+          [(ngModel)]="code"
+          autocomplete="one-time-code"
+          inputmode="numeric"
+          maxlength="6"
+          required
+        />
+      </label>
+      @if (error) {
+        <p class="error">{{ error }}</p>
+      }
+      <button type="submit" [disabled]="submitting">{{ submitting ? 'Verifying…' : 'Verify' }}</button>
+    </form>
+  }
 </div>

@@ -43,6 +43,51 @@ describe('LoginComponent', () => {
     expect(compiled.querySelector('.error')?.textContent).toContain('Incorrect username or password');
   });
 
+  it('switches to the code step when login answers twoFactorRequired', () => {
+    const fixture = TestBed.createComponent(LoginComponent);
+    fixture.componentInstance.username = 'hani';
+    fixture.componentInstance.password = 's3cret';
+
+    fixture.componentInstance.submit();
+    httpMock.expectOne('/api/auth/login').flush({ twoFactorRequired: true });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.step).toBe('code');
+    expect(TestBed.inject(AuthService).isLoggedIn()).toBe(false);
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('input[name="code"]')).not.toBeNull();
+    expect(compiled.querySelector('input[name="username"]')).toBeNull();
+  });
+
+  it('completes login when the code is accepted', () => {
+    const fixture = TestBed.createComponent(LoginComponent);
+    fixture.componentInstance.step = 'code';
+    fixture.componentInstance.code = '123456';
+
+    fixture.componentInstance.submitCode();
+    httpMock.expectOne('/api/auth/2fa/verify').flush({ username: 'hani' });
+
+    expect(fixture.componentInstance.error).toBeNull();
+    expect(TestBed.inject(AuthService).isLoggedIn()).toBe(true);
+  });
+
+  it('shows an inline error and stays on the code step when the code is rejected', () => {
+    const fixture = TestBed.createComponent(LoginComponent);
+    fixture.componentInstance.step = 'code';
+    fixture.componentInstance.code = '000000';
+
+    fixture.componentInstance.submitCode();
+    httpMock
+      .expectOne('/api/auth/2fa/verify')
+      .flush({ error: 'that code is not correct' }, { status: 401, statusText: 'Unauthorized' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.step).toBe('code');
+    expect(TestBed.inject(AuthService).isLoggedIn()).toBe(false);
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.error')?.textContent).toContain('That code is not correct');
+  });
+
   it('disables the submit button while a login is in flight', () => {
     const fixture = TestBed.createComponent(LoginComponent);
     fixture.componentInstance.username = 'hani';
