@@ -243,6 +243,14 @@ ul.branch {
   text-transform: uppercase;
 }
 
+.console-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3b6fa8;
+}
+
 .menu-wrap {
   position: relative;
   flex: none;

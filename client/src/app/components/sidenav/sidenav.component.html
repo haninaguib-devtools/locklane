@@ -131,6 +131,9 @@
           node.title
         }}</span>
         <span class="issue-state">{{ node.state.toLowerCase() }}</span>
+        @if (hasOpenConsole(projectId, node.number)) {
+          <span class="console-dot" title="Has an open console"></span>
+        }
 
         <div class="menu-wrap">
           <button
