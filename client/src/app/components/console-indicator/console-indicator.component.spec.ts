@@ -5,6 +5,7 @@ import { provideRouter, Router } from '@angular/router';
 import { ConsoleIndicatorComponent } from './console-indicator.component';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { AgentStore } from '../../services/agent-store';
+import { ConsolesService } from '../../services/consoles.service';
 import { GhIssue } from '../../models/issue.model';
 
 describe('ConsoleIndicatorComponent', () => {
@@ -93,5 +94,17 @@ describe('ConsoleIndicatorComponent', () => {
     expect(TestBed.inject(ActiveConsoleStore).get(7)).toBe('7-rename-toggle');
     expect(fixture.componentInstance.open).toBeFalse();
     expect(navigateSpy).toHaveBeenCalledWith(['/issues', 7]);
+  });
+
+  it('refreshes the count when a console is closed elsewhere (#75)', () => {
+    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
+    fixture.detectChanges();
+    flushInitialFetch(['7-rename-toggle'], [issue(7, 'Seven')]);
+    expect(fixture.componentInstance.entries.length).toBe(1);
+
+    TestBed.inject(ConsolesService).notifyClosed();
+
+    flushInitialFetch([], []);
+    expect(fixture.componentInstance.entries.length).toBe(0);
   });
 });

@@ -84,6 +84,26 @@ class SessionRegistryReattachTest {
     }
 
     @Test
+    void closeStopsTheSessionAndForgetsItsRecord(@TempDir Path dbDir, @TempDir Path workDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        SessionRegistry registry = new SessionRegistry(repository);
+        PtySession session = registry.attach("worktree-close-me", workDir);
+
+        registry.close("worktree-close-me");
+
+        assertThat(registry.find("worktree-close-me")).isEmpty();
+        assertThat(repository.find("worktree-close-me")).isEmpty();
+        waitUntil(() -> !session.isAlive(), Duration.ofSeconds(5));
+    }
+
+    @Test
+    void closingAnUnknownSessionIsANoOp(@TempDir Path dbDir) {
+        SessionRegistry registry = newRegistry(dbDir);
+
+        registry.close("never-attached");
+    }
+
+    @Test
     void lastKnownWorkingDirectoryIsVisibleWithNoLiveSessionInThisRegistry(@TempDir Path dbDir, @TempDir Path workDir) {
         WorktreeSessionRepository sharedRepository = TestSqliteDatabases.newRepository(dbDir);
         SessionRegistry firstRegistry = new SessionRegistry(sharedRepository);

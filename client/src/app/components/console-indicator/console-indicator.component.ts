@@ -34,6 +34,7 @@ export class ConsoleIndicatorComponent implements OnInit {
 
   ngOnInit(): void {
     this.refresh();
+    this.consolesService.onClosed.subscribe(() => this.refresh());
   }
 
   toggle(): void {

@@ -101,4 +101,12 @@ describe('IssuesService', () => {
     expect(req.request.params.get('worktree')).toBe('false');
     req.flush({ worktreeId: '5-main-a1b2c3d4', workingDirectory: '/tmp/repo' });
   });
+
+  it('closes a session via DELETE /api/issues/{number}/worktrees/{worktreeId}', () => {
+    service.closeSession(5, '5-slug').subscribe();
+
+    const req = httpMock.expectOne('/api/issues/5/worktrees/5-slug');
+    expect(req.request.method).toBe('DELETE');
+    req.flush(null);
+  });
 });

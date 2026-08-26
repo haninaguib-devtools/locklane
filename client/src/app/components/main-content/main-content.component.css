@@ -23,7 +23,7 @@ app-terminal.tab-hidden {
   display: none;
 }
 
-.start-error {
+.action-error {
   padding: 6px 16px;
   font-size: 12px;
   color: var(--accent);

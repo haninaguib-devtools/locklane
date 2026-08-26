@@ -99,4 +99,21 @@ class WorktreeSessionRepositoryTest {
 
         assertThat(repository.find("never-seen")).isEmpty();
     }
+
+    @Test
+    void deleteForgetsTheRecord(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        repository.recordAttach("worktree-e", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "alice");
+
+        repository.delete("worktree-e");
+
+        assertThat(repository.find("worktree-e")).isEmpty();
+    }
+
+    @Test
+    void deletingAnUnknownWorktreeIsANoOp(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+
+        repository.delete("never-seen");
+    }
 }

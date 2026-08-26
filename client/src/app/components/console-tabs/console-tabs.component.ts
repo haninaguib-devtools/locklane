@@ -31,6 +31,9 @@ export class ConsoleTabsComponent {
 
   closeTab(id: string, event: Event): void {
     event.stopPropagation();
+    if (!confirm('Close this console? The session will be terminated and cannot be reattached.')) {
+      return;
+    }
     this.close.emit(id);
   }
 

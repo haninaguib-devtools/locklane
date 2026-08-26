@@ -55,6 +55,11 @@ public class WorktreeSessionRepository {
                 (rs, rowNum) -> toRecord(rs));
     }
 
+    /** Forgets a worktree session entirely — it was explicitly closed (#75), not just detached. */
+    public void delete(String worktreeId) {
+        jdbcTemplate.update("DELETE FROM worktree_sessions WHERE worktree_id = ?", worktreeId);
+    }
+
     private static WorktreeSessionRecord toRecord(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new WorktreeSessionRecord(
                 rs.getString("worktree_id"),
