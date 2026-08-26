@@ -53,6 +53,10 @@ public final class TestSqliteDatabases {
         return new UserRepository(newDataSource(dbDirectory));
     }
 
+    public static ProjectRepository newProjectRepository(Path dbDirectory) {
+        return new ProjectRepository(newDataSource(dbDirectory));
+    }
+
     private static String readSchema() {
         try (InputStream in = TestSqliteDatabases.class.getResourceAsStream("/schema.sql")) {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);

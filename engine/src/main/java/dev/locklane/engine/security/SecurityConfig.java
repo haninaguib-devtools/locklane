@@ -16,8 +16,9 @@ import org.springframework.http.HttpStatus;
  * {@code POST /api/auth/logout} (#47) plus the session check at
  * {@code GET /api/auth/me} (#58), and gates behind it: the worktree-session
  * endpoints (list/start, {@code /api/issues/*}{@code /worktrees}, #48; the
- * cross-issue listing at {@code /api/consoles}, #32), and the WebSocket session
- * endpoint itself ({@code /ws/sessions/**}, #50) — its origin restriction lives in
+ * cross-issue listing at {@code /api/consoles}, #32), the project CRUD endpoints
+ * ({@code /api/projects/**}, #42), and the WebSocket session endpoint itself
+ * ({@code /ws/sessions/**}, #50) — its origin restriction lives in
  * {@code WebSocketConfig}, but authentication is enforced here like every other
  * endpoint. Issue/PR data stays open: it still comes from one shared repo with no
  * per-user boundary until #41 gives it one.
@@ -42,6 +43,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/me").authenticated()
                         .requestMatchers("/api/issues/*/worktrees").authenticated()
                         .requestMatchers("/api/consoles").authenticated()
+                        .requestMatchers("/api/projects/**").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
                         .anyRequest().permitAll())
                 .formLogin(form -> form
