@@ -14,7 +14,12 @@ import org.springframework.http.HttpStatus;
 /**
  * Wires up session-based login for {@code POST /api/auth/login} /
  * {@code POST /api/auth/logout} (#47) plus the session check at
- * {@code GET /api/auth/me} (#58), and gates behind it: the two-factor
+ * {@code GET /api/auth/me} (#58). Login's success handler is
+ * {@link TwoFactorAwareLoginSuccessHandler} (#89): an account with 2FA on gets a
+ * pending session instead of an authenticated one, settled by
+ * {@code POST /api/auth/2fa/verify}, which stays unauthenticated here on purpose —
+ * the whole point of that endpoint is to authenticate a request that starts out not
+ * being. Gated behind authentication: the two-factor
  * enrollment endpoints for the signed-in account (everything under
  * {@code /api/account/2fa/}, #88 — turning 2FA on and off is account
  * self-service, so it presupposes a session rather than establishing one);
@@ -39,7 +44,8 @@ import org.springframework.http.HttpStatus;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http, TwoFactorAwareLoginSuccessHandler loginSuccessHandler) throws Exception {
         http
                 // Still no CSRF-token flow — the gated endpoints below are
                 // cookie-authenticated, state-changing (worktree creation) or
@@ -64,8 +70,7 @@ public class SecurityConfig {
                         .anyRequest().permitAll())
                 .formLogin(form -> form
                         .loginProcessingUrl("/api/auth/login")
-                        .successHandler((request, response, authentication) ->
-                                response.setStatus(HttpServletResponse.SC_OK))
+                        .successHandler(loginSuccessHandler)
                         .failureHandler((request, response, exception) ->
                                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED)))
                 .logout(logout -> logout
