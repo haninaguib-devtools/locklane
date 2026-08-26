@@ -3,9 +3,13 @@
 # application.yml entirely for tests rather than merging with it. Every setting the
 # app needs at runtime has to be repeated here, not just the ones being overridden.
 spring:
-  sql:
-    init:
-      mode: always
+  flyway:
+    locations: classpath:db/migration,classpath:dev/locklane/engine/persistence/migration
+    # See src/main/resources/application.yml — a leftover locklane-engine-test
+    # directory from before this task is exactly the "tables but no history table"
+    # case this exists to survive.
+    baseline-on-migrate: true
+    baseline-version: 0
 
 locklane:
   # Keep tests out of the real home directory.

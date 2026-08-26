@@ -1,12 +1,24 @@
 spring:
   application:
     name: locklane-engine
-  sql:
-    init:
-      # Boot only auto-runs schema.sql for what it detects as an embedded database;
-      # a file-based SQLite DataSource needs this said explicitly. schema.sql uses
-      # CREATE TABLE IF NOT EXISTS, so running it on every startup is idempotent.
-      mode: always
+  flyway:
+    # The schema (#107): versioned migrations that each apply exactly once, in order,
+    # to whatever state a database is already in. SQL files live under the standard
+    # db/migration/ (required to sit under engine/src/main/resources/); a handful of
+    # column-adding steps are Java migrations instead, because SQLite has no
+    # conditional ADD COLUMN — those live under persistence/migration/ to stay inside
+    # that package's normal scope rather than the unrelated top-level db.migration one
+    # Java-based migrations would otherwise need.
+    locations: classpath:db/migration,classpath:dev/locklane/engine/persistence/migration
+    # Flyway refuses to run at all against a database that already has tables but no
+    # flyway_schema_history — exactly what every pre-Flyway installation looks like.
+    # Baselining at version 0 (below every real migration) does not skip any of them:
+    # it only tells Flyway to trust this database and start counting from zero, so V1
+    # onward still run for real — and each is written to be a no-op if its own change
+    # already happened. That is what makes an old database really gain the columns
+    # it's missing, not just get stamped as caught up.
+    baseline-on-migrate: true
+    baseline-version: 0
 
 locklane:
   # Where the engine keeps its own durable state (currently: the SQLite database, and
