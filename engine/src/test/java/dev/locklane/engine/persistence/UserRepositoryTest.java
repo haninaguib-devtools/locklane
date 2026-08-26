@@ -51,7 +51,9 @@ class UserRepositoryTest {
         repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
         repository.startTotpEnrollment("hani", "encrypted-secret");
 
-        repository.enableTotp("hani");
+        assertThat(repository.enableTotp("hani"))
+                .as("one row changed — the enrollment was there to confirm")
+                .isEqualTo(1);
         assertThat(repository.findByUsername("hani").orElseThrow().totpEnabled()).isTrue();
 
         repository.disableTotp("hani");
@@ -65,7 +67,10 @@ class UserRepositoryTest {
         UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
         repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
 
-        repository.enableTotp("hani");
+        assertThat(repository.enableTotp("hani"))
+                .as("no rows changed, and the caller has to be able to tell — reporting 2FA on "
+                        + "here would promise a second factor the account cannot produce")
+                .isEqualTo(0);
 
         assertThat(repository.findByUsername("hani").orElseThrow().totpEnabled())
                 .as("2FA must never be on against a NULL secret — that is an account locked out "

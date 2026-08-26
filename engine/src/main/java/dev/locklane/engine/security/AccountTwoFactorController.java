@@ -123,7 +123,14 @@ public class AccountTwoFactorController {
             return ResponseEntity.badRequest().body(Map.of("error", "that code is not correct"));
         }
 
-        userRepository.enableTotp(username);
+        // The read above saw a secret, but nothing holds it there: a disable from another
+        // session can clear it in between, and the UPDATE is scoped to a row that still has
+        // one. Zero rows means the enrollment went away, and saying "enabled" here would
+        // leave the user believing in a second factor that does not exist.
+        if (userRepository.enableTotp(username) == 0) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "that enrollment was cleared before it could be confirmed; start again"));
+        }
         return ResponseEntity.ok(new StatusResponse(true));
     }
 

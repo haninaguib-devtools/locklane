@@ -77,3 +77,32 @@ enrollment, and let the admin disable 2FA once verified.
 - Checks after that: `./mvnw -B test` green — 171 tests, 0 failures, 0 errors, including 9
   new in `TotpServiceTest`, 11 in `AccountTwoFactorIntegrationTest`, and 4 added to
   `UserRepositoryTest`. `./scripts/consistency-check.sh` passed (haninaguib, 2026-08-26).
+
+## Fix pass — review findings on PR #94 (2026-08-26)
+
+- **High, scope drift.** The review found that `engine/pom.xml` and the two files under
+  `engine/src/main/java/dev/locklane/engine/persistence/` sit outside the issue's Scope
+  line, and that `engine/src/test/java/**` was never named there either even though the
+  issue's Done-when requires tests. The two deviations above were disclosed and approved
+  in the moment, but the issue itself still said otherwise, so a cold session reading the
+  issue could not tell what this task was allowed to touch. Answered by widening the
+  issue's Scope line to the paths the work actually needed — the two persistence files,
+  `engine/pom.xml`, and `engine/src/test/java/**` — so the issue and this record agree.
+  No code was undone (haninaguib asked for this in the moment, 2026-08-26).
+- **Medium, confirm reported success without checking the write.** `enableTotp` scopes its
+  UPDATE to a row that still has a secret, which is the right guard, but the controller
+  discarded the result and always answered `enabled: true`. A disable from another session
+  landing between the read and the update made the UPDATE a no-op while the user was told
+  two-factor authentication was now on. `UserRepository.enableTotp` now returns the number
+  of rows changed and `AccountTwoFactorController.confirm` answers 409 on zero, telling the
+  user the enrollment was cleared and to start again. `UserRepositoryTest` asserts both
+  counts — 1 where an enrollment exists, 0 where it does not. The controller's zero-row
+  branch is not exercised end to end: forcing it through MockMvc would mean interleaving two
+  requests inside one call, so the count that drives it is pinned at the repository instead
+  (haninaguib, 2026-08-26).
+- The three low findings — no throttling on `disable`'s password check, `URLEncoder`
+  rendering a space in a username as `+`, and `verify` throwing rather than returning false
+  on an empty secret — were left alone. Fix mode addresses blocker and high findings only,
+  and the human did not ask for these by number.
+- Checks after the fix: `./mvnw -B test` green — 171 tests, 0 failures, 0 errors.
+  `./scripts/consistency-check.sh` passed (haninaguib, 2026-08-26).
