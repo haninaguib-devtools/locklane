@@ -42,3 +42,14 @@ export interface TreeNode {
   state: string;
   children: TreeNode[];
 }
+
+// Mirrors dev.locklane.engine.persistence.ProjectController.ProjectView.
+export interface Project {
+  id: number;
+  name: string;
+  gitUrl: string;
+  workareaPath: string;
+  defaultBranch: string | null;
+  status: 'CLONING' | 'READY' | 'FAILED';
+  createdAt: string;
+}

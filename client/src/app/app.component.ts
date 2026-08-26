@@ -32,10 +32,18 @@ export class AppComponent {
 
   readonly isLoggedIn = this.auth.isLoggedIn;
 
-  // The selected issue lives in the URL (`/issues/:id`), not in component
-  // state -- re-derived from the route on every navigation so a direct load
-  // of `/issues/:id`, a browser back/forward, or a shared link all select the
-  // right issue.
+  // The selected project/issue lives in the URL
+  // (`/projects/:projectId/issues/:id`), not in component state -- re-derived from
+  // the route on every navigation so a direct load, a browser back/forward, or a
+  // shared link all select the right project and issue.
+  readonly selectedProjectId = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map(() => this.currentProjectId()),
+    ),
+    { initialValue: this.currentProjectId() },
+  );
+
   readonly selectedIssue = toSignal(
     this.router.events.pipe(
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),
@@ -47,7 +55,10 @@ export class AppComponent {
   sidebarWidth = loadWidth();
 
   select(issueNumber: number): void {
-    this.router.navigate(['/issues', issueNumber]);
+    const projectId = this.currentProjectId();
+    if (projectId !== null) {
+      this.router.navigate(['/projects', projectId, 'issues', issueNumber]);
+    }
   }
 
   setSidebarWidth(width: number): void {
@@ -61,6 +72,12 @@ export class AppComponent {
 
   private currentIssueId(): number | null {
     const raw = this.route.snapshot.firstChild?.paramMap.get('id') ?? null;
+    const id = raw !== null ? Number(raw) : NaN;
+    return Number.isFinite(id) ? id : null;
+  }
+
+  private currentProjectId(): number | null {
+    const raw = this.route.snapshot.firstChild?.paramMap.get('projectId') ?? null;
     const id = raw !== null ? Number(raw) : NaN;
     return Number.isFinite(id) ? id : null;
   }

@@ -32,6 +32,7 @@ export class MainContentComponent implements OnChanges {
   private readonly agentStore = inject(AgentStore);
   private readonly activeConsoleStore = inject(ActiveConsoleStore);
 
+  @Input({ required: true }) projectId!: number;
   @Input({ required: true }) issueNumber!: number;
 
   issue: GhIssue | null = null;
@@ -45,12 +46,12 @@ export class MainContentComponent implements OnChanges {
   closeError = false;
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['issueNumber']) {
-      this.load(this.issueNumber);
+    if (changes['issueNumber'] || changes['projectId']) {
+      this.load(this.projectId, this.issueNumber);
     }
   }
 
-  private load(number: number): void {
+  private load(projectId: number, number: number): void {
     this.issue = null;
     this.detail = null;
     this.consoles = [];
@@ -59,13 +60,13 @@ export class MainContentComponent implements OnChanges {
     this.startError = false;
     this.closeError = false;
 
-    this.issuesService.get(number).subscribe((issue) => {
+    this.issuesService.get(projectId, number).subscribe((issue) => {
       this.issue = issue;
     });
-    this.issuesService.detail(number).subscribe((detail) => {
+    this.issuesService.detail(projectId, number).subscribe((detail) => {
       this.detail = detail;
     });
-    this.issuesService.worktrees(number).subscribe((ids) => {
+    this.issuesService.worktrees(projectId, number).subscribe((ids) => {
       this.consoles = ids.map((id) => ({ id, dir: null, agent: this.agentStore.get(id) }));
       const remembered = this.activeConsoleStore.get(number);
       this.selectedConsole = remembered && ids.includes(remembered) ? remembered : (ids[0] ?? null);
@@ -81,7 +82,7 @@ export class MainContentComponent implements OnChanges {
   openConsole(request: OpenConsoleRequest): void {
     this.starting = true;
     this.startError = false;
-    this.issuesService.startSession(this.issueNumber, request.worktree).subscribe({
+    this.issuesService.startSession(this.projectId, this.issueNumber, request.worktree).subscribe({
       next: ({ worktreeId, workingDirectory }) => {
         // A worktree request reuses the issue's existing worktree session when
         // one exists (#29) — then there is no new tab to add, just select it.
@@ -106,7 +107,7 @@ export class MainContentComponent implements OnChanges {
 
   closeConsole(id: string): void {
     this.closeError = false;
-    this.issuesService.closeSession(this.issueNumber, id).subscribe({
+    this.issuesService.closeSession(this.projectId, this.issueNumber, id).subscribe({
       next: () => {
         this.consoles = this.consoles.filter((c) => c.id !== id);
         this.relabel();

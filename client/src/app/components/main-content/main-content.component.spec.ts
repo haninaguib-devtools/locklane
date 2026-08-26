@@ -27,8 +27,10 @@ describe('MainContentComponent', () => {
 
   function init(number: number): ReturnType<typeof TestBed.createComponent<MainContentComponent>> {
     const fixture = TestBed.createComponent(MainContentComponent);
+    fixture.componentInstance.projectId = 1;
     fixture.componentInstance.issueNumber = number;
     fixture.componentInstance.ngOnChanges({
+      projectId: { currentValue: 1, previousValue: null, firstChange: true, isFirstChange: () => true },
       issueNumber: { currentValue: number, previousValue: null, firstChange: true, isFirstChange: () => true },
     });
     return fixture;
@@ -54,59 +56,59 @@ describe('MainContentComponent', () => {
       prDraft: false,
       flowSteps: [{ name: 'open', done: true }],
     };
-    httpMock.expectOne(`/api/issues/${number}`).flush(issue);
-    httpMock.expectOne(`/api/issues/${number}/detail`).flush(detail);
-    httpMock.expectOne(`/api/issues/${number}/worktrees`).flush(consoleIds);
+    httpMock.expectOne(`/api/projects/1/issues/${number}`).flush(issue);
+    httpMock.expectOne(`/api/projects/1/issues/${number}/detail`).flush(detail);
+    httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush(consoleIds);
   }
 
   it('restores every open console as a tab, not just the first', () => {
     const fixture = init(7);
 
-    respond(7, ['7-main-a1b2c3d4', '7-main-e5f6a7b8', '7-rename-toggle']);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-main-e5f6a7b8', '1-7-rename-toggle']);
 
     expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual([
-      '7-main-a1b2c3d4',
-      '7-main-e5f6a7b8',
-      '7-rename-toggle',
+      '1-7-main-a1b2c3d4',
+      '1-7-main-e5f6a7b8',
+      '1-7-rename-toggle',
     ]);
     expect(fixture.componentInstance.tabs.map((t) => t.label)).toEqual(['main', 'main 2', 'wtree']);
-    expect(fixture.componentInstance.selectedConsole).toBe('7-main-a1b2c3d4');
+    expect(fixture.componentInstance.selectedConsole).toBe('1-7-main-a1b2c3d4');
   });
 
   it('labels restored tabs with the agent the store remembers for them', () => {
-    TestBed.inject(AgentStore).set('7-rename-toggle', 'claude');
+    TestBed.inject(AgentStore).set('1-7-rename-toggle', 'claude');
     const fixture = init(7);
 
-    respond(7, ['7-rename-toggle']);
+    respond(7, ['1-7-rename-toggle']);
 
     expect(fixture.componentInstance.tabs[0].label).toBe('wtree · claude');
   });
 
   it('restores the remembered active console when it is still open', () => {
-    TestBed.inject(ActiveConsoleStore).set(7, '7-rename-toggle');
+    TestBed.inject(ActiveConsoleStore).set(7, '1-7-rename-toggle');
     const fixture = init(7);
 
-    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
 
-    expect(fixture.componentInstance.selectedConsole).toBe('7-rename-toggle');
+    expect(fixture.componentInstance.selectedConsole).toBe('1-7-rename-toggle');
   });
 
   it('falls back to the first console when the remembered one is gone', () => {
-    TestBed.inject(ActiveConsoleStore).set(7, '7-closed-session');
+    TestBed.inject(ActiveConsoleStore).set(7, '1-7-closed-session');
     const fixture = init(7);
 
-    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
 
-    expect(fixture.componentInstance.selectedConsole).toBe('7-main-a1b2c3d4');
+    expect(fixture.componentInstance.selectedConsole).toBe('1-7-main-a1b2c3d4');
   });
 
   it('switching tabs remembers the new active console for the issue', () => {
     const fixture = init(7);
-    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
 
-    fixture.componentInstance.selectConsole('7-rename-toggle');
+    fixture.componentInstance.selectConsole('1-7-rename-toggle');
 
-    expect(TestBed.inject(ActiveConsoleStore).get(7)).toBe('7-rename-toggle');
+    expect(TestBed.inject(ActiveConsoleStore).get(7)).toBe('1-7-rename-toggle');
   });
 
   it('has no selected console when the issue has none yet', () => {
@@ -119,11 +121,11 @@ describe('MainContentComponent', () => {
 
   it('switching tabs updates the selection without reloading the issue', () => {
     const fixture = init(7);
-    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
 
-    fixture.componentInstance.selectConsole('7-rename-toggle');
+    fixture.componentInstance.selectConsole('1-7-rename-toggle');
 
-    expect(fixture.componentInstance.selectedConsole).toBe('7-rename-toggle');
+    expect(fixture.componentInstance.selectedConsole).toBe('1-7-rename-toggle');
     expect(fixture.componentInstance.issue?.number).toBe(7); // unchanged, no reload
   });
 
@@ -135,31 +137,31 @@ describe('MainContentComponent', () => {
     expect(fixture.componentInstance.starting).toBeTrue();
 
     httpMock
-      .expectOne((r) => r.url === '/api/issues/8/worktrees' && r.method === 'POST')
-      .flush({ worktreeId: '8-main-a1b2c3d4', workingDirectory: '/tmp/repo' });
+      .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
+      .flush({ worktreeId: '1-8-main-a1b2c3d4', workingDirectory: '/tmp/repo' });
 
     expect(fixture.componentInstance.starting).toBeFalse();
     expect(fixture.componentInstance.consoles).toEqual([
-      { id: '8-main-a1b2c3d4', dir: '/tmp/repo', agent: 'codex' },
+      { id: '1-8-main-a1b2c3d4', dir: '/tmp/repo', agent: 'codex' },
     ]);
     expect(fixture.componentInstance.tabs[0].label).toBe('main · codex');
-    expect(fixture.componentInstance.selectedConsole).toBe('8-main-a1b2c3d4');
-    expect(TestBed.inject(AgentStore).get('8-main-a1b2c3d4')).toBe('codex');
-    expect(TestBed.inject(ActiveConsoleStore).get(8)).toBe('8-main-a1b2c3d4');
+    expect(fixture.componentInstance.selectedConsole).toBe('1-8-main-a1b2c3d4');
+    expect(TestBed.inject(AgentStore).get('1-8-main-a1b2c3d4')).toBe('codex');
+    expect(TestBed.inject(ActiveConsoleStore).get(8)).toBe('1-8-main-a1b2c3d4');
   });
 
   it('a worktree request that reuses the existing session only re-selects its tab', () => {
     const fixture = init(8);
-    respond(8, ['8-main-a1b2c3d4', '8-slug']);
-    fixture.componentInstance.selectConsole('8-main-a1b2c3d4');
+    respond(8, ['1-8-main-a1b2c3d4', '1-8-slug']);
+    fixture.componentInstance.selectConsole('1-8-main-a1b2c3d4');
 
     fixture.componentInstance.openConsole({ worktree: true, agent: 'claude' });
     httpMock
-      .expectOne((r) => r.url === '/api/issues/8/worktrees' && r.method === 'POST')
-      .flush({ worktreeId: '8-slug', workingDirectory: '/tmp/repo-8' });
+      .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
+      .flush({ worktreeId: '1-8-slug', workingDirectory: '/tmp/repo-8' });
 
-    expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['8-main-a1b2c3d4', '8-slug']);
-    expect(fixture.componentInstance.selectedConsole).toBe('8-slug');
+    expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['1-8-main-a1b2c3d4', '1-8-slug']);
+    expect(fixture.componentInstance.selectedConsole).toBe('1-8-slug');
   });
 
   it('a failed open reports an error and stops the spinner without touching the tabs', () => {
@@ -168,7 +170,7 @@ describe('MainContentComponent', () => {
 
     fixture.componentInstance.openConsole({ worktree: true, agent: 'claude' });
     httpMock
-      .expectOne((r) => r.url === '/api/issues/8/worktrees' && r.method === 'POST')
+      .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
       .error(new ProgressEvent('network error'));
 
     expect(fixture.componentInstance.starting).toBeFalse();
@@ -178,36 +180,36 @@ describe('MainContentComponent', () => {
 
   it('closing a console asks the server to end it, then drops its tab', () => {
     const fixture = init(7);
-    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
 
-    fixture.componentInstance.closeConsole('7-main-a1b2c3d4');
-    httpMock.expectOne('/api/issues/7/worktrees/7-main-a1b2c3d4').flush(null);
+    fixture.componentInstance.closeConsole('1-7-main-a1b2c3d4');
+    httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
 
-    expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['7-rename-toggle']);
+    expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['1-7-rename-toggle']);
     expect(fixture.componentInstance.closeError).toBeFalse();
   });
 
   it('closing the selected console selects the next remaining one and remembers it', () => {
     const fixture = init(7);
-    respond(7, ['7-main-a1b2c3d4', '7-rename-toggle']);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
 
-    fixture.componentInstance.closeConsole('7-main-a1b2c3d4');
-    httpMock.expectOne('/api/issues/7/worktrees/7-main-a1b2c3d4').flush(null);
+    fixture.componentInstance.closeConsole('1-7-main-a1b2c3d4');
+    httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
 
-    expect(fixture.componentInstance.selectedConsole).toBe('7-rename-toggle');
-    expect(TestBed.inject(ActiveConsoleStore).get(7)).toBe('7-rename-toggle');
+    expect(fixture.componentInstance.selectedConsole).toBe('1-7-rename-toggle');
+    expect(TestBed.inject(ActiveConsoleStore).get(7)).toBe('1-7-rename-toggle');
   });
 
   it('a failed close reports an error and leaves the tab in place', () => {
     const fixture = init(7);
-    respond(7, ['7-main-a1b2c3d4']);
+    respond(7, ['1-7-main-a1b2c3d4']);
 
-    fixture.componentInstance.closeConsole('7-main-a1b2c3d4');
+    fixture.componentInstance.closeConsole('1-7-main-a1b2c3d4');
     httpMock
-      .expectOne('/api/issues/7/worktrees/7-main-a1b2c3d4')
+      .expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4')
       .error(new ProgressEvent('network error'));
 
     expect(fixture.componentInstance.closeError).toBeTrue();
-    expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['7-main-a1b2c3d4']);
+    expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['1-7-main-a1b2c3d4']);
   });
 });

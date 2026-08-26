@@ -32,74 +32,76 @@ describe('ConsoleIndicatorComponent', () => {
   }
 
   function flushInitialFetch(ids: string[], issues: GhIssue[]): void {
-    httpMock.expectOne('/api/consoles').flush(ids);
-    httpMock.expectOne('/api/issues').flush(issues);
+    httpMock.expectOne('/api/projects/1/consoles').flush(ids);
+    httpMock.expectOne('/api/projects/1/issues').flush(issues);
+  }
+
+  /** Sets the required projectId input and runs the ngOnChanges that triggers the fetch. */
+  function init(): ReturnType<typeof TestBed.createComponent<ConsoleIndicatorComponent>> {
+    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
+    fixture.componentInstance.projectId = 1;
+    fixture.componentInstance.ngOnChanges();
+    return fixture;
   }
 
   it('builds an entry per console, with issue title and label', () => {
-    TestBed.inject(AgentStore).set('7-main-a1b2c3d4', 'claude');
-    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
-    fixture.detectChanges();
+    TestBed.inject(AgentStore).set('1-7-main-a1b2c3d4', 'claude');
+    const fixture = init();
 
-    flushInitialFetch(['7-main-a1b2c3d4', '8-rename-toggle'], [issue(7, 'Seven'), issue(8, 'Eight')]);
+    flushInitialFetch(['1-7-main-a1b2c3d4', '1-8-rename-toggle'], [issue(7, 'Seven'), issue(8, 'Eight')]);
 
     expect(fixture.componentInstance.entries).toEqual([
-      { sessionId: '7-main-a1b2c3d4', issueNumber: 7, issueTitle: 'Seven', label: 'main · claude' },
-      { sessionId: '8-rename-toggle', issueNumber: 8, issueTitle: 'Eight', label: 'wtree' },
+      { sessionId: '1-7-main-a1b2c3d4', issueNumber: 7, issueTitle: 'Seven', label: 'main · claude' },
+      { sessionId: '1-8-rename-toggle', issueNumber: 8, issueTitle: 'Eight', label: 'wtree' },
     ]);
   });
 
   it('falls back to "#N" when the issue title is not known', () => {
-    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
-    fixture.detectChanges();
+    const fixture = init();
 
-    flushInitialFetch(['9-slug'], []);
+    flushInitialFetch(['1-9-slug'], []);
 
     expect(fixture.componentInstance.entries[0].issueTitle).toBe('#9');
   });
 
-  it('excludes a console id with no issue-number prefix', () => {
-    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
-    fixture.detectChanges();
+  it('excludes a console id with no project/issue-number prefix', () => {
+    const fixture = init();
 
-    flushInitialFetch(['main', '7-rename-toggle'], [issue(7, 'Seven')]);
+    flushInitialFetch(['main', '1-7-rename-toggle'], [issue(7, 'Seven')]);
 
-    expect(fixture.componentInstance.entries.map((e) => e.sessionId)).toEqual(['7-rename-toggle']);
+    expect(fixture.componentInstance.entries.map((e) => e.sessionId)).toEqual(['1-7-rename-toggle']);
   });
 
   it('refetches when the picker is opened', () => {
-    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
-    fixture.detectChanges();
+    const fixture = init();
     flushInitialFetch([], []);
 
     fixture.componentInstance.toggle();
 
     expect(fixture.componentInstance.open).toBeTrue();
-    flushInitialFetch(['7-rename-toggle'], [issue(7, 'Seven')]);
+    flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);
     expect(fixture.componentInstance.entries.length).toBe(1);
   });
 
   it("jumping to an entry remembers it as the issue's active console, closes the picker, and navigates there", () => {
-    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
-    fixture.detectChanges();
-    flushInitialFetch(['7-rename-toggle'], [issue(7, 'Seven')]);
+    const fixture = init();
+    flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);
     fixture.componentInstance.toggle();
-    flushInitialFetch(['7-rename-toggle'], [issue(7, 'Seven')]);
+    flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);
     expect(fixture.componentInstance.open).toBeTrue();
     const router = TestBed.inject(Router);
     const navigateSpy = spyOn(router, 'navigate');
 
     fixture.componentInstance.jumpTo(fixture.componentInstance.entries[0]);
 
-    expect(TestBed.inject(ActiveConsoleStore).get(7)).toBe('7-rename-toggle');
+    expect(TestBed.inject(ActiveConsoleStore).get(7)).toBe('1-7-rename-toggle');
     expect(fixture.componentInstance.open).toBeFalse();
-    expect(navigateSpy).toHaveBeenCalledWith(['/issues', 7]);
+    expect(navigateSpy).toHaveBeenCalledWith(['/projects', 1, 'issues', 7]);
   });
 
   it('refreshes the count when a console is closed elsewhere (#75)', () => {
-    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
-    fixture.detectChanges();
-    flushInitialFetch(['7-rename-toggle'], [issue(7, 'Seven')]);
+    const fixture = init();
+    flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);
     expect(fixture.componentInstance.entries.length).toBe(1);
 
     TestBed.inject(ConsolesService).notifyClosed();

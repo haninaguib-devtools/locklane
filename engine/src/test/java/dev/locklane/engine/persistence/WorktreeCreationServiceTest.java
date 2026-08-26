@@ -20,7 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The worktree-creating path exercises real git commands against a throwaway local
  * repository (a local bare "origin", no network, no real GitHub) — for genuine
- * confidence, not just a mocked assertion that git was "called" (#20).
+ * confidence, not just a mocked assertion that git was "called" (#20). Since #43,
+ * the checkout a worktree is created against is resolved per project — each test
+ * registers a {@link ProjectRecord} pointing at its own throwaway repo.
  */
 class WorktreeCreationServiceTest {
 
@@ -33,69 +35,110 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void reusesAnExistingWorktreeWithoutTouchingGit(@TempDir Path root) {
+    void startingASessionOnAnUnknownProjectIsEmpty(@TempDir Path root) {
+        WorktreeCreationService service =
+                service(TestSqliteDatabases.newRepository(root), TestSqliteDatabases.newProjectRepository(root), List.of());
+
+        assertThat(service.startSession(999, 9)).isEmpty();
+    }
+
+    @Test
+    void startingASessionOnAProjectStillCloningIsEmpty(@TempDir Path root) throws IOException, InterruptedException {
+        Path projectRoot = initTestRepo(root);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
-        repository.recordAttach("9-already-running", root.resolve("wt"), Instant.now(), null);
-        WorktreeCreationService service = service(root, repository, List.of());
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        long projectId = projectRepository.create("proj", "url", projectRoot, Instant.now()).id(); // still CLONING
+        WorktreeCreationService service = service(repository, projectRepository, List.of());
+
+        assertThat(service.startSession(projectId, 9)).isEmpty();
+    }
+
+    @Test
+    void reusesAnExistingWorktreeWithoutTouchingGit(@TempDir Path root) throws IOException, InterruptedException {
+        Path projectRoot = initTestRepo(root);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        repository.recordAttach(projectId + "-9-already-running", root.resolve("wt"), Instant.now(), null);
+        WorktreeCreationService service = service(repository, projectRepository, List.of());
 
         // No GhIssue for #9 is supplied to the fake client, so if this reached the
         // git-creation path it would fail to find a title -- reaching a real answer
         // proves the "already exists" short-circuit ran instead.
-        assertThat(service.startSession(9)).map(WorktreeCreationService.StartedSession::worktreeId)
-                .contains("9-already-running");
+        assertThat(service.startSession(projectId, 9)).map(WorktreeCreationService.StartedSession::worktreeId)
+                .contains(projectId + "-9-already-running");
     }
 
     @Test
-    void withoutAWorktreeTheSessionUsesTheMainCheckoutAndNoGitWorktreeRuns(@TempDir Path root) throws IOException {
-        Files.createDirectories(root);
+    void withoutAWorktreeTheSessionUsesTheProjectCheckoutAndNoGitWorktreeRuns(@TempDir Path root) throws IOException, InterruptedException {
+        Path projectRoot = initTestRepo(root);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        long projectId = readyProject(projectRepository, projectRoot).id();
         GhIssue issue = new GhIssue(11, "Console on main", "OPEN", List.of(), "", "", "");
-        WorktreeCreationService service = service(root, TestSqliteDatabases.newRepository(root), List.of(issue));
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
 
-        Optional<WorktreeCreationService.StartedSession> result = service.startSession(11, false);
+        Optional<WorktreeCreationService.StartedSession> result = service.startSession(projectId, 11, false);
 
-        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory).contains(root.toString());
-        assertThat(root.resolveSibling(root.getFileName() + "-11")).doesNotExist();
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .contains(projectRoot.toString());
+        assertThat(projectRoot.resolveSibling(projectRoot.getFileName() + "-11")).doesNotExist();
     }
 
     @Test
-    void withoutAWorktreeEachCallStartsAFreshSessionId(@TempDir Path root) throws IOException {
-        Files.createDirectories(root);
+    void withoutAWorktreeEachCallStartsAFreshSessionId(@TempDir Path root) throws IOException, InterruptedException {
+        Path projectRoot = initTestRepo(root);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        long projectId = readyProject(projectRepository, projectRoot).id();
         GhIssue issue = new GhIssue(12, "Two consoles on main", "OPEN", List.of(), "", "", "");
-        WorktreeCreationService service = service(root, TestSqliteDatabases.newRepository(root), List.of(issue));
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
 
-        Optional<WorktreeCreationService.StartedSession> first = service.startSession(12, false);
-        Optional<WorktreeCreationService.StartedSession> second = service.startSession(12, false);
+        Optional<WorktreeCreationService.StartedSession> first = service.startSession(projectId, 12, false);
+        Optional<WorktreeCreationService.StartedSession> second = service.startSession(projectId, 12, false);
 
         assertThat(first).map(WorktreeCreationService.StartedSession::worktreeId).isNotEqualTo(
                 second.map(WorktreeCreationService.StartedSession::worktreeId));
     }
 
     @Test
-    void withoutAWorktreeAnUnknownIssueIsEmpty(@TempDir Path root) {
-        WorktreeCreationService service = service(root, TestSqliteDatabases.newRepository(root), List.of());
+    void withoutAWorktreeAnUnknownIssueIsEmpty(@TempDir Path root) throws IOException, InterruptedException {
+        Path projectRoot = initTestRepo(root);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        WorktreeCreationService service = service(repository, projectRepository, List.of());
 
-        assertThat(service.startSession(404, false)).isEmpty();
+        assertThat(service.startSession(projectId, 404, false)).isEmpty();
     }
 
     @Test
-    void unknownIssueIsEmpty(@TempDir Path root) {
-        WorktreeCreationService service = service(root, TestSqliteDatabases.newRepository(root), List.of());
+    void unknownIssueIsEmpty(@TempDir Path root) throws IOException, InterruptedException {
+        Path projectRoot = initTestRepo(root);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        WorktreeCreationService service = service(repository, projectRepository, List.of());
 
-        assertThat(service.startSession(404)).isEmpty();
+        assertThat(service.startSession(projectId, 404)).isEmpty();
     }
 
     @Test
     void createsARealWorktreeOnANewBranch(@TempDir Path tmp) throws Exception {
         Path projectRoot = initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
         GhIssue issue = new GhIssue(42, "Add the frobnicator", "OPEN", List.of(), "", "", "");
-        WorktreeCreationService service = service(projectRoot, TestSqliteDatabases.newRepository(tmp), List.of(issue));
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
 
-        Optional<WorktreeCreationService.StartedSession> result = service.startSession(42);
+        Optional<WorktreeCreationService.StartedSession> result = service.startSession(projectId, 42);
 
         assertThat(result).map(WorktreeCreationService.StartedSession::worktreeId)
-                .contains("42-add-the-frobnicator");
+                .contains(projectId + "-42-add-the-frobnicator");
         Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-42");
         assertThat(worktreePath).isDirectory();
+        // The git branch itself carries no project prefix -- each project is its own repo.
         assertThat(currentBranch(worktreePath)).isEqualTo("wip/42-add-the-frobnicator");
         assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
                 .contains(worktreePath.toString());
@@ -104,31 +147,58 @@ class WorktreeCreationServiceTest {
     @Test
     void callingItAgainForTheSameIssueReturnsTheSameIdWithoutRecreating(@TempDir Path tmp) throws Exception {
         Path projectRoot = initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
         GhIssue issue = new GhIssue(7, "Second call", "OPEN", List.of(), "", "", "");
-        WorktreeCreationService service =
-                service(projectRoot, TestSqliteDatabases.newRepository(tmp), List.of(issue));
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
 
-        Optional<WorktreeCreationService.StartedSession> first = service.startSession(7);
-        Optional<WorktreeCreationService.StartedSession> second = service.startSession(7);
+        Optional<WorktreeCreationService.StartedSession> first = service.startSession(projectId, 7);
+        Optional<WorktreeCreationService.StartedSession> second = service.startSession(projectId, 7);
 
         assertThat(second).isEqualTo(first);
     }
 
-    private static WorktreeCreationService service(Path projectRoot, WorktreeSessionRepository repository,
-            List<GhIssue> issues) {
+    @Test
+    void twoProjectsWithTheSameIssueNumberGetIndependentWorktrees(@TempDir Path tmp) throws Exception {
+        Path projectARoot = initTestRepo(tmp.resolve("a"));
+        Path projectBRoot = initTestRepo(tmp.resolve("b"));
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectA = readyProject(projectRepository, projectARoot).id();
+        long projectB = readyProject(projectRepository, projectBRoot).id();
+        GhIssue issue = new GhIssue(5, "Same number, different repos", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> forA = service.startSession(projectA, 5);
+        Optional<WorktreeCreationService.StartedSession> forB = service.startSession(projectB, 5);
+
+        assertThat(forA).map(WorktreeCreationService.StartedSession::worktreeId).contains(projectA + "-5-same-number-different-repos");
+        assertThat(forB).map(WorktreeCreationService.StartedSession::worktreeId).contains(projectB + "-5-same-number-different-repos");
+        assertThat(forA).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .isNotEqualTo(forB.map(WorktreeCreationService.StartedSession::workingDirectory));
+    }
+
+    private static ProjectRecord readyProject(ProjectRepository projectRepository, Path projectRoot) {
+        return projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", Instant.now());
+    }
+
+    private static WorktreeCreationService service(WorktreeSessionRepository repository,
+            ProjectRepository projectRepository, List<GhIssue> issues) {
         IssueWorktreeService worktreeService = new IssueWorktreeService(repository);
         GhIssueCache cache = new GhIssueCache(new FixedGhClient(issues));
-        return new WorktreeCreationService(cache, worktreeService, projectRoot.toString());
+        return new WorktreeCreationService(cache, worktreeService, projectRepository);
     }
 
     /** A minimal local repo with an "origin" remote and a main branch — no network. */
-    private static Path initTestRepo(Path tmp) throws IOException, InterruptedException {
-        Path bare = tmp.resolve("origin.git");
-        Path work = tmp.resolve("work");
+    private static Path initTestRepo(Path dir) throws IOException, InterruptedException {
+        Files.createDirectories(dir);
+        Path bare = dir.resolve("origin.git");
+        Path work = dir.resolve("work");
         Files.createDirectories(work);
 
-        run(tmp, "git", "init", "--bare", "-b", "main", bare.toString());
-        run(tmp, "git", "init", "-b", "main", work.toString());
+        run(dir, "git", "init", "--bare", "-b", "main", bare.toString());
+        run(dir, "git", "init", "-b", "main", work.toString());
         run(work, "git", "config", "user.email", "test@example.com");
         run(work, "git", "config", "user.name", "Test");
         Files.writeString(work.resolve("README.md"), "test repo");

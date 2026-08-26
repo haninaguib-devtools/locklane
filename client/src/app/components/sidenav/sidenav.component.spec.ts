@@ -41,28 +41,35 @@ describe('SidenavComponent', () => {
     ];
   }
 
-  it('loads the tree from the backend', () => {
+  /** Sets the required projectId input and runs the ngOnChanges that triggers the load. */
+  function init(): ReturnType<typeof TestBed.createComponent<SidenavComponent>> {
     const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    fixture.componentInstance.projectId = 1;
+    fixture.componentInstance.ngOnChanges({
+      projectId: { currentValue: 1, previousValue: null, firstChange: true, isFirstChange: () => true },
+    });
+    return fixture;
+  }
+
+  it('loads the tree from the backend', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
 
     expect(fixture.componentInstance.mainNodes).toHaveSize(2);
     expect(fixture.componentInstance.loading).toBeFalse();
   });
 
   it('reports an error state when the fetch fails', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').error(new ProgressEvent('network error'));
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').error(new ProgressEvent('network error'));
 
     expect(fixture.componentInstance.error).toBeTrue();
     expect(fixture.componentInstance.loading).toBeFalse();
   });
 
   it('emits the selected issue number', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
 
     let emitted: number | undefined;
     fixture.componentInstance.selectedChange.subscribe((n) => (emitted = n));
@@ -72,9 +79,8 @@ describe('SidenavComponent', () => {
   });
 
   it('a pinned issue moves out of mainNodes and into pinnedNodes', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
 
     TestBed.inject(PinStore).toggle(4);
     fixture.detectChanges();
@@ -84,9 +90,8 @@ describe('SidenavComponent', () => {
   });
 
   it('pinning a child task removes it from its unpinned parent in mainNodes too', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     fixture.componentInstance.hideShipped = false;
 
     TestBed.inject(PinStore).toggle(2); // pin child A; initiative #1 stays unpinned
@@ -97,9 +102,8 @@ describe('SidenavComponent', () => {
   });
 
   it('a pinned child is excluded from its pinned parent to avoid duplication', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
 
     fixture.componentInstance.hideShipped = false; // isolate de-duplication from ship-filtering
     const pins = TestBed.inject(PinStore);
@@ -114,9 +118,8 @@ describe('SidenavComponent', () => {
   });
 
   it('hideShipped never removes a pinned entry itself, even if it is closed', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
 
     TestBed.inject(PinStore).toggle(3); // pin the CLOSED child directly
     fixture.detectChanges();
@@ -126,9 +129,8 @@ describe('SidenavComponent', () => {
   });
 
   it('isCollapsed reflects CollapseStore, but an active filter always shows children', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     const initiative = fixture.componentInstance.mainNodes[0];
 
     TestBed.inject(CollapseStore).toggle(1);
@@ -139,9 +141,8 @@ describe('SidenavComponent', () => {
   });
 
   it('hideShipped is on by default and hides the closed child', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
 
     expect(fixture.componentInstance.hideShipped).toBeTrue();
     const initiative = fixture.componentInstance.mainNodes[0];
@@ -149,9 +150,8 @@ describe('SidenavComponent', () => {
   });
 
   it('refresh() re-fetches the tree and updates the list in place', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
 
     fixture.componentInstance.refresh();
     expect(fixture.componentInstance.refreshing).toBeTrue();
@@ -160,32 +160,30 @@ describe('SidenavComponent', () => {
       ...tree(),
       { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', children: [] },
     ];
-    httpMock.expectOne('/api/issues/tree').flush(updated);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(updated);
 
     expect(fixture.componentInstance.refreshing).toBeFalse();
     expect(fixture.componentInstance.mainNodes.map((n) => n.number)).toEqual([1, 4, 5]);
   });
 
   it('refresh() is a no-op while a refresh is already in flight', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
 
     fixture.componentInstance.refresh();
     fixture.componentInstance.refresh();
 
     // Only one in-flight request: the second refresh() call was a no-op.
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     expect(fixture.componentInstance.refreshing).toBeFalse();
   });
 
   it('refresh() surfaces an error without clearing the existing list', () => {
-    const fixture = TestBed.createComponent(SidenavComponent);
-    fixture.detectChanges();
-    httpMock.expectOne('/api/issues/tree').flush(tree());
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
 
     fixture.componentInstance.refresh();
-    httpMock.expectOne('/api/issues/tree').error(new ProgressEvent('network error'));
+    httpMock.expectOne('/api/projects/1/issues/tree').error(new ProgressEvent('network error'));
 
     expect(fixture.componentInstance.refreshing).toBeFalse();
     expect(fixture.componentInstance.error).toBeTrue();

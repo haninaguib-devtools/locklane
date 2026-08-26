@@ -31,6 +31,20 @@ public class ProjectRepository {
         return findByWorkareaPath(workareaPath).orElseThrow();
     }
 
+    /**
+     * Inserts a project that is already checked out and usable (#43's bootstrap of
+     * the engine's own existing checkout) — skips {@link ProjectStatus#CLONING}
+     * entirely since there is nothing to clone.
+     */
+    public ProjectRecord createReady(String name, String gitUrl, Path workareaPath, String defaultBranch, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                name, gitUrl, workareaPath.toString(), defaultBranch, ProjectStatus.READY.name(), now.toString());
+        return findByWorkareaPath(workareaPath).orElseThrow();
+    }
+
     public Optional<ProjectRecord> findById(long id) {
         return jdbcTemplate.query(
                 "SELECT id, name, git_url, workarea_path, default_branch, status, created_at FROM projects WHERE id = ?",
