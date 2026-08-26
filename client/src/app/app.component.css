@@ -14,12 +14,25 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 8px;
+  height: 60px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border);
 }
 
+.brand {
+  font-weight: 600;
+  font-size: 19px;
+  color: var(--text);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .logout {
-  padding: 4px 8px;
+  padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--panel);
