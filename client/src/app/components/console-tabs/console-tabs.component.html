@@ -1,15 +1,25 @@
 <div class="tabs" role="tablist">
   @for (tab of tabs; track tab.id) {
-    <button
-      type="button"
-      role="tab"
-      class="tab"
-      [class.active]="tab.id === selected"
-      [attr.aria-selected]="tab.id === selected"
-      (click)="select(tab.id)"
-    >
-      {{ tab.label }}
-    </button>
+    <span class="tab-wrap" [class.active]="tab.id === selected">
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        [class.active]="tab.id === selected"
+        [attr.aria-selected]="tab.id === selected"
+        (click)="select(tab.id)"
+      >
+        {{ tab.label }}
+      </button>
+      <button
+        type="button"
+        class="tab-close"
+        aria-label="close console tab"
+        (click)="closeTab(tab.id, $event)"
+      >
+        ×
+      </button>
+    </span>
   }
   @if (tabs.length === 0) {
     <span class="empty">no consoles yet for this issue</span>

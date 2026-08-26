@@ -19,6 +19,7 @@ export class ConsoleTabsComponent {
   @Input() starting = false;
   @Output() selectedChange = new EventEmitter<string>();
   @Output() open = new EventEmitter<OpenConsoleRequest>();
+  @Output() close = new EventEmitter<string>();
 
   pickerOpen = false;
   location: 'main' | 'worktree' = 'worktree';
@@ -26,6 +27,11 @@ export class ConsoleTabsComponent {
 
   select(id: string): void {
     this.selectedChange.emit(id);
+  }
+
+  closeTab(id: string, event: Event): void {
+    event.stopPropagation();
+    this.close.emit(id);
   }
 
   togglePicker(): void {

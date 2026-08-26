@@ -100,6 +100,18 @@ export class MainContentComponent implements OnChanges {
     });
   }
 
+  closeConsole(id: string): void {
+    this.consoles = this.consoles.filter((c) => c.id !== id);
+    this.relabel();
+    if (this.selectedConsole === id) {
+      const next = this.consoles[0]?.id ?? null;
+      this.selectedConsole = next;
+      if (next) {
+        this.activeConsoleStore.set(this.issueNumber, next);
+      }
+    }
+  }
+
   private relabel(): void {
     this.tabs = labelConsoles(
       this.consoles.map((c) => ({ id: c.id, agent: (c.agent as ConsoleTab['agent']) ?? null })),
