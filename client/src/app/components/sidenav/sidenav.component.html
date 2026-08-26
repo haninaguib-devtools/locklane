@@ -30,34 +30,65 @@
   } @else if (error) {
     <div class="state">could not load issues</div>
   } @else {
-    @if (pinnedNodes.length > 0) {
+    @if (pinnedGroups.length > 0) {
       <div class="label">pinned</div>
-      <ul>
-        <ng-container *ngTemplateOutlet="rows; context: { nodes: pinnedNodes }" />
-      </ul>
+      @for (group of pinnedGroups; track group.project.id) {
+        <div class="project-name">{{ group.project.name }}</div>
+        <ul>
+          <ng-container
+            *ngTemplateOutlet="rows; context: { nodes: group.nodes, projectId: group.project.id }"
+          />
+        </ul>
+      }
     }
 
-    <div class="label">cases</div>
-    @if (mainNodes.length === 0) {
-      <div class="state">no matching cases</div>
+    @if (projectSections.length === 0) {
+      <div class="state">no projects yet</div>
     }
-    <ul>
-      <ng-container *ngTemplateOutlet="rows; context: { nodes: mainNodes }" />
-    </ul>
+    @for (section of projectSections; track section.project.id) {
+      <div class="section-header" (click)="toggleProjectCollapse(section.project.id, $event)">
+        <button
+          type="button"
+          class="twist"
+          [class.expanded]="!isProjectCollapsed(section.project.id)"
+          [attr.aria-label]="isProjectCollapsed(section.project.id) ? 'Expand project' : 'Collapse project'"
+        >
+          ▸
+        </button>
+        <span class="label project-label">{{ section.project.name }}</span>
+      </div>
+      @if (!isProjectCollapsed(section.project.id)) {
+        @if (mainNodesFor(section).length === 0) {
+          <div class="state">no matching cases</div>
+        }
+        <ul>
+          <ng-container
+            *ngTemplateOutlet="
+              rows;
+              context: { nodes: mainNodesFor(section), projectId: section.project.id }
+            "
+          />
+        </ul>
+      }
+    }
   }
 </nav>
 
-<ng-template #rows let-nodes="nodes">
+<ng-template #rows let-nodes="nodes" let-projectId="projectId">
   @for (node of nodes; track node.number) {
     <li>
-      <div class="row" [class.active]="node.number === selected" (click)="select(node.number)">
+      <div
+        class="row"
+        [class.active]="isSelected(projectId, node.number)"
+        (click)="select(projectId, node.number)"
+      >
         @if (node.children.length > 0) {
           <button
             type="button"
             class="twist"
-            [class.expanded]="!isCollapsed(node)"
-            (click)="toggleCollapse(node, $event)"
-            [attr.aria-label]="isCollapsed(node) ? 'Expand' : 'Collapse'"
+            [class.expanded]="!isCollapsed(projectId, node)"
+            (click)="toggleCollapse(projectId, node, $event)"
+            [attr.aria-label]="isCollapsed(projectId, node) ? 'Expand' : 'Collapse'"
           >
             ▸
           </button>
@@ -75,24 +106,26 @@
           <button
             type="button"
             class="kebab"
-            (click)="toggleMenu(node.number, $event)"
+            (click)="toggleMenu(projectId, node.number, $event)"
             aria-label="Row actions"
           >
             ⋮
           </button>
-          @if (openMenuFor === node.number) {
+          @if (isMenuOpen(projectId, node.number)) {
             <div class="menu" role="menu">
-              <button type="button" role="menuitem" (click)="togglePin(node.number, $event)">
-                {{ isPinned(node.number) ? 'Unpin' : 'Pin' }}
+              <button type="button" role="menuitem" (click)="togglePin(projectId, node.number, $event)">
+                {{ isPinned(projectId, node.number) ? 'Unpin' : 'Pin' }}
               </button>
             </div>
           }
         </div>
       </div>
 
-      @if (node.children.length > 0 && !isCollapsed(node)) {
+      @if (node.children.length > 0 && !isCollapsed(projectId, node)) {
         <ul class="branch">
-          <ng-container *ngTemplateOutlet="rows; context: { nodes: node.children }" />
+          <ng-container
+            *ngTemplateOutlet="rows; context: { nodes: node.children, projectId: projectId }"
+          />
         </ul>
       }
     </li>
