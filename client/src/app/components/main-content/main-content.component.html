@@ -9,6 +9,7 @@
     [starting]="starting"
     (selectedChange)="selectConsole($event)"
     (open)="openConsole($event)"
+    (close)="closeConsole($event)"
   />
   @if (startError) {
     <div class="start-error">could not open a console — try again</div>
