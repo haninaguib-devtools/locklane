@@ -36,6 +36,8 @@ import java.util.Map;
  * has left a session pending a code, {@code /api/auth/2fa/verify} is what checks it and, on a
  * match, turns that pending session into an authenticated one. It has to stay outside
  * {@code authenticated()} — the request arriving here is, by definition, not authenticated yet.
+ * A backup code (#93) works here too, in place of a TOTP code, for when the authenticator
+ * device is unavailable.
  */
 @RestController
 public class AuthController {
@@ -43,6 +45,7 @@ public class AuthController {
     private final UserRepository userRepository;
     private final TotpService totpService;
     private final TokenCipher tokenCipher;
+    private final BackupCodeService backupCodeService;
     private final UserDetailsService userDetailsService;
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
@@ -50,10 +53,12 @@ public class AuthController {
             UserRepository userRepository,
             TotpService totpService,
             TokenCipher tokenCipher,
+            BackupCodeService backupCodeService,
             UserDetailsService userDetailsService) {
         this.userRepository = userRepository;
         this.totpService = totpService;
         this.tokenCipher = tokenCipher;
+        this.backupCodeService = backupCodeService;
         this.userDetailsService = userDetailsService;
     }
 
@@ -66,7 +71,8 @@ public class AuthController {
      * Checks the code against the account named in the pending session left by login, and on a
      * match authenticates it. A wrong code, or no pending session at all, leaves the request
      * exactly as unauthenticated as it arrived — the pending session (if any) is left in place so
-     * a mistyped code can simply be retried.
+     * a mistyped code can simply be retried. A code that is not currently a valid TOTP code is
+     * also tried as a backup code (#93) before being rejected.
      */
     @PostMapping("/api/auth/2fa/verify")
     public ResponseEntity<?> verifyTwoFactor(
@@ -87,7 +93,9 @@ public class AuthController {
         }
 
         String secret = tokenCipher.decrypt(user.totpSecret());
-        if (!totpService.verify(secret, body.code(), Instant.now())) {
+        boolean verified = totpService.verify(secret, body.code(), Instant.now())
+                || backupCodeService.consume(user.id(), body.code(), Instant.now());
+        if (!verified) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "that code is not correct"));
         }

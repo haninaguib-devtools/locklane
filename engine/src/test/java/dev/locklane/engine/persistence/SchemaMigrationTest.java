@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -87,6 +88,24 @@ class SchemaMigrationTest {
         repository.startTotpEnrollment("alice", "encrypted-secret");
         assertThat(repository.findByUsername("alice")).isPresent().get()
                 .extracting(UserRecord::totpSecret).isEqualTo("encrypted-secret");
+    }
+
+    @Test
+    void anExistingDatabaseGainsTheBackupCodesTableWithoutLosingUsers(@TempDir Path dbDir) {
+        // V2 created users; the backup_codes table (#93) is V7, added long after.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "6");
+        new JdbcTemplate(oldShape).update(
+                "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+                "carol", "bcrypt-hash", "2026-01-01T00:00:00Z");
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+        UserRecord user = new UserRepository(oldShape).findByUsername("carol").orElseThrow();
+
+        BackupCodeRepository repository = new BackupCodeRepository(oldShape);
+        assertThat(repository.findUnused(user.id())).isEmpty();
+
+        repository.replace(user.id(), List.of("hash-1", "hash-2"), Instant.parse("2026-01-02T00:00:00Z"));
+        assertThat(repository.findUnused(user.id())).hasSize(2);
     }
 
     @Test
