@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ProjectIssue, SidenavComponent } from './sidenav.component';
@@ -272,5 +272,105 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.error).toBeTrue();
     const section = fixture.componentInstance.projectSections[0];
     expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 4]);
+  });
+
+  it('openAddProject shows the popup, onAddProjectClosed hides it', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    expect(fixture.componentInstance.showAddProject).toBeFalse();
+    fixture.componentInstance.openAddProject();
+    expect(fixture.componentInstance.showAddProject).toBeTrue();
+
+    fixture.componentInstance.onAddProjectClosed();
+    expect(fixture.componentInstance.showAddProject).toBeFalse();
+  });
+
+  it('onProjectCreated hides the popup and refreshes the project list', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.componentInstance.openAddProject();
+
+    fixture.componentInstance.onProjectCreated();
+
+    expect(fixture.componentInstance.showAddProject).toBeFalse();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    flushTree(1, tree());
+  });
+
+  it('a project still cloning shows a cloning state instead of its tree', () => {
+    const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
+    const fixture = init([cloning]);
+    flushTree(1, tree());
+
+    const section = fixture.componentInstance.projectSections[0];
+    expect(section.project.status).toBe('CLONING');
+  });
+
+  it('polls again while a project is still cloning, and stops once it settles', fakeAsync(() => {
+    const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
+    const fixture = init([cloning]);
+    flushTree(1, tree());
+
+    tick(3000);
+    httpMock.expectOne('/api/projects').flush([{ ...PROJECT_A, status: 'READY' }]);
+    flushTree(1, tree());
+
+    tick(3000);
+    httpMock.expectNone('/api/projects');
+
+    fixture.destroy();
+  }));
+
+  it('does not poll once every project is already settled', fakeAsync(() => {
+    init();
+    flushTree(1, tree());
+
+    tick(3000);
+    httpMock.expectNone('/api/projects');
+  }));
+
+  it('stops polling once the component is destroyed', fakeAsync(() => {
+    const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
+    const fixture = init([cloning]);
+    flushTree(1, tree());
+
+    fixture.destroy();
+    tick(3000);
+
+    httpMock.expectNone('/api/projects');
+  }));
+
+  it('retryProject calls the retry endpoint and refreshes', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    fixture.componentInstance.retryProject(1, new Event('click'));
+
+    httpMock.expectOne('/api/projects/1/retry').flush({ ...PROJECT_A });
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    flushTree(1, tree());
+  });
+
+  it('deleteProject asks for confirmation, and on confirm calls delete and refreshes', () => {
+    spyOn(window, 'confirm').and.returnValue(true);
+    const fixture = init();
+    flushTree(1, tree());
+
+    fixture.componentInstance.deleteProject(1, new Event('click'));
+
+    expect(window.confirm).toHaveBeenCalled();
+    httpMock.expectOne('/api/projects/1').flush(null);
+    httpMock.expectOne('/api/projects').flush([]);
+  });
+
+  it('deleteProject does nothing when the confirmation is declined', () => {
+    spyOn(window, 'confirm').and.returnValue(false);
+    const fixture = init();
+    flushTree(1, tree());
+
+    fixture.componentInstance.deleteProject(1, new Event('click'));
+
+    httpMock.expectNone('/api/projects/1');
   });
 });

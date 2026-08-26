@@ -69,6 +69,21 @@
   cursor: pointer;
 }
 
+.add-project {
+  align-self: flex-start;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.add-project:hover {
+  color: var(--text);
+}
+
 .label {
   padding: 8px 16px 4px;
   font-size: 10px;
@@ -94,6 +109,40 @@
 
 .section-header .project-label {
   padding: 0;
+  flex: 1;
+}
+
+.project-status {
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--muted);
+}
+
+.project-status.failed {
+  color: var(--danger, #b3432b);
+}
+
+.project-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.project-failed-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.project-failed-actions button {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
 }
 
 .state {

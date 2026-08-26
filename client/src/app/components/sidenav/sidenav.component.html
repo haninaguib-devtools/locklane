@@ -23,7 +23,15 @@
       <input type="checkbox" [(ngModel)]="hideShipped" />
       opened issues
     </label>
+    <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
   </div>
+
+  @if (showAddProject) {
+    <app-add-project-popup
+      (created)="onProjectCreated()"
+      (closed)="onAddProjectClosed()"
+    />
+  }
 
   @if (loading) {
     <div class="state">loading…</div>
@@ -56,19 +64,36 @@
           ▸
         </button>
         <span class="label project-label">{{ section.project.name }}</span>
+        @if (section.project.status !== 'READY') {
+          <span class="project-status" [class.failed]="section.project.status === 'FAILED'">
+            {{ section.project.status === 'CLONING' ? 'cloning…' : 'failed' }}
+          </span>
+        }
       </div>
       @if (!isProjectCollapsed(section.project.id)) {
-        @if (mainNodesFor(section).length === 0) {
-          <div class="state">no matching cases</div>
+        @if (section.project.status === 'CLONING') {
+          <div class="state">cloning the repository…</div>
+        } @else if (section.project.status === 'FAILED') {
+          <div class="state project-failed">
+            <span>could not clone this project</span>
+            <div class="project-failed-actions">
+              <button type="button" (click)="retryProject(section.project.id, $event)">retry</button>
+              <button type="button" (click)="deleteProject(section.project.id, $event)">delete</button>
+            </div>
+          </div>
+        } @else {
+          @if (mainNodesFor(section).length === 0) {
+            <div class="state">no matching cases</div>
+          }
+          <ul>
+            <ng-container
+              *ngTemplateOutlet="
+                rows;
+                context: { nodes: mainNodesFor(section), projectId: section.project.id }
+              "
+            />
+          </ul>
         }
-        <ul>
-          <ng-container
-            *ngTemplateOutlet="
-              rows;
-              context: { nodes: mainNodesFor(section), projectId: section.project.id }
-            "
-          />
-        </ul>
       }
     }
   }
