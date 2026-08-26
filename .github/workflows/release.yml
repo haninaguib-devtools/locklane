@@ -1,8 +1,8 @@
 # Publishes a rolling "latest" release of the runnable engine jar on every push to
-# main (#95). Deliberately a moving pointer, not a permanent per-version release: the
-# project version is still a -SNAPSHOT and does not change across commits, so there is
-# no version number to hang a permanent tag on yet (see #98 for that, once the project
-# cuts a real version).
+# main (#95), and, when the pushed commit's pom version has dropped its -SNAPSHOT
+# suffix, also cuts a permanent release tagged v<version> that never changes again
+# (#98). The two coexist: "latest" always tracks the newest build regardless of
+# version; the permanent release only appears the moment a version is actually cut.
 name: Release
 
 on:
@@ -61,6 +61,7 @@ jobs:
           short_sha="${GITHUB_SHA:0:7}"
           title="${version} (build ${GITHUB_RUN_NUMBER} · ${short_sha})"
           echo "title=${title}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Upsert the rolling "latest" release
         env:
@@ -80,3 +81,30 @@ jobs:
               --target "$GITHUB_SHA"
           fi
           gh release upload latest locklane.jar --clobber
+
+      - name: Cut a permanent release for this version, if it dropped -SNAPSHOT
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.stage.outputs.version }}
+        run: |
+          # SNAPSHOT builds have no version to hang a permanent release on — only
+          # "latest", updated above, tracks them.
+          case "$VERSION" in
+            *-SNAPSHOT) echo "Version $VERSION is a SNAPSHOT — no permanent release."; exit 0 ;;
+          esac
+
+          tag="v${VERSION}"
+
+          # A released version is immutable: a second run against the same version
+          # (forgot to bump it, or re-ran a stale workflow) must fail loudly rather
+          # than silently overwrite or silently skip.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::release $tag already exists — a released version is immutable; bump <revision> in pom.xml to cut a new one"
+            exit 1
+          fi
+
+          gh release create "$tag" \
+            --title "$tag" \
+            --notes "Permanent release of version ${VERSION}." \
+            --target "$GITHUB_SHA" \
+            locklane.jar
