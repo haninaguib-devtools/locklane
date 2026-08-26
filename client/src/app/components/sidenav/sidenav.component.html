@@ -54,16 +54,21 @@
       <div class="state">no projects yet</div>
     }
     @for (section of projectSections; track section.project.id) {
-      <div class="section-header" (click)="toggleProjectCollapse(section.project.id, $event)">
+      <div
+        class="section-header"
+        [class.active]="isProjectSelected(section.project.id)"
+        (click)="selectProject(section.project.id)"
+      >
         <button
           type="button"
           class="twist"
           [class.expanded]="!isProjectCollapsed(section.project.id)"
+          (click)="toggleProjectCollapse(section.project.id, $event)"
           [attr.aria-label]="isProjectCollapsed(section.project.id) ? 'Expand project' : 'Collapse project'"
         >
           ▸
         </button>
-        <span class="label project-label">{{ section.project.name }}</span>
+        <span class="project-label">{{ section.project.name }}</span>
         @if (section.project.status !== 'READY') {
           <span class="project-status" [class.failed]="section.project.status === 'FAILED'">
             {{ section.project.status === 'CLONING' ? 'cloning…' : 'failed' }}

@@ -373,4 +373,56 @@ describe('SidenavComponent', () => {
 
     httpMock.expectNone('/api/projects/1');
   });
+
+  it('clicking a project header emits the project, without folding it (#85)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const emitted: number[] = [];
+    fixture.componentInstance.projectSelected.subscribe((id) => emitted.push(id));
+
+    const header = fixture.nativeElement.querySelector('.section-header') as HTMLElement;
+    header.click();
+
+    expect(emitted).toEqual([1]);
+    expect(fixture.componentInstance.isProjectCollapsed(1)).toBeFalse();
+  });
+
+  it('the twisty still folds the section without selecting the project (#85)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const emitted: number[] = [];
+    fixture.componentInstance.projectSelected.subscribe((id) => emitted.push(id));
+
+    const twist = fixture.nativeElement.querySelector('.section-header .twist') as HTMLElement;
+    twist.click();
+
+    expect(fixture.componentInstance.isProjectCollapsed(1)).toBeTrue();
+    expect(emitted).toEqual([]);
+  });
+
+  it('marks only the selected project header as active (#85)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+    fixture.componentInstance.selectedProject = 2;
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.isProjectSelected(1)).toBeFalse();
+    expect(fixture.componentInstance.isProjectSelected(2)).toBeTrue();
+    const active = fixture.nativeElement.querySelectorAll('.section-header.active');
+    expect(active.length).toBe(1);
+  });
+
+  it('the project name is not indented further than an issue row (#85)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    const header = fixture.nativeElement.querySelector('.section-header') as HTMLElement;
+    const row = fixture.nativeElement.querySelector('.row') as HTMLElement;
+    const left = (el: HTMLElement) => parseFloat(getComputedStyle(el).paddingLeft);
+    expect(left(header)).toBeLessThanOrEqual(left(row));
+  });
 });

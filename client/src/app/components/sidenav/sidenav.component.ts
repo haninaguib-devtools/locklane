@@ -51,6 +51,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
   @Input() selected: ProjectIssue | null = null;
   @Output() selectedChange = new EventEmitter<ProjectIssue>();
 
+  /** The project whose own summary page is showing, with no issue selected (#85). */
+  @Input() selectedProject: number | null = null;
+  @Output() projectSelected = new EventEmitter<number>();
+
   private sections: Section[] = [];
   loading = true;
   refreshing = false;
@@ -205,6 +209,16 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   isProjectCollapsed(projectId: number): boolean {
     return this.projectSectionStore.isCollapsed(projectId);
+  }
+
+  isProjectSelected(projectId: number): boolean {
+    return this.selectedProject === projectId;
+  }
+
+  // The header row selects the project (#85); folding moved onto the twisty, which
+  // is what already means "fold" on an initiative row. One row cannot do both.
+  selectProject(projectId: number): void {
+    this.projectSelected.emit(projectId);
   }
 
   toggleProjectCollapse(projectId: number, event: Event): void {
