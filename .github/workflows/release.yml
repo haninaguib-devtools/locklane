@@ -34,7 +34,12 @@ jobs:
           cache: maven
 
       - name: Build and test the engine, then repackage the runnable jar
-        run: ./mvnw -B -f engine/pom.xml package
+        # From the root, not `-f engine/pom.xml`: engine/pom.xml parents to
+        # spring-boot-starter-parent rather than the root aggregator, and engine
+        # depends on the client module. Building engine standalone skips the
+        # reactor, so a fresh runner (no client jar in its local repo yet) fails to
+        # resolve that dependency. The root build resolves it through the reactor.
+        run: ./mvnw -B package
 
       - name: Stage the jar under its fixed release asset name
         id: stage

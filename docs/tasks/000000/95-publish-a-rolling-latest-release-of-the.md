@@ -43,4 +43,20 @@ commit.
 - none
 
 ## Deviations / notes
-- none
+- First draft of `release.yml` ran the build step as `./mvnw -B -f engine/pom.xml
+  package`, scoped to the engine module only. `/t-review` (cold pass on PR #134) caught
+  that this breaks the reactor: `engine` depends on `dev.locklane:client`, and building
+  `engine` standalone via `-f` skips the root reactor that builds `client` first, so a
+  fresh runner with no `client` jar already in its local Maven repo fails to resolve
+  the dependency — reproduced by the reviewer against a clean local repo, and confirmed
+  independently here the same way (`-Dmaven.repo.local=<empty dir>`). The local
+  `-DskipTests` check this task ran before its first PR passed only because this
+  machine already had `client` cached in `~/.m2` from unrelated earlier builds, so it
+  didn't actually exercise the failure. Fixed by running `./mvnw -B package` from the
+  repo root instead, matching what the issue's Done-when text and the plan's own
+  "Risks / constraints" already specified — re-verified against a clean local Maven
+  repo, which now builds `client` then `engine` through the reactor successfully.
+- Not acted on (reported, not fixed, per fix-mode scope): the review's medium finding
+  that no CI has ever run on PR #134 (`ci.yml`'s jobs never triggered) is still true as
+  of this pass — `gh pr checks 134` reports no checks. Left for the human to look at;
+  out of this task's declared scope to diagnose `ci.yml`'s own trigger behavior.
