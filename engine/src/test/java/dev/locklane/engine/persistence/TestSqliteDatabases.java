@@ -89,4 +89,8 @@ public final class TestSqliteDatabases {
     public static ProjectRepository newProjectRepository(Path dbDirectory) {
         return new ProjectRepository(newDataSource(dbDirectory));
     }
+
+    public static BackupCodeRepository newBackupCodeRepository(Path dbDirectory) {
+        return new BackupCodeRepository(newDataSource(dbDirectory));
+    }
 }

@@ -57,8 +57,66 @@
               </div>
             </form>
           }
+        } @else if (stage() === 'backup-codes') {
+          <p class="muted">
+            Save these backup codes somewhere safe. Each one can be used once, in place of a
+            code from your authenticator app, if you ever lose access to it. They will not be
+            shown again.
+          </p>
+
+          <ul class="backup-codes">
+            @for (code of backupCodes(); track code) {
+              <li>{{ code }}</li>
+            }
+          </ul>
+
+          <div class="actions">
+            <button type="button" (click)="acknowledgeBackupCodes()">I've saved these codes</button>
+          </div>
         } @else {
           <p class="muted">Two-factor authentication is enabled.</p>
+
+          <div class="subsection">
+            <h3>Backup codes</h3>
+            @if (!regeneratingBackupCodes()) {
+              <p class="muted">
+                Generate a new set of backup codes -- any codes left over from the last set stop
+                working.
+              </p>
+              <div class="actions">
+                <button type="button" class="secondary" (click)="startRegenerateBackupCodes()">
+                  Regenerate backup codes
+                </button>
+              </div>
+            } @else {
+              <form (ngSubmit)="regenerateBackupCodes()">
+                <label>
+                  Current password
+                  <input
+                    type="password"
+                    name="regeneratePassword"
+                    autocomplete="current-password"
+                    [(ngModel)]="regeneratePassword"
+                    [disabled]="regenerating"
+                    required
+                  />
+                </label>
+
+                @if (regenerateError; as message) {
+                  <p class="error">{{ message }}</p>
+                }
+
+                <div class="actions">
+                  <button type="submit" [disabled]="!regeneratePassword || regenerating">
+                    {{ regenerating ? 'Regenerating…' : 'Regenerate' }}
+                  </button>
+                  <button type="button" class="secondary" (click)="cancelRegenerateBackupCodes()">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            }
+          </div>
 
           <form (ngSubmit)="disable()">
             <label>

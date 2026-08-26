@@ -2,6 +2,7 @@ package dev.locklane.engine.security;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.persistence.BackupCodeRepository;
 import dev.locklane.engine.persistence.UserRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +15,8 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -41,12 +44,16 @@ class TwoFactorLoginIntegrationTest {
     @Autowired
     private TotpService totpService;
 
+    @Autowired
+    private BackupCodeRepository backupCodeRepository;
+
     private final ObjectMapper json = new ObjectMapper();
 
     @BeforeEach
     @AfterEach
     void clearTwoFactorState() {
         userRepository.disableTotp(USERNAME);
+        userRepository.findByUsername(USERNAME).ifPresent(user -> backupCodeRepository.deleteAll(user.id()));
     }
 
     @Test
@@ -81,7 +88,7 @@ class TwoFactorLoginIntegrationTest {
 
     @Test
     void verifyingTheRightCodeCompletesLoginAndEstablishesASession() throws Exception {
-        String secret = enableTwoFactor();
+        String secret = enableTwoFactor().secret();
         MockHttpSession session = loginPendingTwoFactor();
 
         mockMvc.perform(verifyWith(session, totpService.currentCode(secret, Instant.now())))
@@ -95,7 +102,7 @@ class TwoFactorLoginIntegrationTest {
 
     @Test
     void verifyingAWrongCodeIsRejectedAndCreatesNoSession() throws Exception {
-        String secret = enableTwoFactor();
+        String secret = enableTwoFactor().secret();
         MockHttpSession session = loginPendingTwoFactor();
         String wrongCode = wrongCodeFor(secret);
 
@@ -120,8 +127,45 @@ class TwoFactorLoginIntegrationTest {
                 .andExpect(jsonPath("$.error").value("no login is pending a two-factor code"));
     }
 
+    @Test
+    void verifyingWithABackupCodeCompletesLoginAndConsumesIt() throws Exception {
+        String backupCode = enableTwoFactor().backupCodes().get(0);
+        MockHttpSession session = loginPendingTwoFactor();
+
+        mockMvc.perform(verifyWith(session, backupCode))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value(USERNAME));
+
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value(USERNAME));
+    }
+
+    @Test
+    void aBackupCodeCanBeUsedOnlyOnce() throws Exception {
+        String backupCode = enableTwoFactor().backupCodes().get(0);
+
+        MockHttpSession firstSession = loginPendingTwoFactor();
+        mockMvc.perform(verifyWith(firstSession, backupCode)).andExpect(status().isOk());
+
+        MockHttpSession secondSession = loginPendingTwoFactor();
+        mockMvc.perform(verifyWith(secondSession, backupCode))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("that code is not correct"));
+    }
+
+    @Test
+    void aBackupCodeIsAcceptedRegardlessOfCase() throws Exception {
+        String backupCode = enableTwoFactor().backupCodes().get(0).toLowerCase();
+        MockHttpSession session = loginPendingTwoFactor();
+
+        mockMvc.perform(verifyWith(session, backupCode))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value(USERNAME));
+    }
+
     /** Enrolls and confirms 2FA for {@link #USERNAME} via a plain (2FA-off) login. */
-    private String enableTwoFactor() throws Exception {
+    private EnabledTwoFactor enableTwoFactor() throws Exception {
         var loginResult = mockMvc.perform(post("/api/auth/login")
                         .param("username", USERNAME)
                         .param("password", PASSWORD))
@@ -134,11 +178,18 @@ class TwoFactorLoginIntegrationTest {
         JsonNode enrollResponse = json.readTree(body);
         String secret = enrollResponse.get("manualKey").asText();
 
-        mockMvc.perform(post("/api/account/2fa/confirm").session(session)
+        String confirmBody = mockMvc.perform(post("/api/account/2fa/confirm").session(session)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"code\":\"" + totpService.currentCode(secret, Instant.now()) + "\"}"))
-                .andExpect(status().isOk());
-        return secret;
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode confirmResponse = json.readTree(confirmBody);
+        List<String> backupCodes = new ArrayList<>();
+        confirmResponse.get("backupCodes").forEach(node -> backupCodes.add(node.asText()));
+        return new EnabledTwoFactor(secret, backupCodes);
+    }
+
+    private record EnabledTwoFactor(String secret, List<String> backupCodes) {
     }
 
     private MockHttpSession loginPendingTwoFactor() throws Exception {

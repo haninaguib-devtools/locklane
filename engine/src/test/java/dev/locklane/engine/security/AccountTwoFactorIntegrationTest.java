@@ -2,6 +2,7 @@ package dev.locklane.engine.security;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.persistence.BackupCodeRepository;
 import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.UserRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -17,6 +18,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -56,19 +60,24 @@ class AccountTwoFactorIntegrationTest {
     @Autowired
     private TotpService totpService;
 
+    @Autowired
+    private BackupCodeRepository backupCodeRepository;
+
     private final ObjectMapper json = new ObjectMapper();
 
     /**
      * The test database is a file that outlives a single test, so 2FA state has to be cleared
      * on the way in as well as out — otherwise the order tests happen to run in decides whether
      * an enrollment is already pending. Resetting the spy here too means a stub left behind by
-     * one test (deliberately, to simulate a race) can never leak into the next.
+     * one test (deliberately, to simulate a race) can never leak into the next. Backup codes
+     * (#93) ride alongside the secret in the same account, so they are cleared the same way.
      */
     @BeforeEach
     @AfterEach
     void clearTwoFactorState() {
         Mockito.reset(userRepository);
         userRepository.disableTotp(USERNAME);
+        userRepository.findByUsername(USERNAME).ifPresent(user -> backupCodeRepository.deleteAll(user.id()));
     }
 
     @Test
@@ -138,6 +147,22 @@ class AccountTwoFactorIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(true));
         assertThat(userRepository.findByUsername(USERNAME).orElseThrow().totpEnabled()).isTrue();
+    }
+
+    @Test
+    void confirmingReturnsTenDistinctBackupCodesShownOnlyThatOnce() throws Exception {
+        MockHttpSession session = login();
+        String secret = enroll(session).get("manualKey").asText();
+
+        JsonNode body = confirmAndReadBody(session, totpService.currentCode(secret, Instant.now()));
+        List<String> codes = readBackupCodes(body);
+
+        assertThat(codes).hasSize(10);
+        codes.forEach(code -> assertThat(code).matches("[0-9A-F]{5}-[0-9A-F]{5}"));
+        assertThat(new HashSet<>(codes)).as("each code is distinct").hasSize(10);
+
+        UserRecord user = userRepository.findByUsername(USERNAME).orElseThrow();
+        assertThat(backupCodeRepository.findUnused(user.id())).hasSize(10);
     }
 
     @Test
@@ -233,7 +258,9 @@ class AccountTwoFactorIntegrationTest {
     @Test
     void disableWithTheCurrentPasswordClearsTheSecretAndTurnsTwoFactorOff() throws Exception {
         MockHttpSession session = login();
+        UserRecord user = userRepository.findByUsername(USERNAME).orElseThrow();
         enable(session);
+        assertThat(backupCodeRepository.findUnused(user.id())).hasSize(10);
 
         mockMvc.perform(post("/api/account/2fa/disable").session(session)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -244,6 +271,9 @@ class AccountTwoFactorIntegrationTest {
         UserRecord stored = userRepository.findByUsername(USERNAME).orElseThrow();
         assertThat(stored.totpEnabled()).isFalse();
         assertThat(stored.totpSecret()).as("the secret is forgotten, not merely switched off").isNull();
+        assertThat(backupCodeRepository.findUnused(user.id()))
+                .as("backup codes are forgotten along with the secret")
+                .isEmpty();
     }
 
     @Test
@@ -264,6 +294,53 @@ class AccountTwoFactorIntegrationTest {
         assertThat(stored.totpSecret()).isNotNull();
     }
 
+    @Test
+    void regeneratingBackupCodesWhenTwoFactorIsOffIsRefused() throws Exception {
+        mockMvc.perform(post("/api/account/2fa/backup-codes/regenerate").session(login())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"" + PASSWORD + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("two-factor authentication is not enabled"));
+    }
+
+    @Test
+    void regeneratingBackupCodesWithTheWrongPasswordIsRefused() throws Exception {
+        MockHttpSession session = login();
+        enable(session);
+
+        mockMvc.perform(post("/api/account/2fa/backup-codes/regenerate").session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"not-the-password\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("that password is not correct"));
+
+        UserRecord user = userRepository.findByUsername(USERNAME).orElseThrow();
+        assertThat(backupCodeRepository.findUnused(user.id()))
+                .as("a wrong password must not mint a fresh set of recovery credentials")
+                .hasSize(10);
+    }
+
+    @Test
+    void regeneratingBackupCodesWithTheCorrectPasswordReplacesTheSet() throws Exception {
+        MockHttpSession session = login();
+        List<String> original = enable(session);
+
+        JsonNode body = json.readTree(mockMvc.perform(post("/api/account/2fa/backup-codes/regenerate").session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"" + PASSWORD + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        List<String> regenerated = readBackupCodes(body);
+
+        assertThat(regenerated).hasSize(10);
+        assertThat(regenerated)
+                .as("a fresh set, not the same codes shown again")
+                .doesNotContainAnyElementsOf(original);
+
+        UserRecord user = userRepository.findByUsername(USERNAME).orElseThrow();
+        assertThat(backupCodeRepository.findUnused(user.id())).hasSize(10);
+    }
+
     private MockHttpSession login() throws Exception {
         var result = mockMvc.perform(post("/api/auth/login")
                         .param("username", USERNAME)
@@ -282,11 +359,24 @@ class AccountTwoFactorIntegrationTest {
         return json.readTree(body);
     }
 
-    /** Enrolls and confirms, leaving the account with 2FA genuinely on. */
-    private void enable(MockHttpSession session) throws Exception {
+    /** Enrolls and confirms, leaving the account with 2FA genuinely on. Returns the backup codes. */
+    private List<String> enable(MockHttpSession session) throws Exception {
         String secret = enroll(session).get("manualKey").asText();
-        mockMvc.perform(confirmWith(session, totpService.currentCode(secret, Instant.now())))
-                .andExpect(status().isOk());
+        JsonNode body = confirmAndReadBody(session, totpService.currentCode(secret, Instant.now()));
+        return readBackupCodes(body);
+    }
+
+    private JsonNode confirmAndReadBody(MockHttpSession session, String code) throws Exception {
+        String responseBody = mockMvc.perform(confirmWith(session, code))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return json.readTree(responseBody);
+    }
+
+    private static List<String> readBackupCodes(JsonNode body) {
+        List<String> codes = new ArrayList<>();
+        body.get("backupCodes").forEach(node -> codes.add(node.asText()));
+        return codes;
     }
 
     private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder confirmWith(

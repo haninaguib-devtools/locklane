@@ -68,7 +68,7 @@ describe('SettingsDialogComponent', () => {
     expect(closed).toBe(0);
   });
 
-  it('walks the enable flow: enroll, confirm, then shows enabled', () => {
+  it('walks the enable flow: enroll, confirm, shows backup codes once, then enabled', () => {
     const fixture = create();
     flushStatus(fixture, false);
     const compiled = fixture.nativeElement as HTMLElement;
@@ -86,11 +86,65 @@ describe('SettingsDialogComponent', () => {
 
     component.confirmCode = '123456';
     component.confirmEnroll();
-    httpMock.expectOne('/api/account/2fa/confirm').flush({ enabled: true });
+    httpMock
+      .expectOne('/api/account/2fa/confirm')
+      .flush({ enabled: true, backupCodes: ['AAAAA-11111', 'BBBBB-22222'] });
+    fixture.detectChanges();
+
+    expect(component.stage()).toBe('backup-codes');
+    expect(compiled.textContent).toContain('Save these backup codes');
+    expect(compiled.querySelectorAll('.backup-codes li').length).toBe(2);
+    expect(compiled.querySelector('.backup-codes li')?.textContent?.trim()).toBe('AAAAA-11111');
+
+    component.acknowledgeBackupCodes();
     fixture.detectChanges();
 
     expect(component.stage()).toBe('enabled');
     expect(compiled.textContent).toContain('Two-factor authentication is enabled');
+  });
+
+  it('walks the regenerate-backup-codes flow from the enabled state', () => {
+    const fixture = create();
+    flushStatus(fixture, true);
+    const compiled = fixture.nativeElement as HTMLElement;
+    const component = fixture.componentInstance;
+
+    component.startRegenerateBackupCodes();
+    fixture.detectChanges();
+    expect(compiled.querySelector<HTMLInputElement>('input[name="regeneratePassword"]')).toBeTruthy();
+
+    component.regeneratePassword = 'my-password';
+    component.regenerateBackupCodes();
+    httpMock
+      .expectOne('/api/account/2fa/backup-codes/regenerate')
+      .flush({ backupCodes: ['CCCCC-33333'] });
+    fixture.detectChanges();
+
+    expect(component.stage()).toBe('backup-codes');
+    expect(compiled.querySelector('.backup-codes li')?.textContent?.trim()).toBe('CCCCC-33333');
+
+    component.acknowledgeBackupCodes();
+    fixture.detectChanges();
+
+    expect(component.stage()).toBe('enabled');
+  });
+
+  it('shows an inline error on a wrong password while regenerating backup codes', () => {
+    const fixture = create();
+    flushStatus(fixture, true);
+    const component = fixture.componentInstance;
+
+    component.startRegenerateBackupCodes();
+    component.regeneratePassword = 'wrong-password';
+    component.regenerateBackupCodes();
+    httpMock
+      .expectOne('/api/account/2fa/backup-codes/regenerate')
+      .flush({ error: 'that password is not correct' }, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(component.stage()).toBe('enabled');
+    expect(compiled.querySelector('.error')?.textContent?.trim()).toBe('that password is not correct');
   });
 
   it('shows an inline error on a wrong confirmation code and stays enrolling', () => {

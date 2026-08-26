@@ -2,7 +2,7 @@ import { Component, EventEmitter, HostListener, OnInit, Output, inject, signal }
 import { FormsModule } from '@angular/forms';
 import { AccountService, TwoFactorEnrollment } from '../../services/account.service';
 
-type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'enabled';
+type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enabled';
 
 /**
  * The settings dialog (#90): a title bar and a body holding, for now, only the
@@ -12,6 +12,10 @@ type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'enabled';
  * panel whose own clicks do not. No approved mockup existed for the three states, so
  * this one is designed to match `portstow`'s settings-page two-factor section (a plain
  * status/enroll/confirm flow), restyled with locklane's own tokens.
+ *
+ * <p>Confirming an enrollment, and regenerating from the enabled state, both land on the
+ * `backup-codes` stage (#93) so the freshly generated set is shown exactly once before
+ * moving on to `enabled` -- the only place either flow's codes are ever visible.
  */
 @Component({
   selector: 'app-settings-dialog',
@@ -28,6 +32,7 @@ export class SettingsDialogComponent implements OnInit {
   readonly stage = signal<TwoFactorStage>('loading');
   readonly loadError = signal<string | null>(null);
   readonly enrollment = signal<TwoFactorEnrollment | null>(null);
+  readonly backupCodes = signal<string[]>([]);
 
   confirmCode = '';
   confirming = false;
@@ -36,6 +41,11 @@ export class SettingsDialogComponent implements OnInit {
   password = '';
   disabling = false;
   disableError: string | null = null;
+
+  readonly regeneratingBackupCodes = signal(false);
+  regeneratePassword = '';
+  regenerating = false;
+  regenerateError: string | null = null;
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
@@ -83,14 +93,54 @@ export class SettingsDialogComponent implements OnInit {
     this.confirming = true;
     this.confirmError = null;
     this.accountService.confirmTwoFactor(this.confirmCode.trim()).subscribe({
-      next: () => {
+      next: (result) => {
         this.confirming = false;
         this.enrollment.set(null);
-        this.stage.set('enabled');
+        this.backupCodes.set(result.backupCodes);
+        this.stage.set('backup-codes');
       },
       error: (err: Error) => {
         this.confirming = false;
         this.confirmError = err.message;
+      },
+    });
+  }
+
+  /** Leaves the backup-codes stage, reached either from a fresh enrollment or a regeneration. */
+  acknowledgeBackupCodes(): void {
+    this.backupCodes.set([]);
+    this.stage.set('enabled');
+  }
+
+  startRegenerateBackupCodes(): void {
+    this.regeneratePassword = '';
+    this.regenerateError = null;
+    this.regeneratingBackupCodes.set(true);
+  }
+
+  cancelRegenerateBackupCodes(): void {
+    this.regeneratePassword = '';
+    this.regenerateError = null;
+    this.regeneratingBackupCodes.set(false);
+  }
+
+  regenerateBackupCodes(): void {
+    if (!this.regeneratePassword || this.regenerating) {
+      return;
+    }
+    this.regenerating = true;
+    this.regenerateError = null;
+    this.accountService.regenerateBackupCodes(this.regeneratePassword).subscribe({
+      next: (result) => {
+        this.regenerating = false;
+        this.regeneratePassword = '';
+        this.regeneratingBackupCodes.set(false);
+        this.backupCodes.set(result.backupCodes);
+        this.stage.set('backup-codes');
+      },
+      error: (err: Error) => {
+        this.regenerating = false;
+        this.regenerateError = err.message;
       },
     });
   }

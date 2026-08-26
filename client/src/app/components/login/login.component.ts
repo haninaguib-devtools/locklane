@@ -6,8 +6,9 @@ import { AuthService } from '../../services/auth.service';
  * Renders whenever {@link AuthService#isLoggedIn} is false -- see AppComponent.
  *
  * Two steps (#92): credentials first, and -- only when login answers that a
- * two-factor code is pending -- a second step asking for the 6-digit code.
- * Accounts without 2FA never see the second step.
+ * two-factor code is pending -- a second step asking for the 6-digit code, or a
+ * backup code (#93) when the authenticator device is unavailable; the engine tries
+ * both shapes. Accounts without 2FA never see the second step.
  */
 @Component({
   selector: 'app-login',

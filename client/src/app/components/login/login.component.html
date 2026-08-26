@@ -18,7 +18,7 @@
   } @else {
     <form class="login-card" (ngSubmit)="submitCode()">
       <h1>locklane</h1>
-      <p class="hint">Enter the 6-digit code from your authenticator app.</p>
+      <p class="hint">Enter the 6-digit code from your authenticator app, or a backup code.</p>
       <label>
         Code
         <input
@@ -26,8 +26,7 @@
           type="text"
           [(ngModel)]="code"
           autocomplete="one-time-code"
-          inputmode="numeric"
-          maxlength="6"
+          maxlength="11"
           required
         />
       </label>
