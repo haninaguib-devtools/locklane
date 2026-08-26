@@ -2,13 +2,16 @@ package dev.locklane.engine.persistence;
 
 import dev.locklane.engine.github.GhClient;
 import dev.locklane.engine.github.GhIssue;
-import dev.locklane.engine.github.GhIssueCache;
 import dev.locklane.engine.github.GhPullRequest;
 import dev.locklane.engine.github.GhPullRequestDetail;
+import dev.locklane.engine.github.ProjectGhResources;
+import dev.locklane.engine.security.EncryptionKeyProvider;
+import dev.locklane.engine.security.TokenCipher;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -186,8 +189,17 @@ class WorktreeCreationServiceTest {
     private static WorktreeCreationService service(WorktreeSessionRepository repository,
             ProjectRepository projectRepository, List<GhIssue> issues) {
         IssueWorktreeService worktreeService = new IssueWorktreeService(repository);
-        GhIssueCache cache = new GhIssueCache(new FixedGhClient(issues));
-        return new WorktreeCreationService(cache, worktreeService, projectRepository);
+        ProjectGhResources ghResources =
+                new ProjectGhResources(projectRepository, tokenCipher(), (path, token) -> new FixedGhClient(issues));
+        return new WorktreeCreationService(ghResources, worktreeService, projectRepository);
+    }
+
+    private static TokenCipher tokenCipher() {
+        try {
+            return new TokenCipher(new EncryptionKeyProvider(Files.createTempDirectory("gh-key").toString()));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /** A minimal local repo with an "origin" remote and a main branch — no network. */

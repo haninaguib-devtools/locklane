@@ -1,11 +1,14 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.github.ProjectGhResources;
+import dev.locklane.engine.security.TokenCipher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,10 +23,15 @@ public class ProjectController {
 
     private final ProjectRepository repository;
     private final ProjectCheckoutService checkoutService;
+    private final TokenCipher tokenCipher;
+    private final ProjectGhResources ghResources;
 
-    public ProjectController(ProjectRepository repository, ProjectCheckoutService checkoutService) {
+    public ProjectController(ProjectRepository repository, ProjectCheckoutService checkoutService,
+            TokenCipher tokenCipher, ProjectGhResources ghResources) {
         this.repository = repository;
         this.checkoutService = checkoutService;
+        this.tokenCipher = tokenCipher;
+        this.ghResources = ghResources;
     }
 
     @GetMapping
@@ -51,10 +59,36 @@ public class ProjectController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable long id) {
-        return checkoutService.delete(id) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+        if (!checkoutService.delete(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        ghResources.evict(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Stores an encrypted GitHub token for this project (#81), so its issue/PR
+     * fetches authenticate as that token against its own repo instead of whatever
+     * `gh` identity is already ambiently authenticated. Evicts any cached client for
+     * this project so the very next fetch picks up the new token.
+     */
+    @PutMapping("/{id}/github-token")
+    public ResponseEntity<?> setGithubToken(@PathVariable long id, @RequestBody SetGithubTokenRequest request) {
+        if (repository.findById(id).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        if (request.token() == null || request.token().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "token is required"));
+        }
+        repository.setGithubToken(id, tokenCipher.encrypt(request.token()));
+        ghResources.evict(id);
+        return ResponseEntity.noContent().build();
     }
 
     public record CreateProjectRequest(String gitUrl, String name) {
+    }
+
+    public record SetGithubTokenRequest(String token) {
     }
 
     /** JSON shape for a project — {@code workareaPath} as a plain string, unlike the persisted {@link ProjectRecord}. */

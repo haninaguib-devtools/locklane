@@ -87,6 +87,26 @@ public class ProjectRepository {
         jdbcTemplate.update("DELETE FROM projects WHERE id = ?", id);
     }
 
+    /** Stores the encrypted GitHub token (#81) — callers encrypt/decrypt via {@code TokenCipher}; this never sees plaintext. */
+    public void setGithubToken(long id, String encryptedToken) {
+        jdbcTemplate.update("UPDATE projects SET github_token = ? WHERE id = ?", encryptedToken, id);
+    }
+
+    /** The stored (still encrypted) token, if any. Empty when none is set — never a blank/null string. */
+    public Optional<String> findGithubToken(long id) {
+        List<String> rows = jdbcTemplate.query(
+                "SELECT github_token FROM projects WHERE id = ?",
+                (rs, rowNum) -> rs.getString("github_token"),
+                id);
+        // Stream.findFirst() would NPE on a null element (it wraps via Optional.of
+        // internally) -- the column is nullable, so a plain index/blank check first.
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+        String token = rows.get(0);
+        return (token == null || token.isBlank()) ? Optional.empty() : Optional.of(token);
+    }
+
     private static ProjectRecord toRecord(ResultSet rs) throws SQLException {
         return new ProjectRecord(
                 rs.getLong("id"),

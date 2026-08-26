@@ -1,7 +1,5 @@
 package dev.locklane.engine.github;
 
-import org.springframework.stereotype.Service;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -18,9 +16,9 @@ import java.util.stream.Collectors;
  * carries the "initiative" label — an issue pointing at a non-initiative (or at
  * nothing that exists) is left standalone rather than silently dropped or nested
  * somewhere misleading (#21). Nesting is one level deep only, matching this
- * project's own two-working-levels pipeline rule (AGENTS.md).
+ * project's own two-working-levels pipeline rule (AGENTS.md). One instance per
+ * project since #81 — not a Spring-managed singleton itself.
  */
-@Service
 public class IssueTreeService {
 
     private static final Pattern PART_OF = Pattern.compile("Part of:\\s*#(\\d+)");

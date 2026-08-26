@@ -2,14 +2,18 @@ package dev.locklane.engine.persistence;
 
 import dev.locklane.engine.github.GhClient;
 import dev.locklane.engine.github.GhIssue;
-import dev.locklane.engine.github.GhIssueCache;
 import dev.locklane.engine.github.GhPullRequest;
 import dev.locklane.engine.github.GhPullRequestDetail;
+import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.pty.SessionRegistry;
+import dev.locklane.engine.security.EncryptionKeyProvider;
+import dev.locklane.engine.security.TokenCipher;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.security.Principal;
 import java.time.Instant;
@@ -100,11 +104,20 @@ class WorktreeControllerTest {
     private static WorktreeController controller(Path dbDir, WorktreeSessionRepository repository,
             SessionRegistry sessionRegistry, List<GhIssue> issues) {
         IssueWorktreeService worktreeService = new IssueWorktreeService(repository);
-        GhIssueCache cache = new GhIssueCache(new FixedGhClient(issues));
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        ProjectGhResources ghResources =
+                new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient(issues));
         WorktreeCreationService creationService =
-                new WorktreeCreationService(cache, worktreeService, projectRepository);
+                new WorktreeCreationService(ghResources, worktreeService, projectRepository);
         return new WorktreeController(worktreeService, creationService, sessionRegistry);
+    }
+
+    private static TokenCipher tokenCipher(Path dataDir) {
+        try {
+            return new TokenCipher(new EncryptionKeyProvider(dataDir.toString()));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private static final class FixedGhClient implements GhClient {

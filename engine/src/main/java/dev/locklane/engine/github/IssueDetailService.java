@@ -1,8 +1,5 @@
 package dev.locklane.engine.github;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -14,9 +11,10 @@ import java.util.regex.Pattern;
 /**
  * Composes {@link GhIssueCache} (cached issue/PR lists), a live per-PR detail fetch
  * (reviews/checks — not cached, see #16's issue body), and a task-record filesystem
- * lookup into the "?" popup's data and the flow-state strip.
+ * lookup into the "?" popup's data and the flow-state strip. One instance per
+ * project since #81 — {@code projectRoot} is that project's own workarea (where its
+ * own docs/tasks/, if any, would live), not a Spring-managed singleton itself.
  */
-@Service
 public class IssueDetailService {
 
     // A real "## Plan" is a heading /t-plan writes at the start of a line — matching
@@ -29,8 +27,7 @@ public class IssueDetailService {
     private final GhClient ghClient;
     private final Path projectRoot;
 
-    public IssueDetailService(GhIssueCache cache, GhClient ghClient,
-            @Value("${locklane.project-root}") String projectRoot) {
+    public IssueDetailService(GhIssueCache cache, GhClient ghClient, String projectRoot) {
         this.cache = cache;
         this.ghClient = ghClient;
         this.projectRoot = Path.of(projectRoot).normalize();

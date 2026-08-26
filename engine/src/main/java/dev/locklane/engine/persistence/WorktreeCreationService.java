@@ -1,7 +1,7 @@
 package dev.locklane.engine.persistence;
 
 import dev.locklane.engine.github.GhIssue;
-import dev.locklane.engine.github.GhIssueCache;
+import dev.locklane.engine.github.ProjectGhResources;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -34,13 +34,13 @@ public class WorktreeCreationService {
     private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
     private static final int MAX_SLUG_LENGTH = 40;
 
-    private final GhIssueCache issueCache;
+    private final ProjectGhResources ghResources;
     private final IssueWorktreeService issueWorktreeService;
     private final ProjectRepository projectRepository;
 
-    public WorktreeCreationService(GhIssueCache issueCache, IssueWorktreeService issueWorktreeService,
+    public WorktreeCreationService(ProjectGhResources ghResources, IssueWorktreeService issueWorktreeService,
             ProjectRepository projectRepository) {
-        this.issueCache = issueCache;
+        this.ghResources = ghResources;
         this.issueWorktreeService = issueWorktreeService;
         this.projectRepository = projectRepository;
     }
@@ -87,7 +87,7 @@ public class WorktreeCreationService {
         Path projectRoot = project.get().workareaPath();
 
         if (!useWorktree) {
-            if (issueCache.issue(issueNumber).isEmpty()) {
+            if (issue(projectId, issueNumber).isEmpty()) {
                 return Optional.empty();
             }
             String sessionId = projectId + "-" + issueNumber + "-main-" + shortId();
@@ -107,7 +107,7 @@ public class WorktreeCreationService {
             return Optional.of(new StartedSession(existing.get(0), worktreePath.toString()));
         }
 
-        Optional<GhIssue> issue = issueCache.issue(issueNumber);
+        Optional<GhIssue> issue = issue(projectId, issueNumber);
         if (issue.isEmpty()) {
             return Optional.empty();
         }
@@ -120,6 +120,10 @@ public class WorktreeCreationService {
             createWorktree(branch, worktreePath, projectRoot);
         }
         return Optional.of(new StartedSession(worktreeId, worktreePath.toString()));
+    }
+
+    private Optional<GhIssue> issue(long projectId, int issueNumber) {
+        return ghResources.forProject(projectId).flatMap(ctx -> ctx.cache().issue(issueNumber));
     }
 
     private static String shortId() {

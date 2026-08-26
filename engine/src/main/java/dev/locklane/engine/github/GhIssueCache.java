@@ -1,8 +1,5 @@
 package dev.locklane.engine.github;
 
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
-
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -10,16 +7,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Keeps the last successfully fetched issue and PR lists in memory and refreshes
- * them together on a timer, so a request never has to wait on a live {@code gh} call
- * once the cache is warm (#4's done-when). A refresh failure keeps serving the last
- * good data rather than clearing it — a transient gh/network hiccup should not make
- * the sidenav empty.
+ * Keeps the last successfully fetched issue and PR lists in memory for one project's
+ * {@link GhClient}, so a request never has to wait on a live {@code gh} call once the
+ * cache is warm (#4's done-when). A refresh failure keeps serving the last good data
+ * rather than clearing it — a transient gh/network hiccup should not make the sidenav
+ * empty. One instance per project since #81 — built and scheduled for refresh by
+ * {@code ProjectGhResources}, not a Spring-managed singleton itself.
  */
-@Service
 public class GhIssueCache {
-
-    private static final long REFRESH_INTERVAL_MS = 30_000;
 
     // Task branches are wip/<id>-<slug> (AGENTS.md) — the same convention /t-work
     // uses to derive a branch name from an issue.
@@ -33,7 +28,6 @@ public class GhIssueCache {
         this.ghClient = ghClient;
     }
 
-    @Scheduled(fixedDelay = REFRESH_INTERVAL_MS, initialDelay = REFRESH_INTERVAL_MS)
     void refresh() {
         try {
             cachedIssues.set(ghClient.issues());
@@ -45,30 +39,43 @@ public class GhIssueCache {
         }
     }
 
-    /** All issues. Serves the cache when warm; falls back to a live fetch when cold. */
+    /**
+     * All issues. Serves the cache when warm; falls back to a live fetch when cold.
+     * A failed live fetch (no token stored yet, or the project's repo is otherwise
+     * unreachable, #81) returns an empty list — a clear, documented result rather
+     * than a thrown exception surfacing as a 500.
+     */
     public List<GhIssue> issues() {
         List<GhIssue> snapshot = cachedIssues.get();
         if (snapshot != null) {
             return snapshot;
         }
-        List<GhIssue> fresh = ghClient.issues();
-        cachedIssues.set(fresh);
-        return fresh;
+        try {
+            List<GhIssue> fresh = ghClient.issues();
+            cachedIssues.set(fresh);
+            return fresh;
+        } catch (GhClient.GhUnavailableException e) {
+            return List.of();
+        }
     }
 
     public Optional<GhIssue> issue(int number) {
         return issues().stream().filter(i -> i.number() == number).findFirst();
     }
 
-    /** All PRs. Serves the cache when warm; falls back to a live fetch when cold. */
+    /** All PRs. Serves the cache when warm; falls back to a live fetch when cold, empty on failure (#81). */
     public List<GhPullRequest> pullRequests() {
         List<GhPullRequest> snapshot = cachedPullRequests.get();
         if (snapshot != null) {
             return snapshot;
         }
-        List<GhPullRequest> fresh = ghClient.pullRequests();
-        cachedPullRequests.set(fresh);
-        return fresh;
+        try {
+            List<GhPullRequest> fresh = ghClient.pullRequests();
+            cachedPullRequests.set(fresh);
+            return fresh;
+        } catch (GhClient.GhUnavailableException e) {
+            return List.of();
+        }
     }
 
     /**
