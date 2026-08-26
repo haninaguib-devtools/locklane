@@ -1,13 +1,14 @@
 import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { forkJoin, map, of, switchMap } from 'rxjs';
+import { Subscription, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { Project, TreeNode } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
+import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
 import { AddProjectPopupComponent } from '../add-project-popup/add-project-popup.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
 
@@ -47,6 +48,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly pinStore = inject(PinStore);
   private readonly collapseStore = inject(CollapseStore);
   private readonly projectSectionStore = inject(ProjectSectionStore);
+  private readonly consolesService = inject(ConsolesService);
 
   @Input() selected: ProjectIssue | null = null;
   @Output() selectedChange = new EventEmitter<ProjectIssue>();
@@ -69,12 +71,24 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private openMenuFor: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // "<projectId>:<issueNumber>" for every issue with at least one open console
+  // (#108), refreshed whenever a console opens or closes anywhere in the app.
+  private openConsoleIssues = new Set<string>();
+  private readonly consoleSub: Subscription;
+
+  constructor() {
+    this.consoleSub = merge(this.consolesService.onOpened, this.consolesService.onClosed).subscribe(() =>
+      this.refreshConsoleIndicators(),
+    );
+  }
+
   ngOnInit(): void {
     this.load(() => (this.loading = false));
   }
 
   ngOnDestroy(): void {
     this.clearPoll();
+    this.consoleSub.unsubscribe();
   }
 
   refresh(): void {
@@ -131,12 +145,41 @@ export class SidenavComponent implements OnInit, OnDestroy {
           this.error = false;
           onDone();
           this.schedulePollIfNeeded();
+          this.refreshConsoleIndicators();
         },
         error: () => {
           this.error = true;
           onDone();
         },
       });
+  }
+
+  /** Recomputes which issues have an open console (#108), across every loaded project. */
+  private refreshConsoleIndicators(): void {
+    if (this.sections.length === 0) {
+      this.openConsoleIssues = new Set();
+      return;
+    }
+    forkJoin(
+      this.sections.map((section) =>
+        this.consolesService.list(section.project.id).pipe(map((ids) => ({ projectId: section.project.id, ids }))),
+      ),
+    ).subscribe((results) => {
+      const issues = new Set<string>();
+      for (const { projectId, ids } of results) {
+        for (const id of ids) {
+          const issueNumber = issueNumberFromSessionId(id);
+          if (issueNumber !== null) {
+            issues.add(`${projectId}:${issueNumber}`);
+          }
+        }
+      }
+      this.openConsoleIssues = issues;
+    });
+  }
+
+  hasOpenConsole(projectId: number, issueNumber: number): boolean {
+    return this.openConsoleIssues.has(`${projectId}:${issueNumber}`);
   }
 
   /** Re-checks project status while any project is still cloning (#45), until it settles. */

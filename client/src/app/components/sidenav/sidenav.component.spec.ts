@@ -65,6 +65,17 @@ describe('SidenavComponent', () => {
 
   function flushTree(projectId: number, nodes: TreeNode[]): void {
     httpMock.expectOne(`/api/projects/${projectId}/issues/tree`).flush(nodes);
+    flushConsoles();
+  }
+
+  /**
+   * The sidenav fetches each loaded project's open consoles to drive its
+   * open-console dot (#108), once every project's tree has come back. A no-op
+   * when that fetch hasn't fired yet (e.g. a sibling project's tree is still
+   * pending).
+   */
+  function flushConsoles(): void {
+    httpMock.match((req) => /\/api\/projects\/\d+\/consoles$/.test(req.url)).forEach((request) => request.flush([]));
   }
 
   it('loads one section per project from the backend', () => {
@@ -82,6 +93,7 @@ describe('SidenavComponent', () => {
     httpMock.expectOne('/api/projects/2/issues/tree').flush([
       { number: 9, title: 'Only in B', kind: 'TASK', state: 'OPEN', children: [] },
     ]);
+    flushConsoles();
 
     const [sectionA, sectionB] = fixture.componentInstance.projectSections;
     expect(fixture.componentInstance.mainNodesFor(sectionA).map((n) => n.number)).toEqual([1, 4]);
@@ -111,6 +123,7 @@ describe('SidenavComponent', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
     httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
     fixture.componentInstance.selected = { projectId: 1, issueNumber: 4 };
 
     expect(fixture.componentInstance.isSelected(1, 4)).toBeTrue();
@@ -133,6 +146,7 @@ describe('SidenavComponent', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
     httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
 
     TestBed.inject(PinStore).toggle(1, 4);
     fixture.detectChanges();
@@ -198,6 +212,7 @@ describe('SidenavComponent', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
     httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
     const [sectionA] = fixture.componentInstance.projectSections;
     const initiative = fixture.componentInstance.mainNodesFor(sectionA)[0];
 

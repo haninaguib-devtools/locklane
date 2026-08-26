@@ -6,6 +6,7 @@ import { Observable, Subject } from 'rxjs';
 export class ConsolesService {
   private readonly http = inject(HttpClient);
   private readonly closed$ = new Subject<void>();
+  private readonly opened$ = new Subject<void>();
 
   /**
    * Every open console session id the caller may see, across all of one project's
@@ -24,4 +25,23 @@ export class ConsolesService {
   notifyClosed(): void {
     this.closed$.next();
   }
+
+  /**
+   * Fires whenever a new console session is opened somewhere in the app (#108), so
+   * other views (the sidebar's open-console dot) can refresh without polling.
+   */
+  readonly onOpened = this.opened$.asObservable();
+
+  notifyOpened(): void {
+    this.opened$.next();
+  }
+}
+
+/**
+ * Session ids are shaped "<projectId>-<issueNumber>-<slug>" (#43) -- the second
+ * numeric segment is the issue number.
+ */
+export function issueNumberFromSessionId(sessionId: string): number | null {
+  const match = /^\d+-(\d+)-/.exec(sessionId);
+  return match ? Number(match[1]) : null;
 }

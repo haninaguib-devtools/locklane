@@ -93,6 +93,7 @@ export class MainContentComponent implements OnChanges {
             { id: worktreeId, dir: workingDirectory, agent: request.agent },
           ];
           this.relabel();
+          this.consolesService.notifyOpened();
         }
         this.selectedConsole = worktreeId;
         this.activeConsoleStore.set(this.issueNumber, worktreeId);

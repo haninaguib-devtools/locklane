@@ -52,9 +52,13 @@ describe('AppComponent', () => {
     tick();
   }
 
-  /** The header's app-console-indicator fetches these on every init (#32). */
+  /**
+   * The header's app-console-indicator fetches these on every init (#32). The
+   * sidenav also fetches the same consoles list, to drive its own open-console
+   * dot (#108), so there are two requests for it once the sidenav is present.
+   */
   function flushConsoleIndicator(): void {
-    httpMock.expectOne('/api/projects/1/consoles').flush([]);
+    httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
     httpMock.expectOne('/api/projects/1/issues').flush([]);
   }
 
