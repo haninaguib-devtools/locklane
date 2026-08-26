@@ -58,6 +58,12 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/issues').flush([]);
   }
 
+  /** The sidenav fetches its own project list and each project's tree (#44). */
+  function flushSidenav(): void {
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+  }
+
   function flushIssue(number: number): void {
     httpMock.expectOne(`/api/projects/1/issues/${number}`).flush({
       number,
@@ -108,7 +114,7 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushSidenav();
     flushConsoleIndicator();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -121,10 +127,10 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushSidenav();
     flushConsoleIndicator();
 
-    fixture.componentInstance.select(42);
+    fixture.componentInstance.select({ projectId: 1, issueNumber: 42 });
     tick();
     fixture.detectChanges();
 
@@ -145,7 +151,7 @@ describe('AppComponent', () => {
 
     expect(fixture.componentInstance.selectedProjectId()).toBe(1);
     expect(fixture.componentInstance.selectedIssue()).toBe(7);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushSidenav();
     flushConsoleIndicator();
     flushIssue(7);
     const compiled = fixture.nativeElement as HTMLElement;
@@ -158,16 +164,16 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushSidenav();
     flushConsoleIndicator();
 
-    fixture.componentInstance.select(42);
+    fixture.componentInstance.select({ projectId: 1, issueNumber: 42 });
     tick();
     fixture.detectChanges();
     flushIssue(42);
 
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
-    expect(sidenav.componentInstance.selected).toBe(42);
+    expect(sidenav.componentInstance.selected).toEqual({ projectId: 1, issueNumber: 42 });
   }));
 
   it('returns to the login screen after logging out', fakeAsync(() => {
@@ -176,7 +182,7 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushSidenav();
     flushConsoleIndicator();
 
     fixture.componentInstance.logout();

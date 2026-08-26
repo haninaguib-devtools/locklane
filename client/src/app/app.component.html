@@ -13,9 +13,7 @@
     </div>
     <div class="shell">
       <aside class="sidebar" [style.width.px]="sidebarWidth">
-        @if (selectedProjectId(); as projectId) {
-          <app-sidenav [projectId]="projectId" [selected]="selectedIssue()" (selectedChange)="select($event)" />
-        }
+        <app-sidenav [selected]="selectedTarget()" (selectedChange)="select($event)" />
       </aside>
       <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
       @if (selectedProjectId(); as projectId) {
