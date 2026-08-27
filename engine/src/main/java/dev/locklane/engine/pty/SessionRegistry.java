@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,11 +81,24 @@ public class SessionRegistry {
      */
     public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand, String ownerUsername,
             Integer columns, Integer rows) {
+        return attach(sessionId, workingDirectory, launchCommand, ownerUsername, columns, rows, Map.of());
+    }
+
+    /**
+     * As above, but a brand-new session's process also gets {@code extraEnvironment}
+     * merged over the host's own environment (#139 — a project-level console's
+     * {@code GH_TOKEN}) — like {@code launchCommand}/{@code columns}/{@code rows},
+     * consulted only the first time a session is seen; a reattach reaches the
+     * process already running, with whatever environment it already started with.
+     */
+    public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand, String ownerUsername,
+            Integer columns, Integer rows, Map<String, String> extraEnvironment) {
         String[] command = launchCommand != null ? launchCommand : shellCommand;
         int initialColumns = columns != null ? columns : DEFAULT_COLUMNS;
         int initialRows = rows != null ? rows : DEFAULT_ROWS;
         PtySession session = sessions.computeIfAbsent(sessionId, id -> {
-            PtySession created = new PtySession(id, workingDirectory, command, System.getenv(), initialColumns, initialRows);
+            Map<String, String> environment = mergedEnvironment(extraEnvironment);
+            PtySession created = new PtySession(id, workingDirectory, command, environment, initialColumns, initialRows);
             // Lives for the session's whole lifetime — never unsubscribed, unlike a
             // browser's own subscription in TerminalWebSocketHandler, which comes and
             // goes with that one connection.
@@ -94,6 +108,15 @@ public class SessionRegistry {
         });
         repository.recordAttach(sessionId, workingDirectory, Instant.now(), ownerUsername);
         return session;
+    }
+
+    private static Map<String, String> mergedEnvironment(Map<String, String> extraEnvironment) {
+        if (extraEnvironment.isEmpty()) {
+            return System.getenv();
+        }
+        Map<String, String> merged = new HashMap<>(System.getenv());
+        merged.putAll(extraEnvironment);
+        return merged;
     }
 
     /** Re-checks every live session's quiescence fallback (#130). */

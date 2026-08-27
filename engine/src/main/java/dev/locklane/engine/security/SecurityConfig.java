@@ -26,7 +26,9 @@ import org.springframework.http.HttpStatus;
  * the worktree-session
  * endpoints (list/start under {@code /api/projects/{projectId}/issues/{number}/worktrees},
  * #48, nested under a project id since #43; the cross-issue listing under
- * {@code /api/projects/{projectId}/consoles}, #32), the project CRUD endpoints
+ * {@code /api/projects/{projectId}/consoles}, #32), the project-level console
+ * session under {@code /api/projects/{projectId}/console} (#139 — same ownership
+ * story as a worktree session, just with no issue), the project CRUD endpoints
  * (list/create at {@code /api/projects}, delete at {@code /api/projects/{id}},
  * retry at {@code /api/projects/{id}/retry}, #42; storing a project's GitHub token
  * at {@code /api/projects/{id}/github-token}, #81), the sidebar's usage widget
@@ -68,6 +70,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects/*/issues/*/worktrees").authenticated()
                         .requestMatchers("/api/projects/*/issues/*/worktrees/*").authenticated()
                         .requestMatchers("/api/projects/*/consoles").authenticated()
+                        .requestMatchers("/api/projects/*/console").authenticated()
                         .requestMatchers("/api/usage").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
                         .anyRequest().permitAll())

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,6 +39,32 @@ class SessionRegistryReattachTest {
         PtySession session = registry.attach("with-command", workDir, new String[] {"/bin/sh", "-c", "echo picked-command; exec /bin/sh"});
 
         waitUntil(() -> session.bufferedOutput().contains("picked-command"), Duration.ofSeconds(5));
+    }
+
+    @Test
+    void attachMergesExtraEnvironmentOverTheHostsOwn(@TempDir Path workDir) {
+        SessionRegistry registry = newRegistry(workDir);
+
+        PtySession session = registry.attach("with-env", workDir,
+                new String[] {"/bin/sh", "-c", "echo token-is-$GH_TOKEN; exec /bin/sh"}, null, null, null,
+                Map.of("GH_TOKEN", "secret-abc"));
+
+        waitUntil(() -> session.bufferedOutput().contains("token-is-secret-abc"), Duration.ofSeconds(5));
+    }
+
+    @Test
+    void reattachingIgnoresANewExtraEnvironmentOnceTheProcessIsAlreadyRunning(@TempDir Path workDir) {
+        SessionRegistry registry = newRegistry(workDir);
+        PtySession first = registry.attach("with-env-reattach", workDir,
+                new String[] {"/bin/sh", "-c", "echo first-token-$GH_TOKEN; exec /bin/sh"}, null, null, null,
+                Map.of("GH_TOKEN", "first-token"));
+        waitUntil(() -> first.bufferedOutput().contains("first-token-first-token"), Duration.ofSeconds(5));
+
+        PtySession reattached = registry.attach("with-env-reattach", workDir, null, null, null, null,
+                Map.of("GH_TOKEN", "second-token"));
+
+        assertThat(reattached).isSameAs(first);
+        assertThat(reattached.bufferedOutput()).doesNotContain("second-token");
     }
 
     @Test
