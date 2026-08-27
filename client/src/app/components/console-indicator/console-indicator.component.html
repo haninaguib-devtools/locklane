@@ -1,18 +1,54 @@
-<div class="indicator">
-  <button type="button" class="badge" [attr.aria-expanded]="open" (click)="toggle()">
-    consoles ({{ entries.length }})
-  </button>
-  @if (open) {
-    <div class="picker" role="menu">
-      @if (entries.length === 0) {
-        <div class="empty">no open consoles</div>
-      }
-      @for (entry of entries; track entry.sessionId) {
-        <button type="button" class="entry" role="menuitem" (click)="jumpTo(entry)">
-          <span class="issue">#{{ entry.issueNumber }} {{ entry.issueTitle }}</span>
-          <span class="meta">{{ entry.label }}</span>
-        </button>
-      }
-    </div>
-  }
-</div>
+@if (entries().length; as count) {
+  <div class="indicator">
+    <button
+      #trigger
+      type="button"
+      class="badge"
+      aria-haspopup="dialog"
+      [attr.aria-expanded]="open()"
+      [attr.aria-label]="'Open consoles, ' + count + ' ' + (count === 1 ? 'session' : 'sessions')"
+      (click)="toggle()"
+    >
+      consoles ({{ count }})
+    </button>
+
+    @if (open()) {
+      <div class="scrim" (click)="close()"></div>
+
+      <div class="picker" role="dialog" aria-modal="true" aria-labelledby="console-picker-title">
+        <div class="picker-head">
+          <div>
+            <h2 id="console-picker-title">Open consoles</h2>
+            <p>Choose a console to jump back into.</p>
+          </div>
+          <kbd class="keycap">esc</kbd>
+        </div>
+
+        <div
+          #results
+          class="session-results"
+          role="listbox"
+          tabindex="0"
+          [attr.aria-activedescendant]="'console-row-' + selected()"
+          (keydown)="onKey($event)"
+        >
+          @for (entry of entries(); track entry.sessionId; let index = $index) {
+            <button
+              type="button"
+              class="entry"
+              role="option"
+              [id]="'console-row-' + index"
+              [attr.aria-selected]="index === selected()"
+              [class.selected]="index === selected()"
+              (mouseenter)="selected.set(index)"
+              (click)="jumpTo(entry)"
+            >
+              <span class="issue ellipsis">#{{ entry.issueNumber }} {{ entry.issueTitle }}</span>
+              <span class="meta">{{ entry.label }}</span>
+            </button>
+          }
+        </div>
+      </div>
+    }
+  </div>
+}

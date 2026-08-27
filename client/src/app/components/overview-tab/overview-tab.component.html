@@ -23,7 +23,9 @@
   } @else {
     <p class="loading">loading…</p>
   }
-  @if (issue.body) {
-    <pre class="body">{{ issue.body }}</pre>
+  @if (bodyHtml) {
+    <div class="body-card">
+      <div class="body" [innerHTML]="bodyHtml"></div>
+    </div>
   }
 </div>

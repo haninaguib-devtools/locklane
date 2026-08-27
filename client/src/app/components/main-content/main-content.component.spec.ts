@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { MainContentComponent } from './main-content.component';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
+import { ActiveTabStore } from '../../services/active-tab-store';
 import { GhIssue, IssueDetail, Project } from '../../models/issue.model';
 
 describe('MainContentComponent', () => {
@@ -12,6 +13,7 @@ describe('MainContentComponent', () => {
   beforeEach(() => {
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.activeConsoleByIssue');
+    localStorage.removeItem('locklane.activeTabByIssue');
     TestBed.configureTestingModule({
       imports: [MainContentComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -23,6 +25,7 @@ describe('MainContentComponent', () => {
     httpMock.verify();
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.activeConsoleByIssue');
+    localStorage.removeItem('locklane.activeTabByIssue');
   });
 
   function init(number: number): ReturnType<typeof TestBed.createComponent<MainContentComponent>> {
@@ -299,5 +302,64 @@ describe('MainContentComponent', () => {
     httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
 
     expect(fixture.componentInstance.activeTab).toBe('1-7-rename-toggle');
+  });
+
+  it('restores the remembered tab for an issue that was visited before', () => {
+    TestBed.inject(ActiveTabStore).set(7, '1-7-rename-toggle');
+    const fixture = init(7);
+
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
+
+    expect(fixture.componentInstance.activeTab).toBe('1-7-rename-toggle');
+  });
+
+  it('keeps each issue’s remembered tab independent', () => {
+    TestBed.inject(ActiveTabStore).set(7, '1-7-rename-toggle');
+    TestBed.inject(ActiveTabStore).set(8, 'overview');
+    const fixtureA = init(7);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
+    const fixtureB = init(8);
+    respond(8, ['1-8-main-a1b2c3d4']);
+
+    expect(fixtureA.componentInstance.activeTab).toBe('1-7-rename-toggle');
+    expect(fixtureB.componentInstance.activeTab).toBe('overview');
+  });
+
+  it('opens on overview for an issue never visited before', () => {
+    const fixture = init(7);
+
+    respond(7, ['1-7-main-a1b2c3d4']);
+
+    expect(fixture.componentInstance.activeTab).toBe('overview');
+  });
+
+  it('falls back to overview when the remembered tab no longer exists', () => {
+    TestBed.inject(ActiveTabStore).set(7, '1-7-closed-session');
+    const fixture = init(7);
+
+    respond(7, ['1-7-main-a1b2c3d4']);
+
+    expect(fixture.componentInstance.activeTab).toBe('overview');
+  });
+
+  it('remembers a switch back to overview so a later visit restores it', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4']);
+    fixture.componentInstance.selectConsole('1-7-main-a1b2c3d4');
+
+    fixture.componentInstance.selectOverview();
+
+    expect(TestBed.inject(ActiveTabStore).get(7)).toBe('overview');
+  });
+
+  it('remembers the fallback tab left after closing the active console', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4', '1-7-rename-toggle']);
+    fixture.componentInstance.selectConsole('1-7-main-a1b2c3d4');
+
+    fixture.componentInstance.closeConsole('1-7-main-a1b2c3d4');
+    httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
+
+    expect(TestBed.inject(ActiveTabStore).get(7)).toBe('1-7-rename-toggle');
   });
 });

@@ -4,6 +4,7 @@ import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
+import { ActiveTabStore } from '../../services/active-tab-store';
 import { ConsolesService } from '../../services/consoles.service';
 import { IssueHeaderComponent } from '../issue-header/issue-header.component';
 import { FlowStripComponent } from '../flow-strip/flow-strip.component';
@@ -41,6 +42,7 @@ export class MainContentComponent implements OnChanges {
   private readonly consolesService = inject(ConsolesService);
   private readonly agentStore = inject(AgentStore);
   private readonly activeConsoleStore = inject(ActiveConsoleStore);
+  private readonly activeTabStore = inject(ActiveTabStore);
 
   @Input({ required: true }) projectId!: number;
   @Input({ required: true }) issueNumber!: number;
@@ -76,7 +78,12 @@ export class MainContentComponent implements OnChanges {
   }
 
   selectOverview(): void {
-    this.activeTab = OVERVIEW_TAB_ID;
+    this.setActiveTab(OVERVIEW_TAB_ID);
+  }
+
+  private setActiveTab(id: string): void {
+    this.activeTab = id;
+    this.activeTabStore.set(this.issueNumber, id);
   }
 
   private load(projectId: number, number: number): void {
@@ -105,13 +112,19 @@ export class MainContentComponent implements OnChanges {
       const remembered = this.activeConsoleStore.get(number);
       this.selectedConsole = remembered && ids.includes(remembered) ? remembered : (ids[0] ?? null);
       this.relabel();
+
+      const rememberedTab = this.activeTabStore.get(number);
+      this.activeTab =
+        rememberedTab && (rememberedTab === OVERVIEW_TAB_ID || ids.includes(rememberedTab))
+          ? rememberedTab
+          : OVERVIEW_TAB_ID;
     });
   }
 
   selectConsole(id: string): void {
     this.selectedConsole = id;
-    this.activeTab = id;
     this.activeConsoleStore.set(this.issueNumber, id);
+    this.setActiveTab(id);
   }
 
   openConsole(request: OpenConsoleRequest): void {
@@ -154,7 +167,7 @@ export class MainContentComponent implements OnChanges {
           }
         }
         if (this.activeTab === id) {
-          this.activeTab = this.selectedConsole ?? OVERVIEW_TAB_ID;
+          this.setActiveTab(this.selectedConsole ?? OVERVIEW_TAB_ID);
         }
         this.consolesService.notifyClosed();
       },
