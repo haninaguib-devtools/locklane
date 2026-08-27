@@ -1,0 +1,70 @@
+<section class="overview">
+  @if (loading) {
+    <div class="state">loading…</div>
+  } @else if (error) {
+    <div class="state">could not load the workspace overview</div>
+  } @else if (rows.length === 0) {
+    <div class="empty-state">select a project to begin</div>
+  } @else {
+    <h1>Overview</h1>
+
+    <div class="counts">
+      <div class="count primary">
+        <span class="value">{{ rows.length }}</span>
+        <span class="caption">projects</span>
+      </div>
+      <div class="count">
+        <span class="value">{{ totals.total }}</span>
+        <span class="caption">issues</span>
+      </div>
+      <div class="count">
+        <span class="value">{{ totals.open }}</span>
+        <span class="caption">open</span>
+      </div>
+      <div class="count">
+        <span class="value">{{ totals.closed }}</span>
+        <span class="caption">closed</span>
+      </div>
+      <div class="count">
+        <span class="value">{{ totals.initiatives }}</span>
+        <span class="caption">initiatives</span>
+      </div>
+      <div class="count">
+        <span class="value">{{ totals.tasks }}</span>
+        <span class="caption">tasks</span>
+      </div>
+    </div>
+
+    <ul class="projects">
+      @for (row of rows; track row.project.id) {
+        <li>
+          <a
+            class="project-row"
+            [class.disabled]="row.project.status !== 'READY'"
+            [routerLink]="row.project.status === 'READY' ? ['/projects', row.project.id, 'issues'] : null"
+          >
+            <span class="project-name">{{ row.project.name }}</span>
+            <span
+              class="status"
+              [class.cloning]="row.project.status === 'CLONING'"
+              [class.failed]="row.project.status === 'FAILED'"
+            >
+              {{ row.project.status.toLowerCase() }}
+            </span>
+            @if (row.counts; as c) {
+              <span class="project-totals">{{ c.total }} issues</span>
+              <span class="project-completion">
+                <span class="completion-bar">
+                  <span class="completion-fill" [style.width.%]="completionPercent(c)"></span>
+                </span>
+                <span class="completion-label">{{ c.closed }}/{{ c.total }} closed</span>
+              </span>
+            } @else {
+              <span class="project-totals">—</span>
+            }
+          </a>
+        </li>
+      }
+    </ul>
+  }
+</section>

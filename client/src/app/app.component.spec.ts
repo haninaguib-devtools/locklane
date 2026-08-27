@@ -47,16 +47,13 @@ describe('AppComponent', () => {
   }
 
   /**
-   * Navigates to '/' and resolves it to /projects/1/issues via the
-   * default-project guard (#43) -- done before the component exists, the same
-   * way a direct load of a concrete URL already worked, so AppComponent's
-   * initial route-derived state is correct from construction rather than
-   * depending on a later NavigationEnd event.
+   * Navigates straight to the project's own summary route -- '/' no longer
+   * redirects there (#197; #43's guard is gone), so tests that just want a
+   * project selected with no issue reach that state directly, the same way
+   * every other direct-URL-load test in this file already does.
    */
-  function navigateToDefaultProject(): void {
-    TestBed.inject(Router).navigateByUrl('/');
-    tick();
-    httpMock.expectOne('/api/projects').flush([PROJECT]);
+  function navigateToProjectSummary(): void {
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues');
     tick();
   }
 
@@ -148,11 +145,9 @@ describe('AppComponent', () => {
   });
 
   it('shows only the login screen when not authenticated', fakeAsync(() => {
-    // Not logged in -- the default-project guard's own call comes back
-    // unauthorized; AppComponent's login/shell split is independent of routing.
+    // Not logged in -- AppComponent's login/shell split is independent of
+    // routing, so nothing here ever calls the backend.
     TestBed.inject(Router).navigateByUrl('/');
-    tick();
-    httpMock.expectOne('/api/projects').flush(null, { status: 401, statusText: 'Unauthorized' });
     tick();
 
     const fixture = TestBed.createComponent(AppComponent);
@@ -163,9 +158,48 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('.shell')).toBeFalsy();
   }));
 
+  it('renders the overview page at "/" instead of redirecting into the first project (#197)', fakeAsync(() => {
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    // The sidenav and app-overview each fetch the project list and its tree
+    // independently (#44, #197) -- the same shape flushSidenavAndSummary()
+    // already handles for the sidenav/project-summary pair. No console
+    // indicator here: it only mounts once a project is selected, which '/'
+    // never is.
+    flushSidenavAndSummary();
+    httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
+    fixture.detectChanges();
+
+    expect(TestBed.inject(Router).url).toBe('/');
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('app-overview')).toBeTruthy();
+    expect(compiled.querySelector('app-project-summary')).toBeFalsy();
+  }));
+
+  it('shows the "select a project" empty state at "/" when logged in with no projects (#197)', fakeAsync(() => {
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([]));
+    flushUsageWidget();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('select a project to begin');
+  }));
+
   it('shows the project summary until an issue is selected (#85)', fakeAsync(() => {
     logIn();
-    navigateToDefaultProject();
+    navigateToProjectSummary();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
@@ -206,7 +240,7 @@ describe('AppComponent', () => {
 
   it('tells the sidenav which project is selected only while no issue is (#85)', fakeAsync(() => {
     logIn();
-    navigateToDefaultProject();
+    navigateToProjectSummary();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
@@ -227,7 +261,7 @@ describe('AppComponent', () => {
 
   it('selecting an issue navigates to /projects/:projectId/issues/:id and shows the main content area', fakeAsync(() => {
     logIn();
-    navigateToDefaultProject();
+    navigateToProjectSummary();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
@@ -294,7 +328,7 @@ describe('AppComponent', () => {
 
   it('the project summary\'s consoles link (#180) navigates to the consoles page, which the sidenav shows as still on that project', fakeAsync(() => {
     logIn();
-    navigateToDefaultProject();
+    navigateToProjectSummary();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
@@ -334,7 +368,7 @@ describe('AppComponent', () => {
 
   it('passes the selected issue to the sidenav for highlighting', fakeAsync(() => {
     logIn();
-    navigateToDefaultProject();
+    navigateToProjectSummary();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
@@ -353,7 +387,7 @@ describe('AppComponent', () => {
 
   it('returns to the login screen after logging out', fakeAsync(() => {
     logIn();
-    navigateToDefaultProject();
+    navigateToProjectSummary();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
@@ -375,7 +409,7 @@ describe('AppComponent', () => {
    */
   function openedApp(): ReturnType<typeof TestBed.createComponent<AppComponent>> {
     logIn();
-    navigateToDefaultProject();
+    navigateToProjectSummary();
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();

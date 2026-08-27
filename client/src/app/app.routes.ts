@@ -1,16 +1,13 @@
-import { inject } from '@angular/core';
-import { Router, Routes, UrlTree } from '@angular/router';
-import { Observable, catchError, map, of } from 'rxjs';
-import { ProjectsService } from './services/projects.service';
+import { Routes } from '@angular/router';
 
 // Component-less: AppComponent is the whole app shell and reads the current
 // project/issue id directly off this route (see app.component.ts) rather than
 // delegating rendering to a router-outlet.
 export const routes: Routes = [
   { path: 'projects/:projectId/issues/:id', children: [] },
-  // A project with no issue selected yet -- the default-project redirect below
-  // lands here, and so does clicking a project's name in the sidenav. Since #85
-  // AppComponent renders the project's own summary here rather than an empty state.
+  // A project with no issue selected yet -- clicking a project's name in the
+  // sidenav lands here. Since #85 AppComponent renders the project's own
+  // summary here rather than an empty state.
   { path: 'projects/:projectId/issues', children: [] },
   // The project-level console (#140) that starts a new issue's discussion before
   // any issue exists -- reached from the "New issue (agent)" button on the
@@ -20,22 +17,9 @@ export const routes: Routes = [
   // project, each reattachable -- the page the sidenav "+" and the project page
   // will link to (#180).
   { path: 'projects/:projectId/consoles', children: [] },
-  // No project-picker UI exists yet (#44/#45) -- landing at '/' with no project id
-  // picked resolves to the first project the caller can see (#43), so the app keeps
-  // working exactly as it did before projects existed. Not logged in / no projects
-  // yet: the guard lets '' through unchanged and AppComponent's own login/empty
-  // states handle the rest.
-  { path: '', canActivate: [defaultProjectRedirect], children: [] },
+  // The workspace Overview (#197): no project id picked, so AppComponent renders
+  // it directly -- no redirect into a project the way #43 used to. Not logged in
+  // / no projects yet: OverviewComponent and AppComponent's own login check
+  // reproduce those same states.
+  { path: '', children: [] },
 ];
-
-export function defaultProjectRedirect(): Observable<boolean | UrlTree> {
-  const projectsService = inject(ProjectsService);
-  const router = inject(Router);
-  return projectsService.list().pipe(
-    map((projects) => (projects.length > 0 ? router.parseUrl(`/projects/${projects[0].id}/issues`) : true)),
-    // Not logged in yet (401) or the request otherwise failed: nothing to redirect
-    // to. AppComponent's own isLoggedIn() check decides what renders, independent
-    // of routing -- let '' activate as-is rather than blocking navigation.
-    catchError(() => of(true)),
-  );
-}
