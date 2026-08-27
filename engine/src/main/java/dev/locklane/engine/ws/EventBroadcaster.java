@@ -40,6 +40,17 @@ public class EventBroadcaster {
         sessions.remove(session);
     }
 
+    /**
+     * How many sessions are currently registered. Package-private, for tests: this
+     * registry is the only signal that genuinely reflects server-side registration
+     * state — every client-observable callback, including the client's own
+     * {@code afterConnectionClosed}, can fire before the server's application-level
+     * callback has finished updating it (#167).
+     */
+    int registeredSessionCount() {
+        return sessions.size();
+    }
+
     /** Broadcasts {@code {"type": "<type>"}} with no further fields. */
     public void broadcast(String type) {
         broadcast(type, Map.of());
