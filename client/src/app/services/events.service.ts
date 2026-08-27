@@ -27,6 +27,22 @@ export function isConsoleAttentionEvent(event: AppEvent): event is ConsoleAttent
   );
 }
 
+/**
+ * A `consolesChanged` message (#195): a console session was opened or closed
+ * somewhere in the app -- possibly a different browser tab or session watching the
+ * same project's header widget. `projectId` names the affected project when the
+ * originating session id could be parsed as one server-side; every real console id
+ * can, so this is present in practice.
+ */
+export interface ConsolesChangedEvent extends AppEvent {
+  type: 'consolesChanged';
+  projectId?: number;
+}
+
+export function isConsolesChangedEvent(event: AppEvent): event is ConsolesChangedEvent {
+  return event.type === 'consolesChanged';
+}
+
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 
@@ -37,9 +53,9 @@ const MAX_BACKOFF_MS = 30000;
  * exponential backoff after a drop, since the engine may restart or a laptop may sleep
  * mid-session.
  *
- * No consumer is wired to `events$` yet -- that is #129/#130. `reconnected$` exists so
- * a future consumer can trigger a full re-fetch to catch up on whatever happened while
- * the socket was down, rather than trusting the stream to have delivered everything.
+ * `reconnected$` exists so a consumer can trigger a full re-fetch to catch up on
+ * whatever happened while the socket was down, rather than trusting the stream to
+ * have delivered everything.
  */
 @Injectable({ providedIn: 'root' })
 export class EventsService {

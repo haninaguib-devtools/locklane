@@ -20,6 +20,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Holds one {@link PtySession} per session id. A session's id is its own —
@@ -31,7 +33,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * last-known state — which directory it ran in, when it was last attached to —
  * survives a server restart even though the live process does not (#6). Each new
  * session's output is additionally watched for a Claude/Codex resume id, persisted
- * via {@link ConsoleResumeSessionRepository} (#102).
+ * via {@link ConsoleResumeSessionRepository} (#102). A console genuinely opening or
+ * closing — not a reattach to one already counted as open — is broadcast on
+ * {@link EventBroadcaster} as {@code consolesChanged} (#195), so every browser
+ * watching that project hears about it, not only the tab that caused it.
  */
 @Service
 public class SessionRegistry {
@@ -47,6 +52,10 @@ public class SessionRegistry {
     // enough that a session which just went quiet is caught within about a second of
     // crossing PtySession.QUIESCENCE_THRESHOLD_MS, not a user-visible extra delay.
     private static final long QUIESCENCE_POLL_MS = 1000;
+
+    // Every real console id is shaped "<projectId>-..." (#43); a test fixture id
+    // that isn't just broadcasts with no projectId field rather than failing (#195).
+    private static final Pattern PROJECT_ID_PREFIX = Pattern.compile("^(\\d+)-");
 
     private final Map<String, PtySession> sessions = new ConcurrentHashMap<>();
     private final String[] shellCommand;
@@ -113,6 +122,12 @@ public class SessionRegistry {
         String[] command = launchCommand != null ? launchCommand : shellCommand;
         int initialColumns = columns != null ? columns : DEFAULT_COLUMNS;
         int initialRows = rows != null ? rows : DEFAULT_ROWS;
+        // Checked before recordAttach below turns this into an upsert (#195): a session
+        // already has a persisted record whenever any client-visible listing already
+        // counts it as open, including a reattach after this process restarted with no
+        // live PtySession yet — broadcasting in that case would report a change that
+        // never actually happened to the list.
+        boolean isNewConsole = repository.find(sessionId).isEmpty();
         PtySession session = sessions.computeIfAbsent(sessionId, id -> {
             Map<String, String> environment = mergedEnvironment(extraEnvironment);
             PtySession created = new PtySession(id, workingDirectory, command, environment, initialColumns, initialRows);
@@ -140,6 +155,9 @@ public class SessionRegistry {
             return created;
         });
         repository.recordAttach(sessionId, workingDirectory, Instant.now(), ownerUsername);
+        if (isNewConsole) {
+            broadcastConsolesChanged(sessionId);
+        }
         return session;
     }
 
@@ -224,11 +242,33 @@ public class SessionRegistry {
      * recorded session.
      */
     public void close(String sessionId) {
+        // Checked before removal (#195): a genuine no-op — nothing live and nothing
+        // persisted — must broadcast nothing, exactly matching this method's own
+        // "no-op for an id that names no live or recorded session" contract above.
+        boolean wasOpen = sessions.containsKey(sessionId) || repository.find(sessionId).isPresent();
         PtySession session = sessions.remove(sessionId);
         if (session != null) {
             session.close();
         }
         repository.delete(sessionId);
+        if (wasOpen) {
+            broadcastConsolesChanged(sessionId);
+        }
+    }
+
+    /**
+     * Tells every connected browser a project's open-console list may have changed
+     * (#195), over the same app-wide channel {@code consoleAttention}/
+     * {@code issuesChanged} already use — so a header widget watching this project
+     * in another tab knows to re-fetch instead of going stale until a manual reload.
+     */
+    private void broadcastConsolesChanged(String sessionId) {
+        Matcher matcher = PROJECT_ID_PREFIX.matcher(sessionId);
+        if (matcher.find()) {
+            eventBroadcaster.broadcast("consolesChanged", Map.of("projectId", Long.parseLong(matcher.group(1))));
+        } else {
+            eventBroadcaster.broadcast("consolesChanged");
+        }
     }
 
     /** Stops every running session. Orphan processes are not left behind on shutdown. */
