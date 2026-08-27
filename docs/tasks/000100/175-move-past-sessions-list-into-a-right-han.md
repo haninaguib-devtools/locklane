@@ -23,7 +23,12 @@ https://claude.ai/code/artifact/0271c288-93ce-44c8-b3d3-a63394f02019
   other content (details, body).
 
 ## Decisions made along the way
-- none
+- Rail width set to 220px (agent, 2026-08-27): the mockup's 190px rail sits in a
+  miniature shell (~950px content, 11px fonts); 220px keeps the same proportion at the
+  app's real font sizes and comfortably fits tool + reopen + wrapped timestamp.
+- Session-row reordering (tool, reopen, timestamp-below) done purely in
+  `session-list.component.css` via flex `order`/`wrap` (agent, 2026-08-27): the issue's
+  scope names only the CSS file, so the template's DOM order is unchanged.
 
 ## Deviations / notes
 - none
