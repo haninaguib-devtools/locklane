@@ -1,12 +1,14 @@
-import { Component, Input } from '@angular/core';
+import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
-import { GhIssue, IssueDetail } from '../../models/issue.model';
+import { GhIssue, IssueDetail, ResumeSession } from '../../models/issue.model';
+import { SessionListComponent } from '../session-list/session-list.component';
 
 @Component({
   selector: 'app-overview-tab',
   standalone: true,
+  imports: [SessionListComponent],
   templateUrl: './overview-tab.component.html',
   styleUrl: './overview-tab.component.css',
 })
@@ -14,6 +16,11 @@ export class OverviewTabComponent {
   @Input({ required: true }) issue!: GhIssue;
   @Input() detail: IssueDetail | null = null;
   @Input() repoWebUrl: string | null = null;
+  /** Past Claude/Codex conversations captured in this issue's consoles (#103). */
+  @Input() sessions: ResumeSession[] = [];
+  /** Disables reopening while a console is already being started. */
+  @Input() busy = false;
+  @Output() reopen = new EventEmitter<ResumeSession>();
 
   constructor(private readonly sanitizer: DomSanitizer) {}
 

@@ -25,6 +25,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) sessionId!: string;
   @Input() dir: string | null = null;
   @Input() cmd: string | null = null;
+  /** Past-conversation id (#103): a brand-new claude/codex session resumes it. */
+  @Input() resume: string | null = null;
   /** Whether this tab is the visible one — xterm can only size itself while visible. */
   @Input() active = true;
 
@@ -115,6 +117,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       this.sessionId,
       this.dir,
       this.cmd,
+      this.resume,
       this.term?.cols ?? null,
       this.term?.rows ?? null,
       this.active,

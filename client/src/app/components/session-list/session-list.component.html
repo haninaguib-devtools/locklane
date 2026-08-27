@@ -1,0 +1,17 @@
+<ul class="sessions">
+  @for (session of sessions; track session.worktreeId + ':' + session.tool + ':' + session.resumeId) {
+    <li class="session">
+      <span class="tool">{{ session.tool }}</span>
+      <span class="time">{{ session.capturedAt | date: 'MMM d, y, HH:mm' }}</span>
+      <button
+        type="button"
+        class="reopen"
+        [disabled]="busy"
+        (click)="reopen.emit(session)"
+        title="Open a new console resuming this conversation"
+      >
+        reopen
+      </button>
+    </li>
+  }
+</ul>

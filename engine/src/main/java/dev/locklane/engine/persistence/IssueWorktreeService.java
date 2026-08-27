@@ -1,8 +1,12 @@
 package dev.locklane.engine.persistence;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,9 +31,18 @@ public class IssueWorktreeService {
     private static final Pattern PROJECT_AND_ISSUE_PREFIXED = Pattern.compile("^(\\d+)-(\\d+)-");
 
     private final WorktreeSessionRepository repository;
+    private final ConsoleResumeSessionRepository resumeRepository;
 
-    public IssueWorktreeService(WorktreeSessionRepository repository) {
+    @Autowired
+    public IssueWorktreeService(WorktreeSessionRepository repository,
+            ConsoleResumeSessionRepository resumeRepository) {
         this.repository = repository;
+        this.resumeRepository = resumeRepository;
+    }
+
+    /** Test-only: resume-session listing off (#103) — callers that never touch it pass no resume repository. */
+    public IssueWorktreeService(WorktreeSessionRepository repository) {
+        this(repository, null);
     }
 
     /**
@@ -62,6 +75,33 @@ public class IssueWorktreeService {
                 .filter(record -> isVisibleTo(record, requestingUsername))
                 .map(WorktreeSessionRecord::worktreeId)
                 .toList();
+    }
+
+    /**
+     * The Claude/Codex conversations captured (#102) in this project's issue's
+     * consoles that {@code requestingUsername} may see, newest sighting first —
+     * including conversations whose console has since been closed; outliving the
+     * console is the point (#101). Visibility follows the console the id was
+     * captured in, under the same #48 rule as {@link #worktreeIdsForIssue}: a
+     * closed console has no session record any more, which reads as unclaimed.
+     * The same conversation sighted in several consoles is listed once, at its
+     * newest sighting.
+     */
+    public List<ConsoleResumeSessionRecord> resumeSessionsForIssue(long projectId, int issueNumber,
+            String requestingUsername) {
+        Map<String, ConsoleResumeSessionRecord> byConversation = new LinkedHashMap<>();
+        resumeRepository.findAll().stream()
+                .filter(record -> matches(record.worktreeId(), projectId, issueNumber))
+                .filter(record -> isConsoleVisibleTo(record.worktreeId(), requestingUsername))
+                .sorted(Comparator.comparing(ConsoleResumeSessionRecord::capturedAt).reversed())
+                .forEach(record -> byConversation.putIfAbsent(record.tool() + ":" + record.resumeId(), record));
+        return List.copyOf(byConversation.values());
+    }
+
+    private boolean isConsoleVisibleTo(String worktreeId, String requestingUsername) {
+        return repository.find(worktreeId)
+                .map(record -> isVisibleTo(record, requestingUsername))
+                .orElse(true);
     }
 
     private static boolean matches(String worktreeId, long projectId, int issueNumber) {

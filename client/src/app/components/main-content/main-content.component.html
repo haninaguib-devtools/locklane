@@ -22,6 +22,9 @@
     [issue]="issue"
     [detail]="detail"
     [repoWebUrl]="repoWebUrl"
+    [sessions]="resumeSessions"
+    [busy]="starting"
+    (reopen)="reopenSession($event)"
   />
   @for (console of consoles; track console.id) {
     <app-terminal
@@ -29,6 +32,7 @@
       [sessionId]="console.id"
       [dir]="console.dir"
       [cmd]="console.agent"
+      [resume]="console.resume"
       [active]="console.id === activeTab"
     />
   }

@@ -97,18 +97,83 @@ class WorktreeControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    @Test
+    void listsTheCapturedResumeSessionsForAnIssue(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository =
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        resumeRepository.record("1-174-rename-toggle", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        WorktreeController controller = controller(dbDir, repository, resumeRepository, List.of());
+
+        assertThat(controller.resumeSessions(1, 174, ALICE)).containsExactly(
+                new WorktreeController.ResumeSessionView("1-174-rename-toggle", "claude",
+                        "aaaaaaaa-0000-0000-0000-000000000000", "2026-08-25T12:00:00Z"));
+        assertThat(controller.resumeSessions(1, 175, ALICE)).isEmpty();
+    }
+
+    @Test
+    void reopeningAConsoleWithNoVisibleConversationIsNotFound(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository =
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        // Bob's console is still open, so its conversation stays his (#48).
+        repository.recordAttach("1-174-bobs-session", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "bob");
+        resumeRepository.record("1-174-bobs-session", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        WorktreeController controller = controller(dbDir, repository, resumeRepository, List.of());
+
+        assertThat(controller.reopenSession(1, 174, "1-174-never-captured", ALICE).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.reopenSession(1, 174, "1-174-bobs-session", ALICE).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void reopeningAVisibleConversationMintsAFreshSessionInItsDirectory(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository =
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("workarea"), "main", Instant.now()).id();
+        String originalId = projectId + "-174-rename-toggle";
+        repository.recordAttach(originalId, dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "alice");
+        resumeRepository.record(originalId, "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        WorktreeController controller =
+                controller(repository, resumeRepository, projectRepository, new SessionRegistry(repository), List.of(), dbDir);
+
+        var response = controller.reopenSession(projectId, 174, originalId, ALICE);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("worktreeId")).startsWith(projectId + "-174-resume-");
+        assertThat(response.getBody().get("workingDirectory")).isEqualTo(dbDir.resolve("wt").toString());
+    }
+
     private static WorktreeController controller(Path dbDir, WorktreeSessionRepository repository, List<GhIssue> issues) {
         return controller(dbDir, repository, new SessionRegistry(repository), issues);
     }
 
     private static WorktreeController controller(Path dbDir, WorktreeSessionRepository repository,
             SessionRegistry sessionRegistry, List<GhIssue> issues) {
-        IssueWorktreeService worktreeService = new IssueWorktreeService(repository);
-        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        return controller(repository, new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)),
+                TestSqliteDatabases.newProjectRepository(dbDir), sessionRegistry, issues, dbDir);
+    }
+
+    private static WorktreeController controller(Path dbDir, WorktreeSessionRepository repository,
+            ConsoleResumeSessionRepository resumeRepository, List<GhIssue> issues) {
+        return controller(repository, resumeRepository, TestSqliteDatabases.newProjectRepository(dbDir),
+                new SessionRegistry(repository), issues, dbDir);
+    }
+
+    private static WorktreeController controller(WorktreeSessionRepository repository,
+            ConsoleResumeSessionRepository resumeRepository, ProjectRepository projectRepository,
+            SessionRegistry sessionRegistry, List<GhIssue> issues, Path dbDir) {
+        IssueWorktreeService worktreeService = new IssueWorktreeService(repository, resumeRepository);
         ProjectGhResources ghResources =
                 new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient(issues));
         WorktreeCreationService creationService =
-                new WorktreeCreationService(ghResources, worktreeService, projectRepository);
+                new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository);
         return new WorktreeController(worktreeService, creationService, sessionRegistry);
     }
 

@@ -43,7 +43,7 @@ describe('TerminalSession', () => {
     rows: number | null = null,
     initiallyFocused = false,
   ): { session: TerminalSession; socket: FakeWebSocket } {
-    const session = new TerminalSession('7-worktree', '/repo', 'claude', cols, rows, initiallyFocused);
+    const session = new TerminalSession('7-worktree', '/repo', 'claude', null, cols, rows, initiallyFocused);
     session.connect(
       () => {},
       () => {},
@@ -63,6 +63,23 @@ describe('TerminalSession', () => {
 
     expect(socket.url).not.toContain('cols=');
     expect(socket.url).not.toContain('rows=');
+  });
+
+  it('includes the resume id in the connect URL when given (#103)', () => {
+    const session = new TerminalSession('7-worktree', '/repo', 'claude', 'abc-123');
+    session.connect(
+      () => {},
+      () => {},
+    );
+    const socket = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+
+    expect(socket.url).toContain('resume=abc-123');
+  });
+
+  it('omits the resume param from the connect URL when not given (#103)', () => {
+    const { socket } = connect();
+
+    expect(socket.url).not.toContain('resume=');
   });
 
   it('tags keystroke input with the input type', () => {

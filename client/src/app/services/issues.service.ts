@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
-import { GhIssue, IssueDetail, TreeNode } from '../models/issue.model';
+import { GhIssue, IssueDetail, ResumeSession, TreeNode } from '../models/issue.model';
 
 // Nested under a project id since #43 -- issue data itself still comes from one
 // shared repo for every project (see #43's task record), but every route requires
@@ -46,6 +46,28 @@ export class IssuesService {
       `/api/projects/${projectId}/issues/${number}/worktrees`,
       {},
       { params: { worktree } },
+    );
+  }
+
+  /** Past Claude/Codex conversations captured in this issue's consoles (#102), newest first. */
+  resumeSessions(projectId: number, number: number): Observable<ResumeSession[]> {
+    return this.http.get<ResumeSession[]>(`/api/projects/${projectId}/issues/${number}/resume-sessions`);
+  }
+
+  /**
+   * Mints a brand-new console session for resuming a past conversation (#103), in the
+   * working directory of the console (`from`) the conversation was captured in — the
+   * resume command itself is passed when attaching, like any other new console's cmd.
+   */
+  reopenSession(
+    projectId: number,
+    number: number,
+    from: string,
+  ): Observable<{ worktreeId: string; workingDirectory: string }> {
+    return this.http.post<{ worktreeId: string; workingDirectory: string }>(
+      `/api/projects/${projectId}/issues/${number}/resume-sessions/reopen`,
+      {},
+      { params: { from } },
     );
   }
 

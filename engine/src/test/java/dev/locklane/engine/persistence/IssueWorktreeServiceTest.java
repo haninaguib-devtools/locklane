@@ -96,6 +96,65 @@ class IssueWorktreeServiceTest {
     }
 
     @Test
+    void resumeSessionsAreListedForTheIssueNewestFirst(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository =
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        resumeRepository.record("1-174-rename-toggle", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        resumeRepository.record("1-174-rename-toggle", "codex", "bbbbbbbb-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-26T12:00:00Z"));
+        resumeRepository.record("1-175-other-issue", "claude", "cccccccc-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        resumeRepository.record("2-174-other-project", "claude", "dddddddd-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+
+        IssueWorktreeService service = new IssueWorktreeService(repository, resumeRepository);
+
+        assertThat(service.resumeSessionsForIssue(1, 174, "alice"))
+                .extracting(ConsoleResumeSessionRecord::resumeId)
+                .containsExactly("bbbbbbbb-0000-0000-0000-000000000000", "aaaaaaaa-0000-0000-0000-000000000000");
+    }
+
+    @Test
+    void resumeSessionsFollowTheConsolesOwnershipIncludingClosedConsolesAsUnclaimed(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository =
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-174-bobs-console", dbDir.resolve("wt1"), now, "bob");
+        repository.recordAttach("1-174-alices-console", dbDir.resolve("wt2"), now, "alice");
+        resumeRepository.record("1-174-bobs-console", "claude", "aaaaaaaa-0000-0000-0000-000000000000", now);
+        resumeRepository.record("1-174-alices-console", "claude", "bbbbbbbb-0000-0000-0000-000000000000", now);
+        // No session record at all — the console was closed (#75), which deletes it.
+        resumeRepository.record("1-174-closed-console", "codex", "cccccccc-0000-0000-0000-000000000000", now);
+
+        IssueWorktreeService service = new IssueWorktreeService(repository, resumeRepository);
+
+        assertThat(service.resumeSessionsForIssue(1, 174, "alice"))
+                .extracting(ConsoleResumeSessionRecord::resumeId)
+                .containsExactlyInAnyOrder("bbbbbbbb-0000-0000-0000-000000000000",
+                        "cccccccc-0000-0000-0000-000000000000");
+    }
+
+    @Test
+    void theSameConversationSightedInTwoConsolesIsListedOnceAtItsNewestSighting(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository =
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        resumeRepository.record("1-174-first-console", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        resumeRepository.record("1-174-second-console", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-26T12:00:00Z"));
+
+        IssueWorktreeService service = new IssueWorktreeService(repository, resumeRepository);
+
+        assertThat(service.resumeSessionsForIssue(1, 174, "alice"))
+                .extracting(ConsoleResumeSessionRecord::worktreeId)
+                .containsExactly("1-174-second-console");
+    }
+
+    @Test
     void allWorktreeIdsSpansEveryIssueInOneProjectButExcludesOtherProjectsAndUsers(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");

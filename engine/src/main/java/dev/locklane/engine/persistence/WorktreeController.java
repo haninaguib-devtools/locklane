@@ -60,6 +60,47 @@ public class WorktreeController {
     }
 
     /**
+     * The past Claude/Codex conversations captured in this issue's consoles (#102),
+     * newest first — what the Overview tab's session list shows (#103). Same
+     * visibility rule as {@link #worktrees}, applied to the console each
+     * conversation was captured in.
+     */
+    @GetMapping("/{number}/resume-sessions")
+    public List<ResumeSessionView> resumeSessions(@PathVariable long projectId, @PathVariable int number,
+            Principal principal) {
+        return service.resumeSessionsForIssue(projectId, number, principal.getName()).stream()
+                .map(record -> new ResumeSessionView(record.worktreeId(), record.tool(), record.resumeId(),
+                        record.capturedAt().toString()))
+                .toList();
+    }
+
+    /**
+     * Mints a brand-new console session for resuming a past conversation (#103), in
+     * the working directory of the console ({@code from}) the conversation was
+     * captured in. The client attaches to the returned session id with
+     * {@code cmd=<tool>&resume=<id>} exactly as it attaches any other new console.
+     * {@code 404} when {@code from} carries no conversation the caller may see —
+     * same visibility rule as {@link #resumeSessions}.
+     */
+    @PostMapping("/{number}/resume-sessions/reopen")
+    public ResponseEntity<Map<String, String>> reopenSession(@PathVariable long projectId, @PathVariable int number,
+            @RequestParam String from, Principal principal) {
+        boolean visible = service.resumeSessionsForIssue(projectId, number, principal.getName()).stream()
+                .anyMatch(record -> record.worktreeId().equals(from));
+        if (!visible) {
+            return ResponseEntity.notFound().build();
+        }
+        return creationService.reopenSession(projectId, number, from)
+                .map(started -> ResponseEntity.ok(
+                        Map.of("worktreeId", started.worktreeId(), "workingDirectory", started.workingDirectory())))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** One row of {@link #resumeSessions} — mirrored client-side as {@code ResumeSession}. */
+    public record ResumeSessionView(String worktreeId, String tool, String resumeId, String capturedAt) {
+    }
+
+    /**
      * Ends a session for good (#75) — kills its process and forgets its record, unlike
      * a client merely disconnecting (#7). {@code 404} for a session the caller cannot
      * see, same visibility rule as {@link #worktrees}.

@@ -5,7 +5,7 @@ import { MainContentComponent } from './main-content.component';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { ActiveTabStore } from '../../services/active-tab-store';
-import { GhIssue, IssueDetail, Project } from '../../models/issue.model';
+import { GhIssue, IssueDetail, Project, ResumeSession } from '../../models/issue.model';
 
 describe('MainContentComponent', () => {
   let httpMock: HttpTestingController;
@@ -39,7 +39,7 @@ describe('MainContentComponent', () => {
     return fixture;
   }
 
-  function respond(number: number, consoleIds: string[]) {
+  function respond(number: number, consoleIds: string[], resumeSessions: ResumeSession[] = []) {
     const issue: GhIssue = {
       number,
       title: 'T',
@@ -73,6 +73,7 @@ describe('MainContentComponent', () => {
 
     httpMock.expectOne(`/api/projects/1/issues/${number}`).flush(issue);
     httpMock.expectOne(`/api/projects/1/issues/${number}/detail`).flush(detail);
+    httpMock.expectOne(`/api/projects/1/issues/${number}/resume-sessions`).flush(resumeSessions);
     httpMock.expectOne('/api/projects').flush(projects);
     httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush(consoleIds);
   }
@@ -158,7 +159,7 @@ describe('MainContentComponent', () => {
 
     expect(fixture.componentInstance.starting).toBeFalse();
     expect(fixture.componentInstance.consoles).toEqual([
-      { id: '1-8-main-a1b2c3d4', dir: '/tmp/repo', agent: 'codex' },
+      { id: '1-8-main-a1b2c3d4', dir: '/tmp/repo', agent: 'codex', resume: null },
     ]);
     expect(fixture.componentInstance.tabs[0].label).toBe('main · codex');
     expect(fixture.componentInstance.selectedConsole).toBe('1-8-main-a1b2c3d4');
@@ -187,6 +188,62 @@ describe('MainContentComponent', () => {
     fixture.componentInstance.openConsole({ worktree: true, agent: 'claude' });
     httpMock
       .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
+      .error(new ProgressEvent('network error'));
+
+    expect(fixture.componentInstance.starting).toBeFalse();
+    expect(fixture.componentInstance.startError).toBeTrue();
+    expect(fixture.componentInstance.consoles).toEqual([]);
+  });
+
+  it('reopening a past session adds a resuming console tab and selects it (#103)', () => {
+    const fixture = init(8);
+    const past: ResumeSession = {
+      worktreeId: '1-8-slug',
+      tool: 'claude',
+      resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      capturedAt: '2026-08-27T10:00:00Z',
+    };
+    respond(8, [], [past]);
+    expect(fixture.componentInstance.resumeSessions).toEqual([past]);
+
+    fixture.componentInstance.reopenSession(past);
+    expect(fixture.componentInstance.starting).toBeTrue();
+
+    httpMock
+      .expectOne(
+        (r) =>
+          r.url === '/api/projects/1/issues/8/resume-sessions/reopen' &&
+          r.method === 'POST' &&
+          r.params.get('from') === '1-8-slug',
+      )
+      .flush({ worktreeId: '1-8-resume-a1b2c3d4', workingDirectory: '/tmp/repo-8' });
+
+    expect(fixture.componentInstance.starting).toBeFalse();
+    expect(fixture.componentInstance.consoles).toEqual([
+      {
+        id: '1-8-resume-a1b2c3d4',
+        dir: '/tmp/repo-8',
+        agent: 'claude',
+        resume: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      },
+    ]);
+    expect(fixture.componentInstance.activeTab).toBe('1-8-resume-a1b2c3d4');
+    expect(TestBed.inject(AgentStore).get('1-8-resume-a1b2c3d4')).toBe('claude');
+  });
+
+  it('a failed reopen reports an error and stops the spinner without touching the tabs (#103)', () => {
+    const fixture = init(8);
+    const past: ResumeSession = {
+      worktreeId: '1-8-slug',
+      tool: 'codex',
+      resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      capturedAt: '2026-08-27T10:00:00Z',
+    };
+    respond(8, [], [past]);
+
+    fixture.componentInstance.reopenSession(past);
+    httpMock
+      .expectOne((r) => r.url === '/api/projects/1/issues/8/resume-sessions/reopen')
       .error(new ProgressEvent('network error'));
 
     expect(fixture.componentInstance.starting).toBeFalse();

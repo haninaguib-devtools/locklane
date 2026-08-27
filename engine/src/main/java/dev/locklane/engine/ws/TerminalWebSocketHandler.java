@@ -15,16 +15,22 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * Attaches a browser client to a session's {@link PtySession} over WebSocket:
- * {@code /ws/sessions/{sessionId}[?dir=<path>][&cmd=<claude|codex|shell>][&cols=<n>&rows=<n>]}.
+ * {@code /ws/sessions/{sessionId}[?dir=<path>][&cmd=<claude|codex|shell>][&resume=<id>][&cols=<n>&rows=<n>]}.
  * {@code dir} is required only the first time a session is seen; after that its working
  * directory is already known (in-memory if the session is still live, or from SQLite via
  * {@link SessionRegistry#lastKnownWorkingDirectory} after a restart). {@code cmd}
  * chooses what a brand-new session launches — an agent CLI (e.g. {@code claude},
  * {@code codex}) or a plain shell (the default, when {@code cmd} is absent or
  * {@code shell}) — and is ignored on a reattach to an already-running session.
+ * {@code resume} (#103) makes a brand-new {@code claude}/{@code codex} session resume
+ * a past conversation instead of starting a blank one ({@code claude --resume <id>} /
+ * {@code codex resume <id>}, the ids captured by #102); the command is composed here,
+ * never accepted as a free-form string, and {@code resume} is ignored for any other
+ * {@code cmd} or an id not shaped like one.
  * {@code cols}/{@code rows} size a brand-new session's PTY to the browser terminal's
  * actual size instead of a hardcoded default (#62); once attached, later size changes
  * arrive as resize messages (see below), not new query parameters. A brand-new
@@ -78,7 +84,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        String[] launchCommand = resolveLaunchCommand(queryParam(wsSession, "cmd"));
+        String[] launchCommand = resolveLaunchCommand(queryParam(wsSession, "cmd"), queryParam(wsSession, "resume"));
         Integer columns = parseIntParam(wsSession, "cols");
         Integer rows = parseIntParam(wsSession, "rows");
         // Empty for anything that isn't a project console's session id (#139) — a
@@ -165,10 +171,23 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         return sessionRegistry.lastKnownWorkingDirectory(sessionId).orElse(null);
     }
 
-    /** {@code null} (absent or "shell") defers to {@link SessionRegistry}'s default shell. */
-    private static String[] resolveLaunchCommand(String cmd) {
+    // The ids #102 captures are UUIDs; anything else is not something the resume
+    // commands accept, so it is ignored rather than handed to a process.
+    private static final Pattern RESUME_ID =
+            Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+    /** {@code null} (absent or "shell") defers to {@link SessionRegistry}'s default shell. Package-visible for tests. */
+    static String[] resolveLaunchCommand(String cmd, String resume) {
         if (cmd == null || cmd.isBlank() || cmd.equals("shell")) {
             return null;
+        }
+        if (resume != null && RESUME_ID.matcher(resume).matches()) {
+            if (cmd.equals("claude")) {
+                return new String[] {"claude", "--resume", resume};
+            }
+            if (cmd.equals("codex")) {
+                return new String[] {"codex", "resume", resume};
+            }
         }
         return new String[] {cmd};
     }
