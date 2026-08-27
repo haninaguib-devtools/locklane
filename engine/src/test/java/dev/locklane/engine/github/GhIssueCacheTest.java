@@ -9,8 +9,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Covers #4's and #16's done-when directly, against a fake {@link GhClient} — no
- * real gh process, no Spring context, no timing dependency on the scheduled refresh.
+ * Covers #4's, #16's, and #129's done-when directly, against a fake {@link GhClient}
+ * — no real gh process, no Spring context, no timing dependency on the scheduled
+ * refresh.
  */
 class GhIssueCacheTest {
 
@@ -113,6 +114,53 @@ class GhIssueCacheTest {
         GhIssueCache cache = new GhIssueCache(fake);
 
         assertThat(cache.pullRequestForIssue(2)).map(GhPullRequest::number).contains(20);
+    }
+
+    @Test
+    void refreshReportsNoChangeWhenTheFetchedIssuesAndPullRequestsAreIdentical() {
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of(pr(10, "OPEN", "wip/2-x")));
+        GhIssueCache cache = new GhIssueCache(fake);
+        cache.refresh(); // warm the cache first -- the first refresh always moves from unknown
+
+        boolean changed = cache.refresh(); // same client, same data
+
+        assertThat(changed).isFalse();
+    }
+
+    @Test
+    void refreshReportsAChangeWhenAnIssueIsAdded() {
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of());
+        GhIssueCache cache = new GhIssueCache(fake);
+        cache.refresh();
+
+        fake.setIssues(List.of(issue(1, "First", "OPEN"), issue(2, "Second", "OPEN")));
+        boolean changed = cache.refresh();
+
+        assertThat(changed).isTrue();
+    }
+
+    @Test
+    void refreshReportsAChangeWhenAnExistingIssuesFieldsChange() {
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of());
+        GhIssueCache cache = new GhIssueCache(fake);
+        cache.refresh();
+
+        fake.setIssues(List.of(issue(1, "First", "CLOSED"))); // same number, state moved
+        boolean changed = cache.refresh();
+
+        assertThat(changed).isTrue();
+    }
+
+    @Test
+    void refreshReportsNoChangeOnAFailedFetch() {
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of());
+        GhIssueCache cache = new GhIssueCache(fake);
+        cache.refresh();
+
+        fake.failNextCall();
+        boolean changed = cache.refresh();
+
+        assertThat(changed).isFalse();
     }
 
     private static GhIssue issue(int number, String title, String state) {

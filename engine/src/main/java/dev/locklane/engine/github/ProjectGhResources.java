@@ -1,8 +1,10 @@
 package dev.locklane.engine.github;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.ProjectRecord;
 import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.security.TokenCipher;
+import dev.locklane.engine.ws.EventBroadcaster;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -27,24 +29,32 @@ public class ProjectGhResources {
 
     private final ProjectRepository projectRepository;
     private final TokenCipher tokenCipher;
+    private final EventBroadcaster eventBroadcaster;
     private final BiFunction<Path, String, GhClient> clientFactory;
     private final Map<Long, ProjectGhContext> contexts = new ConcurrentHashMap<>();
 
     @Autowired
-    public ProjectGhResources(ProjectRepository projectRepository, TokenCipher tokenCipher) {
-        this(projectRepository, tokenCipher, CliGhClient::new);
+    public ProjectGhResources(ProjectRepository projectRepository, TokenCipher tokenCipher, EventBroadcaster eventBroadcaster) {
+        this(projectRepository, tokenCipher, eventBroadcaster, CliGhClient::new);
     }
 
     /**
      * Test-only: swaps in a fake client instead of shelling out to a real gh
-     * process. Public so tests outside this package (e.g. persistence's
-     * {@code WorktreeCreationServiceTest}) can build one directly rather than
-     * needing a real {@code gh} on PATH.
+     * process, and a broadcaster with no registered sessions since these tests
+     * don't care about the events channel. Public so tests outside this package
+     * (e.g. persistence's {@code WorktreeCreationServiceTest}) can build one
+     * directly rather than needing a real {@code gh} on PATH.
      */
     public ProjectGhResources(ProjectRepository projectRepository, TokenCipher tokenCipher,
             BiFunction<Path, String, GhClient> clientFactory) {
+        this(projectRepository, tokenCipher, new EventBroadcaster(new ObjectMapper()), clientFactory);
+    }
+
+    public ProjectGhResources(ProjectRepository projectRepository, TokenCipher tokenCipher, EventBroadcaster eventBroadcaster,
+            BiFunction<Path, String, GhClient> clientFactory) {
         this.projectRepository = projectRepository;
         this.tokenCipher = tokenCipher;
+        this.eventBroadcaster = eventBroadcaster;
         this.clientFactory = clientFactory;
     }
 
@@ -63,9 +73,14 @@ public class ProjectGhResources {
         contexts.remove(projectId);
     }
 
+    /** Diffs each project's cache against its previous state and publishes `issuesChanged` (#129) where it moved. */
     @Scheduled(fixedDelay = REFRESH_INTERVAL_MS, initialDelay = REFRESH_INTERVAL_MS)
     void refreshAll() {
-        contexts.values().forEach(context -> context.cache().refresh());
+        contexts.forEach((projectId, context) -> {
+            if (context.cache().refresh()) {
+                eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
+            }
+        });
     }
 
     private ProjectGhContext build(ProjectRecord project) {

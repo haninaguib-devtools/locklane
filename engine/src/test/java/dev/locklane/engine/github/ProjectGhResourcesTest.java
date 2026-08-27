@@ -1,10 +1,12 @@
 package dev.locklane.engine.github;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.ProjectRecord;
 import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.persistence.TestSqliteDatabases;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
+import dev.locklane.engine.ws.EventBroadcaster;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -12,10 +14,15 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /** Covers #81's done-when: each project's issue/PR fetches use that project's own token and repo. */
 class ProjectGhResourcesTest {
@@ -124,6 +131,52 @@ class ProjectGhResourcesTest {
         assertThat(fetchCount.get()).isEqualTo(1);
     }
 
+    @Test
+    void refreshAllBroadcastsIssuesChangedWhenTheCachedStateMoves(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = readyProject(repository, dataDir, "myproj");
+        VariableGhClient client = new VariableGhClient();
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectGhResources resources = new ProjectGhResources(repository,
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> client);
+        resources.forProject(project.id());
+        resources.refreshAll(); // warms the cache -- moving from unknown to known always "changes"
+
+        client.setIssues(List.of(new GhIssue(1, "New issue", "OPEN", List.of(), "", "", "")));
+        resources.refreshAll();
+
+        verify(broadcaster, times(2)).broadcast("issuesChanged", Map.of("projectId", project.id()));
+    }
+
+    @Test
+    void refreshAllBroadcastsNothingOnAnUnchangedRefresh(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = readyProject(repository, dataDir, "myproj");
+        VariableGhClient client = new VariableGhClient();
+        client.setIssues(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectGhResources resources = new ProjectGhResources(repository,
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> client);
+        resources.forProject(project.id());
+        resources.refreshAll(); // warms the cache
+
+        resources.refreshAll(); // same data as before -- nothing moved
+
+        verify(broadcaster, times(1)).broadcast("issuesChanged", Map.of("projectId", project.id()));
+    }
+
+    @Test
+    void refreshAllNeverBroadcastsForAProjectThatWasNeverLookedUp(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectGhResources resources = new ProjectGhResources(repository,
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> new VariableGhClient());
+
+        resources.refreshAll();
+
+        verifyNoInteractions(broadcaster);
+    }
+
     private static ProjectRecord readyProject(ProjectRepository repository, Path dataDir, String name) {
         return repository.createReady(name, "url", dataDir.resolve(name), "main", Instant.now());
     }
@@ -162,6 +215,29 @@ class ProjectGhResourcesTest {
         public List<GhIssue> issues() {
             fetchCount.incrementAndGet();
             return List.of();
+        }
+
+        @Override
+        public List<GhPullRequest> pullRequests() {
+            return List.of();
+        }
+
+        @Override
+        public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
+            return Optional.empty();
+        }
+    }
+
+    private static final class VariableGhClient implements GhClient {
+        private List<GhIssue> issues = List.of();
+
+        void setIssues(List<GhIssue> issues) {
+            this.issues = issues;
+        }
+
+        @Override
+        public List<GhIssue> issues() {
+            return issues;
         }
 
         @Override

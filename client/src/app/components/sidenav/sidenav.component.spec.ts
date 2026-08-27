@@ -5,6 +5,7 @@ import { ProjectIssue, SidenavComponent } from './sidenav.component';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
+import { EventsService } from '../../services/events.service';
 import { Project, TreeNode } from '../../models/issue.model';
 import { UsageSnapshot } from '../../models/usage.model';
 
@@ -446,6 +447,64 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.isProjectSelected(2)).toBeTrue();
     const active = fixture.nativeElement.querySelectorAll('.section-header.active');
     expect(active.length).toBe(1);
+  });
+
+  /** Reaches past EventsService's public API (#129) -- there is no other way to fake an incoming socket message. */
+  function emitAppEvent(event: unknown): void {
+    (TestBed.inject(EventsService) as unknown as { eventsSubject: { next: (e: unknown) => void } }).eventsSubject.next(
+      event,
+    );
+  }
+
+  function emitReconnected(): void {
+    (TestBed.inject(EventsService) as unknown as { reconnectedSubject: { next: () => void } }).reconnectedSubject.next();
+  }
+
+  it('an issuesChanged event re-fetches just that project\'s tree, in place', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
+
+    emitAppEvent({ type: 'issuesChanged', projectId: 1 });
+
+    httpMock.expectNone('/api/projects'); // notify-then-fetch, not a full reload
+    const updated: TreeNode[] = [
+      ...tree(),
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', children: [] },
+    ];
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(updated);
+    flushConsoles();
+
+    const [sectionA, sectionB] = fixture.componentInstance.projectSections;
+    expect(fixture.componentInstance.mainNodesFor(sectionA).map((n) => n.number)).toEqual([1, 4, 5]);
+    expect(fixture.componentInstance.mainNodesFor(sectionB).map((n) => n.number)).toEqual([1, 4]);
+  });
+
+  it('an issuesChanged event for a project not currently loaded is ignored', () => {
+    init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'issuesChanged', projectId: 999 });
+
+    httpMock.expectNone('/api/projects/999/issues/tree');
+  });
+
+  it('a reconnect does one full reload to catch up on missed events', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitReconnected();
+
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    const updated: TreeNode[] = [
+      ...tree(),
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', children: [] },
+    ];
+    flushTree(1, updated);
+
+    const section = fixture.componentInstance.projectSections[0];
+    expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 4, 5]);
   });
 
   it('the project name is not indented further than an issue row (#85)', () => {

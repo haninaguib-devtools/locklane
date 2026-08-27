@@ -1,7 +1,7 @@
 import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subscription, forkJoin, map, merge, of, switchMap } from 'rxjs';
+import { Subscription, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { Project, TreeNode } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
@@ -9,9 +9,20 @@ import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
+import { AppEvent, EventsService } from '../../services/events.service';
 import { AddProjectPopupComponent } from '../add-project-popup/add-project-popup.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
+
+/** An `issuesChanged` message off the app-wide events channel (#129). */
+interface IssuesChangedEvent extends AppEvent {
+  type: 'issuesChanged';
+  projectId: number;
+}
+
+function isIssuesChangedEvent(event: AppEvent): event is IssuesChangedEvent {
+  return event.type === 'issuesChanged' && typeof event['projectId'] === 'number';
+}
 
 /** How often a project still cloning is re-checked, until it settles (#45). */
 const CLONE_POLL_MS = 3000;
@@ -50,6 +61,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly collapseStore = inject(CollapseStore);
   private readonly projectSectionStore = inject(ProjectSectionStore);
   private readonly consolesService = inject(ConsolesService);
+  private readonly eventsService = inject(EventsService);
 
   @Input() selected: ProjectIssue | null = null;
   @Output() selectedChange = new EventEmitter<ProjectIssue>();
@@ -76,11 +88,23 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // (#108), refreshed whenever a console opens or closes anywhere in the app.
   private openConsoleIssues = new Set<string>();
   private readonly consoleSub: Subscription;
+  // "Notify, then fetch" (#129): the event carries no issue data, so a matching
+  // project re-fetches its own tree over the existing REST endpoint. A reconnect
+  // instead does one full reload, since events missed while the socket was down
+  // are gone for good.
+  private readonly eventsSub: Subscription;
 
   constructor() {
     this.consoleSub = merge(this.consolesService.onOpened, this.consolesService.onClosed).subscribe(() =>
       this.refreshConsoleIndicators(),
     );
+    this.eventsSub = merge(
+      this.eventsService.events$.pipe(
+        filter(isIssuesChangedEvent),
+        map((event) => () => this.refreshProject(event.projectId)),
+      ),
+      this.eventsService.reconnected$.pipe(map(() => () => this.load(() => {}))),
+    ).subscribe((run) => run());
   }
 
   ngOnInit(): void {
@@ -90,6 +114,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.clearPoll();
     this.consoleSub.unsubscribe();
+    this.eventsSub.unsubscribe();
   }
 
   refresh(): void {
@@ -153,6 +178,18 @@ export class SidenavComponent implements OnInit, OnDestroy {
           onDone();
         },
       });
+  }
+
+  /** Re-fetches one project's issue tree in place (#129) — a no-op if that project isn't loaded (yet). */
+  private refreshProject(projectId: number): void {
+    const index = this.sections.findIndex((s) => s.project.id === projectId);
+    if (index === -1) {
+      return;
+    }
+    this.issuesService.tree(projectId).subscribe((tree) => {
+      this.sections[index] = { ...this.sections[index], tree };
+      this.refreshConsoleIndicators();
+    });
   }
 
   /** Recomputes which issues have an open console (#108), across every loaded project. */
