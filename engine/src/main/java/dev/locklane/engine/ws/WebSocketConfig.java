@@ -12,11 +12,13 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 public class WebSocketConfig implements WebSocketConfigurer {
 
     private final SessionRegistry sessionRegistry;
+    private final EventBroadcaster eventBroadcaster;
     private final String[] allowedOrigins;
 
-    public WebSocketConfig(SessionRegistry sessionRegistry,
+    public WebSocketConfig(SessionRegistry sessionRegistry, EventBroadcaster eventBroadcaster,
             @Value("${locklane.security.allowed-origins}") String allowedOrigins) {
         this.sessionRegistry = sessionRegistry;
+        this.eventBroadcaster = eventBroadcaster;
         this.allowedOrigins = allowedOrigins.split(",");
     }
 
@@ -25,6 +27,10 @@ public class WebSocketConfig implements WebSocketConfigurer {
         // Authentication is required upstream (SecurityConfig, #50) — this is only
         // the origin restriction half of that task.
         registry.addHandler(new TerminalWebSocketHandler(sessionRegistry), "/ws/sessions/*")
+                .setAllowedOrigins(allowedOrigins);
+        // The app-wide notification channel (#128), separate from the per-session
+        // terminal sockets above.
+        registry.addHandler(new EventsWebSocketHandler(eventBroadcaster), "/ws/events")
                 .setAllowedOrigins(allowedOrigins);
     }
 }
