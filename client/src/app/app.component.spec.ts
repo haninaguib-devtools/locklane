@@ -292,7 +292,7 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
-  it('the project summary\'s "New issue (agent)" button navigates to the console route (#140), which the sidenav shows as still on that project', fakeAsync(() => {
+  it('the project summary\'s consoles link (#180) navigates to the consoles page, which the sidenav shows as still on that project', fakeAsync(() => {
     logIn();
     navigateToDefaultProject();
 
@@ -302,15 +302,15 @@ describe('AppComponent', () => {
     flushConsoleIndicator();
     fixture.detectChanges();
 
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.new-issue')!.click();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('.consoles-link')!.click();
     tick();
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
 
-    expect(TestBed.inject(Router).url).toBe('/projects/1/console');
+    expect(TestBed.inject(Router).url).toBe('/projects/1/consoles');
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-project-console')).toBeTruthy();
+    expect(compiled.querySelector('app-consoles-page')).toBeTruthy();
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
     expect(sidenav.componentInstance.selectedProject).toBe(1);
   }));

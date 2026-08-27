@@ -146,6 +146,30 @@
   color: var(--muted);
 }
 
+/* The header's one-click new-console entry (#180). */
+.new-console {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--faint);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.new-console:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.new-console:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .project-status {
   font-size: 10px;
   text-transform: none;

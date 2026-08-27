@@ -10,7 +10,7 @@
         {{ project.status.toLowerCase() }}
       </span>
       @if (project.status === 'READY') {
-        <button type="button" class="new-issue" (click)="openConsole()">New issue (agent)</button>
+        <a class="consoles-link" [routerLink]="['/projects', projectId, 'consoles']">open consoles</a>
       }
     </div>
 

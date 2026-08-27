@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter, Router } from '@angular/router';
+import { provideRouter } from '@angular/router';
 import { ProjectSummaryComponent, countIssues } from './project-summary.component';
 import { Project, TreeNode } from '../../models/issue.model';
 
@@ -115,22 +115,19 @@ describe('ProjectSummaryComponent', () => {
     expect(text).toContain('could not load the issue counts');
   });
 
-  it('shows the "New issue (agent)" button for a ready project and navigates to its console (#140)', () => {
+  it('links a ready project to its consoles page in place of the old "New issue (agent)" button (#180)', () => {
     const fixture = init();
-    const router = TestBed.inject(Router);
-    spyOn(router, 'navigate');
 
-    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.new-issue');
-    expect(button).toBeTruthy();
-    button!.click();
-
-    expect(router.navigate).toHaveBeenCalledWith(['/projects', 1, 'console']);
+    const link = (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('a.consoles-link');
+    expect(link).toBeTruthy();
+    expect(link!.getAttribute('href')).toBe('/projects/1/consoles');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.new-issue')).toBeFalsy();
   });
 
-  it('hides the "New issue (agent)" button while the project is still cloning', () => {
+  it('hides the consoles link while the project is still cloning', () => {
     const fixture = init([{ ...PROJECT, status: 'CLONING' }]);
 
-    expect((fixture.nativeElement as HTMLElement).querySelector('.new-issue')).toBeFalsy();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.consoles-link')).toBeFalsy();
   });
 
   it('reloads when the project id changes', () => {

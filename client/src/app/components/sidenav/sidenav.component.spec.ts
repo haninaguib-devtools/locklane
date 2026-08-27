@@ -8,6 +8,7 @@ import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { EventsService } from '../../services/events.service';
 import { IssuesService } from '../../services/issues.service';
+import { AgentStore } from '../../services/agent-store';
 import { Project, TreeNode } from '../../models/issue.model';
 import { UsageSnapshot } from '../../models/usage.model';
 
@@ -654,6 +655,76 @@ describe('SidenavComponent', () => {
 
     const pinnedName = fixture.nativeElement.querySelector('.project-name') as HTMLElement;
     expect(pinnedName.textContent!.trim()).toBe('proj-a');
+  });
+
+  it('the header "+" mints a new console and lands on it, without selecting the project (#180)', () => {
+    localStorage.removeItem('locklane.sessionAgents');
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    const emitted: number[] = [];
+    fixture.componentInstance.projectSelected.subscribe((id) => emitted.push(id));
+
+    (fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement).click();
+    httpMock
+      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
+      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+      queryParams: { session: 'proj-1-console-abc' },
+    });
+    expect(emitted).toEqual([]);
+    // The one-click entry has no agent picker: the new console gets the default agent.
+    expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('claude');
+    localStorage.removeItem('locklane.sessionAgents');
+  });
+
+  it('the "+" ignores further clicks while a console is still being minted (#180)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    const plus = fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement;
+    plus.click();
+    plus.click();
+
+    // Only one mint in flight: the second click was a no-op.
+    httpMock
+      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
+      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+    localStorage.removeItem('locklane.sessionAgents');
+  });
+
+  it('a failed mint re-arms the "+" instead of leaving it stuck (#180)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    const plus = fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement;
+    plus.click();
+    httpMock
+      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
+      .error(new ProgressEvent('network error'));
+    expect(navigate).not.toHaveBeenCalled();
+
+    plus.click();
+    httpMock
+      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
+      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+    expect(navigate).toHaveBeenCalled();
+    localStorage.removeItem('locklane.sessionAgents');
+  });
+
+  it('a project that is not READY has no "+" (#180)', () => {
+    const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
+    const fixture = init([cloning]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.section-header .new-console')).toBeNull();
   });
 
   it('the project name is not indented further than an issue row (#85)', () => {
