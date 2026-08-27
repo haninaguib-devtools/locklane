@@ -481,6 +481,27 @@ describe('SidenavComponent', () => {
     expect(emitted).toEqual([]);
   });
 
+  it('the Overview entry links to "/" (#197)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    const link = fixture.nativeElement.querySelector('a.overview-entry') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/');
+  });
+
+  it('the Overview entry is only active when nothing else is selected (#197)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('a.overview-entry').classList).toContain('active');
+
+    fixture.componentInstance.selectedProject = 1;
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('a.overview-entry').classList).not.toContain('active');
+  });
+
   it('marks only the selected project header as active (#85)', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
     flushTree(1, tree());

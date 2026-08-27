@@ -118,11 +118,3 @@
   border-right: 1px solid var(--border);
 }
 
-.empty-state {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--faint);
-  font-size: 13px;
-}
