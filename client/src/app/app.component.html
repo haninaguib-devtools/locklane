@@ -46,6 +46,8 @@
       @if (selectedProjectId(); as projectId) {
         @if (onProjectConsole()) {
           <app-project-console [projectId]="projectId" />
+        } @else if (onConsolesPage()) {
+          <app-consoles-page [projectId]="projectId" />
         } @else {
           @if (selectedIssue(); as issue) {
             <app-main-content [projectId]="projectId" [issueNumber]="issue" />

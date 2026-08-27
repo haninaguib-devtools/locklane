@@ -268,6 +268,30 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
+  it('loading /projects/:projectId/consoles directly shows the consoles page (#179)', fakeAsync(() => {
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/projects/1/consoles');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.onConsolesPage()).toBeTrue();
+    expect(fixture.componentInstance.onProjectConsole()).toBeFalse();
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushUsageWidget();
+    flushConsoleIndicator();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('app-consoles-page')).toBeTruthy();
+    expect(compiled.querySelector('app-project-console')).toBeFalsy();
+    expect(compiled.querySelector('app-main-content')).toBeFalsy();
+    expect(compiled.querySelector('app-project-summary')).toBeFalsy();
+  }));
+
   it('the project summary\'s "New issue (agent)" button navigates to the console route (#140), which the sidenav shows as still on that project', fakeAsync(() => {
     logIn();
     navigateToDefaultProject();
