@@ -1,5 +1,6 @@
 package dev.locklane.engine.ws;
 
+import dev.locklane.engine.persistence.ProjectConsoleService;
 import dev.locklane.engine.pty.SessionRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
@@ -12,12 +13,14 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 public class WebSocketConfig implements WebSocketConfigurer {
 
     private final SessionRegistry sessionRegistry;
+    private final ProjectConsoleService projectConsoleService;
     private final EventBroadcaster eventBroadcaster;
     private final String[] allowedOrigins;
 
-    public WebSocketConfig(SessionRegistry sessionRegistry, EventBroadcaster eventBroadcaster,
-            @Value("${locklane.security.allowed-origins}") String allowedOrigins) {
+    public WebSocketConfig(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService,
+            EventBroadcaster eventBroadcaster, @Value("${locklane.security.allowed-origins}") String allowedOrigins) {
         this.sessionRegistry = sessionRegistry;
+        this.projectConsoleService = projectConsoleService;
         this.eventBroadcaster = eventBroadcaster;
         this.allowedOrigins = allowedOrigins.split(",");
     }
@@ -26,7 +29,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         // Authentication is required upstream (SecurityConfig, #50) — this is only
         // the origin restriction half of that task.
-        registry.addHandler(new TerminalWebSocketHandler(sessionRegistry), "/ws/sessions/*")
+        registry.addHandler(new TerminalWebSocketHandler(sessionRegistry, projectConsoleService), "/ws/sessions/*")
                 .setAllowedOrigins(allowedOrigins);
         // The app-wide notification channel (#128), separate from the per-session
         // terminal sockets above.

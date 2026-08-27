@@ -1,5 +1,6 @@
 package dev.locklane.engine.ws;
 
+import dev.locklane.engine.persistence.ProjectConsoleService;
 import dev.locklane.engine.pty.PtySession;
 import dev.locklane.engine.pty.SessionRegistry;
 import org.springframework.web.socket.CloseStatus;
@@ -26,7 +27,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code shell}) — and is ignored on a reattach to an already-running session.
  * {@code cols}/{@code rows} size a brand-new session's PTY to the browser terminal's
  * actual size instead of a hardcoded default (#62); once attached, later size changes
- * arrive as resize messages (see below), not new query parameters.
+ * arrive as resize messages (see below), not new query parameters. A brand-new
+ * session also gets whatever extra environment {@link ProjectConsoleService}
+ * resolves for its id (#139) — {@code GH_TOKEN} for a project console, nothing for
+ * any other session — merged in before the process starts.
  *
  * <p>Closing a connection never kills the underlying session (#7's done-when) — only
  * this connection's subscription is torn down, so the session keeps running and
@@ -45,10 +49,12 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     private static final char FOCUS = '2';
 
     private final SessionRegistry sessionRegistry;
+    private final ProjectConsoleService projectConsoleService;
     private final Map<String, AutoCloseable> subscriptions = new ConcurrentHashMap<>();
 
-    public TerminalWebSocketHandler(SessionRegistry sessionRegistry) {
+    public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService) {
         this.sessionRegistry = sessionRegistry;
+        this.projectConsoleService = projectConsoleService;
     }
 
     @Override
@@ -75,8 +81,11 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         String[] launchCommand = resolveLaunchCommand(queryParam(wsSession, "cmd"));
         Integer columns = parseIntParam(wsSession, "cols");
         Integer rows = parseIntParam(wsSession, "rows");
-        PtySession session =
-                sessionRegistry.attach(sessionId, workingDirectory, launchCommand, username, columns, rows);
+        // Empty for anything that isn't a project console's session id (#139) — a
+        // no-op merge for every ordinary worktree/main-checkout session.
+        Map<String, String> extraEnvironment = projectConsoleService.environmentFor(sessionId);
+        PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launchCommand, username, columns,
+                rows, extraEnvironment);
 
         // Replay everything produced so far before subscribing, so nothing produced
         // between the snapshot and the subscription taking effect is lost or
