@@ -3,8 +3,8 @@
     <dl class="details">
       <dt>record</dt>
       <dd>
-        @if (detail.recordPath && issueUrl) {
-          <a [href]="issueUrl" target="_blank" rel="noopener">{{ detail.recordPath }}</a>
+        @if (detail.recordPath && recordUrl) {
+          <a [href]="recordUrl" target="_blank" rel="noopener">{{ detail.recordPath }}</a>
         } @else {
           {{ detail.recordPath ?? 'no record yet' }}
         }
