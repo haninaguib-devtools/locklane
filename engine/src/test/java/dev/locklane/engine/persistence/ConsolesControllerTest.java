@@ -26,6 +26,18 @@ class ConsolesControllerTest {
     }
 
     @Test
+    void includesTheProjectsOwnConsolesAlongsideItsIssues(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), now, "alice");
+        repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt2"), now, "alice");
+        ConsolesController controller = new ConsolesController(new IssueWorktreeService(repository));
+
+        assertThat(controller.consoles(1, ALICE)).containsExactlyInAnyOrder(
+                "1-174-rename-toggle", "1-console-0a1b2c3d");
+    }
+
+    @Test
     void returnsAnEmptyListWithNoOpenConsoles(@TempDir Path dbDir) {
         ConsolesController controller = new ConsolesController(
                 new IssueWorktreeService(TestSqliteDatabases.newRepository(dbDir)));

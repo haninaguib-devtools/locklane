@@ -2,6 +2,7 @@ import { Component, Input, OnChanges, OnDestroy, SimpleChanges, inject } from '@
 import { ActivatedRoute, Router } from '@angular/router';
 import { Agent, AgentStore } from '../../services/agent-store';
 import { AgentPickerComponent } from '../agent-picker/agent-picker.component';
+import { ConsolesService } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
 import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
@@ -31,6 +32,7 @@ interface OpenConsole {
 })
 export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   private readonly service = inject(ProjectConsoleService);
+  private readonly consolesService = inject(ConsolesService);
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
   private readonly router = inject(Router);
@@ -120,6 +122,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
         this.relabel();
         this.selected = session.sessionId;
         this.starting = false;
+        this.consolesService.notifyOpened();
       },
       error: () => {
         this.starting = false;
@@ -137,6 +140,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
         if (this.selected === id) {
           this.selected = this.consoles[0]?.id ?? null;
         }
+        this.consolesService.notifyClosed();
       },
       error: () => {
         this.closeError = true;

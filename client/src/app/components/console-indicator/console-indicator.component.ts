@@ -2,16 +2,21 @@ import { Component, ElementRef, Input, OnChanges, OnDestroy, ViewChild, effect, 
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { Observable, ReplaySubject, Subscription, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
-import { ConsolesService } from '../../services/consoles.service';
+import { ConsolesService, isProjectConsoleSessionId, issueNumberFromSessionId } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { EventsService, isConsoleAttentionEvent } from '../../services/events.service';
 import { labelConsoles } from '../console-tabs/console-labels';
 
+/**
+ * An issue's own console (issueNumber set) or one of the project's own consoles
+ * (#139/#177, issueNumber null -- there is no issue to jump to, and no per-issue
+ * "active console" to remember).
+ */
 export interface ConsoleEntry {
   sessionId: string;
-  issueNumber: number;
+  issueNumber: number | null;
   issueTitle: string;
   label: string;
 }
@@ -151,9 +156,15 @@ export class ConsoleIndicatorComponent implements OnChanges, OnDestroy {
   }
 
   jumpTo(entry: ConsoleEntry): void {
-    this.activeConsoleStore.set(entry.issueNumber, entry.sessionId);
     this.open.set(false);
-    this.router.navigate(['/projects', this.projectId, 'issues', entry.issueNumber]);
+    if (entry.issueNumber !== null) {
+      this.activeConsoleStore.set(entry.issueNumber, entry.sessionId);
+      this.router.navigate(['/projects', this.projectId, 'issues', entry.issueNumber]);
+    } else {
+      this.router.navigate(['/projects', this.projectId, 'console'], {
+        queryParams: { session: entry.sessionId },
+      });
+    }
   }
 
   private move(delta: number): void {
@@ -167,22 +178,32 @@ export class ConsoleIndicatorComponent implements OnChanges, OnDestroy {
     return forkJoin([this.consolesService.list(projectId), this.issuesService.list(projectId)]).pipe(
       map(([ids, issues]) => {
         const titles = new Map(issues.map((issue) => [issue.number, issue.title]));
-        return ids
-          .map((id) => this.toEntry(id, titles))
+        const issueEntries = ids
+          .map((id) => this.toIssueEntry(id, titles))
           .filter((entry): entry is ConsoleEntry => entry !== null);
+        const projectEntries = this.toProjectEntries(ids.filter(isProjectConsoleSessionId));
+        return [...issueEntries, ...projectEntries];
       }),
     );
   }
 
-  private toEntry(sessionId: string, titles: Map<number, string>): ConsoleEntry | null {
-    // Session ids are shaped "<projectId>-<issueNumber>-<slug>" (#43) -- the second
-    // numeric segment is the issue number.
-    const match = /^\d+-(\d+)-/.exec(sessionId);
-    if (!match) {
+  private toIssueEntry(sessionId: string, titles: Map<number, string>): ConsoleEntry | null {
+    const issueNumber = issueNumberFromSessionId(sessionId);
+    if (issueNumber === null) {
       return null;
     }
-    const issueNumber = Number(match[1]);
     const [{ label }] = labelConsoles([{ id: sessionId, agent: this.agentStore.get(sessionId) }]);
     return { sessionId, issueNumber, issueTitle: titles.get(issueNumber) ?? `#${issueNumber}`, label };
+  }
+
+  // Project consoles have no location (main/wtree) to label by -- just "console",
+  // "console 2", ... plus the agent when known, matching the project-console
+  // page's own tab labels.
+  private toProjectEntries(sessionIds: string[]): ConsoleEntry[] {
+    return sessionIds.map((sessionId, index) => {
+      const agent = this.agentStore.get(sessionId);
+      const label = `console${index > 0 ? ` ${index + 1}` : ''}${agent ? ` · ${agent}` : ''}`;
+      return { sessionId, issueNumber: null, issueTitle: 'Project console', label };
+    });
   }
 }

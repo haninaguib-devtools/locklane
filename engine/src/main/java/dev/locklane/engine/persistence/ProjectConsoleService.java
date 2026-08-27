@@ -27,7 +27,11 @@ import java.util.regex.Pattern;
  * exactly as before. Neither shape ever collides with
  * {@link IssueWorktreeService}'s {@code ^(\d+)-(\d+)-} prefix (its second segment is
  * the literal {@code console}, not a number), so a project console never appears in
- * the per-issue/console-picker lists those methods serve.
+ * {@link IssueWorktreeService#worktreeIdsForIssue} or {@link
+ * IssueWorktreeService#resumeSessionsForIssue} — both scoped to one issue, which a
+ * project console has none of. It does appear in {@link
+ * IssueWorktreeService#allWorktreeIds} (#194), the project-wide list the header
+ * indicator/picker reads.
  */
 @Service
 public class ProjectConsoleService {

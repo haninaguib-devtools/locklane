@@ -5,6 +5,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter, Router } from '@angular/router';
 import { ProjectConsoleComponent } from './project-console.component';
 import { AgentStore } from '../../services/agent-store';
+import { ConsolesService } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
 import { TerminalComponent } from '../terminal/terminal.component';
 
@@ -157,6 +158,8 @@ describe('ProjectConsoleComponent', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
+    const opened = jasmine.createSpy('onOpened');
+    TestBed.inject(ConsolesService).onOpened.subscribe(opened);
 
     fixture.componentInstance.agent = 'codex';
     (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.start')!.click();
@@ -171,6 +174,8 @@ describe('ProjectConsoleComponent', () => {
     const terminal = fixture.debugElement.query(By.directive(TerminalComponent));
     expect(terminal.componentInstance.cmd).toBe('codex');
     expect(TestBed.inject(AgentStore).get('1-console-a1b2c3d4')).toBe('codex');
+    // #194: the header consoles widget must learn about it.
+    expect(opened).toHaveBeenCalled();
   });
 
   it('opens another console from the tab strip\'s "+" and selects it', () => {
@@ -196,6 +201,8 @@ describe('ProjectConsoleComponent', () => {
     ]);
     fixture.detectChanges();
     spyOn(window, 'confirm').and.returnValue(true);
+    const closed = jasmine.createSpy('onClosed');
+    TestBed.inject(ConsolesService).onClosed.subscribe(closed);
 
     const compiled = fixture.nativeElement as HTMLElement;
     compiled.querySelectorAll<HTMLButtonElement>('.tab-close')[1].click();
@@ -206,6 +213,8 @@ describe('ProjectConsoleComponent', () => {
 
     expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
     expect(compiled.querySelectorAll('app-terminal').length).toBe(1);
+    // #194: the header consoles widget must learn about it.
+    expect(closed).toHaveBeenCalled();
   });
 
   it('shows the starter again once the last console is closed', () => {

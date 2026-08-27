@@ -9,10 +9,10 @@ import java.security.Principal;
 import java.util.List;
 
 /**
- * Serves every open console session across all of one project's issues that the
- * caller may see (#32's header indicator/picker) — same ownership visibility as
- * {@link WorktreeController#worktrees}, just not scoped to one issue. Nested under
- * a project id since #43.
+ * Serves every open console session across all of one project's issues, plus its
+ * own project-level consoles (#194), that the caller may see (#32's header
+ * indicator/picker) — same ownership visibility as {@link WorktreeController#worktrees},
+ * just not scoped to one issue. Nested under a project id since #43.
  */
 @RestController
 @RequestMapping("/api/projects/{projectId}/consoles")

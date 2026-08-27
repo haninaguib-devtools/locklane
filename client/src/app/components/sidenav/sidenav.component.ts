@@ -182,6 +182,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
       next: (session) => {
         this.startingConsoleFor = null;
         this.agentStore.set(session.sessionId, 'claude');
+        this.consolesService.notifyOpened();
         this.router.navigate(['/projects', projectId, 'console'], {
           queryParams: { session: session.sessionId },
         });
