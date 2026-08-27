@@ -68,6 +68,25 @@ class IssueWorktreeServiceTest {
     }
 
     @Test
+    void projectConsoleIdsNeverReadAsAnIssuesSession(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-console", dbDir.resolve("wt1"), now, "alice"); // legacy pre-#177 shape
+        repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt2"), now, "alice"); // #177 family
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt3"), now, "alice");
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        // The console family's second segment is the literal "console", never a
+        // number — so neither shape can collide with any issue's session list.
+        assertThat(service.allWorktreeIds(1, "alice")).containsExactly("1-174-rename-toggle");
+        for (int n = 0; n < 1000; n++) {
+            assertThat(service.worktreeIdsForIssue(1, n, "alice"))
+                    .doesNotContain("1-console", "1-console-0a1b2c3d");
+        }
+    }
+
+    @Test
     void doesNotFalselyMatchAnIssueNumberThatIsAPrefixOfAnother(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");

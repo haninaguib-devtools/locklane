@@ -23,7 +23,11 @@ import java.util.regex.Pattern;
  * <p>"main" and any id that does not start with two numeric segments belong to no
  * project/issue and never match — reported explicitly here rather than thrown, since
  * nothing enforces this naming today; a worktree id is just whatever string a
- * WebSocket client chose (#15).
+ * WebSocket client chose (#15). Project console ids — the legacy
+ * {@code "<projectId>-console"} and the {@code "<projectId>-console-<suffix>"} family
+ * minted since #177 (see {@link ProjectConsoleService}) — are excluded the same way:
+ * their second segment is the literal {@code console}, never a number, so they can
+ * never read as some issue's session here.
  */
 @Service
 public class IssueWorktreeService {
