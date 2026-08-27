@@ -1,12 +1,26 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, Subject } from 'rxjs';
+import { Observable, Subject, filter, map, merge } from 'rxjs';
+import { EventsService, isConsolesChangedEvent } from './events.service';
 
 @Injectable({ providedIn: 'root' })
 export class ConsolesService {
   private readonly http = inject(HttpClient);
+  private readonly eventsService = inject(EventsService);
   private readonly closed$ = new Subject<void>();
   private readonly opened$ = new Subject<void>();
+
+  // A console opening or closing in another browser tab/session reaches this one
+  // over the app-wide events channel (#195) as `consolesChanged`. Neither local
+  // notify call below distinguishes open from close for its subscribers either
+  // (both are folded into one merged trigger by every current consumer), so a
+  // remote change is folded into both `onOpened` and `onClosed` the same way, plus
+  // a reconnect (EventsService#reconnected$) in case a change was missed while the
+  // socket was down.
+  private readonly remoteOrReconnected$ = merge(
+    this.eventsService.events$.pipe(filter(isConsolesChangedEvent)),
+    this.eventsService.reconnected$,
+  ).pipe(map(() => undefined));
 
   /**
    * Every open console session id the caller may see, across all of one project's
@@ -17,20 +31,22 @@ export class ConsolesService {
   }
 
   /**
-   * Fires whenever a console session is closed for good somewhere in the app (#75),
-   * so the header indicator can refresh its count without an unrelated reload.
+   * Fires whenever a console session is closed for good somewhere in the app (#75)
+   * — including another browser tab or session (#195) — so the header indicator
+   * can refresh its count without an unrelated reload.
    */
-  readonly onClosed = this.closed$.asObservable();
+  readonly onClosed = merge(this.closed$, this.remoteOrReconnected$);
 
   notifyClosed(): void {
     this.closed$.next();
   }
 
   /**
-   * Fires whenever a new console session is opened somewhere in the app (#108), so
-   * other views (the sidebar's open-console dot) can refresh without polling.
+   * Fires whenever a new console session is opened somewhere in the app (#108) —
+   * including another browser tab or session (#195) — so other views (the
+   * sidebar's open-console dot) can refresh without polling.
    */
-  readonly onOpened = this.opened$.asObservable();
+  readonly onOpened = merge(this.opened$, this.remoteOrReconnected$);
 
   notifyOpened(): void {
     this.opened$.next();
