@@ -1,6 +1,7 @@
 package dev.locklane.engine.pty;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.persistence.ConsoleResumeSessionRecord;
 import dev.locklane.engine.persistence.ConsoleResumeSessionRepository;
 import dev.locklane.engine.persistence.WorktreeSessionRecord;
 import dev.locklane.engine.persistence.WorktreeSessionRepository;
@@ -178,6 +179,25 @@ public class SessionRegistry {
      */
     public Optional<Path> lastKnownWorkingDirectory(String sessionId) {
         return repository.find(sessionId).map(WorktreeSessionRecord::workingDirectory);
+    }
+
+    /**
+     * The most recently captured resume id (#102) for this session and tool, or
+     * empty when capture is off or nothing was ever captured here for that tool.
+     * This is what lets a reattach after an engine restart pick the conversation
+     * back up (#173): the live process is gone, but the id it printed survives in
+     * {@link ConsoleResumeSessionRepository}.
+     */
+    public Optional<String> latestResumeId(String sessionId, String tool) {
+        if (resumeRepository == null) {
+            return Optional.empty();
+        }
+        // findByWorktree returns oldest sighting first; the last matching row is
+        // the conversation the user was most recently in.
+        return resumeRepository.findByWorktree(sessionId).stream()
+                .filter(record -> record.tool().equals(tool))
+                .reduce((older, newer) -> newer)
+                .map(ConsoleResumeSessionRecord::resumeId);
     }
 
     /**
