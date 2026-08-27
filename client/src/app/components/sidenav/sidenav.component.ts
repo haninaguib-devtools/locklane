@@ -328,6 +328,12 @@ export class SidenavComponent implements OnInit, OnDestroy {
     return filterTree(topLevel, this.filterText, this.hideShipped);
   }
 
+  // Counted off the raw tree, before the text filter and hideShipped run (#186):
+  // the header answers "how much open work is here", not "how many rows are showing".
+  openIssueCount(section: Section): number {
+    return this.flatten(section.tree).filter((n) => n.state === 'OPEN').length;
+  }
+
   isProjectCollapsed(projectId: number): boolean {
     return this.projectSectionStore.isCollapsed(projectId);
   }

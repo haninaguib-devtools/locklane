@@ -595,6 +595,67 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.hasAttentionWaiting(2, 4)).toBeTrue();
   });
 
+  /** The header's rendered text with whitespace collapsed, e.g. "proj-a (3)". */
+  function headerText(fixture: { nativeElement: HTMLElement }): string {
+    const label = fixture.nativeElement.querySelector('.section-header .project-label') as HTMLElement;
+    return label.textContent!.trim().replace(/\s+/g, ' ');
+  }
+
+  it('the project header shows the open-issue count after the name (#186)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    // Open: initiative #1, child #2, standalone #4. Closed child #3 is not counted.
+    expect(headerText(fixture)).toBe('proj-a (3)');
+  });
+
+  it('the count ignores the text filter and the opened-issues toggle (#186)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    fixture.componentInstance.filterText = 'no row matches this';
+    fixture.componentInstance.hideShipped = false;
+    fixture.detectChanges();
+
+    expect(headerText(fixture)).toBe('proj-a (3)');
+  });
+
+  it('the count updates when an issuesChanged event refreshes the tree (#186)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'issuesChanged', projectId: 1 });
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([
+      ...tree(),
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', children: [] },
+    ]);
+    flushConsoles();
+    fixture.detectChanges();
+
+    expect(headerText(fixture)).toBe('proj-a (4)');
+  });
+
+  it('a project still cloning shows no count (#186)', () => {
+    const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
+    const fixture = init([cloning]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    expect(headerText(fixture)).toBe('proj-a');
+    expect(fixture.nativeElement.querySelector('.section-header .issue-count')).toBeNull();
+  });
+
+  it('the pinned section\'s project name line carries no count (#186)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    TestBed.inject(PinStore).toggle(1, 4);
+    fixture.detectChanges();
+
+    const pinnedName = fixture.nativeElement.querySelector('.project-name') as HTMLElement;
+    expect(pinnedName.textContent!.trim()).toBe('proj-a');
+  });
+
   it('the project name is not indented further than an issue row (#85)', () => {
     const fixture = init();
     flushTree(1, tree());

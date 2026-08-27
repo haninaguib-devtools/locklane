@@ -140,6 +140,12 @@
   color: var(--text);
 }
 
+.section-header .issue-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
 .project-status {
   font-size: 10px;
   text-transform: none;

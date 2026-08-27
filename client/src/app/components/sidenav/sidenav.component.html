@@ -69,7 +69,12 @@
         >
           ▸
         </button>
-        <span class="project-label">{{ section.project.name }}</span>
+        <span class="project-label">
+          {{ section.project.name }}
+          @if (section.project.status === 'READY') {
+            <span class="issue-count">({{ openIssueCount(section) }})</span>
+          }
+        </span>
         @if (section.project.status !== 'READY') {
           <span class="project-status" [class.failed]="section.project.status === 'FAILED'">
             {{ section.project.status === 'CLONING' ? 'cloning…' : 'failed' }}
