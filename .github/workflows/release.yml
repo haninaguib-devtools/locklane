@@ -82,6 +82,14 @@ jobs:
           fi
           gh release upload latest locklane.jar --clobber
 
+      - name: Move the "latest" tag to this commit
+        # gh release edit's --target is only honored when a tag is first created — once
+        # "latest" already exists, editing the release's target does not move it. The
+        # tag itself has to be force-moved directly.
+        run: |
+          git tag -f latest "$GITHUB_SHA"
+          git push --force origin refs/tags/latest
+
       - name: Cut a permanent release for this version, if it dropped -SNAPSHOT
         env:
           GH_TOKEN: ${{ github.token }}
