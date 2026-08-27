@@ -6,6 +6,7 @@ import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { Project, TreeNode } from '../../models/issue.model';
+import { UsageSnapshot } from '../../models/usage.model';
 
 describe('SidenavComponent', () => {
   let httpMock: HttpTestingController;
@@ -32,7 +33,12 @@ describe('SidenavComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
+  // The usage widget (#137) keeps polling /api/usage on its own timer for as long as
+  // it's mounted -- fakeAsync's tick() calls elsewhere in these tests can fast-forward
+  // that timer, so a poll this test never asked about may still be outstanding. Drain
+  // it here rather than asserting on it in every unrelated test.
   afterEach(() => {
+    httpMock.match('/api/usage').forEach((request) => request.flush(EMPTY_USAGE));
     httpMock.verify();
     localStorage.removeItem('locklane.pinnedIssues');
     localStorage.removeItem('locklane.collapsedInitiatives');
@@ -55,11 +61,23 @@ describe('SidenavComponent', () => {
     ];
   }
 
-  /** Creates the component and flushes its project list. */
+  const EMPTY_USAGE: UsageSnapshot = {
+    claude: { available: false, fiveHour: null, weekly: null },
+    codex: { available: false, fiveHour: null, weekly: null },
+    updatedAt: new Date().toISOString(),
+  };
+
+  /**
+   * Creates the component and flushes its project list, plus the usage widget's own
+   * fetch (#137) -- a child of the sidenav that fetches independently of the project
+   * list on its own `ngOnInit`, so every test that renders the sidenav owes it a
+   * response or `httpMock.verify()` fails on an unflushed request.
+   */
   function init(projects: Project[] = [PROJECT_A]): ReturnType<typeof TestBed.createComponent<SidenavComponent>> {
     const fixture = TestBed.createComponent(SidenavComponent);
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').flush(projects);
+    httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
     return fixture;
   }
 

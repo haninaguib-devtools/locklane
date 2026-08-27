@@ -2,6 +2,15 @@
   width: 100%;
   height: 100%;
   background: var(--sidebar);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrolls on its own so the usage widget below it (#137) stays pinned to the bottom
+   of the sidebar instead of scrolling away with the case list. */
+.sidenav-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

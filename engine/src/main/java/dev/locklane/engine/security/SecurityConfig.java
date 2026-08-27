@@ -29,8 +29,10 @@ import org.springframework.http.HttpStatus;
  * {@code /api/projects/{projectId}/consoles}, #32), the project CRUD endpoints
  * (list/create at {@code /api/projects}, delete at {@code /api/projects/{id}},
  * retry at {@code /api/projects/{id}/retry}, #42; storing a project's GitHub token
- * at {@code /api/projects/{id}/github-token}, #81), and the WebSocket session
- * endpoint itself (every path under {@code /ws/sessions/}, #50) — its origin
+ * at {@code /api/projects/{id}/github-token}, #81), the sidebar's usage widget
+ * ({@code /api/usage}, #137 — it reads this host's own CLI credentials, not
+ * per-project data, but is account-scoped the same way {@code /api/auth/me} is), and
+ * the WebSocket session endpoint itself (every path under {@code /ws/sessions/}, #50) — its origin
  * restriction lives in {@code WebSocketConfig}, but authentication is enforced
  * here like every other endpoint. Issue/PR reads themselves stay open (no
  * per-user boundary) even though each project's own token, #81, scopes which
@@ -66,6 +68,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects/*/issues/*/worktrees").authenticated()
                         .requestMatchers("/api/projects/*/issues/*/worktrees/*").authenticated()
                         .requestMatchers("/api/projects/*/consoles").authenticated()
+                        .requestMatchers("/api/usage").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
                         .anyRequest().permitAll())
                 .formLogin(form -> form
