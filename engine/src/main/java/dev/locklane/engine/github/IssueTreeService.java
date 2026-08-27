@@ -61,17 +61,17 @@ public class IssueTreeService {
         for (GhIssue issue : topLevel) {
             if (!initiativeNumbers.contains(issue.number())) {
                 nodes.add(new TreeNode(
-                        issue.number(), issue.title(), "TASK", issue.state(), hasActiveBranch(issue), List.of()));
+                        issue.number(), issue.title(), "TASK", issue.state(), hasActiveBranch(issue), issue.labels(), List.of()));
                 continue;
             }
             List<GhIssue> children = childrenByInitiative.getOrDefault(issue.number(), new ArrayList<>());
             children.sort(NEWEST_FIRST);
             List<TreeNode> childNodes = children.stream()
                     .map(child -> new TreeNode(
-                            child.number(), child.title(), "TASK", child.state(), hasActiveBranch(child), List.of()))
+                            child.number(), child.title(), "TASK", child.state(), hasActiveBranch(child), child.labels(), List.of()))
                     .toList();
             nodes.add(new TreeNode(
-                    issue.number(), issue.title(), "INITIATIVE", issue.state(), hasActiveBranch(issue), childNodes));
+                    issue.number(), issue.title(), "INITIATIVE", issue.state(), hasActiveBranch(issue), issue.labels(), childNodes));
         }
         return nodes;
     }

@@ -42,6 +42,9 @@ export interface TreeNode {
   state: string;
   // Same PR-derived signal as IssueDetail.branch's presence (#110).
   hasActiveBranch: boolean;
+  // Verbatim from GhIssue.labels (#111) -- the sidebar's tag filter picks its own
+  // classification subset out of these.
+  labels: string[];
   children: TreeNode[];
 }
 

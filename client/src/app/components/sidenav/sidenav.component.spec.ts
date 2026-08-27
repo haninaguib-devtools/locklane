@@ -58,12 +58,13 @@ describe('SidenavComponent', () => {
         kind: 'INITIATIVE',
         state: 'OPEN',
         hasActiveBranch: false,
+        labels: [],
         children: [
-          { number: 2, title: 'Child A', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, children: [] },
-          { number: 3, title: 'Child B', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, children: [] },
+          { number: 2, title: 'Child A', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
+          { number: 3, title: 'Child B', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, labels: [], children: [] },
         ],
       },
-      { number: 4, title: 'Standalone', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, children: [] },
+      { number: 4, title: 'Standalone', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ];
   }
 
@@ -115,7 +116,7 @@ describe('SidenavComponent', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
     httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     httpMock.expectOne('/api/projects/2/issues/tree').flush([
-      { number: 9, title: 'Only in B', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, children: [] },
+      { number: 9, title: 'Only in B', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ]);
     flushConsoles();
 
@@ -308,6 +309,33 @@ describe('SidenavComponent', () => {
     expect(initiative.children.map((c) => c.number)).toEqual([2]);
   });
 
+  it('toggleTag selects and deselects a tag, and mainNodesFor narrows to matching issues', () => {
+    const fixture = init();
+    const withLabels: TreeNode[] = [
+      { number: 1, title: 'Bug', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: ['bug'], children: [] },
+      {
+        number: 2,
+        title: 'Docs',
+        kind: 'TASK',
+        state: 'OPEN',
+        hasActiveBranch: false,
+        labels: ['documentation'],
+        children: [],
+      },
+    ];
+    flushTree(1, withLabels);
+    const section = fixture.componentInstance.projectSections[0];
+
+    expect(fixture.componentInstance.isTagSelected('bug')).toBeFalse();
+    fixture.componentInstance.toggleTag('bug');
+    expect(fixture.componentInstance.isTagSelected('bug')).toBeTrue();
+    expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1]);
+
+    fixture.componentInstance.toggleTag('bug');
+    expect(fixture.componentInstance.isTagSelected('bug')).toBeFalse();
+    expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 2]);
+  });
+
   it('refresh() re-fetches everything and updates the list in place', () => {
     const fixture = init();
     flushTree(1, tree());
@@ -318,7 +346,7 @@ describe('SidenavComponent', () => {
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
     const updated: TreeNode[] = [
       ...tree(),
-      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, children: [] },
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ];
     flushTree(1, updated);
 
@@ -517,7 +545,7 @@ describe('SidenavComponent', () => {
     httpMock.expectNone('/api/projects'); // notify-then-fetch, not a full reload
     const updated: TreeNode[] = [
       ...tree(),
-      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, children: [] },
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ];
     httpMock.expectOne('/api/projects/1/issues/tree').flush(updated);
     flushConsoles();
@@ -566,7 +594,7 @@ describe('SidenavComponent', () => {
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
     const updated: TreeNode[] = [
       ...tree(),
-      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, children: [] },
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ];
     flushTree(1, updated);
 
@@ -631,7 +659,7 @@ describe('SidenavComponent', () => {
     emitAppEvent({ type: 'issuesChanged', projectId: 1 });
     httpMock.expectOne('/api/projects/1/issues/tree').flush([
       ...tree(),
-      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, children: [] },
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ]);
     flushConsoles();
     fixture.detectChanges();

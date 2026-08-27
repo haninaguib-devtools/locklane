@@ -78,6 +78,32 @@
   cursor: pointer;
 }
 
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.tag-chip:hover {
+  color: var(--text);
+}
+
+.tag-chip.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--panel);
+}
+
 .add-project {
   align-self: flex-start;
   padding: 4px 8px;
