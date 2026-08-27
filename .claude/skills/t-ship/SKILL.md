@@ -156,7 +156,7 @@ already left the pipeline; say which and stop.
    default entirely, so append the PR reference explicitly — it is not added for you:
 
    ```
-   subject: <issue title> (#<pr>)
+   subject: [<id>] <issue title> (#<pr>)
    body:    <goal — one line>
 
             Non-goals: <from the record's Explicitly not>

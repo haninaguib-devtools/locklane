@@ -90,7 +90,10 @@ abstracted.
   name is `main` literally, throughout the skills and scripts — it is not abstracted the
   way the tracker and forge are; changing it is a find-and-replace across protected
   surfaces, done as one task.
-- Commit messages: imperative, descriptive, no `wip`, no trailers.
+- Commit messages: imperative, descriptive, no `wip`, no trailers. A task's squash-merge
+  subject (and the draft PR title `/t-work` opens) is `[<id>] <title> (#<pr>)` — the
+  bracketed issue number ties every commit in `git log --oneline` back to its tracker
+  issue.
 - Decisions live in `docs/adr/` (one file per decision, via PR). Anything durable settled
   in a PR thread is promoted into the record, an ADR, or `docs/architecture/` before
   merge.
