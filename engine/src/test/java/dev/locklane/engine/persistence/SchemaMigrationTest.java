@@ -109,6 +109,28 @@ class SchemaMigrationTest {
     }
 
     @Test
+    void anExistingDatabaseGainsTheConsoleResumeSessionsTableWithoutLosingWorktreeSessions(@TempDir Path dbDir) {
+        // V1 created worktree_sessions; the console_resume_sessions table (#102) is
+        // V8, added long after.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "7");
+        new JdbcTemplate(oldShape).update("""
+                INSERT INTO worktree_sessions (worktree_id, working_directory, created_at, last_attached_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                "1-102-console", "/work/102", "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z");
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+
+        assertThat(new WorktreeSessionRepository(oldShape).find("1-102-console")).isPresent();
+        ConsoleResumeSessionRepository repository = new ConsoleResumeSessionRepository(oldShape);
+        assertThat(repository.findByWorktree("1-102-console")).isEmpty();
+
+        repository.record("1-102-console", "claude", "123e4567-e89b-42d3-a456-426614174000",
+                Instant.parse("2026-08-27T10:00:00Z"));
+        assertThat(repository.findByWorktree("1-102-console")).hasSize(1);
+    }
+
+    @Test
     void aDatabaseLeftAtAnOlderVersionByAPreviousTestRunMigratesCleanlyOnTheNextOne(@TempDir Path dbDir) {
         // Stands in for a leftover locklane-engine-test directory from a run made
         // before a migration existed: the directory is there, but the schema in it
