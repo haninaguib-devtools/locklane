@@ -38,6 +38,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   private resizeSub: IDisposable | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private pendingFit: ReturnType<typeof setTimeout> | null = null;
+  /** Whether term.open() has run yet — deferred for a tab that starts inactive (#211). */
+  private opened = false;
 
   /* A sidenav-slider drag or live window resize fires the ResizeObserver on
      every pixel. Fitting on each tick streams a column count per pixel to the
@@ -55,8 +57,13 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     });
     this.fitAddon = new FitAddon();
     this.term.loadAddon(this.fitAddon);
-    this.term.open(this.container.nativeElement);
+    // A hidden (display:none) container measures as 0x0, and xterm caches whatever
+    // character size it sees at open() time — a later fit() against that cache never
+    // corrects it. Only open a tab that's actually visible; an inactive one is opened
+    // on its first activation instead (ngOnChanges), once it has real dimensions (#211).
     if (this.active) {
+      this.term.open(this.container.nativeElement);
+      this.opened = true;
       this.fitAddon.fit();
       this.term.focus();
     }
@@ -85,6 +92,12 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['active'] && this.active) {
+      if (this.term && !this.opened) {
+        // First time this tab is shown: the container is visible now, so this is
+        // xterm's first real (non-zero) measurement (#211).
+        this.term.open(this.container.nativeElement);
+        this.opened = true;
+      }
       // A hidden container has no dimensions, so the fit is deferred to the
       // moment the tab becomes visible again.
       if (this.fitAddon) {
