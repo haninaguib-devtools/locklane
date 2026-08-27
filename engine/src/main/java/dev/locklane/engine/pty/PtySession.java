@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * One long-lived pseudo-terminal process for a single session, independent of any
@@ -39,11 +40,25 @@ public final class PtySession {
     private static final Map<String, String> DEFAULT_TERMINAL_ENV =
             Map.of("TERM", "xterm-256color", "COLORTERM", "truecolor");
 
+    // #130: a BEL byte is the agent-agnostic "I'm done/waiting" signal Claude Code and
+    // similar CLIs ring on completion.
+    private static final byte BEL = 0x07;
+
+    // #130: the quiescence fallback's fixed delay — agents that never ring the bell
+    // still go quiet once they finish, so output going silent this long with no input
+    // since is itself treated as "waiting for attention". Package-visible so tests can
+    // compute an equivalent `nowMs` without a real sleep.
+    static final long QUIESCENCE_THRESHOLD_MS = 3000;
+
     private final String sessionId;
     private final PtyProcess process;
     private final OutputBuffer output = new OutputBuffer();
     private final Set<OutputListener> listeners = ConcurrentHashMap.newKeySet();
+    private final Set<AttentionListener> attentionListeners = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final AtomicReference<AttentionState> attention = new AtomicReference<>(AttentionState.ACTIVE);
+    private volatile long lastOutputAt;
+    private volatile long lastInputAt;
 
     PtySession(String sessionId, Path workingDirectory, String[] command, Map<String, String> environment,
             int initialColumns, int initialRows) {
@@ -59,6 +74,9 @@ public final class PtySession {
         } catch (IOException e) {
             throw new PtySessionStartException(sessionId, e);
         }
+        long now = System.currentTimeMillis();
+        this.lastOutputAt = now;
+        this.lastInputAt = now;
         Thread drainThread = new Thread(this::drain, "pty-drain-" + sessionId);
         drainThread.setDaemon(true);
         drainThread.start();
@@ -71,6 +89,10 @@ public final class PtySession {
             int n;
             while ((n = in.read(chunk)) != -1) {
                 output.append(chunk, n);
+                lastOutputAt = System.currentTimeMillis();
+                if (containsBel(chunk, n)) {
+                    setAttention(AttentionState.WAITING);
+                }
                 if (!listeners.isEmpty()) {
                     // Defensive copy: `chunk` is reused on the next loop iteration, so a
                     // listener that hands this off asynchronously must not see it mutate.
@@ -83,6 +105,15 @@ public final class PtySession {
         } catch (IOException ignored) {
             // The process ended or its pty closed; nothing more to drain.
         }
+    }
+
+    private static boolean containsBel(byte[] chunk, int length) {
+        for (int i = 0; i < length; i++) {
+            if (chunk[i] == BEL) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public String sessionId() {
@@ -99,9 +130,21 @@ public final class PtySession {
         try {
             stdin.write(input.getBytes(StandardCharsets.UTF_8));
             stdin.flush();
+            lastInputAt = System.currentTimeMillis();
+            setAttention(AttentionState.ACTIVE);
         } catch (IOException e) {
             throw new PtySessionIoException(sessionId, e);
         }
+    }
+
+    /**
+     * Clears attention the same way real input does, without writing anything to the
+     * process itself — for a client that focuses this session's terminal tab (#130)
+     * rather than typing into it.
+     */
+    public void markFocused() {
+        lastInputAt = System.currentTimeMillis();
+        setAttention(AttentionState.ACTIVE);
     }
 
     /**
@@ -136,8 +179,56 @@ public final class PtySession {
         }
     }
 
+    /**
+     * Registers a listener for this session's attention state (#130) — called
+     * immediately on every change, starting from the next one (the current state at
+     * subscribe time is not replayed). Returns a handle whose {@code close()}
+     * unsubscribes, same contract as {@link #subscribe}.
+     */
+    public AutoCloseable subscribeAttention(AttentionListener listener) {
+        attentionListeners.add(listener);
+        return () -> attentionListeners.remove(listener);
+    }
+
+    /**
+     * Re-evaluates the quiescence fallback (#130): output that has gone quiet for
+     * {@link #QUIESCENCE_THRESHOLD_MS} with no input sent since marks the session as
+     * waiting, for an agent that never rings the bell. Never called on a timer inside
+     * this class — a session has no thread of its own idle-ticking; {@link
+     * SessionRegistry} polls every live session on a schedule.
+     */
+    void checkQuiescence() {
+        checkQuiescence(System.currentTimeMillis());
+    }
+
+    /** As above, with an explicit "now" so a test can evaluate this with no real sleep. */
+    void checkQuiescence(long nowMs) {
+        if (nowMs - lastOutputAt >= QUIESCENCE_THRESHOLD_MS && lastInputAt <= lastOutputAt) {
+            setAttention(AttentionState.WAITING);
+        }
+    }
+
+    private void setAttention(AttentionState state) {
+        if (attention.getAndSet(state) != state) {
+            for (AttentionListener listener : attentionListeners) {
+                listener.onAttentionChange(state);
+            }
+        }
+    }
+
     @FunctionalInterface
     public interface OutputListener {
         void onOutput(byte[] chunk);
+    }
+
+    /** Whether a session looks like it's waiting on the user, or the user is on top of it. */
+    public enum AttentionState {
+        WAITING,
+        ACTIVE
+    }
+
+    @FunctionalInterface
+    public interface AttentionListener {
+        void onAttentionChange(AttentionState state);
     }
 }

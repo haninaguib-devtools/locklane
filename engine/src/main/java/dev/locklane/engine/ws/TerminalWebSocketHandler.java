@@ -33,14 +33,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * producing output for the next client to reattach and replay.
  *
  * <p>An inbound text message carries a one-character type tag the client always
- * prepends (#62) — {@code '0'} for keystroke input, {@code '1'} for a resize — so a
- * keystroke's own bytes are never mistaken for the tag: the client wraps every
- * message it sends rather than ever forwarding raw terminal bytes on their own.
+ * prepends (#62) — {@code '0'} for keystroke input, {@code '1'} for a resize, {@code
+ * '2'} for a focus notification (#130, carries no body) — so a keystroke's own bytes
+ * are never mistaken for the tag: the client wraps every message it sends rather than
+ * ever forwarding raw terminal bytes on their own.
  */
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     private static final char INPUT = '0';
     private static final char RESIZE = '1';
+    private static final char FOCUS = '2';
 
     private final SessionRegistry sessionRegistry;
     private final Map<String, AutoCloseable> subscriptions = new ConcurrentHashMap<>();
@@ -98,6 +100,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
                 session.write(body);
             } else if (type == RESIZE) {
                 resize(session, body);
+            } else if (type == FOCUS) {
+                session.markFocused();
             }
         });
     }

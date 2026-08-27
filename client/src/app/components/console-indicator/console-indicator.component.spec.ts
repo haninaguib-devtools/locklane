@@ -6,6 +6,7 @@ import { ConsoleIndicatorComponent } from './console-indicator.component';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
+import { EventsService } from '../../services/events.service';
 import { GhIssue } from '../../models/issue.model';
 
 describe('ConsoleIndicatorComponent', () => {
@@ -151,5 +152,41 @@ describe('ConsoleIndicatorComponent', () => {
     fixture.componentInstance.onKey({ key: 'Escape', preventDefault: () => {} } as KeyboardEvent);
 
     expect(fixture.componentInstance.open()).toBeFalse();
+  });
+
+  /** Reaches past EventsService's public API (#129) -- there is no other way to fake an incoming socket message. */
+  function emitAppEvent(event: unknown): void {
+    (TestBed.inject(EventsService) as unknown as { eventsSubject: { next: (e: unknown) => void } }).eventsSubject.next(
+      event,
+    );
+  }
+
+  it('pulses once one of its own entries is waiting for attention (#130)', () => {
+    const fixture = init();
+    flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);
+    expect(fixture.componentInstance.hasWaitingEntry()).toBeFalse();
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting' });
+
+    expect(fixture.componentInstance.hasWaitingEntry()).toBeTrue();
+  });
+
+  it('clears once an `active` event arrives for the waiting session', () => {
+    const fixture = init();
+    flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting' });
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'active' });
+
+    expect(fixture.componentInstance.hasWaitingEntry()).toBeFalse();
+  });
+
+  it('ignores a waiting session that is not one of this project\'s entries', () => {
+    const fixture = init();
+    flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '2-9-other-project', state: 'waiting' });
+
+    expect(fixture.componentInstance.hasWaitingEntry()).toBeFalse();
   });
 });

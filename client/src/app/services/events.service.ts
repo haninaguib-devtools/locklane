@@ -7,6 +7,26 @@ export interface AppEvent {
   [key: string]: unknown;
 }
 
+/**
+ * A `consoleAttention` message (#130): a console session started or stopped waiting
+ * for the user (a bell, or output going quiet with no input since -- see
+ * dev.locklane.engine.pty.PtySession). Shared here since both the sidenav's per-issue
+ * dot and the header console indicator react to it.
+ */
+export interface ConsoleAttentionEvent extends AppEvent {
+  type: 'consoleAttention';
+  sessionId: string;
+  state: 'waiting' | 'active';
+}
+
+export function isConsoleAttentionEvent(event: AppEvent): event is ConsoleAttentionEvent {
+  return (
+    event.type === 'consoleAttention' &&
+    typeof event['sessionId'] === 'string' &&
+    (event['state'] === 'waiting' || event['state'] === 'active')
+  );
+}
+
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 
