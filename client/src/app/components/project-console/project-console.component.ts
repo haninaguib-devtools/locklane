@@ -1,37 +1,50 @@
 import { Component, Input, OnChanges, OnDestroy, SimpleChanges, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Agent } from '../../services/agent-store';
+import { Agent, AgentStore } from '../../services/agent-store';
 import { AgentPickerComponent } from '../agent-picker/agent-picker.component';
 import { IssuesService } from '../../services/issues.service';
-import { ProjectConsoleService } from '../../services/project-console.service';
+import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
+import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
+import { ConsoleTab } from '../console-tabs/console-labels';
 import { TerminalComponent } from '../terminal/terminal.component';
+
+// One open console's client-side state. `dir` comes from the engine either way;
+// `agent` is only known when this browser launched the session (AgentStore).
+interface OpenConsole {
+  id: string;
+  dir: string;
+  agent: Agent | null;
+}
 
 // The project-level console page (#140, part of #138): lets a user start a
 // Claude/Codex/shell conversation in the project's own checkout -- where the
 // /t-open skill and `gh` are available -- before any issue exists, so an agent can
-// open one. Reuses the same TerminalComponent and agent picker an issue's own
-// consoles use; unlike those there is only ever one session here (deterministic
-// "<projectId>-console" id, minted server-side), so this page has no tab strip.
+// open one. Since #177 a project can have several consoles open at once, so this
+// page shows the same tab strip an issue's consoles get (#178) -- minus the
+// Overview tab and the main/worktree choice, which only make sense for an issue.
 @Component({
   selector: 'app-project-console',
   standalone: true,
-  imports: [AgentPickerComponent, TerminalComponent],
+  imports: [AgentPickerComponent, ConsoleTabsComponent, TerminalComponent],
   templateUrl: './project-console.component.html',
   styleUrl: './project-console.component.css',
 })
 export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   private readonly service = inject(ProjectConsoleService);
   private readonly issuesService = inject(IssuesService);
+  private readonly agentStore = inject(AgentStore);
   private readonly router = inject(Router);
 
   @Input({ required: true }) projectId!: number;
 
   loading = true;
-  sessionId: string | null = null;
-  dir: string | null = null;
+  consoles: OpenConsole[] = [];
+  tabs: ConsoleTab[] = [];
+  selected: string | null = null;
   agent: Agent = 'claude';
   starting = false;
   startError = false;
+  closeError = false;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId']) {
@@ -40,7 +53,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   }
 
   // Leaving this page -- however the navigation happened -- never closes the
-  // session (it keeps running server-side for the next reattach, same as an
+  // sessions (they keep running server-side for the next reattach, same as an
   // issue's own consoles); what it does need is telling the sidenav its cached
   // view of this project's issue list may be stale, since the agent may have just
   // opened one via `gh` before the engine's own 30s poll would notice (#140).
@@ -50,31 +63,54 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
 
   private load(projectId: number): void {
     this.loading = true;
-    this.sessionId = null;
-    this.dir = null;
+    this.consoles = [];
+    this.tabs = [];
+    this.selected = null;
     this.starting = false;
     this.startError = false;
-    this.service.find(projectId).subscribe({
-      next: (session) => {
-        this.sessionId = session.sessionId;
-        this.dir = session.workingDirectory;
+    this.closeError = false;
+    this.service.sessions(projectId).subscribe({
+      next: (sessions) => {
+        this.consoles = sessions.map((s) => ({
+          id: s.sessionId,
+          dir: s.workingDirectory,
+          agent: this.agentStore.get(s.sessionId),
+        }));
+        // Reattach where the user left off: the most recently attached console,
+        // which is what this page showed before it had tabs.
+        this.selected = sessions.reduce(
+          (latest: OpenProjectConsole | null, s) =>
+            !latest || Date.parse(s.lastAttachedAt) > Date.parse(latest.lastAttachedAt) ? s : latest,
+          null,
+        )?.sessionId ?? null;
+        this.relabel();
         this.loading = false;
       },
-      // No session has ever been attached to for this project (404) -- show the
-      // agent picker instead so the user can start one.
       error: () => {
         this.loading = false;
       },
     });
   }
 
+  /** The starter's button, shown while the project has no open console. */
   open(): void {
+    this.start(this.agent);
+  }
+
+  /** The tab strip's "+" (the location choice is hidden -- only the agent matters). */
+  openFromTabs(request: OpenConsoleRequest): void {
+    this.start(request.agent);
+  }
+
+  private start(agent: Agent): void {
     this.starting = true;
     this.startError = false;
     this.service.start(this.projectId).subscribe({
       next: (session) => {
-        this.sessionId = session.sessionId;
-        this.dir = session.workingDirectory;
+        this.agentStore.set(session.sessionId, agent);
+        this.consoles = [...this.consoles, { id: session.sessionId, dir: session.workingDirectory, agent }];
+        this.relabel();
+        this.selected = session.sessionId;
         this.starting = false;
       },
       error: () => {
@@ -84,7 +120,34 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
     });
   }
 
+  closeConsole(id: string): void {
+    this.closeError = false;
+    this.service.close(this.projectId, id).subscribe({
+      next: () => {
+        this.consoles = this.consoles.filter((c) => c.id !== id);
+        this.relabel();
+        if (this.selected === id) {
+          this.selected = this.consoles[0]?.id ?? null;
+        }
+      },
+      error: () => {
+        this.closeError = true;
+      },
+    });
+  }
+
   back(): void {
     this.router.navigate(['/projects', this.projectId, 'issues']);
+  }
+
+  // Every console here runs in the project's own checkout, so the issue pages'
+  // main/wtree labelling (console-labels.ts) carries no information -- tabs are
+  // just "console", "console 2", ..., plus the agent when known.
+  private relabel(): void {
+    this.tabs = this.consoles.map((c, i) => ({
+      id: c.id,
+      agent: c.agent,
+      label: `console${i > 0 ? ` ${i + 1}` : ''}${c.agent ? ` · ${c.agent}` : ''}`,
+    }));
   }
 }
