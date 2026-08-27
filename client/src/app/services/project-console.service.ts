@@ -7,7 +7,7 @@ export interface ProjectConsoleSession {
   workingDirectory: string;
 }
 
-/** One row of the open-consoles list — mirrors the engine's OpenConsoleView (#177). */
+/** One open console from the list endpoint (#177); timestamps are ISO-8601 instants. */
 export interface OpenProjectConsole {
   sessionId: string;
   workingDirectory: string;
@@ -18,15 +18,15 @@ export interface OpenProjectConsole {
 /**
  * Project-level console sessions (#139/#140): persistent agent sessions running in the
  * project's own checkout rather than an issue worktree. Since #177 a project can have
- * several open at once — start mints a fresh id every call, sessions lists the open
+ * several open at once — start mints a fresh id every call, listOpen lists the open
  * ones, and close ends one specific console.
  */
 @Injectable({ providedIn: 'root' })
 export class ProjectConsoleService {
   private readonly http = inject(HttpClient);
 
-  /** The project's open console sessions, oldest first. */
-  sessions(projectId: number): Observable<OpenProjectConsole[]> {
+  /** The project's open console sessions the caller may see, oldest first (#177). */
+  listOpen(projectId: number): Observable<OpenProjectConsole[]> {
     return this.http.get<OpenProjectConsole[]>(`/api/projects/${projectId}/console/sessions`);
   }
 

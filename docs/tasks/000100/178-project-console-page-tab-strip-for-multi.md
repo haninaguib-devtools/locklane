@@ -37,6 +37,19 @@ open console, an "x" to close each, and a "+" to open another — the same inter
 - Closing the last console returns the page to the agent-picker starter, mirroring the
   fresh-project state (agent, 2026-08-27).
 
+- Merging `main` after #179 (consoles page) landed: the two branches had added the same
+  list call to `project-console.service.ts` under different names — kept main's
+  `listOpen()` (the consoles page already calls it) and dropped this branch's duplicate
+  `sessions()`, keeping this branch's `close()` and its removal of the now-unused
+  `find()` (agent, 2026-08-27).
+- #179's merge commit hands off console selection via
+  `/projects/:projectId/console?session=<sessionId>` and explicitly delegates reading
+  that param to this task's tab strip. Implemented here: on load, a `session` query
+  param naming an open console makes that tab active; otherwise (absent, or naming a
+  closed console) the page falls back to the most recently attached one. Routing is
+  component-less, so the param is read off the root route's snapshot
+  (agent, 2026-08-27).
+
 ## Deviations / notes
 - **Scope grew by one file pair:** `client/src/app/services/project-console.service.ts`
   (and its spec). The issue's Scope names only the two component directories, but the

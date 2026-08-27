@@ -1,5 +1,5 @@
 import { Component, Input, OnChanges, OnDestroy, SimpleChanges, inject } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { Agent, AgentStore } from '../../services/agent-store';
 import { AgentPickerComponent } from '../agent-picker/agent-picker.component';
 import { IssuesService } from '../../services/issues.service';
@@ -34,6 +34,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   @Input({ required: true }) projectId!: number;
 
@@ -69,20 +70,27 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
     this.starting = false;
     this.startError = false;
     this.closeError = false;
-    this.service.sessions(projectId).subscribe({
+    this.service.listOpen(projectId).subscribe({
       next: (sessions) => {
         this.consoles = sessions.map((s) => ({
           id: s.sessionId,
           dir: s.workingDirectory,
           agent: this.agentStore.get(s.sessionId),
         }));
-        // Reattach where the user left off: the most recently attached console,
-        // which is what this page showed before it had tabs.
-        this.selected = sessions.reduce(
-          (latest: OpenProjectConsole | null, s) =>
-            !latest || Date.parse(s.lastAttachedAt) > Date.parse(latest.lastAttachedAt) ? s : latest,
-          null,
-        )?.sessionId ?? null;
+        // The consoles page (#179) hands off with ?session=<id> naming the tab
+        // to activate; otherwise reattach where the user left off -- the most
+        // recently attached console, which is what this page showed before it
+        // had tabs. (Routing is component-less, so the query param is read off
+        // the root route.)
+        const requested = this.route.snapshot.queryParamMap.get('session');
+        this.selected =
+          requested && sessions.some((s) => s.sessionId === requested)
+            ? requested
+            : sessions.reduce(
+                (latest: OpenProjectConsole | null, s) =>
+                  !latest || Date.parse(s.lastAttachedAt) > Date.parse(latest.lastAttachedAt) ? s : latest,
+                null,
+              )?.sessionId ?? null;
         this.relabel();
         this.loading = false;
       },

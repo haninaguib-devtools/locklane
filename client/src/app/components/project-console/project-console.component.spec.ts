@@ -15,7 +15,13 @@ describe('ProjectConsoleComponent', () => {
     localStorage.removeItem('locklane.sessionAgents');
     TestBed.configureTestingModule({
       imports: [ProjectConsoleComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+      // The wildcard route lets tests navigate to a URL carrying the ?session
+      // handoff (#179) that the component reads off the root route's snapshot.
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([{ path: '**', children: [] }]),
+      ],
     });
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -62,6 +68,34 @@ describe('ProjectConsoleComponent', () => {
     );
     expect(tabs).toEqual(['console', 'console 2']);
   });
+
+  it('activates the console named by the consoles page\'s ?session handoff (#179)', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/projects/1/console?session=1-console-a1b2c3d4');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([
+      row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
+      row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
+  }));
+
+  it('falls back to the most recently attached console when ?session names a closed one', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/projects/1/console?session=1-console-gone0000');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([
+      row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
+      row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
+  }));
 
   it('shows neither an Overview tab nor the main/worktree choice in its strip', () => {
     const fixture = init();
