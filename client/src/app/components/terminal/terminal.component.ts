@@ -56,6 +56,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     this.term.open(this.container.nativeElement);
     if (this.active) {
       this.fitAddon.fit();
+      this.term.focus();
     }
     this.term.onData((input) => this.session?.send(input));
     // Fires for every size xterm settles on — the initial fit above, a later
@@ -85,7 +86,12 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       // A hidden container has no dimensions, so the fit is deferred to the
       // moment the tab becomes visible again.
       if (this.fitAddon) {
-        setTimeout(() => this.fitAddon?.fit());
+        setTimeout(() => {
+          this.fitAddon?.fit();
+          // The container has to be visible (not `display: none` via tab-hidden)
+          // for browser keyboard focus to actually land, hence the same setTimeout.
+          this.term?.focus();
+        });
       }
       // The tab becoming visible is "focus" for attention purposes (#130) -- by now
       // the socket opened long ago (this only fires on a tab *switch*, never on the
