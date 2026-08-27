@@ -256,6 +256,21 @@ ul.branch {
   background: #3b6fa8;
 }
 
+.console-dot.waiting {
+  background: var(--amber);
+  animation: console-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes console-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .menu-wrap {
   position: relative;
   flex: none;

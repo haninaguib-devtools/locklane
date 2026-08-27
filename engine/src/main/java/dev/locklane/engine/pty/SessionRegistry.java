@@ -1,8 +1,12 @@
 package dev.locklane.engine.pty;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.WorktreeSessionRecord;
 import dev.locklane.engine.persistence.WorktreeSessionRepository;
+import dev.locklane.engine.ws.EventBroadcaster;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
@@ -30,13 +34,30 @@ public class SessionRegistry {
     private static final int DEFAULT_COLUMNS = 80;
     private static final int DEFAULT_ROWS = 24;
 
+    // #130: how often every live session's quiescence fallback is re-checked — tight
+    // enough that a session which just went quiet is caught within about a second of
+    // crossing PtySession.QUIESCENCE_THRESHOLD_MS, not a user-visible extra delay.
+    private static final long QUIESCENCE_POLL_MS = 1000;
+
     private final Map<String, PtySession> sessions = new ConcurrentHashMap<>();
     private final String[] shellCommand;
     private final WorktreeSessionRepository repository;
+    private final EventBroadcaster eventBroadcaster;
 
-    public SessionRegistry(WorktreeSessionRepository repository) {
+    @Autowired
+    public SessionRegistry(WorktreeSessionRepository repository, EventBroadcaster eventBroadcaster) {
         this.repository = repository;
+        this.eventBroadcaster = eventBroadcaster;
         this.shellCommand = defaultShellCommand();
+    }
+
+    /**
+     * Test-only: a broadcaster with no registered sessions, since most tests here
+     * don't care about the events channel (#130's own attention tests subscribe on
+     * the {@link PtySession} directly instead).
+     */
+    public SessionRegistry(WorktreeSessionRepository repository) {
+        this(repository, new EventBroadcaster(new ObjectMapper()));
     }
 
     /**
@@ -62,10 +83,23 @@ public class SessionRegistry {
         String[] command = launchCommand != null ? launchCommand : shellCommand;
         int initialColumns = columns != null ? columns : DEFAULT_COLUMNS;
         int initialRows = rows != null ? rows : DEFAULT_ROWS;
-        PtySession session = sessions.computeIfAbsent(sessionId,
-                id -> new PtySession(id, workingDirectory, command, System.getenv(), initialColumns, initialRows));
+        PtySession session = sessions.computeIfAbsent(sessionId, id -> {
+            PtySession created = new PtySession(id, workingDirectory, command, System.getenv(), initialColumns, initialRows);
+            // Lives for the session's whole lifetime — never unsubscribed, unlike a
+            // browser's own subscription in TerminalWebSocketHandler, which comes and
+            // goes with that one connection.
+            created.subscribeAttention(state -> eventBroadcaster.broadcast("consoleAttention",
+                    Map.of("sessionId", id, "state", state == PtySession.AttentionState.WAITING ? "waiting" : "active")));
+            return created;
+        });
         repository.recordAttach(sessionId, workingDirectory, Instant.now(), ownerUsername);
         return session;
+    }
+
+    /** Re-checks every live session's quiescence fallback (#130). */
+    @Scheduled(fixedDelay = QUIESCENCE_POLL_MS)
+    void checkQuiescence() {
+        sessions.values().forEach(PtySession::checkQuiescence);
     }
 
     /** Attaches with the default shell and no recorded owner. */

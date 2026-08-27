@@ -8,8 +8,8 @@ import { ProjectsService } from '../../services/projects.service';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
-import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
-import { AppEvent, EventsService } from '../../services/events.service';
+import { ConsolesService, issueNumberFromSessionId, projectIssueKeyFromSessionId } from '../../services/consoles.service';
+import { AppEvent, ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '../../services/events.service';
 import { AddProjectPopupComponent } from '../add-project-popup/add-project-popup.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
@@ -87,6 +87,11 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // "<projectId>:<issueNumber>" for every issue with at least one open console
   // (#108), refreshed whenever a console opens or closes anywhere in the app.
   private openConsoleIssues = new Set<string>();
+  // "<projectId>:<issueNumber>" for every issue with a console currently waiting for
+  // attention (#130) -- a bell, or output gone quiet with no input since. Kept as its
+  // own set (rather than folded into openConsoleIssues) since a dot can need to pulse
+  // independent of whether the console list has otherwise changed.
+  private waitingIssues = new Set<string>();
   private readonly consoleSub: Subscription;
   // "Notify, then fetch" (#129): the event carries no issue data, so a matching
   // project re-fetches its own tree over the existing REST endpoint. A reconnect
@@ -102,6 +107,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
       this.eventsService.events$.pipe(
         filter(isIssuesChangedEvent),
         map((event) => () => this.refreshProject(event.projectId)),
+      ),
+      this.eventsService.events$.pipe(
+        filter(isConsoleAttentionEvent),
+        map((event) => () => this.applyAttentionEvent(event)),
       ),
       this.eventsService.reconnected$.pipe(map(() => () => this.load(() => {}))),
     ).subscribe((run) => run());
@@ -218,6 +227,23 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   hasOpenConsole(projectId: number, issueNumber: number): boolean {
     return this.openConsoleIssues.has(`${projectId}:${issueNumber}`);
+  }
+
+  /** Applies one `consoleAttention` event (#130) onto whichever issue its session belongs to. */
+  private applyAttentionEvent(event: ConsoleAttentionEvent): void {
+    const key = projectIssueKeyFromSessionId(event.sessionId);
+    if (key === null) {
+      return;
+    }
+    if (event.state === 'waiting') {
+      this.waitingIssues.add(key);
+    } else {
+      this.waitingIssues.delete(key);
+    }
+  }
+
+  hasAttentionWaiting(projectId: number, issueNumber: number): boolean {
+    return this.waitingIssues.has(`${projectId}:${issueNumber}`);
   }
 
   /** Re-checks project status while any project is still cloning (#45), until it settles. */

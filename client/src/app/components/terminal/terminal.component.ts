@@ -81,10 +81,16 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    // A hidden container has no dimensions, so the fit is deferred to the
-    // moment the tab becomes visible again.
-    if (changes['active'] && this.active && this.fitAddon) {
-      setTimeout(() => this.fitAddon?.fit());
+    if (changes['active'] && this.active) {
+      // A hidden container has no dimensions, so the fit is deferred to the
+      // moment the tab becomes visible again.
+      if (this.fitAddon) {
+        setTimeout(() => this.fitAddon?.fit());
+      }
+      // The tab becoming visible is "focus" for attention purposes (#130) -- by now
+      // the socket opened long ago (this only fires on a tab *switch*, never on the
+      // initial connect), so this reaches the server immediately.
+      this.session?.focus();
     }
   }
 
@@ -105,6 +111,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       this.cmd,
       this.term?.cols ?? null,
       this.term?.rows ?? null,
+      this.active,
     );
     this.session.connect(
       (text) => this.term?.write(text),

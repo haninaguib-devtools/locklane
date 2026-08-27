@@ -4,9 +4,12 @@
       #trigger
       type="button"
       class="badge"
+      [class.waiting]="hasWaitingEntry()"
       aria-haspopup="dialog"
       [attr.aria-expanded]="open()"
-      [attr.aria-label]="'Open consoles, ' + count + ' ' + (count === 1 ? 'session' : 'sessions')"
+      [attr.aria-label]="
+        'Open consoles, ' + count + ' ' + (count === 1 ? 'session' : 'sessions') + (hasWaitingEntry() ? ', waiting for you' : '')
+      "
       (click)="toggle()"
     >
       consoles ({{ count }})

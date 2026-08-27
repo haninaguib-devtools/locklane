@@ -132,7 +132,11 @@
         <span class="issue-number">#{{ node.number }}</span>
         <span class="issue-title">{{ node.title }}</span>
         @if (hasOpenConsole(projectId, node.number)) {
-          <span class="console-dot" title="Has an open console"></span>
+          <span
+            class="console-dot"
+            [class.waiting]="hasAttentionWaiting(projectId, node.number)"
+            [title]="hasAttentionWaiting(projectId, node.number) ? 'Waiting for you' : 'Has an open console'"
+          ></span>
         }
         <span class="issue-state">{{ node.state.toLowerCase() }}</span>
 

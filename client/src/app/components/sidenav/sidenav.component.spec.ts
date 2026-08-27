@@ -507,6 +507,30 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 4, 5]);
   });
 
+  it('a consoleAttention waiting event marks that issue, an active event clears it (#130)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-4-main-slug', state: 'waiting' });
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 4)).toBeTrue();
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 2)).toBeFalse();
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-4-main-slug', state: 'active' });
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 4)).toBeFalse();
+  });
+
+  it('a consoleAttention event only marks the matching project (#130)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '2-4-main-slug', state: 'waiting' });
+
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 4)).toBeFalse();
+    expect(fixture.componentInstance.hasAttentionWaiting(2, 4)).toBeTrue();
+  });
+
   it('the project name is not indented further than an issue row (#85)', () => {
     const fixture = init();
     flushTree(1, tree());
