@@ -9,6 +9,7 @@ import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-re
 import { LoginComponent } from './components/login/login.component';
 import { ConsoleIndicatorComponent } from './components/console-indicator/console-indicator.component';
 import { ProjectConsoleComponent } from './components/project-console/project-console.component';
+import { ConsolesPageComponent } from './components/consoles-page/consoles-page.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
 import { AuthService } from './services/auth.service';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
@@ -27,6 +28,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     ConsoleIndicatorComponent,
     SettingsDialogComponent,
     ProjectConsoleComponent,
+    ConsolesPageComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -74,6 +76,16 @@ export class AppComponent {
       map(() => this.isProjectConsoleRoute()),
     ),
     { initialValue: this.isProjectConsoleRoute() },
+  );
+
+  // The consoles page (#179), same shape: no `:id` segment, told apart from the
+  // other project-level routes by its literal 'consoles' segment.
+  readonly onConsolesPage = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map(() => this.isConsolesPageRoute()),
+    ),
+    { initialValue: this.isConsolesPageRoute() },
   );
 
   // The sidenav shows every project at once (#44), so its selection carries a
@@ -149,6 +161,11 @@ export class AppComponent {
   private isProjectConsoleRoute(): boolean {
     const segments = this.route.snapshot.firstChild?.url ?? [];
     return segments.some((segment) => segment.path === 'console');
+  }
+
+  private isConsolesPageRoute(): boolean {
+    const segments = this.route.snapshot.firstChild?.url ?? [];
+    return segments.some((segment) => segment.path === 'consoles');
   }
 }
 

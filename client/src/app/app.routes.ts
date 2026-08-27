@@ -16,6 +16,10 @@ export const routes: Routes = [
   // any issue exists -- reached from the "New issue (agent)" button on the
   // project's own summary page above, never from the sidenav.
   { path: 'projects/:projectId/console', children: [] },
+  // The project's open consoles (#179): every console currently running for this
+  // project, each reattachable -- the page the sidenav "+" and the project page
+  // will link to (#180).
+  { path: 'projects/:projectId/consoles', children: [] },
   // No project-picker UI exists yet (#44/#45) -- landing at '/' with no project id
   // picked resolves to the first project the caller can see (#43), so the app keeps
   // working exactly as it did before projects existed. Not logged in / no projects

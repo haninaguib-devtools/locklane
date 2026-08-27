@@ -36,4 +36,20 @@ describe('ProjectConsoleService', () => {
     expect(req.request.method).toBe('POST');
     req.flush({ sessionId: '1-console', workingDirectory: '/repo' });
   });
+
+  it('lists the open consoles via GET /api/projects/{projectId}/console/sessions', () => {
+    const consoles = [
+      {
+        sessionId: '1-console-aaaa1111',
+        workingDirectory: '/repo',
+        createdAt: '2026-08-27T10:00:00Z',
+        lastAttachedAt: '2026-08-27T10:05:00Z',
+      },
+    ];
+    service.listOpen(1).subscribe((result) => expect(result).toEqual(consoles));
+
+    const req = httpMock.expectOne('/api/projects/1/console/sessions');
+    expect(req.request.method).toBe('GET');
+    req.flush(consoles);
+  });
 });
