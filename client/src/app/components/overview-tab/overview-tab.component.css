@@ -8,8 +8,25 @@
 .overview {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
   background: var(--window);
+}
+
+.main-col {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.sessions-rail {
+  width: 220px;
+  flex: none;
+  border-left: 1px solid var(--border-soft);
+  background: var(--window);
+  overflow: auto;
+  padding: 12px 14px;
 }
 
 .details {
@@ -43,16 +60,8 @@ dd a {
   color: var(--faint);
 }
 
-.sessions-card {
-  margin: 16px 16px 0;
-  padding: 12px 16px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: #ffffff;
-}
-
 .sessions-title {
-  margin: 0 0 4px;
+  margin: 0 0 8px;
   font-size: 11px;
   font-weight: normal;
   color: var(--faint);

@@ -1,41 +1,43 @@
 <div class="overview">
-  @if (detail) {
-    <dl class="details">
-      <dt>record</dt>
-      <dd>
-        @if (detail.recordPath && recordUrl) {
-          <a [href]="recordUrl" target="_blank" rel="noopener">{{ detail.recordPath }}</a>
-        } @else {
-          {{ detail.recordPath ?? 'no record yet' }}
+  <div class="main-col">
+    @if (detail) {
+      <dl class="details">
+        <dt>record</dt>
+        <dd>
+          @if (detail.recordPath && recordUrl) {
+            <a [href]="recordUrl" target="_blank" rel="noopener">{{ detail.recordPath }}</a>
+          } @else {
+            {{ detail.recordPath ?? 'no record yet' }}
+          }
+        </dd>
+        @if (issue.labels.length) {
+          <dt>tags</dt>
+          <dd>{{ issue.labels.join(', ') }}</dd>
         }
-      </dd>
-      @if (issue.labels.length) {
-        <dt>tags</dt>
-        <dd>{{ issue.labels.join(', ') }}</dd>
-      }
-      <dt>checks</dt>
-      <dd>{{ checksLabel(detail) }}</dd>
-      <dt>branch &amp; PR</dt>
-      <dd>
-        @if (prUrl) {
-          <a [href]="prUrl" target="_blank" rel="noopener">{{ branchLabel(detail) }}</a>
-        } @else {
-          {{ branchLabel(detail) }}
-        }
-      </dd>
-    </dl>
-  } @else {
-    <p class="loading">loading…</p>
-  }
+        <dt>checks</dt>
+        <dd>{{ checksLabel(detail) }}</dd>
+        <dt>branch &amp; PR</dt>
+        <dd>
+          @if (prUrl) {
+            <a [href]="prUrl" target="_blank" rel="noopener">{{ branchLabel(detail) }}</a>
+          } @else {
+            {{ branchLabel(detail) }}
+          }
+        </dd>
+      </dl>
+    } @else {
+      <p class="loading">loading…</p>
+    }
+    @if (bodyHtml) {
+      <div class="body-card">
+        <div class="body" [innerHTML]="bodyHtml"></div>
+      </div>
+    }
+  </div>
   @if (sessions.length) {
-    <div class="sessions-card">
+    <aside class="sessions-rail">
       <h3 class="sessions-title">past sessions</h3>
       <app-session-list [sessions]="sessions" [busy]="busy" (reopen)="reopen.emit($event)" />
-    </div>
-  }
-  @if (bodyHtml) {
-    <div class="body-card">
-      <div class="body" [innerHTML]="bodyHtml"></div>
-    </div>
+    </aside>
   }
 </div>
