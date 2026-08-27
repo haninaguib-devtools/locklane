@@ -127,8 +127,8 @@
   padding-left: 6px;
 }
 
-/* Outweighs .issue-title.initiative-title (12px/600) so the project reads as the
-   heading of everything under it, and starts at the same inset as its rows. */
+/* Bigger than .issue-title (12px) so the project reads as the heading of everything
+   under it, and starts at the same inset as its rows. */
 .section-header .project-label {
   flex: 1;
   min-width: 0;
@@ -239,10 +239,6 @@ ul.branch {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.issue-title.initiative-title {
-  font-weight: 600;
 }
 
 .issue-state {
