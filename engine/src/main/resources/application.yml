@@ -24,14 +24,7 @@ locklane:
   # Where the engine keeps its own durable state (currently: the SQLite database, and
   # the encryption key file (#47) alongside it).
   data-dir: ${user.home}/.locklane
-  # The repo root, for reading docs/tasks/ (#16). Default assumes the process is
-  # started with engine/ as the working directory (true for `mvn spring-boot:run`
-  # from the repo root, or `mvn -f engine/pom.xml ...`) — override this property for
-  # any other launch shape (e.g. running the packaged jar from a different cwd).
-  project-root: ${user.dir}/..
-  # Where added projects (#42) are cloned, one subfolder per project. Independent of
-  # project-root above, which names Locklane's own checkout for its existing
-  # single-project worktree feature.
+  # Where added projects (#42) are cloned, one subfolder per project.
   workarea-root: ${locklane.data-dir}/workareas
   security:
     # The single account created on first run if no user exists yet (#47). MUST be
