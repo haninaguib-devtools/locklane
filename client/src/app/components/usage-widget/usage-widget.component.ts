@@ -44,17 +44,35 @@ export class UsageWidgetComponent implements OnInit, OnDestroy {
   // window leads since it is the one that actually gates a session; the weekly window
   // only shows once expanded.
   barPercentUsed(provider: ProviderUsage): number {
-    const window = provider.fiveHour ?? provider.weekly;
-    return window ? 100 - window.percentLeft : 0;
+    return this.percentUsed(provider.fiveHour ?? provider.weekly);
   }
 
   isLow(provider: ProviderUsage): boolean {
-    const window = provider.fiveHour ?? provider.weekly;
+    return this.isWindowLow(provider.fiveHour ?? provider.weekly);
+  }
+
+  isWindowLow(window: WindowUsage | null): boolean {
     return window !== null && window.percentLeft < LOW_PERCENT_LEFT;
   }
 
-  percentLeftLabel(window: WindowUsage | null): string {
-    return window ? `${Math.round(window.percentLeft)}% left` : '—';
+  // One row per window a provider actually has data for, in display order.
+  providerWindows(provider: ProviderUsage): { label: string; window: WindowUsage }[] {
+    const rows: { label: string; window: WindowUsage }[] = [];
+    if (provider.fiveHour) {
+      rows.push({ label: '5-hour limit', window: provider.fiveHour });
+    }
+    if (provider.weekly) {
+      rows.push({ label: 'Weekly', window: provider.weekly });
+    }
+    return rows;
+  }
+
+  percentUsed(window: WindowUsage | null): number {
+    return window ? 100 - window.percentLeft : 0;
+  }
+
+  usedLabel(window: WindowUsage | null): string {
+    return window ? `${Math.round(this.percentUsed(window))}% used` : '—';
   }
 
   resetLabel(window: WindowUsage | null): string {

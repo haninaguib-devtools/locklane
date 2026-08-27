@@ -24,16 +24,15 @@
           <div class="usage-provider">
             <div class="usage-provider-name">Claude</div>
             @if (s.claude.available) {
-              <div class="usage-main-bar claude" [class.low]="isLow(s.claude)">
-                <div class="usage-main-fill" [style.width.%]="barPercentUsed(s.claude)"></div>
-              </div>
-              <div class="usage-main-line">
-                <span>{{ percentLeftLabel(s.claude.fiveHour) }}</span>
-                <span>{{ resetLabel(s.claude.fiveHour) }}</span>
-              </div>
-              @if (s.claude.weekly) {
-                <div class="usage-secondary-line">
-                  weekly {{ percentLeftLabel(s.claude.weekly) }} &middot; {{ resetLabel(s.claude.weekly) }}
+              @for (row of providerWindows(s.claude); track row.label) {
+                <div class="usage-window-row">
+                  <div class="usage-window-line">
+                    <span class="usage-window-label">{{ row.label }}</span>
+                    <span class="usage-window-meta">{{ resetLabel(row.window) }} &middot; {{ usedLabel(row.window) }}</span>
+                  </div>
+                  <div class="usage-window-bar claude" [class.low]="isWindowLow(row.window)">
+                    <div class="usage-window-fill" [style.width.%]="percentUsed(row.window)"></div>
+                  </div>
                 </div>
               }
             } @else {
@@ -44,16 +43,15 @@
           <div class="usage-provider">
             <div class="usage-provider-name">Codex</div>
             @if (s.codex.available) {
-              <div class="usage-main-bar codex" [class.low]="isLow(s.codex)">
-                <div class="usage-main-fill" [style.width.%]="barPercentUsed(s.codex)"></div>
-              </div>
-              <div class="usage-main-line">
-                <span>{{ percentLeftLabel(s.codex.fiveHour) }}</span>
-                <span>{{ resetLabel(s.codex.fiveHour) }}</span>
-              </div>
-              @if (s.codex.weekly) {
-                <div class="usage-secondary-line">
-                  weekly {{ percentLeftLabel(s.codex.weekly) }} &middot; {{ resetLabel(s.codex.weekly) }}
+              @for (row of providerWindows(s.codex); track row.label) {
+                <div class="usage-window-row">
+                  <div class="usage-window-line">
+                    <span class="usage-window-label">{{ row.label }}</span>
+                    <span class="usage-window-meta">{{ resetLabel(row.window) }} &middot; {{ usedLabel(row.window) }}</span>
+                  </div>
+                  <div class="usage-window-bar codex" [class.low]="isWindowLow(row.window)">
+                    <div class="usage-window-fill" [style.width.%]="percentUsed(row.window)"></div>
+                  </div>
                 </div>
               }
             } @else {
