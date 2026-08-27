@@ -4,11 +4,14 @@
   padding: 0;
 }
 
+/* Narrow-column layout (#175): tool + reopen on the first row, timestamp wrapped
+   underneath — the rail is too narrow for all three side by side. */
 .session {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 6px 0;
+  gap: 0 12px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -17,19 +20,23 @@
 }
 
 .tool {
+  order: 1;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--text);
-  min-width: 52px;
 }
 
 .time {
+  order: 3;
+  width: 100%;
+  margin-top: 2px;
   font-size: 12px;
   color: var(--faint);
-  flex: 1;
 }
 
 .reopen {
+  order: 2;
+  margin-left: auto;
   font-size: 11px;
   font-family: inherit;
   color: var(--accent);
