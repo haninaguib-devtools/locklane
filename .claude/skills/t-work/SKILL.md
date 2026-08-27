@@ -143,7 +143,7 @@ implementation before editing files.
    git push -u origin wip/<id>-<slug>
    ```
 
-   then `forge:pr-create-draft` — title: the issue title; body: the tracker's auto-close
+   then `forge:pr-create-draft` — title: `[<id>] <issue title>`; body: the tracker's auto-close
    phrase for `<id>` when it has one (`tracker:auto-close-on-merge`), followed by what
    changed, what was verified with actual results, and what remains open.
 
