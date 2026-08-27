@@ -133,6 +133,21 @@ class IssueTreeServiceTest {
         assertThat(tree.get(0).children().get(0).hasActiveBranch()).isTrue();
     }
 
+    @Test
+    void labelsCarryOverFromTheIssueVerbatimForStandaloneTasksAndInitiativeChildrenAlike() {
+        IssueTreeService service = service(
+                new GhIssue(1, "Bug", "OPEN", List.of("bug"), "", "", ""),
+                initiative(2, "Initiative"),
+                new GhIssue(3, "Enhancement child", "OPEN", List.of("enhancement"), partOf(2), "", ""));
+
+        List<TreeNode> tree = service.tree();
+
+        assertThat(tree).filteredOn(n -> n.number() == 1).extracting(TreeNode::labels).containsExactly(List.of("bug"));
+        assertThat(tree).filteredOn(n -> n.number() == 2).extracting(TreeNode::labels).containsExactly(List.of("initiative"));
+        TreeNode child = tree.stream().filter(n -> n.number() == 2).findFirst().orElseThrow().children().get(0);
+        assertThat(child.labels()).containsExactly("enhancement");
+    }
+
     private static GhIssue createdAt(GhIssue issue, String createdAt) {
         return new GhIssue(
                 issue.number(), issue.title(), issue.state(), issue.labels(), issue.body(), createdAt, issue.updatedAt());

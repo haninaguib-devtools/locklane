@@ -27,12 +27,13 @@ describe('OverviewComponent', () => {
         kind: 'INITIATIVE',
         state: 'OPEN',
         hasActiveBranch: false,
+        labels: [],
         children: [
-          { number: 2, title: 'Child A', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, children: [] },
-          { number: 3, title: 'Child B', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, children: [] },
+          { number: 2, title: 'Child A', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
+          { number: 3, title: 'Child B', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, labels: [], children: [] },
         ],
       },
-      { number: 4, title: 'Standalone', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, children: [] },
+      { number: 4, title: 'Standalone', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, labels: [], children: [] },
     ];
   }
 
@@ -92,7 +93,7 @@ describe('OverviewComponent', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
     httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     httpMock.expectOne('/api/projects/2/issues/tree').flush([
-      { number: 9, title: 'Only in B', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, children: [] },
+      { number: 9, title: 'Only in B', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ]);
     fixture.detectChanges();
 

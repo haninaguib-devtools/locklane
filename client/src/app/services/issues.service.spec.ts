@@ -66,7 +66,7 @@ describe('IssuesService', () => {
 
   it('fetches the issue tree from GET /api/projects/{projectId}/issues/tree', () => {
     const tree: TreeNode[] = [
-      { number: 1, title: 'Initiative', kind: 'INITIATIVE', state: 'OPEN', hasActiveBranch: false, children: [] },
+      { number: 1, title: 'Initiative', kind: 'INITIATIVE', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ];
     service.tree(1).subscribe((result) => expect(result).toEqual(tree));
 

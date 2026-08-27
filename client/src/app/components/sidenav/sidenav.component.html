@@ -28,6 +28,18 @@
       <input type="checkbox" [(ngModel)]="activeBranchOnly" />
       active branch
     </label>
+    <div class="tag-chips">
+      @for (tag of classificationTags; track tag) {
+        <button
+          type="button"
+          class="tag-chip"
+          [class.selected]="isTagSelected(tag)"
+          (click)="toggleTag(tag)"
+        >
+          {{ tag }}
+        </button>
+      }
+    </div>
     <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
   </div>
 
