@@ -1,6 +1,7 @@
 package dev.locklane.engine.github;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
@@ -28,14 +29,27 @@ public class GhIssueCache {
         this.ghClient = ghClient;
     }
 
-    void refresh() {
+    /**
+     * Refreshes the cache and reports whether the fetched issue or PR set differs
+     * from what was cached before (#129) — {@link GhIssue} and {@link GhPullRequest}
+     * are records, so list equality is a structural, field-by-field comparison.
+     * {@code false} on a failed fetch (nothing changed; the old data is still being
+     * served) and on a fetch that came back identical to what was already cached.
+     */
+    boolean refresh() {
+        List<GhIssue> previousIssues = cachedIssues.get();
+        List<GhPullRequest> previousPullRequests = cachedPullRequests.get();
         try {
-            cachedIssues.set(ghClient.issues());
-            cachedPullRequests.set(ghClient.pullRequests());
+            List<GhIssue> freshIssues = ghClient.issues();
+            List<GhPullRequest> freshPullRequests = ghClient.pullRequests();
+            cachedIssues.set(freshIssues);
+            cachedPullRequests.set(freshPullRequests);
+            return !Objects.equals(previousIssues, freshIssues) || !Objects.equals(previousPullRequests, freshPullRequests);
         } catch (GhClient.GhUnavailableException e) {
             // Keep serving whatever is already cached; the next scheduled attempt
             // may succeed. A cache that was never populated stays null here, and
             // the accessors below fall back to a live fetch.
+            return false;
         }
     }
 
