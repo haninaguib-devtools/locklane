@@ -1,4 +1,5 @@
 <nav class="sidenav">
+  <div class="sidenav-scroll">
   <div class="controls">
     <div class="filter-row">
       <input
@@ -102,6 +103,8 @@
       }
     }
   }
+  </div>
+  <app-usage-widget />
 </nav>
 
 <ng-template #rows let-nodes="nodes" let-projectId="projectId">

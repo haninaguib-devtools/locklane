@@ -7,6 +7,7 @@ import { AppComponent } from './app.component';
 import { AuthService } from './services/auth.service';
 import { SidenavComponent } from './components/sidenav/sidenav.component';
 import { Project } from './models/issue.model';
+import { UsageSnapshot } from './models/usage.model';
 import { routes } from './app.routes';
 
 describe('AppComponent', () => {
@@ -30,7 +31,14 @@ describe('AppComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  // The usage widget (#137) keeps polling /api/usage on its own timer for as long as
+  // it's mounted -- fakeAsync's tick() calls elsewhere in these tests can fast-forward
+  // that timer, so a poll this test never asked about may still be outstanding. Drain
+  // it here rather than asserting on it in every unrelated test.
+  afterEach(() => {
+    httpMock.match('/api/usage').forEach((request) => request.flush(EMPTY_USAGE));
+    httpMock.verify();
+  });
 
   /** Logs the injected AuthService in synchronously, via a flushed fake response. */
   function logIn(): void {
@@ -62,6 +70,17 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/issues').flush([]);
   }
 
+  const EMPTY_USAGE: UsageSnapshot = {
+    claude: { available: false, fiveHour: null, weekly: null },
+    codex: { available: false, fiveHour: null, weekly: null },
+    updatedAt: new Date().toISOString(),
+  };
+
+  /** The sidenav's usage widget (#137) fetches once on its own `ngOnInit`, whenever the sidenav mounts. */
+  function flushUsageWidget(): void {
+    httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+  }
+
   /**
    * The sidenav fetches its own project list and each project's tree (#44). Both
    * callers of this helper load an issue directly from the initial route, so
@@ -74,6 +93,7 @@ describe('AppComponent', () => {
     expect(lists.length).toBe(2);
     lists.forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushUsageWidget();
   }
 
   /**
@@ -89,6 +109,7 @@ describe('AppComponent', () => {
     const trees = httpMock.match('/api/projects/1/issues/tree');
     expect(trees.length).toBe(2);
     trees.forEach((request) => request.flush([]));
+    flushUsageWidget();
   }
 
   function flushIssue(number: number): void {

@@ -1,0 +1,69 @@
+@if (snapshot; as s) {
+  @if (hasAnyProvider(s)) {
+    <div class="usage-widget">
+      <button
+        type="button"
+        class="usage-row"
+        [attr.aria-expanded]="expanded"
+        aria-label="Toggle usage details"
+        (click)="toggle()"
+      >
+        <span class="usage-label">usage</span>
+        <span class="usage-bars">
+          <span class="mini-bar claude" [class.low]="isLow(s.claude)">
+            <span class="mini-fill" [style.width.%]="barPercentUsed(s.claude)"></span>
+          </span>
+          <span class="mini-bar codex" [class.low]="isLow(s.codex)">
+            <span class="mini-fill" [style.width.%]="barPercentUsed(s.codex)"></span>
+          </span>
+        </span>
+      </button>
+
+      @if (expanded) {
+        <div class="usage-panel">
+          <div class="usage-provider">
+            <div class="usage-provider-name">Claude</div>
+            @if (s.claude.available) {
+              <div class="usage-main-bar claude" [class.low]="isLow(s.claude)">
+                <div class="usage-main-fill" [style.width.%]="barPercentUsed(s.claude)"></div>
+              </div>
+              <div class="usage-main-line">
+                <span>{{ percentLeftLabel(s.claude.fiveHour) }}</span>
+                <span>{{ resetLabel(s.claude.fiveHour) }}</span>
+              </div>
+              @if (s.claude.weekly) {
+                <div class="usage-secondary-line">
+                  weekly {{ percentLeftLabel(s.claude.weekly) }} &middot; {{ resetLabel(s.claude.weekly) }}
+                </div>
+              }
+            } @else {
+              <div class="usage-unavailable">unavailable</div>
+            }
+          </div>
+
+          <div class="usage-provider">
+            <div class="usage-provider-name">Codex</div>
+            @if (s.codex.available) {
+              <div class="usage-main-bar codex" [class.low]="isLow(s.codex)">
+                <div class="usage-main-fill" [style.width.%]="barPercentUsed(s.codex)"></div>
+              </div>
+              <div class="usage-main-line">
+                <span>{{ percentLeftLabel(s.codex.fiveHour) }}</span>
+                <span>{{ resetLabel(s.codex.fiveHour) }}</span>
+              </div>
+              @if (s.codex.weekly) {
+                <div class="usage-secondary-line">
+                  weekly {{ percentLeftLabel(s.codex.weekly) }} &middot; {{ resetLabel(s.codex.weekly) }}
+                </div>
+              }
+            } @else {
+              <div class="usage-unavailable">unavailable</div>
+            }
+          </div>
+
+          <div class="usage-footer">{{ updatedLabel(s) }}</div>
+        </div>
+      }
+    </div>
+  }
+}

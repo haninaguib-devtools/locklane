@@ -10,6 +10,7 @@ import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
 import { AddProjectPopupComponent } from '../add-project-popup/add-project-popup.component';
+import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
 
 /** How often a project still cloning is re-checked, until it settles (#45). */
@@ -38,7 +39,7 @@ interface PinnedGroup {
 @Component({
   selector: 'app-sidenav',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet, AddProjectPopupComponent],
+  imports: [FormsModule, NgTemplateOutlet, AddProjectPopupComponent, UsageWidgetComponent],
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })

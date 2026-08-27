@@ -1,0 +1,118 @@
+.usage-widget {
+  flex: none;
+  border-top: 1px solid var(--border);
+  background: var(--sidebar);
+}
+
+.usage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.usage-row:hover {
+  background: var(--bg);
+}
+
+.usage-label {
+  flex: none;
+}
+
+.usage-bars {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.mini-bar {
+  flex: none;
+  width: 32px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-soft);
+  overflow: hidden;
+}
+
+.mini-fill {
+  display: block;
+  height: 100%;
+  background: var(--green);
+}
+
+.mini-bar.codex .mini-fill {
+  background: var(--amber);
+}
+
+.mini-bar.low .mini-fill {
+  background: var(--accent);
+}
+
+.usage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 16px 10px;
+}
+
+.usage-provider-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.usage-main-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-soft);
+  overflow: hidden;
+}
+
+.usage-main-fill {
+  height: 100%;
+  background: var(--green);
+}
+
+.usage-main-bar.codex .usage-main-fill {
+  background: var(--amber);
+}
+
+.usage-main-bar.low .usage-main-fill {
+  background: var(--accent);
+}
+
+.usage-main-line {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.usage-secondary-line {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.usage-unavailable {
+  font-size: 11px;
+  color: var(--faint);
+  font-style: italic;
+}
+
+.usage-footer {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--faint);
+}
