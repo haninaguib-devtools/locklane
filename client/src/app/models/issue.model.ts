@@ -40,6 +40,8 @@ export interface TreeNode {
   title: string;
   kind: 'INITIATIVE' | 'TASK';
   state: string;
+  // Same PR-derived signal as IssueDetail.branch's presence (#110).
+  hasActiveBranch: boolean;
   children: TreeNode[];
 }
 

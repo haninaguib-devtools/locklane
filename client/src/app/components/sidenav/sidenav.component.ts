@@ -87,6 +87,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // Neither persists across reloads, matching the old app (#22's Goal).
   filterText = '';
   hideShipped = true;
+  // Off by default (#110): most issues have no branch yet, so defaulting to on
+  // would hide almost everything.
+  activeBranchOnly = false;
 
   private openMenuFor: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -336,7 +339,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
             : n,
         );
       // hideShipped never removes a pin, only the text filter can -- see tree-filter.ts.
-      const nodes = filterPinnedTree(ordered, this.filterText, this.hideShipped);
+      const nodes = filterPinnedTree(ordered, this.filterText, this.hideShipped, this.activeBranchOnly);
       if (nodes.length > 0) {
         groups.push({ project: section.project, nodes });
       }
@@ -361,7 +364,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
           ? { ...n, children: n.children.filter((c) => !pinnedNumbers.has(c.number)) }
           : n,
       );
-    return filterTree(topLevel, this.filterText, this.hideShipped);
+    return filterTree(topLevel, this.filterText, this.hideShipped, this.activeBranchOnly);
   }
 
   // Counted off the raw tree, before the text filter and hideShipped run (#186):
@@ -440,7 +443,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   private hasActiveFilter(): boolean {
-    return this.filterText.trim().length > 0;
+    return this.filterText.trim().length > 0 || this.activeBranchOnly;
   }
 
   private flatten(nodes: TreeNode[]): TreeNode[] {
