@@ -1,10 +1,13 @@
 package dev.locklane.engine.pty;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.persistence.ConsoleResumeSessionRepository;
 import dev.locklane.engine.persistence.WorktreeSessionRecord;
 import dev.locklane.engine.persistence.WorktreeSessionRepository;
 import dev.locklane.engine.ws.EventBroadcaster;
 import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -25,10 +28,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * session returns that same session rather than starting a new process. Every
  * attach is also recorded in {@link WorktreeSessionRepository}, so a session's
  * last-known state — which directory it ran in, when it was last attached to —
- * survives a server restart even though the live process does not (#6).
+ * survives a server restart even though the live process does not (#6). Each new
+ * session's output is additionally watched for a Claude/Codex resume id, persisted
+ * via {@link ConsoleResumeSessionRepository} (#102).
  */
 @Service
 public class SessionRegistry {
+
+    private static final Logger log = LoggerFactory.getLogger(SessionRegistry.class);
 
     // pty4j's own default when nobody says otherwise — used only for a session's
     // first attach; a browser terminal reports its real size moments later (#62).
@@ -43,11 +50,14 @@ public class SessionRegistry {
     private final Map<String, PtySession> sessions = new ConcurrentHashMap<>();
     private final String[] shellCommand;
     private final WorktreeSessionRepository repository;
+    private final ConsoleResumeSessionRepository resumeRepository;
     private final EventBroadcaster eventBroadcaster;
 
     @Autowired
-    public SessionRegistry(WorktreeSessionRepository repository, EventBroadcaster eventBroadcaster) {
+    public SessionRegistry(WorktreeSessionRepository repository, ConsoleResumeSessionRepository resumeRepository,
+            EventBroadcaster eventBroadcaster) {
         this.repository = repository;
+        this.resumeRepository = resumeRepository;
         this.eventBroadcaster = eventBroadcaster;
         this.shellCommand = defaultShellCommand();
     }
@@ -55,10 +65,16 @@ public class SessionRegistry {
     /**
      * Test-only: a broadcaster with no registered sessions, since most tests here
      * don't care about the events channel (#130's own attention tests subscribe on
-     * the {@link PtySession} directly instead).
+     * the {@link PtySession} directly instead), and no resume-id capture (#102) —
+     * a null repository turns the scan off; tests that care pass a real one.
      */
     public SessionRegistry(WorktreeSessionRepository repository) {
-        this(repository, new EventBroadcaster(new ObjectMapper()));
+        this(repository, null, new EventBroadcaster(new ObjectMapper()));
+    }
+
+    /** Test-only: resume-id capture on (#102), events channel off — see above. */
+    public SessionRegistry(WorktreeSessionRepository repository, ConsoleResumeSessionRepository resumeRepository) {
+        this(repository, resumeRepository, new EventBroadcaster(new ObjectMapper()));
     }
 
     /**
@@ -104,6 +120,22 @@ public class SessionRegistry {
             // goes with that one connection.
             created.subscribeAttention(state -> eventBroadcaster.broadcast("consoleAttention",
                     Map.of("sessionId", id, "state", state == PtySession.AttentionState.WAITING ? "waiting" : "active")));
+            if (resumeRepository != null) {
+                // Same lifetime as the attention subscription above: watches the whole
+                // stream for a Claude/Codex resume id (#102) and persists each new one.
+                // The scanner is only ever touched from this session's drain thread.
+                ResumeIdScanner scanner = new ResumeIdScanner(ResumeIdScanner.toolHintFor(command));
+                created.subscribe(chunk -> scanner.feed(chunk).forEach(capture -> {
+                    try {
+                        resumeRepository.record(id, capture.tool(), capture.resumeId(), Instant.now());
+                    } catch (RuntimeException e) {
+                        // A failed write must never escape into PtySession's drain
+                        // loop — that would kill the thread draining this session's
+                        // output and stall the process on a full pipe.
+                        log.warn("Failed to persist resume id for session {}", id, e);
+                    }
+                }));
+            }
             return created;
         });
         repository.recordAttach(sessionId, workingDirectory, Instant.now(), ownerUsername);
