@@ -36,6 +36,12 @@ export class OverviewTabComponent {
       : null;
   }
 
+  get recordUrl(): string | null {
+    return this.repoWebUrl && this.detail?.recordPath
+      ? `${this.repoWebUrl}/blob/${this.detail.branch ?? 'main'}/${this.detail.recordPath}`
+      : null;
+  }
+
   checksLabel(detail: IssueDetail): string {
     const { passing, failing, pending } = detail.checks;
     if (passing + failing + pending === 0) {

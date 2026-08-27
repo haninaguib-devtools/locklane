@@ -78,12 +78,13 @@ describe('OverviewTabComponent', () => {
     expect(c.branchLabel(d)).toBe('wip/1-slug · PR #9 (merged)');
   });
 
-  it('has no issue or PR url without a repo web url', () => {
+  it('has no issue, PR, or record url without a repo web url', () => {
     const c = component();
     c.issue = issue();
-    c.detail = detail({ prNumber: 9 });
+    c.detail = detail({ prNumber: 9, recordPath: 'docs/tasks/000100/163-slug.md' });
     expect(c.issueUrl).toBeNull();
     expect(c.prUrl).toBeNull();
+    expect(c.recordUrl).toBeNull();
   });
 
   it('builds the issue url from the repo web url and issue number', () => {
@@ -107,6 +108,35 @@ describe('OverviewTabComponent', () => {
     c.detail = detail({});
     c.repoWebUrl = 'https://github.com/org/repo';
     expect(c.prUrl).toBeNull();
+  });
+
+  it('builds the record url from the repo web url, the branch, and the record path', () => {
+    const c = component();
+    c.issue = issue({ number: 42 });
+    c.repoWebUrl = 'https://github.com/org/repo';
+    c.detail = detail({ branch: 'wip/163-slug', recordPath: 'docs/tasks/000100/163-slug.md' });
+    expect(c.recordUrl).toBe(
+      'https://github.com/org/repo/blob/wip/163-slug/docs/tasks/000100/163-slug.md',
+    );
+    expect(c.recordUrl).not.toBe(c.issueUrl);
+  });
+
+  it('falls back to main for the record url when there is no branch yet', () => {
+    const c = component();
+    c.issue = issue({ number: 42 });
+    c.repoWebUrl = 'https://github.com/org/repo';
+    c.detail = detail({ recordPath: 'docs/tasks/000100/163-slug.md' });
+    expect(c.recordUrl).toBe(
+      'https://github.com/org/repo/blob/main/docs/tasks/000100/163-slug.md',
+    );
+  });
+
+  it('has no record url when there is no record yet', () => {
+    const c = component();
+    c.issue = issue();
+    c.detail = detail({});
+    c.repoWebUrl = 'https://github.com/org/repo';
+    expect(c.recordUrl).toBeNull();
   });
 
   it('has no body html when the issue body is empty', () => {
