@@ -60,17 +60,25 @@ public class IssueTreeService {
         List<TreeNode> nodes = new ArrayList<>();
         for (GhIssue issue : topLevel) {
             if (!initiativeNumbers.contains(issue.number())) {
-                nodes.add(new TreeNode(issue.number(), issue.title(), "TASK", issue.state(), List.of()));
+                nodes.add(new TreeNode(
+                        issue.number(), issue.title(), "TASK", issue.state(), hasActiveBranch(issue), List.of()));
                 continue;
             }
             List<GhIssue> children = childrenByInitiative.getOrDefault(issue.number(), new ArrayList<>());
             children.sort(NEWEST_FIRST);
             List<TreeNode> childNodes = children.stream()
-                    .map(child -> new TreeNode(child.number(), child.title(), "TASK", child.state(), List.of()))
+                    .map(child -> new TreeNode(
+                            child.number(), child.title(), "TASK", child.state(), hasActiveBranch(child), List.of()))
                     .toList();
-            nodes.add(new TreeNode(issue.number(), issue.title(), "INITIATIVE", issue.state(), childNodes));
+            nodes.add(new TreeNode(
+                    issue.number(), issue.title(), "INITIATIVE", issue.state(), hasActiveBranch(issue), childNodes));
         }
         return nodes;
+    }
+
+    /** Same signal as {@link IssueDetailService#detail(int)}'s {@code branch} field (#110). */
+    private boolean hasActiveBranch(GhIssue issue) {
+        return cache.pullRequestForIssue(issue.number()).isPresent();
     }
 
     private static Optional<Integer> partOf(GhIssue issue) {

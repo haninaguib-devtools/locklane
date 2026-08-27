@@ -107,6 +107,32 @@ class IssueTreeServiceTest {
         assertThat(tree.get(0).children()).extracting(TreeNode::number).containsExactly(3, 2);
     }
 
+    @Test
+    void hasActiveBranchReflectsWhetherAWipPrExistsForTheIssue() {
+        FakeGhClient fake = new FakeGhClient(List.of(task(2, "Has a PR"), task(3, "No PR")));
+        fake.pullRequests = List.of(new GhPullRequest(1, "Has a PR", "OPEN", false, "wip/2-has-a-pr"));
+        GhIssueCache cache = new GhIssueCache(fake);
+        cache.refresh();
+
+        List<TreeNode> tree = new IssueTreeService(cache).tree();
+
+        assertThat(tree).filteredOn(n -> n.number() == 2).extracting(TreeNode::hasActiveBranch).containsExactly(true);
+        assertThat(tree).filteredOn(n -> n.number() == 3).extracting(TreeNode::hasActiveBranch).containsExactly(false);
+    }
+
+    @Test
+    void hasActiveBranchIsCheckedOnInitiativesAndTheirChildrenAlike() {
+        FakeGhClient fake = new FakeGhClient(List.of(initiative(1, "Initiative"), task(2, "Child", partOf(1))));
+        fake.pullRequests = List.of(new GhPullRequest(1, "Child", "OPEN", false, "wip/2-child"));
+        GhIssueCache cache = new GhIssueCache(fake);
+        cache.refresh();
+
+        List<TreeNode> tree = new IssueTreeService(cache).tree();
+
+        assertThat(tree.get(0).hasActiveBranch()).isFalse();
+        assertThat(tree.get(0).children().get(0).hasActiveBranch()).isTrue();
+    }
+
     private static GhIssue createdAt(GhIssue issue, String createdAt) {
         return new GhIssue(
                 issue.number(), issue.title(), issue.state(), issue.labels(), issue.body(), createdAt, issue.updatedAt());
@@ -141,6 +167,7 @@ class IssueTreeServiceTest {
 
     private static final class FakeGhClient implements GhClient {
         private final List<GhIssue> issues;
+        private List<GhPullRequest> pullRequests = List.of();
 
         FakeGhClient(List<GhIssue> issues) {
             this.issues = issues;
@@ -153,7 +180,7 @@ class IssueTreeServiceTest {
 
         @Override
         public List<GhPullRequest> pullRequests() {
-            return List.of();
+            return pullRequests;
         }
 
         @Override
