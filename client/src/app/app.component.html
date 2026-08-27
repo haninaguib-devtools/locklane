@@ -45,10 +45,14 @@
       </aside>
       <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
       @if (selectedProjectId(); as projectId) {
-        @if (selectedIssue(); as issue) {
-          <app-main-content [projectId]="projectId" [issueNumber]="issue" />
+        @if (onProjectConsole()) {
+          <app-project-console [projectId]="projectId" />
         } @else {
-          <app-project-summary [projectId]="projectId" />
+          @if (selectedIssue(); as issue) {
+            <app-main-content [projectId]="projectId" [issueNumber]="issue" />
+          } @else {
+            <app-project-summary [projectId]="projectId" />
+          }
         }
       } @else {
         <div class="empty-state">select a project to begin</div>

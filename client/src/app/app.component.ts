@@ -8,6 +8,7 @@ import { ProjectSummaryComponent } from './components/project-summary/project-su
 import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-resizer.component';
 import { LoginComponent } from './components/login/login.component';
 import { ConsoleIndicatorComponent } from './components/console-indicator/console-indicator.component';
+import { ProjectConsoleComponent } from './components/project-console/project-console.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
 import { AuthService } from './services/auth.service';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
@@ -25,6 +26,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     LoginComponent,
     ConsoleIndicatorComponent,
     SettingsDialogComponent,
+    ProjectConsoleComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -61,6 +63,17 @@ export class AppComponent {
       map(() => this.currentIssueId()),
     ),
     { initialValue: this.currentIssueId() },
+  );
+
+  // The project-level console route (#140) has no `:id` segment of its own --
+  // distinguished from the project summary route by its literal 'console' path
+  // segment instead, since both otherwise carry just a `:projectId`.
+  readonly onProjectConsole = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map(() => this.isProjectConsoleRoute()),
+    ),
+    { initialValue: this.isProjectConsoleRoute() },
   );
 
   // The sidenav shows every project at once (#44), so its selection carries a
@@ -135,6 +148,11 @@ export class AppComponent {
     const raw = this.route.snapshot.firstChild?.paramMap.get('projectId') ?? null;
     const id = raw !== null ? Number(raw) : NaN;
     return Number.isFinite(id) ? id : null;
+  }
+
+  private isProjectConsoleRoute(): boolean {
+    const segments = this.route.snapshot.firstChild?.url ?? [];
+    return segments.some((segment) => segment.path === 'console');
   }
 }
 

@@ -12,6 +12,10 @@ export const routes: Routes = [
   // lands here, and so does clicking a project's name in the sidenav. Since #85
   // AppComponent renders the project's own summary here rather than an empty state.
   { path: 'projects/:projectId/issues', children: [] },
+  // The project-level console (#140) that starts a new issue's discussion before
+  // any issue exists -- reached from the "New issue (agent)" button on the
+  // project's own summary page above, never from the sidenav.
+  { path: 'projects/:projectId/console', children: [] },
   // No project-picker UI exists yet (#44/#45) -- landing at '/' with no project id
   // picked resolves to the first project the caller can see (#43), so the app keeps
   // working exactly as it did before projects existed. Not logged in / no projects

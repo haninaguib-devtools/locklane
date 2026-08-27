@@ -4,6 +4,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -35,10 +36,23 @@ public class IssueController {
     // Registered before "/{number}" in source order; Spring matches the literal
     // "/tree" segment ahead of the "{number}" path variable regardless, but keeping
     // them adjacent here documents that the two must never collide.
+    /**
+     * {@code fresh=true} (#140) forces a live {@code gh} fetch before serving the
+     * tree, bypassing whatever {@link GhIssueCache} is still holding from the
+     * scheduled 30s refresh — for a caller that just left a console session where
+     * an agent may have created an issue via {@code gh}, and wants it to show up
+     * immediately rather than waiting on the next scheduled poll.
+     */
     @GetMapping("/tree")
-    public ResponseEntity<List<TreeNode>> tree(@PathVariable long projectId) {
+    public ResponseEntity<List<TreeNode>> tree(@PathVariable long projectId,
+            @RequestParam(defaultValue = "false") boolean fresh) {
         return resources.forProject(projectId)
-                .map(ctx -> ResponseEntity.ok(ctx.treeService().tree()))
+                .map(ctx -> {
+                    if (fresh) {
+                        ctx.cache().refresh();
+                    }
+                    return ResponseEntity.ok(ctx.treeService().tree());
+                })
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 

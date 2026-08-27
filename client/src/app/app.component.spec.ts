@@ -243,6 +243,51 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
+  it('loading /projects/:projectId/console directly shows the project console (#140)', fakeAsync(() => {
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/projects/1/console');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.onProjectConsole()).toBeTrue();
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushUsageWidget();
+    flushConsoleIndicator();
+    httpMock.expectOne('/api/projects/1/console').flush(null, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('app-project-console')).toBeTruthy();
+    expect(compiled.querySelector('app-main-content')).toBeFalsy();
+    expect(compiled.querySelector('app-project-summary')).toBeFalsy();
+  }));
+
+  it('the project summary\'s "New issue (agent)" button navigates to the console route (#140), which the sidenav shows as still on that project', fakeAsync(() => {
+    logIn();
+    navigateToDefaultProject();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    flushSidenavAndSummary();
+    flushConsoleIndicator();
+    fixture.detectChanges();
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.new-issue')!.click();
+    tick();
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects/1/console').flush(null, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    expect(TestBed.inject(Router).url).toBe('/projects/1/console');
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('app-project-console')).toBeTruthy();
+    const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
+    expect(sidenav.componentInstance.selectedProject).toBe(1);
+  }));
+
   it('loading /projects/:projectId/issues/:id directly selects that project and issue', fakeAsync(() => {
     logIn();
     TestBed.inject(Router).navigateByUrl('/projects/1/issues/7');

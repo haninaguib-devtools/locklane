@@ -1,4 +1,5 @@
 import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
+import { Router } from '@angular/router';
 import { Project, TreeNode } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
@@ -26,6 +27,7 @@ export interface IssueCounts {
 export class ProjectSummaryComponent implements OnChanges {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
+  private readonly router = inject(Router);
 
   @Input({ required: true }) projectId!: number;
 
@@ -71,6 +73,11 @@ export class ProjectSummaryComponent implements OnChanges {
         this.counts = null;
       },
     });
+  }
+
+  /** Opens the project-level console (#140) where an agent can start a new issue. */
+  openConsole(): void {
+    this.router.navigate(['/projects', this.projectId, 'console']);
   }
 }
 
