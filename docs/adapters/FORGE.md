@@ -126,6 +126,15 @@ was on the deleted branch. Treat the branch as *possibly already gone* after thi
 operation: a caller's own cleanup must check before deleting, and must not treat a
 missing branch as a failure.
 
+**Deletion order, and where it aborts.** `gh` deletes the **local** branch first and the
+**remote** branch second — and when the local deletion fails, it exits without ever
+attempting the remote one. The local deletion fails in a completely ordinary state: the
+task branch is checked out in the task's own worktree. The merge itself has already
+succeeded at that point, so the operation reports a successful ship while the remote
+`wip/*` ref survives, with nothing surfacing the miss. Callers must therefore verify the
+remote ref after this operation (`git ls-remote --heads origin <branch>`) and delete a
+survivor explicitly (`git push origin --delete <branch>`) — `/t-ship` step 4 does.
+
 | Backend | Command |
 |---|---|
 | GitHub | `gh pr merge <pr> --squash --delete-branch --subject "<subject>" --body "<body>"` |

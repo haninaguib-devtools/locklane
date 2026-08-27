@@ -33,7 +33,8 @@ check:
 Every step below names `<pr>`. **Resolve it from the task id first** with
 `forge:pr-find-by-task <id>`, which matches the head branch `wip/<id>-*` — the id
 lowercased, `PROJ-142` → `proj-142` (ADR-001 §D4). Keep its `headRefName` too: the
-cleanup in step 5 deletes that exact branch, and it is the only place the slug is known.
+cleanup in steps 4–5 verifies and deletes that exact branch, and it is the only place
+the slug is known.
 Exactly one open PR → that is `<pr>`. None → the task has not
 reached `/t-work`'s draft-PR step; stop and say so. More than one → stop and report every
 candidate rather than guessing. A PR that is already merged or closed means this task has
@@ -171,6 +172,25 @@ already left the pipeline; say which and stop.
 4. `git fetch --prune` — deleted `wip/` branches otherwise linger as stale
    `origin/wip/*` tracking refs. Fetch first, then clean up: the same order in
    `/t-fix` and `/t-cancel`.
+
+   **Then verify the remote branch is actually gone.** `forge:pr-merge`'s branch
+   deletion can silently skip the remote: gh deletes the local branch first and the
+   remote second, and when the local deletion fails it exits without attempting the
+   remote one (`docs/adapters/FORGE.md`). The local deletion fails in a completely
+   ordinary state — the task branch checked out in the task's own worktree — while the
+   merge itself succeeded, so nothing else surfaces the miss (#120, seen shipping #100):
+
+   ```bash
+   git ls-remote --heads origin <headRefName>   # empty output = deleted
+   ```
+
+   `<headRefName>` is the one kept from PR resolution at the top of Preconditions,
+   never a re-derived slug — a guessed name matches nothing and reports the remote
+   clean. If the ref survives, delete it explicitly and say so in the report:
+
+   ```bash
+   git push origin --delete <headRefName>
+   ```
 5. **Clean up the checkout, according to what exists.**
 
    **If the task has a worktree** (`git worktree list` — a prepared worktree uses
