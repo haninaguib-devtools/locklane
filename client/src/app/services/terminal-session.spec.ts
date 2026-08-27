@@ -6,6 +6,7 @@ class FakeWebSocket {
 
   readyState = FakeWebSocket.OPEN;
   sent: string[] = [];
+  onopen: (() => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onclose: (() => void) | null = null;
 
@@ -37,8 +38,12 @@ describe('TerminalSession', () => {
 
   // Connects a fresh session and returns its underlying fake socket, so each
   // test drives one session/socket pair instead of juggling several.
-  function connect(cols: number | null = null, rows: number | null = null): { session: TerminalSession; socket: FakeWebSocket } {
-    const session = new TerminalSession('7-worktree', '/repo', 'claude', cols, rows);
+  function connect(
+    cols: number | null = null,
+    rows: number | null = null,
+    initiallyFocused = false,
+  ): { session: TerminalSession; socket: FakeWebSocket } {
+    const session = new TerminalSession('7-worktree', '/repo', 'claude', cols, rows, initiallyFocused);
     session.connect(
       () => {},
       () => {},
@@ -82,6 +87,30 @@ describe('TerminalSession', () => {
 
     session.send('ls\n');
     session.resize(80, 24);
+
+    expect(socket.sent).toEqual([]);
+  });
+
+  it('tags a focus notification with the focus type and no body (#130)', () => {
+    const { session, socket } = connect();
+
+    session.focus();
+
+    expect(socket.sent).toEqual(['2']);
+  });
+
+  it('sends focus as soon as the socket opens when the tab started out focused (#130)', () => {
+    const { socket } = connect(null, null, true);
+
+    socket.onopen?.();
+
+    expect(socket.sent).toEqual(['2']);
+  });
+
+  it('sends no focus notification on open when the tab did not start out focused (#130)', () => {
+    const { socket } = connect();
+
+    socket.onopen?.();
 
     expect(socket.sent).toEqual([]);
   });

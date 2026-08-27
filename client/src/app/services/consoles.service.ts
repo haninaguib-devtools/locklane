@@ -45,3 +45,13 @@ export function issueNumberFromSessionId(sessionId: string): number | null {
   const match = /^\d+-(\d+)-/.exec(sessionId);
   return match ? Number(match[1]) : null;
 }
+
+/**
+ * The "<projectId>:<issueNumber>" key the sidenav indexes its per-issue state by
+ * (#108), parsed straight out of a session id (#43) -- used to place a `consoleAttention`
+ * event (#130), which carries only a session id, onto the right issue row.
+ */
+export function projectIssueKeyFromSessionId(sessionId: string): string | null {
+  const match = /^(\d+)-(\d+)-/.exec(sessionId);
+  return match ? `${match[1]}:${match[2]}` : null;
+}
