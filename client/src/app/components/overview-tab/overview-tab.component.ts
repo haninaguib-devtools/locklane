@@ -1,4 +1,7 @@
 import { Component, Input } from '@angular/core';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import DOMPurify from 'dompurify';
+import { marked } from 'marked';
 import { GhIssue, IssueDetail } from '../../models/issue.model';
 
 @Component({
@@ -11,6 +14,17 @@ export class OverviewTabComponent {
   @Input({ required: true }) issue!: GhIssue;
   @Input() detail: IssueDetail | null = null;
   @Input() repoWebUrl: string | null = null;
+
+  constructor(private readonly sanitizer: DomSanitizer) {}
+
+  get bodyHtml(): SafeHtml | null {
+    if (!this.issue.body) {
+      return null;
+    }
+    const rawHtml = marked.parse(this.issue.body, { async: false });
+    const safeHtml = DOMPurify.sanitize(rawHtml);
+    return this.sanitizer.bypassSecurityTrustHtml(safeHtml);
+  }
 
   get issueUrl(): string | null {
     return this.repoWebUrl ? `${this.repoWebUrl}/issues/${this.issue.number}` : null;

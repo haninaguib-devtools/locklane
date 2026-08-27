@@ -43,14 +43,76 @@ dd a {
   color: var(--faint);
 }
 
+.body-card {
+  margin: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
 .body {
-  margin: 0;
   padding: 16px;
   font-family: inherit;
   font-size: 13px;
   line-height: 1.5;
   color: var(--text);
-  white-space: pre-wrap;
   word-break: break-word;
-  border-top: 1px solid var(--border-soft);
+}
+
+.body ::ng-deep h1,
+.body ::ng-deep h2,
+.body ::ng-deep h3,
+.body ::ng-deep h4,
+.body ::ng-deep h5,
+.body ::ng-deep h6 {
+  margin: 1em 0 0.5em;
+  line-height: 1.25;
+}
+
+.body ::ng-deep h1:first-child,
+.body ::ng-deep h2:first-child,
+.body ::ng-deep h3:first-child {
+  margin-top: 0;
+}
+
+.body ::ng-deep p {
+  margin: 0.5em 0;
+}
+
+.body ::ng-deep ul,
+.body ::ng-deep ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.body ::ng-deep a {
+  color: var(--accent);
+}
+
+.body ::ng-deep code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--window);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+.body ::ng-deep pre {
+  background: var(--window);
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.body ::ng-deep pre code {
+  background: none;
+  padding: 0;
+}
+
+.body ::ng-deep blockquote {
+  margin: 0.5em 0;
+  padding-left: 1em;
+  border-left: 3px solid var(--border-soft);
+  color: var(--faint);
 }
