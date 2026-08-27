@@ -110,10 +110,14 @@
 <ng-template #rows let-nodes="nodes" let-projectId="projectId">
   @for (node of nodes; track node.number) {
     <li>
-      <div
+      <!-- A real anchor (#170) so middle-click / ctrl+click / "open in new tab" work;
+           a plain left-click stays in-app via routerLink. The nested controls'
+           handlers stopPropagation (out of routerLink's click handler) and
+           preventDefault (the browser would otherwise follow the row's href). -->
+      <a
         class="row"
+        [routerLink]="['/projects', projectId, 'issues', node.number]"
         [class.active]="isSelected(projectId, node.number)"
-        (click)="select(projectId, node.number)"
       >
         @if (node.children.length > 0) {
           <button
@@ -157,7 +161,7 @@
             </div>
           }
         </div>
-      </div>
+      </a>
 
       @if (node.children.length > 0 && !isCollapsed(projectId, node)) {
         <ul class="branch">

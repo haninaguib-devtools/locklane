@@ -1,7 +1,8 @@
 import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ProjectIssue, SidenavComponent } from './sidenav.component';
+import { Router, provideRouter } from '@angular/router';
+import { SidenavComponent } from './sidenav.component';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
@@ -30,7 +31,7 @@ describe('SidenavComponent', () => {
     localStorage.removeItem('locklane.collapsedProjectSections');
     TestBed.configureTestingModule({
       imports: [SidenavComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     });
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -128,15 +129,56 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.loading).toBeFalse();
   });
 
-  it('emits the selected project and issue', () => {
+  it('renders each issue row, nested children included, as a real link to its issue route (#170)', () => {
     const fixture = init();
     flushTree(1, tree());
+    fixture.detectChanges();
 
-    let emitted: ProjectIssue | undefined;
-    fixture.componentInstance.selectedChange.subscribe((e) => (emitted = e));
-    fixture.componentInstance.select(1, 4);
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('a.row')) as HTMLAnchorElement[];
+    // Initiative #1, its open child #2 (closed #3 is hidden by hideShipped), standalone #4.
+    expect(rows.map((row) => row.getAttribute('href'))).toEqual([
+      '/projects/1/issues/1',
+      '/projects/1/issues/2',
+      '/projects/1/issues/4',
+    ]);
+  });
 
-    expect(emitted).toEqual({ projectId: 1, issueNumber: 4 });
+  it('a pinned row is a real link too (#170)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    TestBed.inject(PinStore).toggle(1, 4);
+    fixture.detectChanges();
+
+    const pinnedRow = fixture.nativeElement.querySelector('a.row') as HTMLAnchorElement;
+    expect(pinnedRow.getAttribute('href')).toBe('/projects/1/issues/4');
+  });
+
+  it('left-clicking a row navigates in-app through the router, not a page load (#170)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('a.row')) as HTMLAnchorElement[];
+    rows.find((row) => row.getAttribute('href') === '/projects/1/issues/4')!.click();
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(String(navigate.calls.mostRecent().args[0])).toBe('/projects/1/issues/4');
+  });
+
+  it('the row twisty, kebab, and pin controls do not trigger navigation (#170)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+
+    (fixture.nativeElement.querySelector('a.row .twist') as HTMLElement).click();
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('a.row .kebab') as HTMLElement).click();
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('a.row .menu button') as HTMLElement).click();
+
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('isSelected only matches the exact project/issue pair', () => {

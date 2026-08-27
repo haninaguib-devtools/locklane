@@ -215,7 +215,8 @@ describe('AppComponent', () => {
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
     expect(sidenav.componentInstance.selectedProject).toBe(1);
 
-    fixture.componentInstance.select({ projectId: 1, issueNumber: 42 });
+    // What a sidenav row's routerLink (#170) does on a left-click.
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues/42');
     tick();
     fixture.detectChanges();
     flushIssue(42);
@@ -232,7 +233,8 @@ describe('AppComponent', () => {
     flushSidenavAndSummary();
     flushConsoleIndicator();
 
-    fixture.componentInstance.select({ projectId: 1, issueNumber: 42 });
+    // What a sidenav row's routerLink (#170) does on a left-click.
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues/42');
     tick();
     fixture.detectChanges();
 
@@ -314,7 +316,8 @@ describe('AppComponent', () => {
     flushSidenavAndSummary();
     flushConsoleIndicator();
 
-    fixture.componentInstance.select({ projectId: 1, issueNumber: 42 });
+    // What a sidenav row's routerLink (#170) does on a left-click.
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues/42');
     tick();
     fixture.detectChanges();
     flushIssue(42);

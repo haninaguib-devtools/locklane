@@ -1,6 +1,7 @@
 import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { Subscription, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { Project, TreeNode } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
@@ -50,7 +51,7 @@ interface PinnedGroup {
 @Component({
   selector: 'app-sidenav',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet, AddProjectPopupComponent, UsageWidgetComponent],
+  imports: [FormsModule, NgTemplateOutlet, RouterLink, AddProjectPopupComponent, UsageWidgetComponent],
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })
@@ -63,8 +64,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly consolesService = inject(ConsolesService);
   private readonly eventsService = inject(EventsService);
 
+  // Highlight only -- navigation is each row's own routerLink (#170), so selection
+  // flows in from the URL and never back out through an event.
   @Input() selected: ProjectIssue | null = null;
-  @Output() selectedChange = new EventEmitter<ProjectIssue>();
 
   /** The project whose own summary page is showing, with no issue selected (#85). */
   @Input() selectedProject: number | null = null;
@@ -351,8 +353,12 @@ export class SidenavComponent implements OnInit, OnDestroy {
     return this.hasActiveFilter() ? false : this.collapseStore.isCollapsed(projectId, node.number);
   }
 
+  // The row controls live inside the row's anchor (#170): stopPropagation keeps
+  // their clicks out of routerLink's handler, and preventDefault stops the browser
+  // from following the row's href itself.
   toggleCollapse(projectId: number, node: TreeNode, event: Event): void {
     event.stopPropagation();
+    event.preventDefault();
     this.collapseStore.toggle(projectId, node.number);
   }
 
@@ -362,6 +368,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   togglePin(projectId: number, issueNumber: number, event: Event): void {
     event.stopPropagation();
+    event.preventDefault();
     this.pinStore.toggle(projectId, issueNumber);
     this.openMenuFor = null;
   }
@@ -372,6 +379,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   toggleMenu(projectId: number, issueNumber: number, event: Event): void {
     event.stopPropagation();
+    event.preventDefault();
     const key = this.menuKey(projectId, issueNumber);
     this.openMenuFor = this.openMenuFor === key ? null : key;
   }
@@ -383,10 +391,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   isSelected(projectId: number, issueNumber: number): boolean {
     return this.selected !== null && this.selected.projectId === projectId && this.selected.issueNumber === issueNumber;
-  }
-
-  select(projectId: number, issueNumber: number): void {
-    this.selectedChange.emit({ projectId, issueNumber });
   }
 
   private menuKey(projectId: number, issueNumber: number): string {

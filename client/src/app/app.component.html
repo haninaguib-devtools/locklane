@@ -39,7 +39,6 @@
         <app-sidenav
           [selected]="selectedTarget()"
           [selectedProject]="selectedIssue() === null ? selectedProjectId() : null"
-          (selectedChange)="select($event)"
           (projectSelected)="selectProject($event)"
         />
       </aside>
