@@ -32,4 +32,13 @@ No change to how tags are assigned — that's #104's scope.
   (an initiative survives by matching itself or by having a surviving child).
 
 ## Deviations / notes
-- none
+- `/t-ship` reported CI's `build` check failing: task #197 (`Add an overview landing
+  page at the root URL`) merged to `main` after this branch was cut and added a new
+  `overview.component.spec.ts` with its own `TreeNode` fixtures, built before this
+  task's `labels` field existed, so those fixtures no longer satisfied the interface
+  and TypeScript refused to compile the client test bundle. Merged `main` into this
+  branch (clean auto-merge on the shared sidenav files) and added `labels: []` to
+  the new file's fixtures — the same mechanical fix #110's record already
+  precedent-set for a required-field ripple onto an unrelated file's TreeNode
+  fixtures. Re-ran `./mvnw -B test` (client 342/342, engine 319/319) and
+  `./scripts/consistency-check.sh`, both clean.
