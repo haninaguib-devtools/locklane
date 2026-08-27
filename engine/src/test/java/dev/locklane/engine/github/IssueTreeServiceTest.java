@@ -82,6 +82,36 @@ class IssueTreeServiceTest {
         assertThat(tree.get(0).state()).isEqualTo("CLOSED");
     }
 
+    @Test
+    void topLevelNodesInterleaveNewestFirstRegardlessOfKind() {
+        // #145: no more initiative-first grouping -- a newer standalone task sorts
+        // above an older initiative.
+        IssueTreeService service = service(
+                createdAt(initiative(1, "Older initiative"), "2024-01-01T00:00:00Z"),
+                createdAt(task(2, "Newer standalone task"), "2024-06-01T00:00:00Z"));
+
+        List<TreeNode> tree = service.tree();
+
+        assertThat(tree).extracting(TreeNode::number).containsExactly(2, 1);
+    }
+
+    @Test
+    void initiativeChildrenAlsoSortNewestFirst() {
+        IssueTreeService service = service(
+                initiative(1, "Initiative"),
+                createdAt(task(2, "Older child", partOf(1)), "2024-01-01T00:00:00Z"),
+                createdAt(task(3, "Newer child", partOf(1)), "2024-06-01T00:00:00Z"));
+
+        List<TreeNode> tree = service.tree();
+
+        assertThat(tree.get(0).children()).extracting(TreeNode::number).containsExactly(3, 2);
+    }
+
+    private static GhIssue createdAt(GhIssue issue, String createdAt) {
+        return new GhIssue(
+                issue.number(), issue.title(), issue.state(), issue.labels(), issue.body(), createdAt, issue.updatedAt());
+    }
+
     private static String partOf(int number) {
         return "Part of: #" + number;
     }

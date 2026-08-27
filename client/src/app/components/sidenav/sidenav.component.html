@@ -130,9 +130,7 @@
         }
 
         <span class="issue-number">#{{ node.number }}</span>
-        <span class="issue-title" [class.initiative-title]="node.kind === 'INITIATIVE'">{{
-          node.title
-        }}</span>
+        <span class="issue-title">{{ node.title }}</span>
         @if (hasOpenConsole(projectId, node.number)) {
           <span class="console-dot" title="Has an open console"></span>
         }

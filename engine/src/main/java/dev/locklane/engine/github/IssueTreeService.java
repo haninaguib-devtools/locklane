@@ -1,6 +1,7 @@
 package dev.locklane.engine.github;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +25,9 @@ public class IssueTreeService {
     private static final Pattern PART_OF = Pattern.compile("Part of:\\s*#(\\d+)");
     private static final String INITIATIVE_LABEL = "initiative";
 
+    /** Newest-created-first, applied to the top-level list and to each initiative's children (#145). */
+    private static final Comparator<GhIssue> NEWEST_FIRST = Comparator.comparing(GhIssue::createdAt).reversed();
+
     private final GhIssueCache cache;
 
     public IssueTreeService(GhIssueCache cache) {
@@ -38,31 +42,33 @@ public class IssueTreeService {
                 .collect(Collectors.toSet());
 
         Map<Integer, List<GhIssue>> childrenByInitiative = new HashMap<>();
-        List<GhIssue> standalone = new ArrayList<>();
+        List<GhIssue> topLevel = new ArrayList<>();
         for (GhIssue issue : issues) {
             if (initiativeNumbers.contains(issue.number())) {
-                continue; // initiatives are placed as top-level nodes below
+                topLevel.add(issue);
+                continue;
             }
             Optional<Integer> parent = partOf(issue).filter(initiativeNumbers::contains);
             if (parent.isPresent()) {
                 childrenByInitiative.computeIfAbsent(parent.get(), k -> new ArrayList<>()).add(issue);
             } else {
-                standalone.add(issue);
+                topLevel.add(issue);
             }
         }
+        topLevel.sort(NEWEST_FIRST);
 
         List<TreeNode> nodes = new ArrayList<>();
-        for (GhIssue issue : issues) {
+        for (GhIssue issue : topLevel) {
             if (!initiativeNumbers.contains(issue.number())) {
+                nodes.add(new TreeNode(issue.number(), issue.title(), "TASK", issue.state(), List.of()));
                 continue;
             }
-            List<TreeNode> children = childrenByInitiative.getOrDefault(issue.number(), List.of()).stream()
+            List<GhIssue> children = childrenByInitiative.getOrDefault(issue.number(), new ArrayList<>());
+            children.sort(NEWEST_FIRST);
+            List<TreeNode> childNodes = children.stream()
                     .map(child -> new TreeNode(child.number(), child.title(), "TASK", child.state(), List.of()))
                     .toList();
-            nodes.add(new TreeNode(issue.number(), issue.title(), "INITIATIVE", issue.state(), children));
-        }
-        for (GhIssue issue : standalone) {
-            nodes.add(new TreeNode(issue.number(), issue.title(), "TASK", issue.state(), List.of()));
+            nodes.add(new TreeNode(issue.number(), issue.title(), "INITIATIVE", issue.state(), childNodes));
         }
         return nodes;
     }
