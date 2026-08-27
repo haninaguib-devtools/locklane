@@ -30,7 +30,10 @@ import java.util.regex.Pattern;
  * a past conversation instead of starting a blank one ({@code claude --resume <id>} /
  * {@code codex resume <id>}, the ids captured by #102); the command is composed here,
  * never accepted as a free-form string, and {@code resume} is ignored for any other
- * {@code cmd} or an id not shaped like one.
+ * {@code cmd} or an id not shaped like one. Reattaching to a {@code claude}/{@code
+ * codex} session whose process did not survive an engine restart resumes on its own
+ * (#173): with no explicit {@code resume} and no live process, the most recently
+ * captured resume id for that session and tool fills in automatically.
  * {@code cols}/{@code rows} size a brand-new session's PTY to the browser terminal's
  * actual size instead of a hardcoded default (#62); once attached, later size changes
  * arrive as resize messages (see below), not new query parameters. A brand-new
@@ -84,7 +87,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        String[] launchCommand = resolveLaunchCommand(queryParam(wsSession, "cmd"), queryParam(wsSession, "resume"));
+        String[] launchCommand = resolveLaunchCommand(sessionId, queryParam(wsSession, "cmd"),
+                queryParam(wsSession, "resume"));
         Integer columns = parseIntParam(wsSession, "cols");
         Integer rows = parseIntParam(wsSession, "rows");
         // Empty for anything that isn't a project console's session id (#139) — a
@@ -175,6 +179,25 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     // commands accept, so it is ignored rather than handed to a process.
     private static final Pattern RESUME_ID =
             Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+    /**
+     * As {@link #resolveLaunchCommand(String, String)}, but when the client named no
+     * conversation itself, {@code cmd} is a resumable tool, and no live process
+     * exists for this session — the state an engine restart leaves every session in
+     * (#173) — the most recently captured resume id for this session and tool
+     * (#102) fills in, so reattaching picks the conversation back up instead of
+     * launching a blank one. A session with nothing captured resolves to the plain
+     * command exactly as before; with a live process the launch command is ignored
+     * by {@link SessionRegistry#attach} anyway, so the lookup is skipped and a
+     * plain reattach stays untouched. Package-visible for tests.
+     */
+    String[] resolveLaunchCommand(String sessionId, String cmd, String resume) {
+        if (resume == null && cmd != null && (cmd.equals("claude") || cmd.equals("codex"))
+                && sessionRegistry.find(sessionId).isEmpty()) {
+            resume = sessionRegistry.latestResumeId(sessionId, cmd).orElse(null);
+        }
+        return resolveLaunchCommand(cmd, resume);
+    }
 
     /** {@code null} (absent or "shell") defers to {@link SessionRegistry}'s default shell. Package-visible for tests. */
     static String[] resolveLaunchCommand(String cmd, String resume) {
