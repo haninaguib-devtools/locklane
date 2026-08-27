@@ -43,6 +43,8 @@
     <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
   </div>
 
+  <a class="overview-entry" routerLink="/" [class.active]="isOverviewActive()"> Overview </a>
+
   @if (showAddProject) {
     <app-add-project-popup
       (created)="onProjectCreated()"

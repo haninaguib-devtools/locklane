@@ -119,6 +119,30 @@
   color: var(--text);
 }
 
+.overview-entry {
+  display: block;
+  margin: 6px 8px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.overview-entry:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.overview-entry.active {
+  background: var(--panel);
+  color: var(--text);
+  border-left: 2px solid var(--accent);
+  padding-left: 6px;
+}
+
 .label {
   padding: 8px 16px 4px;
   font-size: 10px;
