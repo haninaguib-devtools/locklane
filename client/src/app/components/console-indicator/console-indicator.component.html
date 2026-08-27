@@ -46,7 +46,13 @@
               (mouseenter)="selected.set(index)"
               (click)="jumpTo(entry)"
             >
-              <span class="issue ellipsis">#{{ entry.issueNumber }} {{ entry.issueTitle }}</span>
+              <span class="issue ellipsis">
+                @if (entry.issueNumber !== null) {
+                  #{{ entry.issueNumber }} {{ entry.issueTitle }}
+                } @else {
+                  {{ entry.issueTitle }}
+                }
+              </span>
               <span class="meta">{{ entry.label }}</span>
             </button>
           }

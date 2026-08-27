@@ -78,12 +78,29 @@ class IssueWorktreeServiceTest {
         IssueWorktreeService service = new IssueWorktreeService(repository);
 
         // The console family's second segment is the literal "console", never a
-        // number — so neither shape can collide with any issue's session list.
-        assertThat(service.allWorktreeIds(1, "alice")).containsExactly("1-174-rename-toggle");
+        // number — so neither shape can collide with any single issue's session list.
         for (int n = 0; n < 1000; n++) {
             assertThat(service.worktreeIdsForIssue(1, n, "alice"))
                     .doesNotContain("1-console", "1-console-0a1b2c3d");
         }
+    }
+
+    @Test
+    void allWorktreeIdsIncludesTheProjectsOwnConsoles(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-console", dbDir.resolve("wt1"), now, "alice"); // legacy pre-#177 shape
+        repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt2"), now, "alice"); // #177 family
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt3"), now, "alice");
+        repository.recordAttach("2-console", dbDir.resolve("wt4"), now, "alice"); // a different project
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        // #194: the header indicator/picker reads this list, so it must include the
+        // project's own consoles alongside its issues' — scoped to the requested
+        // project, same as any other row here.
+        assertThat(service.allWorktreeIds(1, "alice")).containsExactlyInAnyOrder(
+                "1-console", "1-console-0a1b2c3d", "1-174-rename-toggle");
     }
 
     @Test

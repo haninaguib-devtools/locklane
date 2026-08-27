@@ -25,14 +25,18 @@ import java.util.regex.Pattern;
  * nothing enforces this naming today; a worktree id is just whatever string a
  * WebSocket client chose (#15). Project console ids — the legacy
  * {@code "<projectId>-console"} and the {@code "<projectId>-console-<suffix>"} family
- * minted since #177 (see {@link ProjectConsoleService}) — are excluded the same way:
- * their second segment is the literal {@code console}, never a number, so they can
- * never read as some issue's session here.
+ * minted since #177 (see {@link ProjectConsoleService}) — never match this pattern
+ * either, since their second segment is the literal {@code console}, never a number;
+ * {@link #allWorktreeIds} recognizes them separately (#194) so the header
+ * indicator/picker can show project consoles alongside issue ones, but
+ * {@link #worktreeIdsForIssue} and {@link #resumeSessionsForIssue} — both scoped to one
+ * issue — correctly never match a console with no issue at all.
  */
 @Service
 public class IssueWorktreeService {
 
     private static final Pattern PROJECT_AND_ISSUE_PREFIXED = Pattern.compile("^(\\d+)-(\\d+)-");
+    private static final Pattern PROJECT_CONSOLE_PREFIXED = Pattern.compile("^(\\d+)-console(-.+)?$");
 
     private final WorktreeSessionRepository repository;
     private final ConsoleResumeSessionRepository resumeRepository;
@@ -68,14 +72,16 @@ public class IssueWorktreeService {
     /**
      * Every worktree id {@code requestingUsername} may see, across every issue in
      * this project (#32's header indicator/picker, now scoped to one project since
-     * #43) — same visibility rule as {@link #worktreeIdsForIssue}, minus the
-     * single-issue filter. A bare {@code "main"} or other id with no
-     * project/issue-number prefix is excluded: the picker has nowhere to navigate an
-     * id that belongs to no issue.
+     * #43), plus every open project-level console (#194) — same visibility rule as
+     * {@link #worktreeIdsForIssue}, minus the single-issue filter. A bare {@code
+     * "main"} or other id with no project/issue-number prefix and no project-console
+     * shape is excluded: the picker has nowhere to navigate an id that belongs to
+     * neither an issue nor the project's own console family.
      */
     public List<String> allWorktreeIds(long projectId, String requestingUsername) {
         return repository.findAll().stream()
-                .filter(record -> matchesProject(record.worktreeId(), projectId))
+                .filter(record -> matchesProject(record.worktreeId(), projectId)
+                        || matchesProjectConsole(record.worktreeId(), projectId))
                 .filter(record -> isVisibleTo(record, requestingUsername))
                 .map(WorktreeSessionRecord::worktreeId)
                 .toList();
@@ -116,6 +122,11 @@ public class IssueWorktreeService {
     private static boolean matchesProject(String worktreeId, long projectId) {
         Matcher m = PROJECT_AND_ISSUE_PREFIXED.matcher(worktreeId);
         return m.find() && Long.parseLong(m.group(1)) == projectId;
+    }
+
+    private static boolean matchesProjectConsole(String worktreeId, long projectId) {
+        Matcher m = PROJECT_CONSOLE_PREFIXED.matcher(worktreeId);
+        return m.matches() && Long.parseLong(m.group(1)) == projectId;
     }
 
     private static boolean isVisibleTo(WorktreeSessionRecord record, String requestingUsername) {

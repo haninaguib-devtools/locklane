@@ -6,6 +6,7 @@ import { SidenavComponent } from './sidenav.component';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
+import { ConsolesService } from '../../services/consoles.service';
 import { EventsService } from '../../services/events.service';
 import { IssuesService } from '../../services/issues.service';
 import { AgentStore } from '../../services/agent-store';
@@ -665,11 +666,14 @@ describe('SidenavComponent', () => {
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
     const emitted: number[] = [];
     fixture.componentInstance.projectSelected.subscribe((id) => emitted.push(id));
+    const opened = jasmine.createSpy('onOpened');
+    TestBed.inject(ConsolesService).onOpened.subscribe(opened);
 
     (fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement).click();
     httpMock
       .expectOne({ method: 'POST', url: '/api/projects/1/console' })
       .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+    flushConsoles();
 
     expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
       queryParams: { session: 'proj-1-console-abc' },
@@ -677,6 +681,9 @@ describe('SidenavComponent', () => {
     expect(emitted).toEqual([]);
     // The one-click entry has no agent picker: the new console gets the default agent.
     expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('claude');
+    // #194: the header consoles widget must learn about it, the same way any other
+    // newly opened console is announced.
+    expect(opened).toHaveBeenCalled();
     localStorage.removeItem('locklane.sessionAgents');
   });
 
@@ -694,6 +701,7 @@ describe('SidenavComponent', () => {
     httpMock
       .expectOne({ method: 'POST', url: '/api/projects/1/console' })
       .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+    flushConsoles();
     localStorage.removeItem('locklane.sessionAgents');
   });
 
@@ -714,6 +722,7 @@ describe('SidenavComponent', () => {
     httpMock
       .expectOne({ method: 'POST', url: '/api/projects/1/console' })
       .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+    flushConsoles();
     expect(navigate).toHaveBeenCalled();
     localStorage.removeItem('locklane.sessionAgents');
   });

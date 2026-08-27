@@ -47,6 +47,17 @@ export function issueNumberFromSessionId(sessionId: string): number | null {
 }
 
 /**
+ * True for a project-level console's session id (#139/#177): the legacy
+ * "<projectId>-console" shape or "<projectId>-console-<suffix>" -- mirrors the
+ * engine's `ProjectConsoleService.CONSOLE_SESSION_ID`. These never match
+ * `issueNumberFromSessionId`'s pattern, since their second segment is the
+ * literal "console", never a number.
+ */
+export function isProjectConsoleSessionId(sessionId: string): boolean {
+  return /^\d+-console(-.+)?$/.test(sessionId);
+}
+
+/**
  * The "<projectId>:<issueNumber>" key the sidenav indexes its per-issue state by
  * (#108), parsed straight out of a session id (#43) -- used to place a `consoleAttention`
  * event (#130), which carries only a session id, onto the right issue row.

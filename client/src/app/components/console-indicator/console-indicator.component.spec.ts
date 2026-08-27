@@ -73,6 +73,41 @@ describe('ConsoleIndicatorComponent', () => {
     expect(fixture.componentInstance.entries().map((e) => e.sessionId)).toEqual(['1-7-rename-toggle']);
   });
 
+  it('builds an entry for a project console (#194), issue entries first', () => {
+    TestBed.inject(AgentStore).set('1-console-a1b2c3d4', 'codex');
+    const fixture = init();
+
+    flushInitialFetch(['1-7-rename-toggle', '1-console-a1b2c3d4'], [issue(7, 'Seven')]);
+
+    expect(fixture.componentInstance.entries()).toEqual([
+      { sessionId: '1-7-rename-toggle', issueNumber: 7, issueTitle: 'Seven', label: 'wtree' },
+      { sessionId: '1-console-a1b2c3d4', issueNumber: null, issueTitle: 'Project console', label: 'console · codex' },
+    ]);
+  });
+
+  it('recognizes the legacy bare "<projectId>-console" project console id', () => {
+    const fixture = init();
+
+    flushInitialFetch(['1-console'], []);
+
+    expect(fixture.componentInstance.entries()).toEqual([
+      { sessionId: '1-console', issueNumber: null, issueTitle: 'Project console', label: 'console' },
+    ]);
+  });
+
+  it('jumping to a project console entry navigates to the project console page with its session id', () => {
+    const fixture = init();
+    flushInitialFetch(['1-console-a1b2c3d4'], []);
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate');
+
+    fixture.componentInstance.jumpTo(fixture.componentInstance.entries()[0]);
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+      queryParams: { session: '1-console-a1b2c3d4' },
+    });
+  });
+
   it('updates the count as soon as a console opens elsewhere, without needing a close first', () => {
     const fixture = init();
     flushInitialFetch([], []);
