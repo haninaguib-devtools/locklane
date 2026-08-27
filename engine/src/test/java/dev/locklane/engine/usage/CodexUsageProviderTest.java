@@ -36,8 +36,10 @@ class CodexUsageProviderTest {
     void parsesBothWindowsAndSendsTheAccountHeader() throws IOException {
         CodexTokenSource tokenSource = authFile("a-token", "acct-1");
         String body = """
-                {"primary": {"used_percent": 30, "resets_at": 1000},
-                 "secondary": {"used_percent": 70, "resets_at": 2000}}""";
+                {"rate_limit": {
+                  "primary_window": {"used_percent": 30, "reset_at": 1000},
+                  "secondary_window": {"used_percent": 70, "reset_at": 2000}
+                }}""";
         CodexUsageProvider provider = new CodexUsageProvider(tokenSource, (url, headers) -> {
             assertThat(headers.get("Authorization")).isEqualTo("Bearer a-token");
             assertThat(headers.get("chatgpt-account-id")).isEqualTo("acct-1");
@@ -49,19 +51,6 @@ class CodexUsageProviderTest {
         assertThat(usage.available()).isTrue();
         assertThat(usage.fiveHour().percentLeft()).isEqualTo(70.0);
         assertThat(usage.weekly().percentLeft()).isEqualTo(30.0);
-    }
-
-    @Test
-    void alsoParsesTheWindowsWhenNestedUnderRateLimits() throws IOException {
-        CodexTokenSource tokenSource = authFile("a-token", "acct-1");
-        String body = """
-                {"rate_limits": {
-                  "primary": {"used_percent": 10, "resets_at": 1000},
-                  "secondary": {"used_percent": 20, "resets_at": 2000}
-                }}""";
-        CodexUsageProvider provider = new CodexUsageProvider(tokenSource, (url, headers) -> java.util.Optional.of(body));
-
-        assertThat(provider.fetch().available()).isTrue();
     }
 
     private CodexTokenSource authFile(String token, String accountId) throws IOException {

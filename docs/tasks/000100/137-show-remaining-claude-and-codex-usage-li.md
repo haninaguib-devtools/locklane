@@ -59,6 +59,26 @@ can poll cheaply.
     documentation to cross-check the exact response envelope against. Both
     providers parse defensively and degrade to "unavailable" on any shape mismatch,
     which is the correct behavior either way per the Goal.
+- Both guessed shapes above turned out wrong, discovered by calling each live
+  endpoint directly with a real account's token while testing the merged widget
+  (haninaguib, 2026-08-26) — every response silently degraded to "unavailable" on a
+  real machine with valid logins for both tools, which is what surfaced this.
+  Corrected against the verified live responses:
+  - Claude: `five_hour`/`seven_day` sit at the response's top level, not nested
+    under `rate_limits`; each window's percentage field is `utilization`, not
+    `used_percentage`; and `resets_at` is an ISO-8601 timestamp string, not
+    Unix-epoch seconds. `ClaudeUsageProvider` now parses the top-level shape with
+    `OffsetDateTime.parse(...).toInstant()`, and treats an unparsable `resets_at` as
+    an absent window rather than throwing.
+  - Codex: the windows sit under a singular `rate_limit` object (not `rate_limits`)
+    as `primary_window`/`secondary_window` (not `primary`/`secondary`); the reset
+    field is `reset_at` (no `s`), still Unix-epoch seconds. The old code's
+    dual-path guesses (top-level `primary`/`secondary`, or nested under
+    `rate_limits`) never matched anything real, so `CodexUsageProvider` now parses
+    only the one verified shape.
+  - Both providers still degrade any further mismatch to "unavailable" per the
+    Goal — this is a correction to what shape is expected, not a change in that
+    failure behavior.
 - The usage widget lives inside `SidenavComponent`'s own template, in a new
   `.sidenav-scroll` wrapper around the existing scrollable content, so the widget
   itself sits outside that scroll area and stays pinned to the bottom of the

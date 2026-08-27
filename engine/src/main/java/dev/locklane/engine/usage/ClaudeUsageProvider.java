@@ -4,18 +4,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
-import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.Optional;
 
 /**
  * Claude Code's usage, from the same undocumented endpoint the CLI's own status line
  * calls ({@code fetchUtilization}) to show "N% left" — found by inspecting the
- * installed {@code claude} binary for #137, since Anthropic does not publish it. Its
- * response shape (a {@code rate_limits} object with {@code five_hour}/{@code seven_day}
- * windows, each carrying {@code used_percentage} and a Unix-epoch-seconds
- * {@code resets_at}) is the same shape documented inside the CLI for its statusline
- * hook's JSON input, which this data ultimately feeds. If Anthropic changes either the
+ * installed {@code claude} binary for #137, since Anthropic does not publish it.
+ * Verified against a live account: the {@code five_hour}/{@code seven_day} windows sit
+ * at the response's top level — not nested under {@code rate_limits}, despite that
+ * being the shape documented inside the CLI for its unrelated statusline-hook JSON
+ * input — each carrying a {@code utilization} percentage and an ISO-8601
+ * {@code resets_at} timestamp (not Unix-epoch seconds). If Anthropic changes either the
  * endpoint or this shape, every response fails to parse and this provider degrades to
  * {@link ProviderUsage#unavailable()} — never a broken sidebar (#137's Goal).
  */
@@ -47,9 +49,9 @@ public class ClaudeUsageProvider implements UsageProvider {
 
     private Optional<ProviderUsage> parse(String json) {
         try {
-            JsonNode rateLimits = MAPPER.readTree(json).path("rate_limits");
-            WindowUsage fiveHour = window(rateLimits.path("five_hour"));
-            WindowUsage weekly = window(rateLimits.path("seven_day"));
+            JsonNode root = MAPPER.readTree(json);
+            WindowUsage fiveHour = window(root.path("five_hour"));
+            WindowUsage weekly = window(root.path("seven_day"));
             if (fiveHour == null && weekly == null) {
                 return Optional.empty();
             }
@@ -60,12 +62,16 @@ public class ClaudeUsageProvider implements UsageProvider {
     }
 
     private static WindowUsage window(JsonNode node) {
-        JsonNode usedPercentage = node.path("used_percentage");
+        JsonNode utilization = node.path("utilization");
         JsonNode resetsAt = node.path("resets_at");
-        if (!usedPercentage.isNumber() || !resetsAt.isNumber()) {
+        if (!utilization.isNumber() || !resetsAt.isTextual()) {
             return null;
         }
-        double percentLeft = Math.max(0, 100 - usedPercentage.asDouble());
-        return new WindowUsage(percentLeft, Instant.ofEpochSecond(resetsAt.asLong()));
+        try {
+            double percentLeft = Math.max(0, 100 - utilization.asDouble());
+            return new WindowUsage(percentLeft, OffsetDateTime.parse(resetsAt.asText()).toInstant());
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 }

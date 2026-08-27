@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 
@@ -43,13 +44,11 @@ class ClaudeUsageProviderTest {
     }
 
     @Test
-    void parsesBothWindowsFromTheDocumentedShape() throws IOException {
+    void parsesBothWindowsFromTheVerifiedShape() throws IOException {
         ClaudeTokenSource tokenSource = credentialsFile("a-token");
         String body = """
-                {"rate_limits": {
-                  "five_hour": {"used_percentage": 25, "resets_at": 1000},
-                  "seven_day": {"used_percentage": 60, "resets_at": 2000}
-                }}""";
+                {"five_hour": {"utilization": 25, "resets_at": "2026-01-01T00:00:00Z"},
+                 "seven_day": {"utilization": 60, "resets_at": "2026-01-08T00:00:00Z"}}""";
         ClaudeUsageProvider provider = new ClaudeUsageProvider(tokenSource, stub((url, headers) -> {
             assertThat(headers.get("Authorization")).isEqualTo("Bearer a-token");
             return Optional.of(body);
@@ -59,6 +58,7 @@ class ClaudeUsageProviderTest {
 
         assertThat(usage.available()).isTrue();
         assertThat(usage.fiveHour().percentLeft()).isEqualTo(75.0);
+        assertThat(usage.fiveHour().resetsAt()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
         assertThat(usage.weekly().percentLeft()).isEqualTo(40.0);
     }
 
@@ -66,7 +66,7 @@ class ClaudeUsageProviderTest {
     void aMissingWindowIsNullButTheOtherStillCounts() throws IOException {
         ClaudeTokenSource tokenSource = credentialsFile("a-token");
         String body = """
-                {"rate_limits": {"five_hour": {"used_percentage": 10, "resets_at": 1000}}}""";
+                {"five_hour": {"utilization": 10, "resets_at": "2026-01-01T00:00:00Z"}}""";
         ClaudeUsageProvider provider = new ClaudeUsageProvider(tokenSource, stub((url, headers) -> Optional.of(body)));
 
         ProviderUsage usage = provider.fetch();
@@ -74,6 +74,16 @@ class ClaudeUsageProviderTest {
         assertThat(usage.available()).isTrue();
         assertThat(usage.fiveHour()).isNotNull();
         assertThat(usage.weekly()).isNull();
+    }
+
+    @Test
+    void aWindowWithAnUnparsableResetsAtIsTreatedAsAbsent() throws IOException {
+        ClaudeTokenSource tokenSource = credentialsFile("a-token");
+        String body = """
+                {"five_hour": {"utilization": 10, "resets_at": "not-a-date"}}""";
+        ClaudeUsageProvider provider = new ClaudeUsageProvider(tokenSource, stub((url, headers) -> Optional.of(body)));
+
+        assertThat(provider.fetch()).isEqualTo(ProviderUsage.unavailable());
     }
 
     private ClaudeTokenSource credentialsFile(String token) throws IOException {

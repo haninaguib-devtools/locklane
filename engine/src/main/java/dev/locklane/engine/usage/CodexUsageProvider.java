@@ -11,14 +11,13 @@ import java.util.Optional;
 /**
  * Codex's usage, from the same undocumented backend the CLI's own status screen reads
  * — found by inspecting the installed {@code codex} binary for #137 (OpenAI does not
- * publish it either): a {@code wham/usage} endpoint behind ChatGPT's backend API, and
- * response fields matching the CLI's own {@code RateLimitWindow} shape
- * ({@code used_percent}, {@code resets_at}) under {@code primary} (Codex's 5-hour-scale
- * window) and {@code secondary} (its weekly-scale window) — mirroring Claude's
- * five_hour/seven_day pair for this widget's purposes. Less certain than Claude's shape
- * since Codex has no equivalent public documentation to cross-check against; any
- * mismatch fails to parse and degrades to {@link ProviderUsage#unavailable()}, same as
- * a real outage (#137's Goal).
+ * publish it either): a {@code wham/usage} endpoint behind ChatGPT's backend API.
+ * Verified against a live account: the windows sit under a singular {@code rate_limit}
+ * object as {@code primary_window} (Codex's 5-hour-scale window) and
+ * {@code secondary_window} (its weekly-scale window), each carrying {@code used_percent}
+ * and a Unix-epoch-seconds {@code reset_at} — mirroring Claude's five_hour/seven_day
+ * pair for this widget's purposes. Any mismatch fails to parse and degrades to
+ * {@link ProviderUsage#unavailable()}, same as a real outage (#137's Goal).
  */
 public class CodexUsageProvider implements UsageProvider {
 
@@ -50,13 +49,9 @@ public class CodexUsageProvider implements UsageProvider {
 
     private Optional<ProviderUsage> parse(String json) {
         try {
-            JsonNode root = MAPPER.readTree(json);
-            // The rate limit windows may sit at the response's top level or nested
-            // under "rate_limits" — tried in that order since the exact shape is
-            // unconfirmed (see class doc).
-            JsonNode windows = root.has("primary") || root.has("secondary") ? root : root.path("rate_limits");
-            WindowUsage primary = window(windows.path("primary"));
-            WindowUsage secondary = window(windows.path("secondary"));
+            JsonNode rateLimit = MAPPER.readTree(json).path("rate_limit");
+            WindowUsage primary = window(rateLimit.path("primary_window"));
+            WindowUsage secondary = window(rateLimit.path("secondary_window"));
             if (primary == null && secondary == null) {
                 return Optional.empty();
             }
@@ -68,11 +63,11 @@ public class CodexUsageProvider implements UsageProvider {
 
     private static WindowUsage window(JsonNode node) {
         JsonNode usedPercent = node.path("used_percent");
-        JsonNode resetsAt = node.path("resets_at");
-        if (!usedPercent.isNumber() || !resetsAt.isNumber()) {
+        JsonNode resetAt = node.path("reset_at");
+        if (!usedPercent.isNumber() || !resetAt.isNumber()) {
             return null;
         }
         double percentLeft = Math.max(0, 100 - usedPercent.asDouble());
-        return new WindowUsage(percentLeft, Instant.ofEpochSecond(resetsAt.asLong()));
+        return new WindowUsage(percentLeft, Instant.ofEpochSecond(resetAt.asLong()));
     }
 }
