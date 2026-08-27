@@ -20,6 +20,23 @@ issue number, Jira key such as `PROJ-152`); it appears in branch names
 (`wip/<id>-<slug>`) and record filenames, so it must be filename-safe — lowercase a Jira
 key for those uses.
 
+## Classification labels
+
+`/t-open` tags every task issue (never a tracking issue) with exactly one of these, so
+issues can be grouped/filtered by kind later. Reuses GitHub's own default label set
+already present in this repo rather than inventing a parallel taxonomy; ensured to exist
+via `tracker:ensure-labels` (backed by `scripts/github-bootstrap.sh`).
+
+| Label | Meaning |
+|---|---|
+| `bug` | Something isn't working |
+| `enhancement` | New feature or request |
+| `documentation` | Improvements or additions to documentation |
+| `question` | Further information is requested |
+
+Another backend adopts its own equivalent four (or maps to these names if it supports
+free-form labels, e.g. Jira).
+
 ## Operations
 
 Each operation states its contract, then the command per backend. Where a backend needs

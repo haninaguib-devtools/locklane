@@ -9,6 +9,10 @@
           {{ detail.recordPath ?? 'no record yet' }}
         }
       </dd>
+      @if (issue.labels.length) {
+        <dt>tags</dt>
+        <dd>{{ issue.labels.join(', ') }}</dd>
+      }
       <dt>checks</dt>
       <dd>{{ checksLabel(detail) }}</dd>
       <dt>branch &amp; PR</dt>
