@@ -87,10 +87,6 @@ export class AppComponent {
 
   sidebarWidth = loadWidth();
 
-  select(target: ProjectIssue): void {
-    this.router.navigate(['/projects', target.projectId, 'issues', target.issueNumber]);
-  }
-
   // A project with no issue segment is the project's own summary page (#85) -- the
   // same URL `defaultProjectRedirect` already lands on.
   selectProject(projectId: number): void {

@@ -189,6 +189,9 @@ ul.branch {
 }
 
 .row {
+  /* The row is an anchor (#170) -- undo link styling so it looks as the div did. */
+  color: inherit;
+  text-decoration: none;
   display: flex;
   align-items: center;
   gap: 6px;
