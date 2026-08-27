@@ -72,7 +72,25 @@ describe('IssuesService', () => {
 
     const req = httpMock.expectOne('/api/projects/1/issues/tree');
     expect(req.request.method).toBe('GET');
+    expect(req.request.params.has('fresh')).toBeFalse();
     req.flush(tree);
+  });
+
+  it('passes fresh=true to bypass the cache when asked', () => {
+    service.tree(1, true).subscribe();
+
+    const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/tree');
+    expect(req.request.params.get('fresh')).toBe('true');
+    req.flush([]);
+  });
+
+  it('notifies subscribers when a project is marked stale', () => {
+    let notified: number | undefined;
+    service.onProjectStale.subscribe((projectId) => (notified = projectId));
+
+    service.notifyProjectStale(7);
+
+    expect(notified).toBe(7);
   });
 
   it('fetches worktree ids from GET /api/projects/{projectId}/issues/{number}/worktrees', () => {

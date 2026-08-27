@@ -54,12 +54,7 @@
           </button>
           <button type="button" [class.chosen]="location === 'main'" (click)="location = 'main'">main</button>
         </div>
-        <div class="picker-group">
-          <span class="picker-label">agent</span>
-          <button type="button" [class.chosen]="agent === 'claude'" (click)="agent = 'claude'">claude</button>
-          <button type="button" [class.chosen]="agent === 'codex'" (click)="agent = 'codex'">codex</button>
-          <button type="button" [class.chosen]="agent === 'shell'" (click)="agent = 'shell'">shell</button>
-        </div>
+        <app-agent-picker [agent]="agent" (agentChange)="agent = $event" />
         <button type="button" class="picker-open" (click)="confirmOpen()">open</button>
       </div>
     }

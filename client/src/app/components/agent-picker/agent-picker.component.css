@@ -1,0 +1,26 @@
+.picker-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.picker-label {
+  width: 42px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.picker-group button {
+  padding: 3px 9px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.picker-group button.chosen {
+  border-color: var(--accent);
+  color: var(--accent);
+}

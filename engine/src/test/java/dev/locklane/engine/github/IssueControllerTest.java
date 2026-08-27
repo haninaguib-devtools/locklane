@@ -95,7 +95,26 @@ class IssueControllerTest {
         readyProject(root);
         IssueController controller = controller(root, List.of());
 
-        assertThat(controller.tree(999).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.tree(999, false).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void treeWithFreshTrueBypassesTheCache(@TempDir Path root) throws IOException {
+        long projectId = readyProject(root);
+        MutableGhClient client = new MutableGhClient(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
+        ProjectGhResources resources = new ProjectGhResources(projectRepository, tokenCipher, (path, token) -> client);
+        IssueController controller = new IssueController(resources);
+        // Warms the cache with the initial issue list.
+        controller.tree(projectId, false);
+
+        client.setIssues(List.of(
+                new GhIssue(1, "First", "OPEN", List.of(), "", "", ""),
+                new GhIssue(2, "Second", "OPEN", List.of(), "", "", "")));
+
+        assertThat(controller.tree(projectId, false).getBody()).extracting(TreeNode::number).containsExactly(1);
+        assertThat(controller.tree(projectId, true).getBody()).extracting(TreeNode::number).containsExactlyInAnyOrder(1, 2);
     }
 
     private static long readyProject(Path root) {
@@ -115,6 +134,34 @@ class IssueControllerTest {
         private final List<GhIssue> issues;
 
         FixedGhClient(List<GhIssue> issues) {
+            this.issues = issues;
+        }
+
+        @Override
+        public List<GhIssue> issues() {
+            return issues;
+        }
+
+        @Override
+        public List<GhPullRequest> pullRequests() {
+            return List.of();
+        }
+
+        @Override
+        public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
+            return Optional.empty();
+        }
+    }
+
+    /** Like {@link FixedGhClient}, but its issue list can change between calls (#140). */
+    private static final class MutableGhClient implements GhClient {
+        private List<GhIssue> issues;
+
+        MutableGhClient(List<GhIssue> issues) {
+            this.issues = issues;
+        }
+
+        void setIssues(List<GhIssue> issues) {
             this.issues = issues;
         }
 

@@ -1,0 +1,23 @@
+<div class="header">
+  <button type="button" class="back" (click)="back()">← back to issues</button>
+  <h1>New issue console</h1>
+</div>
+@if (loading) {
+  <div class="loading">loading…</div>
+} @else if (sessionId) {
+  <app-terminal [sessionId]="sessionId" [dir]="dir" [cmd]="agent" [active]="true" />
+} @else {
+  <div class="starter">
+    <p class="hint">
+      Start a conversation here to open a new issue — the agent runs in this project's own
+      checkout, with <code>gh</code> available to it.
+    </p>
+    <app-agent-picker [agent]="agent" (agentChange)="agent = $event" />
+    @if (startError) {
+      <div class="action-error">could not start a console — try again</div>
+    }
+    <button type="button" class="start" [disabled]="starting" (click)="open()">
+      {{ starting ? 'starting…' : 'start' }}
+    </button>
+  </div>
+}

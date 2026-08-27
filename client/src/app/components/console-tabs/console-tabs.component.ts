@@ -1,5 +1,6 @@
 import { Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { Agent } from '../../services/agent-store';
+import { AgentPickerComponent } from '../agent-picker/agent-picker.component';
 import { ConsoleTab, OVERVIEW_TAB_ID } from './console-labels';
 
 export interface OpenConsoleRequest {
@@ -10,6 +11,7 @@ export interface OpenConsoleRequest {
 @Component({
   selector: 'app-console-tabs',
   standalone: true,
+  imports: [AgentPickerComponent],
   templateUrl: './console-tabs.component.html',
   styleUrl: './console-tabs.component.css',
 })

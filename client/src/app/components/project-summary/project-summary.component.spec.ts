@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter, Router } from '@angular/router';
 import { ProjectSummaryComponent, countIssues } from './project-summary.component';
 import { Project, TreeNode } from '../../models/issue.model';
 
@@ -36,7 +37,7 @@ describe('ProjectSummaryComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [ProjectSummaryComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     });
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -112,6 +113,24 @@ describe('ProjectSummaryComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('proj-a');
     expect(text).toContain('could not load the issue counts');
+  });
+
+  it('shows the "New issue (agent)" button for a ready project and navigates to its console (#140)', () => {
+    const fixture = init();
+    const router = TestBed.inject(Router);
+    spyOn(router, 'navigate');
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.new-issue');
+    expect(button).toBeTruthy();
+    button!.click();
+
+    expect(router.navigate).toHaveBeenCalledWith(['/projects', 1, 'console']);
+  });
+
+  it('hides the "New issue (agent)" button while the project is still cloning', () => {
+    const fixture = init([{ ...PROJECT, status: 'CLONING' }]);
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.new-issue')).toBeFalsy();
   });
 
   it('reloads when the project id changes', () => {

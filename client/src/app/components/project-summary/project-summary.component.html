@@ -9,6 +9,9 @@
       <span class="status" [class.cloning]="project.status === 'CLONING'" [class.failed]="project.status === 'FAILED'">
         {{ project.status.toLowerCase() }}
       </span>
+      @if (project.status === 'READY') {
+        <button type="button" class="new-issue" (click)="openConsole()">New issue (agent)</button>
+      }
     </div>
 
     @if (counts; as c) {

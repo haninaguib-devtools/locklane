@@ -39,6 +39,22 @@ h1 {
   color: var(--accent);
 }
 
+.new-issue {
+  margin-left: auto;
+  padding: 5px 12px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.new-issue:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .counts {
   display: flex;
   flex-wrap: wrap;

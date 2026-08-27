@@ -6,6 +6,7 @@ import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { EventsService } from '../../services/events.service';
+import { IssuesService } from '../../services/issues.service';
 import { Project, TreeNode } from '../../models/issue.model';
 import { UsageSnapshot } from '../../models/usage.model';
 
@@ -488,6 +489,27 @@ describe('SidenavComponent', () => {
     emitAppEvent({ type: 'issuesChanged', projectId: 999 });
 
     httpMock.expectNone('/api/projects/999/issues/tree');
+  });
+
+  it('a project-stale notification (#140) re-fetches that project\'s tree with fresh=true', () => {
+    init();
+    flushTree(1, tree());
+
+    TestBed.inject(IssuesService).notifyProjectStale(1);
+
+    const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/tree');
+    expect(req.request.params.get('fresh')).toBe('true');
+    req.flush(tree());
+    flushConsoles();
+  });
+
+  it('a project-stale notification for a project not currently loaded is ignored', () => {
+    init();
+    flushTree(1, tree());
+
+    TestBed.inject(IssuesService).notifyProjectStale(999);
+
+    httpMock.expectNone((r) => r.url === '/api/projects/999/issues/tree');
   });
 
   it('a reconnect does one full reload to catch up on missed events', () => {

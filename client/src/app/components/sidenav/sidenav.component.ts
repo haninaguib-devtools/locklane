@@ -98,6 +98,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // instead does one full reload, since events missed while the socket was down
   // are gone for good.
   private readonly eventsSub: Subscription;
+  // Leaving the new project-level console (#140) asks the sidenav to bust the
+  // GhIssueCache for that one project's re-fetch, rather than waiting on the
+  // engine's own 30s poll to notice an issue the agent may have just opened.
+  private readonly staleSub: Subscription;
 
   constructor() {
     this.consoleSub = merge(this.consolesService.onOpened, this.consolesService.onClosed).subscribe(() =>
@@ -114,6 +118,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
       ),
       this.eventsService.reconnected$.pipe(map(() => () => this.load(() => {}))),
     ).subscribe((run) => run());
+    this.staleSub = this.issuesService.onProjectStale.subscribe((projectId) =>
+      this.refreshProject(projectId, true),
+    );
   }
 
   ngOnInit(): void {
@@ -124,6 +131,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.clearPoll();
     this.consoleSub.unsubscribe();
     this.eventsSub.unsubscribe();
+    this.staleSub.unsubscribe();
   }
 
   refresh(): void {
@@ -189,13 +197,17 @@ export class SidenavComponent implements OnInit, OnDestroy {
       });
   }
 
-  /** Re-fetches one project's issue tree in place (#129) — a no-op if that project isn't loaded (yet). */
-  private refreshProject(projectId: number): void {
+  /**
+   * Re-fetches one project's issue tree in place (#129) — a no-op if that project
+   * isn't loaded (yet). `fresh` (#140) bypasses the engine's GhIssueCache for this
+   * one fetch.
+   */
+  private refreshProject(projectId: number, fresh = false): void {
     const index = this.sections.findIndex((s) => s.project.id === projectId);
     if (index === -1) {
       return;
     }
-    this.issuesService.tree(projectId).subscribe((tree) => {
+    this.issuesService.tree(projectId, fresh).subscribe((tree) => {
       this.sections[index] = { ...this.sections[index], tree };
       this.refreshConsoleIndicators();
     });
