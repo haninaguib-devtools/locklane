@@ -121,6 +121,16 @@ describe('OverviewTabComponent', () => {
     expect(c.recordUrl).not.toBe(c.issueUrl);
   });
 
+  it('uses main for the record url once the issue is closed/shipped, even with a branch', () => {
+    const c = component();
+    c.issue = issue({ number: 42, state: 'CLOSED' });
+    c.repoWebUrl = 'https://github.com/org/repo';
+    c.detail = detail({ branch: 'wip/163-slug', recordPath: 'docs/tasks/000100/163-slug.md' });
+    expect(c.recordUrl).toBe(
+      'https://github.com/org/repo/blob/main/docs/tasks/000100/163-slug.md',
+    );
+  });
+
   it('falls back to main for the record url when there is no branch yet', () => {
     const c = component();
     c.issue = issue({ number: 42 });

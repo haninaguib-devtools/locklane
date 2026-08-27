@@ -44,9 +44,13 @@ export class OverviewTabComponent {
   }
 
   get recordUrl(): string | null {
-    return this.repoWebUrl && this.detail?.recordPath
-      ? `${this.repoWebUrl}/blob/${this.detail.branch ?? 'main'}/${this.detail.recordPath}`
-      : null;
+    if (!this.repoWebUrl || !this.detail?.recordPath) {
+      return null;
+    }
+    // Once the issue ships, its wip/* branch is deleted (t-ship), so a shipped/closed
+    // issue always links against main even when the detail still carries the old branch.
+    const ref = this.issue.state === 'CLOSED' ? 'main' : (this.detail.branch ?? 'main');
+    return `${this.repoWebUrl}/blob/${ref}/${this.detail.recordPath}`;
   }
 
   checksLabel(detail: IssueDetail): string {
