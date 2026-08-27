@@ -1,7 +1,7 @@
 import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Subscription, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { Project, TreeNode } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
@@ -10,6 +10,8 @@ import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { ConsolesService, issueNumberFromSessionId, projectIssueKeyFromSessionId } from '../../services/consoles.service';
+import { ProjectConsoleService } from '../../services/project-console.service';
+import { AgentStore } from '../../services/agent-store';
 import { AppEvent, ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '../../services/events.service';
 import { AddProjectPopupComponent } from '../add-project-popup/add-project-popup.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
@@ -63,6 +65,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly projectSectionStore = inject(ProjectSectionStore);
   private readonly consolesService = inject(ConsolesService);
   private readonly eventsService = inject(EventsService);
+  private readonly projectConsoleService = inject(ProjectConsoleService);
+  private readonly agentStore = inject(AgentStore);
+  private readonly router = inject(Router);
 
   // Highlight only -- navigation is each row's own routerLink (#170), so selection
   // flows in from the URL and never back out through an event.
@@ -85,6 +90,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   private openMenuFor: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  // The project whose "+" is currently minting a console (#180) — guards the
+  // one-click entry against a double-click minting two sessions.
+  private startingConsoleFor: number | null = null;
 
   // "<projectId>:<issueNumber>" for every issue with at least one open console
   // (#108), refreshed whenever a console opens or closes anywhere in the app.
@@ -155,6 +163,34 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   onAddProjectClosed(): void {
     this.showAddProject = false;
+  }
+
+  // The header's one-click "+" (#180): mints a brand-new console session (#177) and
+  // lands on the project-console page with that console's tab active — the tab strip
+  // (#178) reads the `session` query param. One click means no agent picker; the new
+  // console gets the pickers' own default agent.
+  openNewConsole(projectId: number, event: Event): void {
+    event.stopPropagation();
+    if (this.startingConsoleFor !== null) {
+      return;
+    }
+    this.startingConsoleFor = projectId;
+    this.projectConsoleService.start(projectId).subscribe({
+      next: (session) => {
+        this.startingConsoleFor = null;
+        this.agentStore.set(session.sessionId, 'claude');
+        this.router.navigate(['/projects', projectId, 'console'], {
+          queryParams: { session: session.sessionId },
+        });
+      },
+      error: () => {
+        this.startingConsoleFor = null;
+      },
+    });
+  }
+
+  isStartingConsole(projectId: number): boolean {
+    return this.startingConsoleFor === projectId;
   }
 
   retryProject(projectId: number, event: Event): void {

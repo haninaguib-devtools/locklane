@@ -80,6 +80,18 @@
             {{ section.project.status === 'CLONING' ? 'cloning…' : 'failed' }}
           </span>
         }
+        @if (section.project.status === 'READY') {
+          <button
+            type="button"
+            class="new-console"
+            [disabled]="isStartingConsole(section.project.id)"
+            (click)="openNewConsole(section.project.id, $event)"
+            aria-label="Open a new console for this project"
+            title="Open a new console for this project"
+          >
+            +
+          </button>
+        }
       </div>
       @if (!isProjectCollapsed(section.project.id)) {
         @if (section.project.status === 'CLONING') {
