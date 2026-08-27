@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -16,8 +15,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,6 +62,9 @@ class EventsWebSocketHandlerIntegrationTest {
         assertThat(client.messages).allMatch(expected::equals);
 
         session.close();
+        // Leave the broadcaster's registry empty before finishing, so the other test's
+        // session-count waits only ever see that test's own session.
+        waitUntil(() -> eventBroadcaster.registeredSessionCount() == 0, Duration.ofSeconds(5));
     }
 
     @Test
@@ -73,14 +73,19 @@ class EventsWebSocketHandlerIntegrationTest {
                 "events-handler-b", "password-b");
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri());
+        // Registration is a server-side side effect with no signal back to this client;
+        // wait for it so the unregistration wait below observes this session leaving
+        // the registry, not the registry before it ever arrived.
+        waitUntil(() -> eventBroadcaster.registeredSessionCount() == 1, Duration.ofSeconds(5));
+
         session.close();
-        // session.isOpen() flips locally as soon as the client initiates the close; it
-        // says nothing about whether the server has processed the close frame and
-        // unregistered the session yet. The client's own afterConnectionClosed only
-        // fires once the server has echoed its close frame back, which the server can
-        // only do after running its own afterConnectionClosed (unregistering) first —
-        // so waiting on this is waiting on the server-side unregistration itself.
-        assertThat(client.closed.await(5, TimeUnit.SECONDS)).isTrue();
+        // No client-observable callback proves the server has unregistered the session:
+        // even the client's own afterConnectionClosed (what this test waited on before
+        // #167) can fire once the container-level close handshake completes, before the
+        // server's application-level afterConnectionClosed — the unregister — has
+        // finished running. Wait on the broadcaster's own registry, the state that
+        // actually gates delivery.
+        waitUntil(() -> eventBroadcaster.registeredSessionCount() == 0, Duration.ofSeconds(5));
 
         // Must not throw even though the only subscriber just disconnected.
         eventBroadcaster.broadcast("no.subscribers.left");
@@ -105,16 +110,10 @@ class EventsWebSocketHandlerIntegrationTest {
 
     private static class RecordingHandler extends TextWebSocketHandler {
         private final List<String> messages = new CopyOnWriteArrayList<>();
-        private final CountDownLatch closed = new CountDownLatch(1);
 
         @Override
         protected void handleTextMessage(WebSocketSession session, TextMessage message) {
             messages.add(message.getPayload());
-        }
-
-        @Override
-        public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-            closed.countDown();
         }
     }
 }
