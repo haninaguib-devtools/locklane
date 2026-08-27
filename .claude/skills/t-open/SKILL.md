@@ -28,8 +28,15 @@ decomposition deferred if unclear.
      design task whose merged output determines the rest. Never guess a decomposition at
      open time.
 3. Ensure the labels you need exist (`tracker:ensure-labels` for `initiative`, when
-   opening a tracking issue).
+   opening a tracking issue; for a task issue, the classification label from step 4).
 4. Create the issues (`tracker:create`, title short and imperative).
+
+   **Classify every task issue** (never a tracking issue — an initiative is a
+   coordination shape, not a bug/feature/docs kind, and already carries `initiative`):
+   pick the one closest-fitting label from the classification set in
+   `docs/adapters/TRACKER.md` and apply it (`tracker:label <id> <label>`) right after
+   creating the issue. Never leave a task issue unlabeled — pick the closest fit rather
+   than blocking on an exact match.
 
    Body template (omit empty sections):
 

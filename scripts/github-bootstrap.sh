@@ -12,6 +12,14 @@ label() { gh label create "$1" --color "$2" --description "$3" --force; }
 label "initiative" "8250DF" "Tracking issue: intent + ordered child tasks"
 label "cancelled"  "6E7781" "Task cancelled via /t-cancel — see the close comment for the reason"
 
+# Classification labels (docs/adapters/TRACKER.md): /t-open tags every task issue with
+# one of these. Colors/descriptions match GitHub's own repo-creation defaults so this is
+# idempotent whether or not those defaults already exist.
+label "bug"           "d73a4a" "Something isn't working"
+label "enhancement"   "a2eeef" "New feature or request"
+label "documentation" "0075ca" "Improvements or additions to documentation"
+label "question"      "d876e3" "Further information is requested"
+
 # --- Merge mechanics: squash only -------------------------------------------
 gh api "repos/$repo" -X PATCH \
   -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false \
