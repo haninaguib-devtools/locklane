@@ -4,8 +4,32 @@
 </div>
 @if (loading) {
   <div class="loading">loading…</div>
-} @else if (sessionId) {
-  <app-terminal [sessionId]="sessionId" [dir]="dir" [cmd]="agent" [active]="true" />
+} @else if (consoles.length) {
+  <app-console-tabs
+    [tabs]="tabs"
+    [selected]="selected"
+    [starting]="starting"
+    [overview]="false"
+    [locationChoice]="false"
+    (selectedChange)="selected = $event"
+    (open)="openFromTabs($event)"
+    (close)="closeConsole($event)"
+  />
+  @if (startError) {
+    <div class="action-error strip-error">could not start a console — try again</div>
+  }
+  @if (closeError) {
+    <div class="action-error strip-error">could not close that console — try again</div>
+  }
+  @for (console of consoles; track console.id) {
+    <app-terminal
+      [class.tab-hidden]="console.id !== selected"
+      [sessionId]="console.id"
+      [dir]="console.dir"
+      [cmd]="console.agent"
+      [active]="console.id === selected"
+    />
+  }
 } @else {
   <div class="starter">
     <p class="hint">

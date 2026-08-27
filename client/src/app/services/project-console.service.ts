@@ -16,25 +16,27 @@ export interface OpenProjectConsole {
 }
 
 /**
- * The project-level console session (#139/#140): one persistent agent session per
- * project, running in the project's own checkout rather than an issue worktree.
+ * Project-level console sessions (#139/#140): persistent agent sessions running in the
+ * project's own checkout rather than an issue worktree. Since #177 a project can have
+ * several open at once — start mints a fresh id every call, listOpen lists the open
+ * ones, and close ends one specific console.
  */
 @Injectable({ providedIn: 'root' })
 export class ProjectConsoleService {
   private readonly http = inject(HttpClient);
 
-  /** The project's console session, if one has actually been attached to before. 404 otherwise. */
-  find(projectId: number): Observable<ProjectConsoleSession> {
-    return this.http.get<ProjectConsoleSession>(`/api/projects/${projectId}/console`);
+  /** The project's open console sessions the caller may see, oldest first (#177). */
+  listOpen(projectId: number): Observable<OpenProjectConsole[]> {
+    return this.http.get<OpenProjectConsole[]>(`/api/projects/${projectId}/console/sessions`);
   }
 
-  /** Mints (or reports) the project's console session id and working directory. */
+  /** Mints a brand-new console session id and reports its working directory. */
   start(projectId: number): Observable<ProjectConsoleSession> {
     return this.http.post<ProjectConsoleSession>(`/api/projects/${projectId}/console`, {});
   }
 
-  /** The project's open console sessions the caller may see, oldest first (#177). */
-  listOpen(projectId: number): Observable<OpenProjectConsole[]> {
-    return this.http.get<OpenProjectConsole[]>(`/api/projects/${projectId}/console/sessions`);
+  /** Ends one specific console session for good. */
+  close(projectId: number, sessionId: string): Observable<void> {
+    return this.http.delete<void>(`/api/projects/${projectId}/console/${sessionId}`);
   }
 }

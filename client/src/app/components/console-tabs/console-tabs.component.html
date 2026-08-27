@@ -1,16 +1,18 @@
 <div class="tabs" role="tablist">
-  <span class="tab-wrap" [class.active]="overviewId === selected">
-    <button
-      type="button"
-      role="tab"
-      class="tab"
-      [class.active]="overviewId === selected"
-      [attr.aria-selected]="overviewId === selected"
-      (click)="select(overviewId)"
-    >
-      Overview
-    </button>
-  </span>
+  @if (overview) {
+    <span class="tab-wrap" [class.active]="overviewId === selected">
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        [class.active]="overviewId === selected"
+        [attr.aria-selected]="overviewId === selected"
+        (click)="select(overviewId)"
+      >
+        Overview
+      </button>
+    </span>
+  }
   @for (tab of tabs; track tab.id) {
     <span class="tab-wrap" [class.active]="tab.id === selected">
       <button
@@ -47,13 +49,15 @@
 
     @if (pickerOpen) {
       <div class="picker">
-        <div class="picker-group">
-          <span class="picker-label">where</span>
-          <button type="button" [class.chosen]="location === 'worktree'" (click)="location = 'worktree'">
-            worktree
-          </button>
-          <button type="button" [class.chosen]="location === 'main'" (click)="location = 'main'">main</button>
-        </div>
+        @if (locationChoice) {
+          <div class="picker-group">
+            <span class="picker-label">where</span>
+            <button type="button" [class.chosen]="location === 'worktree'" (click)="location = 'worktree'">
+              worktree
+            </button>
+            <button type="button" [class.chosen]="location === 'main'" (click)="location = 'main'">main</button>
+          </div>
+        }
         <app-agent-picker [agent]="agent" (agentChange)="agent = $event" />
         <button type="button" class="picker-open" (click)="confirmOpen()">open</button>
       </div>

@@ -259,7 +259,7 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
     flushConsoleIndicator();
-    httpMock.expectOne('/api/projects/1/console').flush(null, { status: 404, statusText: 'Not Found' });
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -305,7 +305,7 @@ describe('AppComponent', () => {
     (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.new-issue')!.click();
     tick();
     fixture.detectChanges();
-    httpMock.expectOne('/api/projects/1/console').flush(null, { status: 404, statusText: 'Not Found' });
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/console');

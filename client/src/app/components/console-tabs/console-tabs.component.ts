@@ -22,6 +22,11 @@ export class ConsoleTabsComponent {
   @Input() tabs: ConsoleTab[] = [];
   @Input() selected: string | null = null;
   @Input() starting = false;
+  // The issue page pins an Overview tab first and lets "+" choose main vs
+  // worktree; the project-console page (#178) has neither — no overview, and
+  // every console runs in the project's own checkout.
+  @Input() overview = true;
+  @Input() locationChoice = true;
   @Output() selectedChange = new EventEmitter<string>();
   @Output() open = new EventEmitter<OpenConsoleRequest>();
   @Output() close = new EventEmitter<string>();
