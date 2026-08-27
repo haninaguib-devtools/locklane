@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { routes } from './app.routes';
 import { AuthService } from './services/auth.service';
+import { EventsService } from './services/events.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -15,5 +16,8 @@ export const appConfig: ApplicationConfig = {
     // bounces a still-authenticated user to the login page. checkSession never
     // errors, so a dead engine just renders the login page as before.
     provideAppInitializer(() => firstValueFrom(inject(AuthService).checkSession())),
+    // Opens the app-wide events channel (#128) as soon as the app boots; it manages
+    // its own reconnects from here on, so nothing else needs to call connect() again.
+    provideAppInitializer(() => inject(EventsService).connect()),
   ],
 };
