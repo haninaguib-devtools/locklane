@@ -1,5 +1,5 @@
 import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
-import { GhIssue, IssueDetail } from '../../models/issue.model';
+import { GhIssue, IssueDetail, ResumeSession } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { AgentStore } from '../../services/agent-store';
@@ -16,11 +16,15 @@ import { repoWebUrl } from './repo-web-url';
 
 // One console tab's client-side state. `dir` is only known for a session this
 // page just started — reconnects leave it null and the engine resolves the
-// working directory from its own records.
+// working directory from its own records. `resume` is set only on a console
+// this page just reopened from a past conversation (#103): it makes the first
+// attach launch the tool's resume command instead of a blank session, and is
+// irrelevant after that (a reattach reaches the process already running).
 interface OpenConsole {
   id: string;
   dir: string | null;
   agent: string | null;
+  resume: string | null;
 }
 
 @Component({
@@ -53,6 +57,7 @@ export class MainContentComponent implements OnChanges {
 
   issue: GhIssue | null = null;
   detail: IssueDetail | null = null;
+  resumeSessions: ResumeSession[] = [];
   repoWebUrl: string | null = null;
   activeTab: string = OVERVIEW_TAB_ID;
   consoles: OpenConsole[] = [];
@@ -89,6 +94,7 @@ export class MainContentComponent implements OnChanges {
   private load(projectId: number, number: number): void {
     this.issue = null;
     this.detail = null;
+    this.resumeSessions = [];
     this.repoWebUrl = null;
     this.activeTab = OVERVIEW_TAB_ID;
     this.consoles = [];
@@ -103,12 +109,15 @@ export class MainContentComponent implements OnChanges {
     this.issuesService.detail(projectId, number).subscribe((detail) => {
       this.detail = detail;
     });
+    this.issuesService.resumeSessions(projectId, number).subscribe((sessions) => {
+      this.resumeSessions = sessions;
+    });
     this.projectsService.list().subscribe((projects) => {
       const project = projects.find((p) => p.id === projectId);
       this.repoWebUrl = project ? repoWebUrl(project.gitUrl) : null;
     });
     this.issuesService.worktrees(projectId, number).subscribe((ids) => {
-      this.consoles = ids.map((id) => ({ id, dir: null, agent: this.agentStore.get(id) }));
+      this.consoles = ids.map((id) => ({ id, dir: null, agent: this.agentStore.get(id), resume: null }));
       const remembered = this.activeConsoleStore.get(number);
       this.selectedConsole = remembered && ids.includes(remembered) ? remembered : (ids[0] ?? null);
       this.relabel();
@@ -138,11 +147,38 @@ export class MainContentComponent implements OnChanges {
           this.agentStore.set(worktreeId, request.agent);
           this.consoles = [
             ...this.consoles,
-            { id: worktreeId, dir: workingDirectory, agent: request.agent },
+            { id: worktreeId, dir: workingDirectory, agent: request.agent, resume: null },
           ];
           this.relabel();
           this.consolesService.notifyOpened();
         }
+        this.selectConsole(worktreeId);
+        this.starting = false;
+      },
+      error: () => {
+        this.starting = false;
+        this.startError = true;
+      },
+    });
+  }
+
+  /**
+   * Reopens a past conversation (#103): the engine mints a brand-new session in
+   * the original console's working directory, and the first attach launches the
+   * tool's resume command (`claude --resume <id>` / `codex resume <id>`).
+   */
+  reopenSession(session: ResumeSession): void {
+    this.starting = true;
+    this.startError = false;
+    this.issuesService.reopenSession(this.projectId, this.issueNumber, session.worktreeId).subscribe({
+      next: ({ worktreeId, workingDirectory }) => {
+        this.agentStore.set(worktreeId, session.tool);
+        this.consoles = [
+          ...this.consoles,
+          { id: worktreeId, dir: workingDirectory, agent: session.tool, resume: session.resumeId },
+        ];
+        this.relabel();
+        this.consolesService.notifyOpened();
         this.selectConsole(worktreeId);
         this.starting = false;
       },

@@ -18,6 +18,9 @@ export class TerminalSession {
     private readonly sessionId: string,
     private readonly dir: string | null,
     private readonly cmd: string | null = null,
+    // A past conversation to resume (#103) — only meaningful with a claude/codex
+    // cmd on a brand-new session; the server composes the actual resume command.
+    private readonly resume: string | null = null,
     private readonly cols: number | null = null,
     private readonly rows: number | null = null,
     // Whether this tab is the visible one at connect time (#130) -- if so, a focus
@@ -35,6 +38,9 @@ export class TerminalSession {
     }
     if (this.cmd) {
       params.set('cmd', this.cmd);
+    }
+    if (this.resume) {
+      params.set('resume', this.resume);
     }
     if (this.cols) {
       params.set('cols', String(this.cols));

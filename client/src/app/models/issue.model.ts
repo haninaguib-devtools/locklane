@@ -43,6 +43,17 @@ export interface TreeNode {
   children: TreeNode[];
 }
 
+// Mirrors dev.locklane.engine.persistence.WorktreeController.ResumeSessionView:
+// one past Claude/Codex conversation captured in one of the issue's consoles
+// (#102), reopenable from the Overview tab (#103). `worktreeId` is the console
+// the conversation was captured in, not a console to attach to.
+export interface ResumeSession {
+  worktreeId: string;
+  tool: 'claude' | 'codex';
+  resumeId: string;
+  capturedAt: string;
+}
+
 // Mirrors dev.locklane.engine.persistence.ProjectController.ProjectView.
 export interface Project {
   id: number;

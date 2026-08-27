@@ -138,6 +138,7 @@ describe('AppComponent', () => {
     // same change-detection pass as the sidenav and flushSidenav() already
     // flushed it alongside the sidenav's own -- so 0 or 1, never asserted at 1.
     httpMock.match('/api/projects').forEach((request) => request.flush([PROJECT]));
+    httpMock.expectOne(`/api/projects/1/issues/${number}/resume-sessions`).flush([]);
     httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush([]);
   }
 

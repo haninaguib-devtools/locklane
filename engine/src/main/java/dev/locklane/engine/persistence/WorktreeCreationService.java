@@ -37,12 +37,14 @@ public class WorktreeCreationService {
     private final ProjectGhResources ghResources;
     private final IssueWorktreeService issueWorktreeService;
     private final ProjectRepository projectRepository;
+    private final WorktreeSessionRepository sessionRepository;
 
     public WorktreeCreationService(ProjectGhResources ghResources, IssueWorktreeService issueWorktreeService,
-            ProjectRepository projectRepository) {
+            ProjectRepository projectRepository, WorktreeSessionRepository sessionRepository) {
         this.ghResources = ghResources;
         this.issueWorktreeService = issueWorktreeService;
         this.projectRepository = projectRepository;
+        this.sessionRepository = sessionRepository;
     }
 
     /**
@@ -97,11 +99,14 @@ public class WorktreeCreationService {
         Path worktreePath = projectRoot.resolveSibling(repoName(projectRoot) + "-" + issueNumber);
 
         // Excludes main-checkout session ids (shaped "<projectId>-<issueNumber>-main-<suffix>",
-        // minted just above): they match the project/issue prefix but were never a worktree.
+        // minted just above) and reopened-conversation ids ("...-resume-<suffix>", minted
+        // by reopenSession): they match the project/issue prefix but are not the issue's
+        // one reusable worktree session.
         String mainSessionPrefix = projectId + "-" + issueNumber + "-main-";
+        String resumeSessionPrefix = projectId + "-" + issueNumber + "-resume-";
         List<String> existing = issueWorktreeService.worktreeIdsForIssue(projectId, issueNumber, requestingUsername)
                 .stream()
-                .filter(id -> !id.startsWith(mainSessionPrefix))
+                .filter(id -> !id.startsWith(mainSessionPrefix) && !id.startsWith(resumeSessionPrefix))
                 .toList();
         if (!existing.isEmpty()) {
             return Optional.of(new StartedSession(existing.get(0), worktreePath.toString()));
@@ -120,6 +125,52 @@ public class WorktreeCreationService {
             createWorktree(branch, worktreePath, projectRoot);
         }
         return Optional.of(new StartedSession(worktreeId, worktreePath.toString()));
+    }
+
+    /**
+     * Mints a brand-new session for reopening a past Claude/Codex conversation
+     * (#103) next to the console it was captured in — never a reattach: the
+     * original console may still be running, and the point is a second console
+     * resuming the same conversation. The new session runs in the original
+     * console's working directory, because Claude keys stored conversations by
+     * directory: the original session's recorded directory when that record still
+     * exists, otherwise re-derived from the id's shape — the project's main
+     * checkout for a "...-main-..." console, the issue's worktree path (recreated
+     * if it is gone) for anything else. The minted id keeps the original's shape
+     * ("-main-" stays "-main-", a worktree console becomes "-resume-") so it lists
+     * under the issue like any other console without ever being mistaken for the
+     * issue's one reusable worktree session. Empty when the project is not ready
+     * or {@code originalWorktreeId} does not belong to this project's issue.
+     */
+    public Optional<StartedSession> reopenSession(long projectId, int issueNumber, String originalWorktreeId) {
+        Optional<ProjectRecord> project = projectRepository.findById(projectId);
+        if (project.isEmpty() || project.get().status() != ProjectStatus.READY) {
+            return Optional.empty();
+        }
+        if (!originalWorktreeId.startsWith(projectId + "-" + issueNumber + "-")) {
+            return Optional.empty();
+        }
+        Path projectRoot = project.get().workareaPath();
+        boolean mainShaped = originalWorktreeId.startsWith(projectId + "-" + issueNumber + "-main-");
+        String sessionId = projectId + "-" + issueNumber + (mainShaped ? "-main-" : "-resume-") + shortId();
+
+        Optional<Path> recordedDirectory = sessionRepository.find(originalWorktreeId)
+                .map(WorktreeSessionRecord::workingDirectory);
+        if (recordedDirectory.isPresent()) {
+            return Optional.of(new StartedSession(sessionId, recordedDirectory.get().toString()));
+        }
+        if (mainShaped) {
+            return Optional.of(new StartedSession(sessionId, projectRoot.toString()));
+        }
+        Path worktreePath = projectRoot.resolveSibling(repoName(projectRoot) + "-" + issueNumber);
+        if (!Files.exists(worktreePath)) {
+            Optional<GhIssue> issue = issue(projectId, issueNumber);
+            if (issue.isEmpty()) {
+                return Optional.empty();
+            }
+            createWorktree("wip/" + issueNumber + "-" + slug(issue.get().title()), worktreePath, projectRoot);
+        }
+        return Optional.of(new StartedSession(sessionId, worktreePath.toString()));
     }
 
     private Optional<GhIssue> issue(long projectId, int issueNumber) {

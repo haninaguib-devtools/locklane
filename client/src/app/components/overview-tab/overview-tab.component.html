@@ -27,6 +27,12 @@
   } @else {
     <p class="loading">loading…</p>
   }
+  @if (sessions.length) {
+    <div class="sessions-card">
+      <h3 class="sessions-title">past sessions</h3>
+      <app-session-list [sessions]="sessions" [busy]="busy" (reopen)="reopen.emit($event)" />
+    </div>
+  }
   @if (bodyHtml) {
     <div class="body-card">
       <div class="body" [innerHTML]="bodyHtml"></div>

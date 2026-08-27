@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { IssuesService } from './issues.service';
-import { GhIssue, IssueDetail, TreeNode } from '../models/issue.model';
+import { GhIssue, IssueDetail, ResumeSession, TreeNode } from '../models/issue.model';
 
 describe('IssuesService', () => {
   let service: IssuesService;
@@ -118,6 +118,35 @@ describe('IssuesService', () => {
     const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/5/worktrees');
     expect(req.request.params.get('worktree')).toBe('false');
     req.flush({ worktreeId: '1-5-main-a1b2c3d4', workingDirectory: '/tmp/repo' });
+  });
+
+  it('fetches past sessions from GET /api/projects/{projectId}/issues/{number}/resume-sessions (#103)', () => {
+    const sessions: ResumeSession[] = [
+      {
+        worktreeId: '1-5-slug',
+        tool: 'claude',
+        resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        capturedAt: '2026-08-27T10:00:00Z',
+      },
+    ];
+    service.resumeSessions(1, 5).subscribe((result) => expect(result).toEqual(sessions));
+
+    const req = httpMock.expectOne('/api/projects/1/issues/5/resume-sessions');
+    expect(req.request.method).toBe('GET');
+    req.flush(sessions);
+  });
+
+  it('reopens a past session via POST .../resume-sessions/reopen with the original console id (#103)', () => {
+    service
+      .reopenSession(1, 5, '1-5-slug')
+      .subscribe((result) =>
+        expect(result).toEqual({ worktreeId: '1-5-resume-a1b2c3d4', workingDirectory: '/tmp/repo-5' }),
+      );
+
+    const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/5/resume-sessions/reopen');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.params.get('from')).toBe('1-5-slug');
+    req.flush({ worktreeId: '1-5-resume-a1b2c3d4', workingDirectory: '/tmp/repo-5' });
   });
 
   it('closes a session via DELETE /api/projects/{projectId}/issues/{number}/worktrees/{worktreeId}', () => {

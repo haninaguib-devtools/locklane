@@ -182,6 +182,89 @@ class WorktreeCreationServiceTest {
                 .isNotEqualTo(forB.map(WorktreeCreationService.StartedSession::workingDirectory));
     }
 
+    @Test
+    void aReopenedSessionIsNeverMistakenForTheReusableWorktreeSession(@TempDir Path tmp) throws Exception {
+        Path projectRoot = initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(9, "Reopen target", "OPEN", List.of(), "", "", "");
+        repository.recordAttach(projectId + "-9-resume-a1b2c3d4", tmp.resolve("wt"), Instant.now(), null);
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> result = service.startSession(projectId, 9);
+
+        // A fresh worktree is created rather than the "-resume-" session being reused.
+        assertThat(result).map(WorktreeCreationService.StartedSession::worktreeId)
+                .contains(projectId + "-9-reopen-target");
+    }
+
+    @Test
+    void reopeningMintsAFreshIdInTheOriginalConsolesRecordedDirectory(@TempDir Path tmp) throws Exception {
+        Path projectRoot = initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        Path recordedDir = tmp.resolve("still-open-console-dir");
+        String originalId = projectId + "-9-reopen-target";
+        repository.recordAttach(originalId, recordedDir, Instant.now(), null);
+        WorktreeCreationService service = service(repository, projectRepository, List.of());
+
+        Optional<WorktreeCreationService.StartedSession> result = service.reopenSession(projectId, 9, originalId);
+
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .contains(recordedDir.toString());
+        assertThat(result).map(WorktreeCreationService.StartedSession::worktreeId).get().asString()
+                .startsWith(projectId + "-9-resume-").isNotEqualTo(originalId);
+    }
+
+    @Test
+    void reopeningAClosedMainConsoleUsesTheProjectCheckoutAndAMainShapedId(@TempDir Path tmp) throws Exception {
+        Path projectRoot = initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        WorktreeCreationService service = service(repository, projectRepository, List.of());
+
+        // No session record exists any more — the original console was closed (#75).
+        Optional<WorktreeCreationService.StartedSession> result =
+                service.reopenSession(projectId, 9, projectId + "-9-main-deadbeef");
+
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .contains(projectRoot.toString());
+        assertThat(result).map(WorktreeCreationService.StartedSession::worktreeId).get().asString()
+                .startsWith(projectId + "-9-main-");
+    }
+
+    @Test
+    void reopeningAClosedWorktreeConsoleRecreatesTheWorktreeWhenItIsGone(@TempDir Path tmp) throws Exception {
+        Path projectRoot = initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(9, "Reopen target", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> result =
+                service.reopenSession(projectId, 9, projectId + "-9-reopen-target");
+
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-9");
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .contains(worktreePath.toString());
+        assertThat(worktreePath).isDirectory();
+    }
+
+    @Test
+    void reopeningAnIdFromAnotherIssueIsEmpty(@TempDir Path tmp) throws Exception {
+        Path projectRoot = initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        WorktreeCreationService service = service(repository, projectRepository, List.of());
+
+        assertThat(service.reopenSession(projectId, 9, projectId + "-8-other-issue")).isEmpty();
+    }
+
     private static ProjectRecord readyProject(ProjectRepository projectRepository, Path projectRoot) {
         return projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", Instant.now());
     }
@@ -191,7 +274,7 @@ class WorktreeCreationServiceTest {
         IssueWorktreeService worktreeService = new IssueWorktreeService(repository);
         ProjectGhResources ghResources =
                 new ProjectGhResources(projectRepository, tokenCipher(), (path, token) -> new FixedGhClient(issues));
-        return new WorktreeCreationService(ghResources, worktreeService, projectRepository);
+        return new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository);
     }
 
     private static TokenCipher tokenCipher() {
