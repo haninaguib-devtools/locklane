@@ -10,9 +10,9 @@
       [attr.aria-label]="
         'Open consoles, ' + count + ' ' + (count === 1 ? 'session' : 'sessions') + (hasWaitingEntry() ? ', waiting for you' : '')
       "
-      (click)="toggle()"
+      (click)="onTriggerClick()"
     >
-      consoles ({{ count }})
+      {{ count === 1 ? 'console' : 'consoles (' + count + ')' }}
     </button>
 
     @if (open()) {
