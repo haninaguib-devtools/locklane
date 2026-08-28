@@ -7,6 +7,7 @@ import { ProjectConsoleComponent } from './project-console.component';
 import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
+import { LastConsoleStore } from '../../services/last-console-store';
 import { TerminalComponent } from '../terminal/terminal.component';
 
 describe('ProjectConsoleComponent', () => {
@@ -14,6 +15,7 @@ describe('ProjectConsoleComponent', () => {
 
   beforeEach(() => {
     localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.lastConsole');
     TestBed.configureTestingModule({
       imports: [ProjectConsoleComponent],
       // The wildcard route lets tests navigate to a URL carrying the ?session
@@ -30,6 +32,7 @@ describe('ProjectConsoleComponent', () => {
   afterEach(() => {
     httpMock.verify();
     localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.lastConsole');
   });
 
   function init(projectId = 1): ReturnType<typeof TestBed.createComponent<ProjectConsoleComponent>> {
@@ -141,6 +144,24 @@ describe('ProjectConsoleComponent', () => {
     expect(terminals[1].classList.contains('tab-hidden')).toBeFalse();
   });
 
+  it('records the selected tab as this project\'s most recently interacted-with console (#221)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([
+      row('1-console-a1b2c3d4', '2026-08-27T11:00:00Z'),
+      row('1-console-e5f6a7b8', '2026-08-27T10:00:00Z'),
+    ]);
+    fixture.detectChanges();
+    // Loading itself selects one -- via ?session or lastAttachedAt -- so that
+    // counts as an interaction too.
+    expect(TestBed.inject(LastConsoleStore).get(1)).toBe('1-console-a1b2c3d4');
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    compiled.querySelectorAll<HTMLButtonElement>('.tab')[1].click();
+    fixture.detectChanges();
+
+    expect(TestBed.inject(LastConsoleStore).get(1)).toBe('1-console-e5f6a7b8');
+  });
+
   it('labels a tab with the agent this browser launched it with', () => {
     TestBed.inject(AgentStore).set('1-console-a1b2c3d4', 'codex');
     const fixture = init();
@@ -181,6 +202,7 @@ describe('ProjectConsoleComponent', () => {
     const terminal = fixture.debugElement.query(By.directive(TerminalComponent));
     expect(terminal.componentInstance.cmd).toBe('codex');
     expect(TestBed.inject(AgentStore).get('1-console-a1b2c3d4')).toBe('codex');
+    expect(TestBed.inject(LastConsoleStore).get(1)).toBe('1-console-a1b2c3d4');
     // #194: the header consoles widget must learn about it.
     expect(opened).toHaveBeenCalled();
   });

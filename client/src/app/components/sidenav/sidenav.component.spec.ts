@@ -382,30 +382,6 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 4]);
   });
 
-  it('openAddProject shows the popup, onAddProjectClosed hides it', () => {
-    const fixture = init();
-    flushTree(1, tree());
-
-    expect(fixture.componentInstance.showAddProject).toBeFalse();
-    fixture.componentInstance.openAddProject();
-    expect(fixture.componentInstance.showAddProject).toBeTrue();
-
-    fixture.componentInstance.onAddProjectClosed();
-    expect(fixture.componentInstance.showAddProject).toBeFalse();
-  });
-
-  it('onProjectCreated hides the popup and refreshes the project list', () => {
-    const fixture = init();
-    flushTree(1, tree());
-    fixture.componentInstance.openAddProject();
-
-    fixture.componentInstance.onProjectCreated();
-
-    expect(fixture.componentInstance.showAddProject).toBeFalse();
-    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
-    flushTree(1, tree());
-  });
-
   it('a project still cloning shows a cloning state instead of its tree', () => {
     const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
     const fixture = init([cloning]);
@@ -719,12 +695,32 @@ describe('SidenavComponent', () => {
       queryParams: { session: 'proj-1-console-abc' },
     });
     expect(emitted).toEqual([]);
-    // The one-click entry has no agent picker: the new console gets the default agent.
+    // The one-click entry has no agent picker: the new console gets the Settings
+    // default agent (#219), 'claude' when nothing else was chosen there.
     expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('claude');
     // #194: the header consoles widget must learn about it, the same way any other
     // newly opened console is announced.
     expect(opened).toHaveBeenCalled();
     localStorage.removeItem('locklane.sessionAgents');
+  });
+
+  it('the header "+" uses the Settings default agent instead of hardcoding claude (#221)', () => {
+    localStorage.removeItem('locklane.sessionAgents');
+    localStorage.setItem('locklane.defaultAgent', 'codex');
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    (fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement).click();
+    httpMock
+      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
+      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+    flushConsoles();
+
+    expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('codex');
+    localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.defaultAgent');
   });
 
   it('the "+" ignores further clicks while a console is still being minted (#180)', () => {

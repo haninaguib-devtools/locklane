@@ -12,8 +12,8 @@ import { ProjectSectionStore } from '../../services/project-section-store';
 import { ConsolesService, issueNumberFromSessionId, projectIssueKeyFromSessionId } from '../../services/consoles.service';
 import { ProjectConsoleService } from '../../services/project-console.service';
 import { AgentStore } from '../../services/agent-store';
+import { DefaultAgentStore } from '../../services/default-agent-store';
 import { AppEvent, ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '../../services/events.service';
-import { AddProjectPopupComponent } from '../add-project-popup/add-project-popup.component';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
@@ -61,14 +61,7 @@ interface PinnedGroup {
 @Component({
   selector: 'app-sidenav',
   standalone: true,
-  imports: [
-    FormsModule,
-    NgTemplateOutlet,
-    RouterLink,
-    AddProjectPopupComponent,
-    ConfirmDialogComponent,
-    UsageWidgetComponent,
-  ],
+  imports: [FormsModule, NgTemplateOutlet, RouterLink, ConfirmDialogComponent, UsageWidgetComponent],
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })
@@ -82,6 +75,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly eventsService = inject(EventsService);
   private readonly projectConsoleService = inject(ProjectConsoleService);
   private readonly agentStore = inject(AgentStore);
+  private readonly defaultAgentStore = inject(DefaultAgentStore);
   private readonly router = inject(Router);
 
   // Highlight only -- navigation is each row's own routerLink (#170), so selection
@@ -96,8 +90,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
   loading = true;
   refreshing = false;
   error = false;
-
-  showAddProject = false;
 
   // Neither persists across reloads, matching the old app (#22's Goal).
   filterText = '';
@@ -178,23 +170,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.load(() => (this.refreshing = false));
   }
 
-  openAddProject(): void {
-    this.showAddProject = true;
-  }
-
-  onProjectCreated(): void {
-    this.showAddProject = false;
-    this.refresh();
-  }
-
-  onAddProjectClosed(): void {
-    this.showAddProject = false;
-  }
-
   // The header's one-click "+" (#180): mints a brand-new console session (#177) and
-  // lands on the project-console page with that console's tab active — the tab strip
+  // lands on the project console page with that console's tab active — the tab strip
   // (#178) reads the `session` query param. One click means no agent picker; the new
-  // console gets the pickers' own default agent.
+  // console gets the Settings default agent (#219) instead.
   openNewConsole(projectId: number, event: Event): void {
     event.stopPropagation();
     if (this.startingConsoleFor !== null) {
@@ -204,7 +183,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.projectConsoleService.start(projectId).subscribe({
       next: (session) => {
         this.startingConsoleFor = null;
-        this.agentStore.set(session.sessionId, 'claude');
+        this.agentStore.set(session.sessionId, this.defaultAgentStore.agent());
         this.consolesService.notifyOpened();
         this.router.navigate(['/projects', projectId, 'console'], {
           queryParams: { session: session.sessionId },

@@ -8,6 +8,7 @@ import { AuthService } from './services/auth.service';
 import { SidenavComponent } from './components/sidenav/sidenav.component';
 import { Project } from './models/issue.model';
 import { UsageSnapshot } from './models/usage.model';
+import { OpenProjectConsole } from './services/project-console.service';
 import { routes } from './app.routes';
 
 describe('AppComponent', () => {
@@ -109,6 +110,15 @@ describe('AppComponent', () => {
     flushUsageWidget();
   }
 
+  /**
+   * The project summary's own console button (#221) fetches the project's open
+   * consoles once it learns the project is READY -- only once flushSidenavAndSummary
+   * has resolved that project-list fetch.
+   */
+  function flushProjectConsoleSessions(sessions: OpenProjectConsole[] = []): void {
+    httpMock.expectOne('/api/projects/1/console/sessions').flush(sessions);
+  }
+
   function flushIssue(number: number): void {
     httpMock.expectOne(`/api/projects/1/issues/${number}`).flush({
       number,
@@ -180,7 +190,7 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
-  it('shows the "select a project" empty state at "/" when logged in with no projects (#197)', fakeAsync(() => {
+  it('shows the zero-project empty state at "/" when logged in with no projects (#197, #227)', fakeAsync(() => {
     logIn();
     TestBed.inject(Router).navigateByUrl('/');
     tick();
@@ -194,7 +204,39 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('select a project to begin');
+    expect(compiled.textContent).toContain('No projects yet');
+  }));
+
+  it('the zero-state CTA opens the same add-project popup as the header, and creating refreshes both the sidenav and the overview (#227)', fakeAsync(() => {
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    let lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([]));
+    flushUsageWidget();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('app-add-project-popup')).toBeFalsy();
+    compiled.querySelector<HTMLButtonElement>('.zero-cta')!.click();
+    fixture.detectChanges();
+    expect(compiled.querySelector('app-add-project-popup')).toBeTruthy();
+
+    fixture.componentInstance.onProjectCreated();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-add-project-popup')).toBeFalsy();
+    lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([PROJECT]));
+    const trees = httpMock.match('/api/projects/1/issues/tree');
+    expect(trees.length).toBe(2);
+    trees.forEach((request) => request.flush([]));
+    httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
   }));
 
   it('shows the project summary until an issue is selected (#85)', fakeAsync(() => {
@@ -204,6 +246,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
     fixture.detectChanges();
 
@@ -230,6 +273,7 @@ describe('AppComponent', () => {
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/issues');
     httpMock.expectOne('/api/projects').flush([PROJECT]);
+    flushProjectConsoleSessions();
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     fixture.detectChanges();
 
@@ -245,6 +289,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
 
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
@@ -266,6 +311,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
 
     // What a sidenav row's routerLink (#170) does on a left-click.
@@ -302,49 +348,35 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
-  it('loading /projects/:projectId/consoles directly shows the consoles page (#179)', fakeAsync(() => {
-    logIn();
-    TestBed.inject(Router).navigateByUrl('/projects/1/consoles');
-    tick();
-
-    const fixture = TestBed.createComponent(AppComponent);
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.onConsolesPage()).toBeTrue();
-    expect(fixture.componentInstance.onProjectConsole()).toBeFalse();
-    httpMock.expectOne('/api/projects').flush([PROJECT]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
-    flushUsageWidget();
-    flushConsoleIndicator();
-    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
-    fixture.detectChanges();
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-consoles-page')).toBeTruthy();
-    expect(compiled.querySelector('app-project-console')).toBeFalsy();
-    expect(compiled.querySelector('app-main-content')).toBeFalsy();
-    expect(compiled.querySelector('app-project-summary')).toBeFalsy();
-  }));
-
-  it('the project summary\'s consoles link (#180) navigates to the consoles page, which the sidenav shows as still on that project', fakeAsync(() => {
+  it('the project summary\'s console button (#221) jumps into an already-open console, and the sidenav still shows the project selected', fakeAsync(() => {
     logIn();
     navigateToProjectSummary();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions([
+      {
+        sessionId: 'proj-1-console-abc',
+        workingDirectory: '/tmp/proj',
+        createdAt: '2026-08-27T09:00:00Z',
+        lastAttachedAt: '2026-08-27T09:00:00Z',
+      },
+    ]);
     flushConsoleIndicator();
     fixture.detectChanges();
 
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('.consoles-link')!.click();
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
+    expect(button.textContent?.trim()).toBe('Open consoles');
+    button.click();
     tick();
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
 
-    expect(TestBed.inject(Router).url).toBe('/projects/1/consoles');
+    expect(TestBed.inject(Router).url).toBe('/projects/1/console?session=proj-1-console-abc');
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-consoles-page')).toBeTruthy();
+    expect(compiled.querySelector('app-project-console')).toBeTruthy();
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
     expect(sidenav.componentInstance.selectedProject).toBe(1);
   }));
@@ -373,6 +405,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
 
     // What a sidenav row's routerLink (#170) does on a left-click.
@@ -392,6 +425,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
 
     fixture.componentInstance.logout();
@@ -413,6 +447,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
     return fixture;
   }
@@ -424,6 +459,31 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('.logout')).toBeFalsy();
     expect(compiled.querySelector('.avatar')?.textContent?.trim()).toBe('s');
     expect(compiled.querySelector('.account-menu')).toBeFalsy();
+  }));
+
+  it('opens the add-project popup from the header button, next to the account menu (#227)', fakeAsync(() => {
+    const fixture = openedApp();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    expect(compiled.querySelector('app-add-project-popup')).toBeFalsy();
+    compiled.querySelector<HTMLButtonElement>('.add-project')!.click();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-add-project-popup')).toBeTruthy();
+  }));
+
+  it('creating a project from the header popup closes it and refreshes the sidenav (#227)', fakeAsync(() => {
+    const fixture = openedApp();
+    fixture.componentInstance.openAddProject();
+    fixture.detectChanges();
+
+    fixture.componentInstance.onProjectCreated();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.showAddProject).toBeFalse();
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
   }));
 
   it('toggles the account menu from the avatar, showing the username, a separator, Settings and Sign out', fakeAsync(() => {

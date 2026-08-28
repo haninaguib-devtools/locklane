@@ -1,10 +1,17 @@
-<section class="overview">
+<section class="overview" [class.zero]="!loading && !error && rows.length === 0">
   @if (loading) {
     <div class="state">loading…</div>
   } @else if (error) {
     <div class="state">could not load the workspace overview</div>
   } @else if (rows.length === 0) {
-    <div class="empty-state">select a project to begin</div>
+    <div class="zero-state">
+      <div class="zero-content">
+        <div class="zero-eyebrow">LockLane</div>
+        <h1>No projects yet</h1>
+        <p>Add a repository to start tracking its issues here.</p>
+        <button type="button" class="zero-cta" (click)="addProject.emit()">+ Add a project</button>
+      </div>
+    </div>
   } @else {
     <h1>Overview</h1>
 

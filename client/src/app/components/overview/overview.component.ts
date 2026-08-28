@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, EventEmitter, OnInit, Output, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { Project, TreeNode } from '../../models/issue.model';
@@ -28,11 +28,20 @@ export class OverviewComponent implements OnInit {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
 
+  // Emitted by the zero-project empty state's CTA (#227) -- opening the add-project
+  // popup is AppComponent's job, since it's also the header button's opener.
+  @Output() addProject = new EventEmitter<void>();
+
   rows: ProjectOverviewRow[] = [];
   loading = true;
   error = false;
 
   ngOnInit(): void {
+    this.load();
+  }
+
+  /** Re-fetches the workspace's project list (#227), e.g. after one is added elsewhere. */
+  refresh(): void {
     this.load();
   }
 

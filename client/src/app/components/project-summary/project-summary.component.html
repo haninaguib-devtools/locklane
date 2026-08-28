@@ -10,7 +10,9 @@
         {{ project.status.toLowerCase() }}
       </span>
       @if (project.status === 'READY') {
-        <a class="consoles-link" [routerLink]="['/projects', projectId, 'consoles']">open consoles</a>
+        <button type="button" class="console-button" [disabled]="startingConsole" (click)="onConsoleButtonClick()">
+          {{ consoleButtonLabel }}
+        </button>
       }
       <button type="button" class="delete-project" [disabled]="deleting" (click)="openDeleteConfirm()">
         {{ deleting ? 'deleting…' : 'delete project' }}
@@ -19,6 +21,10 @@
 
     @if (deleteError; as message) {
       <p class="delete-error">{{ message }}</p>
+    }
+
+    @if (consoleError) {
+      <div class="action-error">could not start a console — try again</div>
     }
 
     @if (counts; as c) {
