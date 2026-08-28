@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="locklane gives each GitHub issue a persistent, reattachable terminal running Claude, Codex, or a shell in its own git worktree.">
+<meta name="description" content="locklane is an IDE for the AI age: work several initiatives at once as product manager and designer, while agents do the implementation in their own git worktrees.">
 <meta name="theme-color" content="#ffffff">
 <title>locklane</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -38,12 +38,13 @@
   <section class="hero" id="top" aria-labelledby="hero-title">
     <div class="hero-copy">
       <p class="eyebrow">locklane</p>
-      <h1 id="hero-title">A browser workspace for AI coding agents</h1>
-      <p class="hero-status">Spring Boot engine · Angular PWA client</p>
-      <p class="hero-summary">Each GitHub issue can open one or more consoles — long-lived terminal
-        sessions that keep running on the server after the tab closes. A background thread drains a
-        session's output continuously, so reattaching from any browser replays everything produced
-        while you were away and picks the conversation back up.</p>
+      <h1 id="hero-title">An IDE for the AI age</h1>
+      <p class="hero-status">Work several initiatives at once, without losing your place in any of them.</p>
+      <p class="hero-summary">Work is represented as GitHub issues or Jira tickets — whatever a
+        team already tracks in. The developer stays the product manager and designer, deciding
+        scope and direction; agents (Claude, Codex, or a plain shell) do the implementation, each
+        in its own git worktree so parallel initiatives never collide. Every console is a
+        long-lived terminal that keeps running after the tab closes, reattachable from any browser.</p>
       <div class="hero-actions">
         <a class="button button-primary" href="https://github.com/haninaguib-devtools/locklane/tree/main/engine/src/main/java/dev/locklane/engine/pty">View the engine</a>
         <a class="button button-secondary" href="https://github.com/haninaguib-devtools/locklane">View on GitHub</a>
@@ -68,73 +69,75 @@
   <section class="section" id="principles" aria-labelledby="principles-title">
     <div class="section-heading section-heading-centered">
       <p class="section-label">Principles</p>
-      <h2 id="principles-title">What a console actually is</h2>
+      <h2 id="principles-title">Built for parallel work, not one task at a time</h2>
     </div>
     <div class="principle-list">
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>A session outlives the browser</strong> — it runs independent of any client connection, so closing the tab doesn't stop it.</p></div>
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Reattaching replays what you missed</strong> — output is buffered from the moment a session starts, whether or not anyone is watching.</p></div>
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Live output streams over WebSocket</strong> — a connected browser gets new output pushed in real time, not polled.</p></div>
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>A session's identity is its own</strong>, separate from whichever worktree or checkout it happens to run in — more than one session can point at the same directory.</p></div>
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>The launch command is the agent</strong> — a plain shell, or a CLI such as <code>claude</code> or <code>codex</code>, chosen per console.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Several initiatives, one workspace</strong> — every issue is its own node in the tree, with its own consoles, so switching to one never loses your place in another.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>The developer is the product manager and designer</strong> — deciding scope and direction, while an agent does the implementation in each console.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Issues are the unit of work</strong> — a GitHub issue or Jira ticket, not a locklane-specific task format.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Worktrees keep parallel agents out of each other's way</strong> — each console runs in its own, so two agents can work two different issues in the same repo at once.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>A session outlives the browser</strong> — close the tab, check on another initiative, come back later: the agent keeps running, and reattaching replays everything you missed.</p></div>
     </div>
   </section>
 
   <section class="section section-tint" id="how-it-works" aria-labelledby="how-it-works-title">
     <div class="section-heading section-heading-centered">
       <p class="section-label">How it works</p>
-      <h2 id="how-it-works-title">One console, start to reattach</h2>
-      <p>Each of an issue's consoles is one persistent terminal in its own git worktree; this is
-        what opening one actually does.</p>
+      <h2 id="how-it-works-title">One initiative, start to reattach</h2>
+      <p>Nothing here is specific to one workflow — each step reads generic GitHub state, so it
+        works whether or not a team follows any particular process alongside it.</p>
     </div>
     <ol class="stage-list">
       <li class="stage-card">
         <div class="stage-top"><span>1</span><code>sidenav</code></div>
-        <h3>Pick a project</h3>
+        <h3>Pick an initiative</h3>
         <p>The sidenav renders a project's issues as a filterable tree of initiatives and tasks —
           text, ship-status, and tag filters, pinning, and a live indicator when a node has an open
-          console.</p>
+          console — so several stay in view without shoving each other out.</p>
         <div class="stage-output"><span>Produces</span><strong>Tree</strong></div>
       </li>
       <li class="stage-card">
         <div class="stage-top"><span>2</span><code>flow steps</code></div>
         <h3>Open an issue</h3>
-        <p>An issue's detail carries its flow steps, branch, PR, and checks summary, plus any past
-          Claude/Codex conversation captured in one of its consoles, ready to reopen.</p>
+        <p>An issue's detail shows its progress as open/plan/work/review/ship, derived from plain
+          signals — is it closed, does it have a plan, a PR, a review, a merge — plus its branch,
+          checks, and any past Claude/Codex conversation ready to reopen.</p>
         <div class="stage-output"><span>Produces</span><strong>Flow steps</strong></div>
       </li>
       <li class="stage-card">
         <div class="stage-top"><span>3</span><code>worktree</code></div>
         <h3>Launch a console</h3>
-        <p>A console starts a long-lived PTY process in a fresh git worktree or the main checkout.
-          It keeps running on the server independent of any single browser connection.</p>
+        <p>A console starts a long-lived PTY process in a fresh git worktree or the main checkout,
+          so an agent working this issue never touches the files another console is using for a
+          different one.</p>
         <div class="stage-output"><span>Produces</span><strong>PTY session</strong></div>
       </li>
       <li class="stage-card">
         <div class="stage-top"><span>4</span><code>claude · codex · shell</code></div>
-        <h3>Choose an agent</h3>
-        <p>Each console launches with whatever command it's given — a plain shell, or an agent CLI
-          such as <code>claude</code> or <code>codex</code> — with several staying open in tabs at
+        <h3>Hand it to an agent</h3>
+        <p>Pick <code>claude</code>, <code>codex</code>, or a plain shell, and let it do the
+          implementation — several consoles, each with its own agent, can stay open in tabs at
           once.</p>
         <div class="stage-output"><span>Produces</span><strong>Live terminal</strong></div>
       </li>
       <li class="stage-card">
         <div class="stage-top"><span>5</span><code>any browser</code></div>
-        <h3>Reattach from anywhere</h3>
+        <h3>Check in from anywhere</h3>
         <p>A background thread keeps draining the session's output into a buffer the whole time,
-          so reconnecting from a new browser replays everything missed instead of losing it.</p>
+          so reconnecting from a new browser — after working another initiative for a while —
+          replays everything missed instead of losing it.</p>
         <div class="stage-output"><span>Produces</span><strong>Resumed</strong></div>
       </li>
     </ol>
     <div class="pipeline-notes">
-      <p><strong>A session is not a job.</strong> It's a live process someone watches and types
+      <p><strong>A console is not a job.</strong> It's a live process someone watches and types
         into, closer to a terminal you can walk away from than a task you submit and poll for a
-        result. <strong>The working directory is incidental</strong> — a session's identity is
-        separate from whichever worktree or checkout it runs in, so more than one session can point
-        at the same directory.</p>
+        result. <strong>Progress is read, not required</strong> — the flow strip is computed from
+        an issue's own state (closed, planned, has a PR, reviewed, merged), so it works whether or
+        not a team runs any particular workflow behind those issues.</p>
       <p><strong>Multiple browsers, one session.</strong> Attaching to a session that's already
         running joins the existing process rather than starting a new one — its buffered output
-        brings a fresh browser fully caught up. <strong>Real time, over WebSocket.</strong> A
-        connected browser gets new output pushed live, not polled.</p>
+        brings a fresh browser fully caught up.</p>
     </div>
   </section>
 
@@ -149,7 +152,8 @@
       <article class="skill-card">
         <div class="skill-title"><code>app-sidenav</code><span>Navigation</span></div>
         <p>Filterable tree of a project's initiatives and tasks — text, ship-status, and tag
-          filters, pinning, and a live attention indicator when a console needs you.</p>
+          filters, pinning, and a live attention indicator when a console needs you, so juggling
+          several at once doesn't mean losing track of any.</p>
       </article>
       <article class="skill-card">
         <div class="skill-title"><code>app-console-tabs</code><span>Terminal</span></div>

@@ -64,6 +64,20 @@ committed now even though it can't be verified live until then.
   workflow.md`-specific, no locklane equivalent) and its now-unused `.open-questions`
   CSS. Kept the t-workflow-derived visual system (header/hero/card components, color
   tokens) unchanged. (human + agent, 2026-08-28)
+- The first content pass (above) undersold the product — mechanics without positioning.
+  The human gave the actual pitch directly: "LockLane is an ide for the AI age. It
+  allows the developer to work on multiple initiatives at the same time without getting
+  lost. Tied to t-workflow (not required) it allows agents to do the heavy lifting while
+  the developer acts as the product manager and designer. Work is represented via github
+  issues or jira tickets. The agent can work on separate worktrees to allow for easier
+  parallel development." Rewrote the hero, principles, and how-it-works sections around
+  that framing — multiple initiatives in one workspace, the developer as PM/designer,
+  worktrees isolating parallel agents — while keeping every supporting detail grounded
+  in code already read this task (`FlowStep`'s open/plan/work/review/ship computed from
+  generic issue/PR state confirms the flow strip doesn't require t-workflow specifically,
+  which grounds "tied to, not required"). Jira is stated as intended tracker support per
+  the human's own description of the product, not verified in the current codebase
+  (only `engine/github` exists; no Jira integration found). (human + agent, 2026-08-28)
 
 ## Deviations / notes
 - none
