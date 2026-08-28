@@ -409,13 +409,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
     return this.selectedProject === projectId;
   }
 
-  // Active exactly when nothing else is: the only route lacking a project id is
-  // '/', which AppComponent's [selectedProject] and [selected] inputs already
-  // reduce to null/null (#197) -- no separate route state needed here.
-  isOverviewActive(): boolean {
-    return this.selectedProject === null && this.selected === null;
-  }
-
   // The header row selects the project (#85); folding moved onto the twisty, which
   // is what already means "fold" on an initiative row. One row cannot do both.
   selectProject(projectId: number): void {

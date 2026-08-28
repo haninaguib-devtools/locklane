@@ -1,6 +1,6 @@
 import { Component, HostListener, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
 import { ProjectIssue, SidenavComponent } from './components/sidenav/sidenav.component';
 import { MainContentComponent } from './components/main-content/main-content.component';
@@ -21,6 +21,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
   selector: 'app-root',
   standalone: true,
   imports: [
+    RouterLink,
     SidenavComponent,
     MainContentComponent,
     ProjectSummaryComponent,
