@@ -57,6 +57,21 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     });
     this.fitAddon = new FitAddon();
     this.term.loadAddon(this.fitAddon);
+    // xterm's default binds Ctrl/Cmd+C to sending an interrupt (SIGINT) no matter
+    // what, and its canvas has `user-select: none` so there is no real DOM selection
+    // for a browser copy shortcut to act on either (#226). With a selection present,
+    // copy it ourselves and swallow the chord; with none, fall through to xterm's
+    // normal interrupt handling unchanged.
+    this.term.attachCustomKeyEventHandler((event) => {
+      const isCopyChord =
+        event.type === 'keydown' && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c';
+      if (isCopyChord && this.term?.hasSelection()) {
+        event.preventDefault();
+        navigator.clipboard.writeText(this.term.getSelection()).catch(() => {});
+        return false;
+      }
+      return true;
+    });
     // A hidden (display:none) container measures as 0x0, and xterm caches whatever
     // character size it sees at open() time — a later fit() against that cache never
     // corrects it. Only open a tab that's actually visible; an inactive one is opened
