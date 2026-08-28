@@ -39,7 +39,7 @@ h1 {
   color: var(--accent);
 }
 
-.consoles-link {
+.console-button {
   margin-left: auto;
   padding: 5px 12px;
   font-size: 11px;
@@ -47,13 +47,23 @@ h1 {
   border-radius: 4px;
   background: var(--panel);
   color: var(--text);
-  text-decoration: none;
   cursor: pointer;
 }
 
-.consoles-link:hover {
+.console-button:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.console-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.action-error {
+  font-size: 12px;
+  color: var(--accent);
+  margin-bottom: 10px;
 }
 
 .counts {

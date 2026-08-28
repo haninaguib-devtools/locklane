@@ -5,6 +5,7 @@ import { AgentPickerComponent } from '../agent-picker/agent-picker.component';
 import { ConsolesService } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
+import { LastConsoleStore } from '../../services/last-console-store';
 import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
 import { ConsoleTab } from '../console-tabs/console-labels';
 import { TerminalComponent } from '../terminal/terminal.component';
@@ -35,6 +36,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   private readonly consolesService = inject(ConsolesService);
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
+  private readonly lastConsoleStore = inject(LastConsoleStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
@@ -85,14 +87,15 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
         // had tabs. (Routing is component-less, so the query param is read off
         // the root route.)
         const requested = this.route.snapshot.queryParamMap.get('session');
-        this.selected =
+        this.selectConsole(
           requested && sessions.some((s) => s.sessionId === requested)
             ? requested
             : sessions.reduce(
                 (latest: OpenProjectConsole | null, s) =>
                   !latest || Date.parse(s.lastAttachedAt) > Date.parse(latest.lastAttachedAt) ? s : latest,
                 null,
-              )?.sessionId ?? null;
+              )?.sessionId ?? null,
+        );
         this.relabel();
         this.loading = false;
       },
@@ -112,6 +115,22 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
     this.start(request.agent);
   }
 
+  /** The tab strip's own selection change -- also the entry points' recency signal (#221). */
+  selectTab(id: string): void {
+    this.selectConsole(id);
+  }
+
+  // Recorded in {@link LastConsoleStore} so the sidenav "+" and the project
+  // summary's console button can jump back into the console the user was last
+  // looking at, rather than always landing on the server's most-recently-attached
+  // one (#221).
+  private selectConsole(id: string | null): void {
+    this.selected = id;
+    if (id) {
+      this.lastConsoleStore.set(this.projectId, id);
+    }
+  }
+
   private start(agent: Agent): void {
     this.starting = true;
     this.startError = false;
@@ -120,7 +139,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
         this.agentStore.set(session.sessionId, agent);
         this.consoles = [...this.consoles, { id: session.sessionId, dir: session.workingDirectory, agent }];
         this.relabel();
-        this.selected = session.sessionId;
+        this.selectConsole(session.sessionId);
         this.starting = false;
         this.consolesService.notifyOpened();
       },
@@ -138,7 +157,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
         this.consoles = this.consoles.filter((c) => c.id !== id);
         this.relabel();
         if (this.selected === id) {
-          this.selected = this.consoles[0]?.id ?? null;
+          this.selectConsole(this.consoles[0]?.id ?? null);
         }
         this.consolesService.notifyClosed();
       },

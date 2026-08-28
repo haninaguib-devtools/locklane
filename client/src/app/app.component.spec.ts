@@ -8,6 +8,7 @@ import { AuthService } from './services/auth.service';
 import { SidenavComponent } from './components/sidenav/sidenav.component';
 import { Project } from './models/issue.model';
 import { UsageSnapshot } from './models/usage.model';
+import { OpenProjectConsole } from './services/project-console.service';
 import { routes } from './app.routes';
 
 describe('AppComponent', () => {
@@ -109,6 +110,15 @@ describe('AppComponent', () => {
     flushUsageWidget();
   }
 
+  /**
+   * The project summary's own console button (#221) fetches the project's open
+   * consoles once it learns the project is READY -- only once flushSidenavAndSummary
+   * has resolved that project-list fetch.
+   */
+  function flushProjectConsoleSessions(sessions: OpenProjectConsole[] = []): void {
+    httpMock.expectOne('/api/projects/1/console/sessions').flush(sessions);
+  }
+
   function flushIssue(number: number): void {
     httpMock.expectOne(`/api/projects/1/issues/${number}`).flush({
       number,
@@ -204,6 +214,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
     fixture.detectChanges();
 
@@ -230,6 +241,7 @@ describe('AppComponent', () => {
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/issues');
     httpMock.expectOne('/api/projects').flush([PROJECT]);
+    flushProjectConsoleSessions();
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     fixture.detectChanges();
 
@@ -245,6 +257,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
 
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
@@ -266,6 +279,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
 
     // What a sidenav row's routerLink (#170) does on a left-click.
@@ -302,49 +316,35 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
-  it('loading /projects/:projectId/consoles directly shows the consoles page (#179)', fakeAsync(() => {
-    logIn();
-    TestBed.inject(Router).navigateByUrl('/projects/1/consoles');
-    tick();
-
-    const fixture = TestBed.createComponent(AppComponent);
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.onConsolesPage()).toBeTrue();
-    expect(fixture.componentInstance.onProjectConsole()).toBeFalse();
-    httpMock.expectOne('/api/projects').flush([PROJECT]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
-    flushUsageWidget();
-    flushConsoleIndicator();
-    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
-    fixture.detectChanges();
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-consoles-page')).toBeTruthy();
-    expect(compiled.querySelector('app-project-console')).toBeFalsy();
-    expect(compiled.querySelector('app-main-content')).toBeFalsy();
-    expect(compiled.querySelector('app-project-summary')).toBeFalsy();
-  }));
-
-  it('the project summary\'s consoles link (#180) navigates to the consoles page, which the sidenav shows as still on that project', fakeAsync(() => {
+  it('the project summary\'s console button (#221) jumps into an already-open console, and the sidenav still shows the project selected', fakeAsync(() => {
     logIn();
     navigateToProjectSummary();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions([
+      {
+        sessionId: 'proj-1-console-abc',
+        workingDirectory: '/tmp/proj',
+        createdAt: '2026-08-27T09:00:00Z',
+        lastAttachedAt: '2026-08-27T09:00:00Z',
+      },
+    ]);
     flushConsoleIndicator();
     fixture.detectChanges();
 
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('.consoles-link')!.click();
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
+    expect(button.textContent?.trim()).toBe('Open consoles');
+    button.click();
     tick();
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
 
-    expect(TestBed.inject(Router).url).toBe('/projects/1/consoles');
+    expect(TestBed.inject(Router).url).toBe('/projects/1/console?session=proj-1-console-abc');
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-consoles-page')).toBeTruthy();
+    expect(compiled.querySelector('app-project-console')).toBeTruthy();
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
     expect(sidenav.componentInstance.selectedProject).toBe(1);
   }));
@@ -373,6 +373,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
 
     // What a sidenav row's routerLink (#170) does on a left-click.
@@ -392,6 +393,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
 
     fixture.componentInstance.logout();
@@ -413,6 +415,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
+    flushProjectConsoleSessions();
     flushConsoleIndicator();
     return fixture;
   }
