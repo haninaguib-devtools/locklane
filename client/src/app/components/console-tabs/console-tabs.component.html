@@ -52,14 +52,13 @@
         @if (locationChoice) {
           <div class="picker-group">
             <span class="picker-label">where</span>
-            <button type="button" [class.chosen]="location === 'worktree'" (click)="location = 'worktree'">
-              worktree
-            </button>
-            <button type="button" [class.chosen]="location === 'main'" (click)="location = 'main'">main</button>
+            <button type="button" (click)="chooseLocation('worktree')">worktree</button>
+            <button type="button" (click)="chooseLocation('main')">main</button>
           </div>
+        } @else {
+          <app-agent-picker [agent]="agent" (agentChange)="agent = $event" />
+          <button type="button" class="picker-open" (click)="confirmOpen()">open</button>
         }
-        <app-agent-picker [agent]="agent" (agentChange)="agent = $event" />
-        <button type="button" class="picker-open" (click)="confirmOpen()">open</button>
       </div>
     }
   </div>

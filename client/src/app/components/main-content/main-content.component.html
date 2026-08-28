@@ -7,6 +7,7 @@
     [tabs]="tabs"
     [selected]="activeTab"
     [starting]="starting"
+    [defaultAgent]="defaultAgentStore.agent()"
     (selectedChange)="onTabSelected($event)"
     (open)="openConsole($event)"
     (close)="closeConsole($event)"
