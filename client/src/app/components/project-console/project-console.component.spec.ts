@@ -251,10 +251,12 @@ describe('ProjectConsoleComponent', () => {
     expect(closed).toHaveBeenCalled();
   });
 
-  it('auto-starts a fresh default-agent console once the last one is closed (#256)', () => {
+  it('navigates to the project page once the last console is closed, without auto-starting one (#265)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
     fixture.detectChanges();
+    const router = TestBed.inject(Router);
+    spyOn(router, 'navigate');
 
     const compiled = fixture.nativeElement as HTMLElement;
     compiled.querySelector<HTMLButtonElement>('.tab-close')!.click();
@@ -264,12 +266,7 @@ describe('ProjectConsoleComponent', () => {
     httpMock.expectOne('/api/projects/1/console/1-console-a1b2c3d4').flush(null);
     fixture.detectChanges();
 
-    expect(compiled.querySelector('app-agent-picker')).toBeFalsy();
-    httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
-    expect(compiled.querySelector('app-terminal')).toBeTruthy();
+    expect(router.navigate).toHaveBeenCalledWith(['/projects', 1, 'issues']);
   });
 
   it('shows an error and keeps the tab when closing fails', () => {
