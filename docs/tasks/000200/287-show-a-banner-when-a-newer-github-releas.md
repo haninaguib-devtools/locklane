@@ -56,4 +56,15 @@ when it is newer.
   mounting pattern in `app.component.html` (hani, 2026-08-28).
 
 ## Deviations / notes
-- none
+- `/t-ship`'s CI run turned up a flaky failure in
+  `EventsWebSocketHandlerIntegrationTest.aClientOnlyReceivesEventsWhileConnected` (not
+  new to this task — it pre-dates #287, since it only ever exercises the
+  `engineVersion` greeting), unmasked here because the
+  test's own synchronization was already racy: it treated server-side registration
+  (`registeredSessionCount() == 1`) as a proxy for "the client has already received the
+  up-front greeting," which races the greeting's actual network delivery. Fixed by
+  waiting for the message to actually land before capturing the baseline count, rather
+  than relying on the registration-count proxy. Local runs (5x) and CI both green after
+  (hani, 2026-08-28).
+
+

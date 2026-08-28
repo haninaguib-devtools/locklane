@@ -91,13 +91,16 @@ class EventsWebSocketHandlerIntegrationTest {
                 "events-handler-b", "password-b");
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri());
-        // Registration is a server-side side effect with no signal back to this client;
-        // wait for it so the unregistration wait below observes this session leaving
-        // the registry, not the registry before it ever arrived.
+        // The connection's own up-front greeting (engineVersion, #273) is sent before
+        // the session is registered, but "sent" on the server and "received" on this
+        // client are different events on different threads -- waiting on
+        // registeredSessionCount() alone races the greeting's own network round trip
+        // (it can flip to 1 before the client has actually processed the message).
+        // Wait for the greeting to actually land first; only then is registration
+        // guaranteed to have already happened too (register() runs strictly after the
+        // send, in the same server-side thread), so the count check below is immediate.
+        waitUntil(() -> !client.messages.isEmpty(), Duration.ofSeconds(5));
         waitUntil(() -> eventBroadcaster.registeredSessionCount() == 1, Duration.ofSeconds(5));
-        // The connection's own engineVersion greeting (#273) lands as soon as it is
-        // registered, so it is already in `messages` by now -- record how many there
-        // are rather than assuming zero, and check that count never grows.
         int messagesBeforeClose = client.messages.size();
 
         session.close();
