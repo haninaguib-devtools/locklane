@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Project, TreeNode } from '../../models/issue.model';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
@@ -44,6 +44,11 @@ export class ProjectSummaryComponent implements OnChanges {
 
   @Input({ required: true }) projectId!: number;
 
+  // Tells the app shell to drop this project from the sidenav (#249): the sidenav
+  // owns its own project list privately (#44) and has no other way to learn that a
+  // delete initiated from this page succeeded.
+  @Output() projectDeleted = new EventEmitter<void>();
+
   project: Project | null = null;
   counts: IssueCounts | null = null;
   loading = true;
@@ -85,6 +90,7 @@ export class ProjectSummaryComponent implements OnChanges {
     this.projectsService.delete(this.projectId).subscribe({
       next: () => {
         this.deleting = false;
+        this.projectDeleted.emit();
         // The project this page was showing no longer exists -- back to the
         // workspace Overview (#197), the same place no project selected lands.
         this.router.navigate(['/']);

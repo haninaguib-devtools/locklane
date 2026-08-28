@@ -51,7 +51,7 @@
           @if (selectedIssue(); as issue) {
             <app-main-content [projectId]="projectId" [issueNumber]="issue" />
           } @else {
-            <app-project-summary [projectId]="projectId" />
+            <app-project-summary [projectId]="projectId" (projectDeleted)="onProjectDeleted()" />
           }
         }
       } @else {
