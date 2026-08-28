@@ -135,6 +135,45 @@ describe('tree-filter', () => {
     expect(result).toHaveSize(1);
     expect(result[0].number).toBe(3);
   });
+
+  it('an open console (#263) exempts a closed leaf task from hideShipped', () => {
+    const tree = [task(1, 'Closed but has a console', 'CLOSED')];
+
+    const result = filterTree(tree, '', true, [], () => true);
+
+    expect(result).toEqual(tree);
+  });
+
+  it('an open console (#263) exempts a leaf task from the text filter', () => {
+    const tree = [task(1, 'No match here')];
+
+    const result = filterTree(tree, 'nope', false, [], () => true);
+
+    expect(result).toEqual(tree);
+  });
+
+  it('an open console (#263) does not exempt a node from the tag filter', () => {
+    const tree = [task(1, 'Untagged', 'OPEN', [])];
+
+    const result = filterTree(tree, '', false, ['bug'], () => true);
+
+    expect(result).toEqual([]);
+  });
+
+  it('without an open console (#263), hideShipped and the text filter behave exactly as before', () => {
+    const tree = [task(1, 'Closed one', 'CLOSED'), task(2, 'Open one', 'OPEN')];
+
+    expect(filterTree(tree, '', true, [], () => false)).toEqual([task(2, 'Open one', 'OPEN')]);
+    expect(filterTree(tree, 'no match', false, [], () => false)).toEqual([]);
+  });
+
+  it('an open console (#263) on a closed initiative keeps it and its closed children', () => {
+    const shipped = initiative(1, 'Shipped, has console', [task(2, 'Also closed', 'CLOSED')], 'CLOSED');
+
+    const result = filterTree([shipped], '', true, [], () => true);
+
+    expect(result).toEqual([shipped]);
+  });
 });
 
 describe('filterPinnedTree', () => {
@@ -190,5 +229,35 @@ describe('filterPinnedTree', () => {
     const result = filterPinnedTree([initiative], '', false, ['bug']);
 
     expect(result[0].children.map((c) => c.number)).toEqual([2]);
+  });
+
+  it('an open console (#263) exempts a pinned entry from the text filter too', () => {
+    const pinned = [task(1, 'No match here')];
+
+    const result = filterPinnedTree(pinned, 'nope', false, [], () => true);
+
+    expect(result).toEqual(pinned);
+  });
+
+  it("an open console (#263) exempts a pinned initiative's closed child from the ship filter", () => {
+    const initiative: TreeNode = {
+      number: 1,
+      title: 'Pinned initiative',
+      kind: 'INITIATIVE',
+      state: 'OPEN',
+      hasActiveBranch: false,
+      labels: [],
+      children: [task(2, 'Open child', 'OPEN'), task(3, 'Closed child, has console', 'CLOSED')],
+    };
+
+    const result = filterPinnedTree([initiative], '', true, [], () => true);
+
+    expect(result[0].children.map((c) => c.number)).toEqual([2, 3]);
+  });
+
+  it('without an open console (#263), pinned text filtering behaves exactly as before', () => {
+    const pinned = [task(1, 'Pinned thing')];
+
+    expect(filterPinnedTree(pinned, 'no match', false, [], () => false)).toEqual([]);
   });
 });
