@@ -1,7 +1,12 @@
 import { TerminalSession } from './terminal-session';
 
 class FakeWebSocket {
+  // Matches the real WebSocket API's readyState values (#279's reconnect/checkConnection
+  // logic branches on CONNECTING/OPEN/CLOSED, not just the pre-existing OPEN).
+  static readonly CONNECTING = 0;
   static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
   static instances: FakeWebSocket[] = [];
 
   readyState = FakeWebSocket.OPEN;
@@ -19,6 +24,13 @@ class FakeWebSocket {
   }
 
   close(): void {
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.();
+  }
+
+  /** Simulates the connection dropping on its own (network/server), not a deliberate close(). */
+  triggerUnexpectedClose(): void {
+    this.readyState = FakeWebSocket.CLOSED;
     this.onclose?.();
   }
 }
@@ -30,11 +42,17 @@ describe('TerminalSession', () => {
     originalWebSocket = window.WebSocket;
     FakeWebSocket.instances = [];
     (window as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
+    jasmine.clock().install();
   });
 
   afterEach(() => {
+    jasmine.clock().uninstall();
     (window as unknown as { WebSocket: unknown }).WebSocket = originalWebSocket;
   });
+
+  function latestSocket(): FakeWebSocket {
+    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+  }
 
   // Connects a fresh session and returns its underlying fake socket, so each
   // test drives one session/socket pair instead of juggling several.
@@ -212,5 +230,118 @@ describe('TerminalSession', () => {
     socket.onopen?.();
 
     expect(socket.sent).toEqual([]);
+  });
+
+  it('reconnects with backoff after an unexpected close (#279)', () => {
+    connect();
+    expect(FakeWebSocket.instances.length).toBe(1);
+
+    latestSocket().triggerUnexpectedClose();
+    expect(FakeWebSocket.instances.length).toBe(1);
+
+    jasmine.clock().tick(1000);
+    expect(FakeWebSocket.instances.length).toBe(2);
+  });
+
+  it('backs off further on each consecutive failure to reconnect (#279)', () => {
+    connect();
+
+    latestSocket().triggerUnexpectedClose();
+    jasmine.clock().tick(1000);
+    expect(FakeWebSocket.instances.length).toBe(2);
+
+    latestSocket().triggerUnexpectedClose();
+    jasmine.clock().tick(1000);
+    expect(FakeWebSocket.instances.length).toBe(2); // not yet -- backoff doubled to 2s
+
+    jasmine.clock().tick(1000);
+    expect(FakeWebSocket.instances.length).toBe(3);
+  });
+
+  it('resets backoff to the initial delay once a reconnect actually opens (#279)', () => {
+    connect();
+
+    latestSocket().triggerUnexpectedClose();
+    jasmine.clock().tick(1000);
+    latestSocket().onopen?.();
+
+    latestSocket().triggerUnexpectedClose();
+    jasmine.clock().tick(1000);
+    expect(FakeWebSocket.instances.length).toBe(3);
+  });
+
+  it('does not reconnect after a deliberate close() (#279)', () => {
+    const { session } = connect();
+
+    session.close();
+    jasmine.clock().tick(60000);
+
+    expect(FakeWebSocket.instances.length).toBe(1);
+  });
+
+  it('calls the onClose callback again on every reconnect, not just the first drop (#279)', () => {
+    const closes: void[] = [];
+    const session = new TerminalSession('7-worktree', '/repo');
+    session.connect(
+      () => {},
+      () => closes.push(undefined),
+    );
+
+    latestSocket().triggerUnexpectedClose();
+    jasmine.clock().tick(1000);
+    latestSocket().triggerUnexpectedClose();
+
+    expect(closes.length).toBe(2);
+  });
+
+  describe('checkConnection() (#279)', () => {
+    it('reconnects immediately, bypassing any pending backoff delay', () => {
+      const { session } = connect();
+      latestSocket().triggerUnexpectedClose();
+      expect(FakeWebSocket.instances.length).toBe(1);
+
+      session.checkConnection();
+
+      expect(FakeWebSocket.instances.length).toBe(2);
+    });
+
+    it('does not also fire the pending backoff timer as a second reconnect', () => {
+      const { session } = connect();
+      latestSocket().triggerUnexpectedClose();
+
+      session.checkConnection();
+      jasmine.clock().tick(60000);
+
+      expect(FakeWebSocket.instances.length).toBe(2);
+    });
+
+    it('does nothing while the connection is already open', () => {
+      const { session } = connect();
+
+      session.checkConnection();
+
+      expect(FakeWebSocket.instances.length).toBe(1);
+    });
+
+    it('does nothing after a deliberate close()', () => {
+      const { session } = connect();
+      session.close();
+
+      session.checkConnection();
+
+      expect(FakeWebSocket.instances.length).toBe(1);
+    });
+
+    it('resends the focus notification on the reconnect it triggers, once the tab was ever focused', () => {
+      const { session } = connect();
+      session.focus();
+      latestSocket().sent = [];
+      latestSocket().triggerUnexpectedClose();
+
+      session.checkConnection();
+      latestSocket().onopen?.();
+
+      expect(latestSocket().sent).toEqual(['2']);
+    });
   });
 });

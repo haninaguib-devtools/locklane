@@ -3,7 +3,12 @@ package dev.locklane.engine.ws;
 import dev.locklane.engine.persistence.ProjectConsoleService;
 import dev.locklane.engine.pty.PtySession;
 import dev.locklane.engine.pty.SessionRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.PongMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -12,6 +17,7 @@ import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -51,6 +57,7 @@ import java.util.regex.Pattern;
  * are never mistaken for the tag: the client wraps every message it sends rather than
  * ever forwarding raw terminal bytes on their own.
  */
+@Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     private static final char INPUT = '0';
@@ -59,11 +66,20 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     private final SessionRegistry sessionRegistry;
     private final ProjectConsoleService projectConsoleService;
+    private final TerminalHeartbeat heartbeat;
     private final Map<String, AutoCloseable> subscriptions = new ConcurrentHashMap<>();
 
-    public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService) {
+    @Autowired
+    public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService,
+            Clock clock, @Value("${locklane.terminal.heartbeat-interval-ms}") long heartbeatIntervalMs) {
         this.sessionRegistry = sessionRegistry;
         this.projectConsoleService = projectConsoleService;
+        this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
+    }
+
+    /** Test-only: these tests never call {@link #afterConnectionEstablished}, so the heartbeat is never exercised. */
+    public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService) {
+        this(sessionRegistry, projectConsoleService, Clock.systemUTC(), 20_000L);
     }
 
     @Override
@@ -103,6 +119,23 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         wsSession.sendMessage(new TextMessage(session.bufferedOutput()));
         AutoCloseable subscription = session.subscribe(chunk -> forward(wsSession, chunk));
         subscriptions.put(wsSession.getId(), subscription);
+        heartbeat.track(wsSession);
+    }
+
+    @Override
+    protected void handlePongMessage(WebSocketSession wsSession, PongMessage message) {
+        heartbeat.recordPong(wsSession);
+    }
+
+    /**
+     * Detects a stale/half-open connection within a bounded time (#279) — see
+     * {@link TerminalHeartbeat}. The interval is configurable
+     * ({@code locklane.terminal.heartbeat-interval-ms}) so a test can run this on a
+     * much shorter cycle than production without changing the code.
+     */
+    @Scheduled(fixedDelayString = "${locklane.terminal.heartbeat-interval-ms}")
+    void sendHeartbeats() {
+        heartbeat.tick();
     }
 
     @Override
@@ -146,6 +179,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         if (subscription != null) {
             subscription.close();
         }
+        heartbeat.untrack(wsSession);
         // No call into SessionRegistry/PtySession here, deliberately: this connection
         // closing must never stop the session itself.
     }

@@ -19,3 +19,7 @@ locklane:
     bootstrap-username: test-user
     bootstrap-password: test-password
     allowed-origins: http://allowed-test-origin.example
+  terminal:
+    # Short so any integration test that stays connected long enough exercises a real
+    # ping/pong cycle rather than never seeing one (#279); see src/main/resources/application.yml.
+    heartbeat-interval-ms: 1000

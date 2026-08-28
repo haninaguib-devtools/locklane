@@ -36,3 +36,10 @@ locklane:
     # Defaults cover local dev only (the Angular dev server via proxy.conf.json, and
     # the bundled jar's own port) — override for any real deployment.
     allowed-origins: http://localhost:4200,http://localhost:8080,https://locklane.javalib.dev
+  terminal:
+    # How often dev.locklane.engine.ws.TerminalWebSocketHandler pings each live
+    # /ws/sessions/* connection (#279) -- a session that misses two of these in a row
+    # is presumed dead (a backgrounded tab throttled by the browser, or a network
+    # device silently dropping an idle connection) and closed, so the client finally
+    # gets a `close` event to reconnect on.
+    heartbeat-interval-ms: 20000

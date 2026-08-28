@@ -43,6 +43,18 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   /** Whether term.open() has run yet — deferred for a tab that starts inactive (#211). */
   private opened = false;
 
+  // The browser tab regaining focus after being backgrounded (#279) -- distinct from
+  // the `active`/`ngOnChanges` app-level tab switch above, and the only way a session
+  // whose connection died while unattended gets checked without the user navigating
+  // away and back. Bound once so removeEventListener in ngOnDestroy actually matches;
+  // `visibilityState` is re-checked because `focus` alone can fire while still hidden
+  // (e.g. a devtools panel taking focus without the page itself becoming visible).
+  private readonly checkConnectionOnForeground = (): void => {
+    if (document.visibilityState === 'visible') {
+      this.session?.checkConnection();
+    }
+  };
+
   /* A sidenav-slider drag or live window resize fires the ResizeObserver on
      every pixel. Fitting on each tick streams a column count per pixel to the
      server, and each reflow rewraps the CLI's full-width output into scrollback
@@ -122,6 +134,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       // happen to race (#268).
       this.connect();
     }
+    document.addEventListener('visibilitychange', this.checkConnectionOnForeground);
+    window.addEventListener('focus', this.checkConnectionOnForeground);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -150,6 +164,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    document.removeEventListener('visibilitychange', this.checkConnectionOnForeground);
+    window.removeEventListener('focus', this.checkConnectionOnForeground);
     if (this.pendingFit !== null) {
       clearTimeout(this.pendingFit);
     }
@@ -178,7 +194,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       (text) => this.term?.write(text),
       () => {
         // The session (and its underlying PTY process) is unaffected by this
-        // connection closing — nothing to do here but note the tab went quiet.
+        // connection closing -- TerminalSession reconnects itself (#279), with
+        // checkConnectionOnForeground above nudging it the moment the tab is back.
       },
     );
   }
