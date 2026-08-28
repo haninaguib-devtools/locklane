@@ -108,6 +108,56 @@ describe('TerminalSession', () => {
     expect(socket.sent).toEqual([]);
   });
 
+  it('delivers a resize requested before the socket opened once it opens (#268)', () => {
+    const { session, socket } = connect();
+    socket.readyState = 0;
+
+    session.resize(133, 42);
+    expect(socket.sent).toEqual([]);
+
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen?.();
+
+    expect(socket.sent).toEqual(['1133x42']);
+  });
+
+  it('delivers only the most recent size requested before the socket opened (#268)', () => {
+    const { session, socket } = connect();
+    socket.readyState = 0;
+
+    session.resize(80, 24);
+    session.resize(133, 42);
+
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen?.();
+
+    expect(socket.sent).toEqual(['1133x42']);
+  });
+
+  it('holds no further size once a pending resize has been delivered (#268)', () => {
+    const { session, socket } = connect();
+    socket.readyState = 0;
+    session.resize(133, 42);
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen?.();
+
+    socket.onopen?.();
+
+    expect(socket.sent).toEqual(['1133x42']);
+  });
+
+  it('delivers a pending resize alongside the opening focus notification (#268)', () => {
+    const { session, socket } = connect(null, null, true);
+    socket.readyState = 0;
+
+    session.resize(133, 42);
+
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen?.();
+
+    expect(socket.sent).toEqual(['2', '1133x42']);
+  });
+
   it('tags a focus notification with the focus type and no body (#130)', () => {
     const { session, socket } = connect();
 
