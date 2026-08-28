@@ -214,6 +214,11 @@
   cursor: pointer;
 }
 
+.delete-error {
+  font-size: 12px;
+  color: var(--danger, #b3432b);
+}
+
 .state {
   padding: 8px 16px;
   font-size: 12px;

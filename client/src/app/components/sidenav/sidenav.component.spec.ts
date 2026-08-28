@@ -469,6 +469,42 @@ describe('SidenavComponent', () => {
     httpMock.expectNone('/api/projects/1');
   });
 
+  it('shows the backend refusal inline when a failed project cannot be deleted (#250)', () => {
+    const failed: Project = { ...PROJECT_A, status: 'FAILED' };
+    const fixture = init([failed]);
+    flushTree(1, []);
+    fixture.componentInstance.deleteProject(1, new Event('click'));
+
+    fixture.componentInstance.confirmDeleteProject();
+    httpMock
+      .expectOne('/api/projects/1')
+      .flush(
+        { error: 'This project has an open worktree or console — close it before deleting the project.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+
+    expect(fixture.componentInstance.deleteErrorFor(1)).toBe(
+      'This project has an open worktree or console — close it before deleting the project.',
+    );
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'This project has an open worktree or console',
+    );
+  });
+
+  it('deleteProject clears a previous delete error', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.componentInstance.deleteProject(1, new Event('click'));
+    fixture.componentInstance.confirmDeleteProject();
+    httpMock.expectOne('/api/projects/1').flush({ error: 'nope' }, { status: 409, statusText: 'Conflict' });
+    expect(fixture.componentInstance.deleteErrorFor(1)).toBe('nope');
+
+    fixture.componentInstance.deleteProject(1, new Event('click'));
+
+    expect(fixture.componentInstance.deleteErrorFor(1)).toBeNull();
+  });
+
   it('clicking a project header emits the project, without folding it (#85)', () => {
     const fixture = init();
     flushTree(1, tree());

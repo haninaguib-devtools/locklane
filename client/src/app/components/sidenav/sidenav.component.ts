@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -106,6 +107,12 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // replacing the synchronous native `confirm()` this used to block on.
   pendingDeleteProjectId: number | null = null;
 
+  // A failed delete's inline error (#250), mirroring ProjectSummaryComponent's own
+  // delete-error handling. Tracked by project id rather than a bare string since more
+  // than one FAILED project can be listed at once, each with its own delete action.
+  deleteErrorProjectId: number | null = null;
+  deleteError: string | null = null;
+
   private openMenuFor: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   // The project whose "+" is currently minting a console (#180) — guards the
@@ -206,19 +213,32 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   deleteProject(projectId: number, event: Event): void {
     event.stopPropagation();
+    this.deleteErrorProjectId = null;
+    this.deleteError = null;
     this.pendingDeleteProjectId = projectId;
   }
 
   confirmDeleteProject(): void {
     const projectId = this.pendingDeleteProjectId;
     this.pendingDeleteProjectId = null;
-    if (projectId !== null) {
-      this.projectsService.delete(projectId).subscribe(() => this.refresh());
+    if (projectId === null) {
+      return;
     }
+    this.projectsService.delete(projectId).subscribe({
+      next: () => this.refresh(),
+      error: (err: HttpErrorResponse) => {
+        this.deleteErrorProjectId = projectId;
+        this.deleteError = err.error?.error ?? 'could not delete this project';
+      },
+    });
   }
 
   cancelDeleteProject(): void {
     this.pendingDeleteProjectId = null;
+  }
+
+  deleteErrorFor(projectId: number): string | null {
+    return this.deleteErrorProjectId === projectId ? this.deleteError : null;
   }
 
   private load(onDone: () => void): void {
