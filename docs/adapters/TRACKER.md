@@ -37,6 +37,23 @@ via `tracker:ensure-labels` (backed by `scripts/github-bootstrap.sh`).
 Another backend adopts its own equivalent four (or maps to these names if it supports
 free-form labels, e.g. Jira).
 
+## Workflow-reserved labels
+
+Some labels are read or written by the skills for machine logic, not by a human's
+project-specific vocabulary. `tracker:list-labels` results must exclude every one of
+these from the pool `/t-open` considers for its optional auto-apply pass (see that
+operation below) — they stay governed only by their existing fixed mechanism
+(`tracker:ensure-labels`, step 4 of `/t-open`, `/t-cancel`'s use of `cancelled`).
+
+- The four classification labels above: `bug`, `enhancement`, `documentation`,
+  `question`.
+- `initiative` — marks a tracking issue (`tracker:list-initiatives`).
+- `cancelled` — marks a closed-as-not-planned issue (`tracker:list-cancelled`,
+  `/t-cancel`).
+
+Keep this list in sync with any future addition to the reserved set — a new
+machine-read label belongs here the same day it starts being written by a skill.
+
 ## Operations
 
 Each operation states its contract, then the command per backend. Where a backend needs
@@ -80,6 +97,18 @@ limit is an incomplete scan, never a count (ADR-001 §D6). Raise the limit or pa
 | GitHub | `gh issue list --state closed --label cancelled --limit 100 --json number,title` |
 | GitLab | `glab issue list --closed --label cancelled` |
 | Jira | `jira issue list --status Done --label cancelled` (or resolution = "Won't Do") |
+
+### `tracker:list-labels` — every label the tracker knows, with name and description
+
+Contract: return the full label set, name plus description (a discovered label with no
+description is still returned — its name alone may be unambiguous). Callers filter out
+the workflow-reserved set (above) before considering any result for auto-apply.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh label list --json name,description` |
+| GitLab | `glab api "projects/:id/labels"` (returns `name` and `description` per label) |
+| Jira | Not applicable — labels are free-form strings with no centralized registry or descriptions. Skip the optional auto-apply pass entirely for Jira. |
 
 ### `tracker:create <title> <body>` — create an issue, return its ID
 
