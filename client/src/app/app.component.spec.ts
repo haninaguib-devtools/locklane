@@ -3,6 +3,7 @@ import { By } from '@angular/platform-browser';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
+import { provideServiceWorker } from '@angular/service-worker';
 import { AppComponent } from './app.component';
 import { AuthService } from './services/auth.service';
 import { SidenavComponent } from './components/sidenav/sidenav.component';
@@ -28,7 +29,16 @@ describe('AppComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [AppComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter(routes)],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter(routes),
+        // The update banner (#273) injects SwUpdate, which -- unlike most Angular
+        // services -- isn't providedIn: 'root'; it only exists once
+        // provideServiceWorker registers it, the same way app.config.ts does for the
+        // real app. Disabled here since there is no real service worker in tests.
+        provideServiceWorker('ngsw-worker.js', { enabled: false }),
+      ],
     }).compileComponents();
     httpMock = TestBed.inject(HttpTestingController);
   });

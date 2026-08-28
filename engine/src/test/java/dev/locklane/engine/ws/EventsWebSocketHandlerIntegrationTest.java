@@ -41,6 +41,23 @@ class EventsWebSocketHandlerIntegrationTest {
     private EventBroadcaster eventBroadcaster;
 
     @Test
+    void connectingYieldsAnEngineVersionStampBeforeAnyOtherTraffic() throws Exception {
+        String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
+                "events-handler-d", "password-d");
+        RecordingHandler client = new RecordingHandler();
+        WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri());
+
+        waitUntil(() -> !client.messages.isEmpty(), Duration.ofSeconds(5));
+
+        assertThat(client.messages.get(0)).matches("\\{\"type\":\"engineVersion\",\"version\":\".+\"}");
+
+        session.close();
+        // Leave the broadcaster's registry empty before finishing, so the other tests'
+        // session-count waits only ever see their own session.
+        waitUntil(() -> eventBroadcaster.registeredSessionCount() == 0, Duration.ofSeconds(5));
+    }
+
+    @Test
     void anEventPublishedOnTheBroadcasterReachesAConnectedClientAsJson() throws Exception {
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
                 "events-handler-a", "password-a");
@@ -51,15 +68,16 @@ class EventsWebSocketHandlerIntegrationTest {
         // registered this session with the broadcaster: registration is a side effect
         // on the server with no signal back to this client. Retrying the broadcast is
         // safe (it is a no-op while nobody is registered yet) and lets the wait resolve
-        // on the real observable condition — the message actually landing.
+        // on the real observable condition — the message actually landing. Waiting on
+        // this exact message rather than "any message" matters now that every
+        // connection also gets an unrelated engineVersion greeting (#273) up front.
         String expected = "{\"type\":\"console.attention\",\"consoleId\":\"7-worktree\"}";
         waitUntil(() -> {
-            if (client.messages.isEmpty()) {
+            if (!client.messages.contains(expected)) {
                 eventBroadcaster.broadcast("console.attention", Map.of("consoleId", "7-worktree"));
             }
-            return !client.messages.isEmpty();
+            return client.messages.contains(expected);
         }, Duration.ofSeconds(5));
-        assertThat(client.messages).allMatch(expected::equals);
 
         session.close();
         // Leave the broadcaster's registry empty before finishing, so the other test's
@@ -77,6 +95,10 @@ class EventsWebSocketHandlerIntegrationTest {
         // wait for it so the unregistration wait below observes this session leaving
         // the registry, not the registry before it ever arrived.
         waitUntil(() -> eventBroadcaster.registeredSessionCount() == 1, Duration.ofSeconds(5));
+        // The connection's own engineVersion greeting (#273) lands as soon as it is
+        // registered, so it is already in `messages` by now -- record how many there
+        // are rather than assuming zero, and check that count never grows.
+        int messagesBeforeClose = client.messages.size();
 
         session.close();
         // No client-observable callback proves the server has unregistered the session:
@@ -90,7 +112,7 @@ class EventsWebSocketHandlerIntegrationTest {
         // Must not throw even though the only subscriber just disconnected.
         eventBroadcaster.broadcast("no.subscribers.left");
 
-        assertThat(client.messages).isEmpty();
+        assertThat(client.messages).hasSize(messagesBeforeClose);
     }
 
     private String uri() {
