@@ -48,6 +48,18 @@ confirmed.
   Overview) since the project it was showing no longer exists (haninaguib, 2026-08-27).
 
 ## Deviations / notes
+- Merged `origin/main` into the branch after #221 (consolidate project console pages)
+  and #227 (move add-project control to the header) landed (haninaguib, 2026-08-27),
+  which both touched files this task also changed: `project-summary.component.*` (real
+  conflicts — #221 added console-button/openConsoles state next to this task's
+  delete-project/showDeleteConfirm state; reconciled by keeping both sets of fields,
+  both error blocks, and merging the `imports` array/constructor injections) and
+  `sidenav.component.*` (#227 moved `showAddProject`/`app-add-project-popup` out of
+  this component into `AppComponent`; kept that removal and this task's
+  `ConfirmDialogComponent` addition side by side). `./mvnw -B test` (372 client specs,
+  324 engine tests) and `./scripts/consistency-check.sh` re-run clean afterward;
+  `git diff --name-only origin/main...HEAD | bash scripts/protected-paths.sh --stdin`
+  still exits 1.
 - `client/src/app/components/project-console/project-console.component.spec.ts` was
   updated (haninaguib, 2026-08-27): it exercises `console-tabs`' close flow end-to-end
   and its three close-related specs assumed the old synchronous `window.confirm()`. Not
