@@ -13,6 +13,7 @@ import { ProjectConsoleComponent } from './components/project-console/project-co
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
 import { AddProjectPopupComponent } from './components/add-project-popup/add-project-popup.component';
 import { UpdateBannerComponent } from './components/update-banner/update-banner.component';
+import { ReleaseBannerComponent } from './components/release-banner/release-banner.component';
 import { AuthService } from './services/auth.service';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
 
@@ -34,6 +35,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     ProjectConsoleComponent,
     AddProjectPopupComponent,
     UpdateBannerComponent,
+    ReleaseBannerComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',

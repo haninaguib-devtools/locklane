@@ -1,0 +1,12 @@
+:host {
+  display: block;
+}
+
+.release-banner {
+  padding: 4px 12px;
+  text-align: center;
+  font-size: 0.8125rem;
+  background: var(--border-soft);
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}

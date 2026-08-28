@@ -58,6 +58,21 @@ export function isEngineVersionEvent(event: AppEvent): event is EngineVersionEve
   return event.type === 'engineVersion' && typeof event['version'] === 'string';
 }
 
+/**
+ * A newer permanent GitHub release than the one running exists (#287), sent on connect
+ * once the engine already knows about one, and broadcast to every connected client the
+ * moment it finds out. Purely informational -- unlike `engineVersion` above, this never
+ * triggers an in-app update of any kind.
+ */
+export interface ReleaseAvailableEvent extends AppEvent {
+  type: 'releaseAvailable';
+  version: string;
+}
+
+export function isReleaseAvailableEvent(event: AppEvent): event is ReleaseAvailableEvent {
+  return event.type === 'releaseAvailable' && typeof event['version'] === 'string';
+}
+
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 

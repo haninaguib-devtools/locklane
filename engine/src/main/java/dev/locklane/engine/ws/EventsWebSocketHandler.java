@@ -5,6 +5,8 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * The app-wide events endpoint, {@code /ws/events} (#128): server-to-client only, so
@@ -16,20 +18,32 @@ import java.util.Map;
  * registered (#273): a stale client's service worker never checks for updates on its
  * own, so this is what lets a reconnect after an engine restart tell the client its
  * cached bundle may be out of date.
+ *
+ * <p>A connection also learns, right away, whether a newer permanent GitHub release than
+ * the one running is already known about (#287) — {@code newerReleaseVersion} is a
+ * supplier rather than a fixed value because that state can flip at any point during the
+ * engine's lifetime, unlike the version stamp above, which is fixed at build time. A
+ * connection made after the one-time {@code releaseAvailable} broadcast fired would
+ * otherwise never learn the engine already knows about a newer release.
  */
 public class EventsWebSocketHandler extends TextWebSocketHandler {
 
     private final EventBroadcaster broadcaster;
     private final String versionStamp;
+    private final Supplier<Optional<String>> newerReleaseVersion;
 
-    public EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp) {
+    public EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp,
+            Supplier<Optional<String>> newerReleaseVersion) {
         this.broadcaster = broadcaster;
         this.versionStamp = versionStamp;
+        this.newerReleaseVersion = newerReleaseVersion;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         broadcaster.sendTo(session, "engineVersion", Map.of("version", versionStamp));
+        newerReleaseVersion.get().ifPresent(version ->
+                broadcaster.sendTo(session, "releaseAvailable", Map.of("version", version)));
         broadcaster.register(session);
     }
 
