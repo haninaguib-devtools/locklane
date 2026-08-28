@@ -40,25 +40,20 @@
       type="button"
       class="plus"
       [disabled]="starting"
-      [attr.aria-expanded]="pickerOpen"
+      [attr.aria-expanded]="locationChoice && pickerOpen"
       aria-label="open a new console"
-      (click)="togglePicker()"
+      (click)="plusClicked()"
     >
       {{ starting ? '…' : '+' }}
     </button>
 
-    @if (pickerOpen) {
+    @if (locationChoice && pickerOpen) {
       <div class="picker">
-        @if (locationChoice) {
-          <div class="picker-group">
-            <span class="picker-label">where</span>
-            <button type="button" (click)="chooseLocation('worktree')">worktree</button>
-            <button type="button" (click)="chooseLocation('main')">main</button>
-          </div>
-        } @else {
-          <app-agent-picker [agent]="agent" (agentChange)="agent = $event" />
-          <button type="button" class="picker-open" (click)="confirmOpen()">open</button>
-        }
+        <div class="picker-group">
+          <span class="picker-label">where</span>
+          <button type="button" (click)="chooseLocation('worktree')">worktree</button>
+          <button type="button" (click)="chooseLocation('main')">main</button>
+        </div>
       </div>
     }
   </div>

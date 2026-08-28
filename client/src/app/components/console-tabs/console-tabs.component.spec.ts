@@ -15,18 +15,29 @@ describe('ConsoleTabsComponent', () => {
     expect(emitted).toBe('7-rename-toggle');
   });
 
-  it('emits the picked location and agent, and closes the picker (locationChoice=false flow)', () => {
+  it('the "+" starts a console with the default agent directly when there is no location to choose', () => {
     const c = new ConsoleTabsComponent();
-    c.pickerOpen = true;
-    c.location = 'main';
-    c.agent = 'codex';
+    c.locationChoice = false;
+    c.defaultAgent = 'codex';
     let emitted: { worktree: boolean; agent: string } | undefined;
     c.open.subscribe((request) => (emitted = request));
 
-    c.confirmOpen();
+    c.plusClicked();
 
     expect(emitted).toEqual({ worktree: false, agent: 'codex' });
     expect(c.pickerOpen).toBeFalse();
+  });
+
+  it('the "+" opens the where picker instead of launching, when there is a location to choose', () => {
+    const c = new ConsoleTabsComponent();
+    c.locationChoice = true;
+    let emitted: { worktree: boolean; agent: string } | undefined;
+    c.open.subscribe((request) => (emitted = request));
+
+    c.plusClicked();
+
+    expect(emitted).toBeUndefined();
+    expect(c.pickerOpen).toBeTrue();
   });
 
   it('launches immediately on the chosen location, using the default agent', () => {

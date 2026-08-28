@@ -1,6 +1,5 @@
 import { Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { Agent } from '../../services/agent-store';
-import { AgentPickerComponent } from '../agent-picker/agent-picker.component';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ConsoleTab, OVERVIEW_TAB_ID } from './console-labels';
 
@@ -12,7 +11,7 @@ export interface OpenConsoleRequest {
 @Component({
   selector: 'app-console-tabs',
   standalone: true,
-  imports: [AgentPickerComponent, ConfirmDialogComponent],
+  imports: [ConfirmDialogComponent],
   templateUrl: './console-tabs.component.html',
   styleUrl: './console-tabs.component.css',
 })
@@ -28,10 +27,9 @@ export class ConsoleTabsComponent {
   // every console runs in the project's own checkout.
   @Input() overview = true;
   @Input() locationChoice = true;
-  // Read from Settings (#219) by the caller and used only in the locationChoice
-  // flow (#220): that flow has no agent picker of its own, unlike the
-  // project-console tab strip's claude/codex/shell picker below, which still
-  // needs its own explicit choice.
+  // Read from Settings (#219) by the caller: the locationChoice flow (#220) has
+  // no agent picker of its own, and neither does the project-console tab strip's
+  // "+" any more (#256) — both launch a new console with this agent directly.
   @Input() defaultAgent: Agent = 'claude';
   @Output() selectedChange = new EventEmitter<string>();
   @Output() open = new EventEmitter<OpenConsoleRequest>();
@@ -39,7 +37,6 @@ export class ConsoleTabsComponent {
 
   pickerOpen = false;
   location: 'main' | 'worktree' = 'worktree';
-  agent: Agent = 'claude';
 
   // The tab whose close is awaiting confirmation in the app-styled dialog (#231),
   // replacing the synchronous native `confirm()` this used to block on.
@@ -66,13 +63,16 @@ export class ConsoleTabsComponent {
     this.pendingCloseId = null;
   }
 
-  togglePicker(): void {
-    this.pickerOpen = !this.pickerOpen;
-  }
-
-  confirmOpen(): void {
-    this.pickerOpen = false;
-    this.open.emit({ worktree: this.location === 'worktree', agent: this.agent });
+  // The "+" button (#256): the locationChoice flow still needs to ask where
+  // (#220), so it opens that popup; the project-console flow has nothing left to
+  // ask, so it launches immediately with the default agent, matching the
+  // sidenav's one-click "+" (`openNewConsole`).
+  plusClicked(): void {
+    if (this.locationChoice) {
+      this.pickerOpen = !this.pickerOpen;
+    } else {
+      this.open.emit({ worktree: false, agent: this.defaultAgent });
+    }
   }
 
   // The locationChoice flow (#220): choosing where launches immediately, using

@@ -110,14 +110,3 @@
   color: var(--muted);
   cursor: pointer;
 }
-
-.picker-open {
-  align-self: flex-end;
-  padding: 4px 12px;
-  font-size: 11px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  background: none;
-  color: var(--accent);
-  cursor: pointer;
-}

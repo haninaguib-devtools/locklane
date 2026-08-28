@@ -70,6 +70,18 @@
               } @else {
                 <span class="project-totals">—</span>
               }
+              @if (row.project.status === 'READY') {
+                <button
+                  type="button"
+                  class="shell-btn"
+                  [disabled]="isStartingShell(row.project.id)"
+                  aria-label="Open a shell console for this project"
+                  title="Open a shell console for this project"
+                  (click)="openShell(row.project.id, $event)"
+                >
+                  {{ isStartingShell(row.project.id) ? '…' : 'shell' }}
+                </button>
+              }
             </a>
           </li>
         }

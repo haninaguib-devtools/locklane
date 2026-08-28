@@ -363,6 +363,11 @@ describe('AppComponent', () => {
     flushConsoleIndicator();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
+    // #256: no open console auto-starts one with the default agent -- which the
+    // header's console indicator and the sidenav both learn about in turn.
+    httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
+    flushConsoleIndicator();
+    fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-project-console')).toBeTruthy();
@@ -393,7 +398,16 @@ describe('AppComponent', () => {
     button.click();
     tick();
     fixture.detectChanges();
-    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    // The console page re-fetches the same already-open session (#256: an empty
+    // list here would auto-start a redundant one).
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([
+      {
+        sessionId: 'proj-1-console-abc',
+        workingDirectory: '/tmp/proj',
+        createdAt: '2026-08-27T09:00:00Z',
+        lastAttachedAt: '2026-08-27T09:00:00Z',
+      },
+    ]);
     fixture.detectChanges();
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/console?session=proj-1-console-abc');
