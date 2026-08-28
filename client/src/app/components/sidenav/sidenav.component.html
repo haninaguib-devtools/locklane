@@ -122,6 +122,9 @@
               <button type="button" (click)="retryProject(section.project.id, $event)">retry</button>
               <button type="button" (click)="deleteProject(section.project.id, $event)">delete</button>
             </div>
+            @if (deleteErrorFor(section.project.id); as message) {
+              <p class="delete-error">{{ message }}</p>
+            }
           </div>
         } @else {
           @if (mainNodesFor(section).length === 0) {
