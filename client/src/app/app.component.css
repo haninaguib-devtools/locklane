@@ -28,6 +28,12 @@
   font-weight: 600;
   font-size: 19px;
   color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.brand:hover {
+  color: var(--accent);
 }
 
 .topbar-actions {
