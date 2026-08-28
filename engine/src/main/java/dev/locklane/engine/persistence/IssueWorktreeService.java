@@ -132,4 +132,16 @@ public class IssueWorktreeService {
     private static boolean isVisibleTo(WorktreeSessionRecord record, String requestingUsername) {
         return record.ownerUsername() == null || record.ownerUsername().equals(requestingUsername);
     }
+
+    /**
+     * Whether this project has any open worktree or console session at all (#231's
+     * delete refusal) — unlike {@link #allWorktreeIds}, ignores ownership entirely:
+     * deleting the project would orphan a session no matter who owns it, so this is a
+     * safety gate rather than a "what does this user see" listing.
+     */
+    public boolean hasAnySessions(long projectId) {
+        return repository.findAll().stream()
+                .anyMatch(record -> matchesProject(record.worktreeId(), projectId)
+                        || matchesProjectConsole(record.worktreeId(), projectId));
+    }
 }

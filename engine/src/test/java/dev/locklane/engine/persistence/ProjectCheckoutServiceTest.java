@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -122,22 +123,40 @@ class ProjectCheckoutServiceTest {
         ProjectRecord project = service.createProject(origin.toString(), "to-delete");
         assertThat(project.workareaPath()).isDirectory();
 
-        boolean deleted = service.delete(project.id());
+        ProjectCheckoutService.DeleteOutcome outcome = service.delete(project.id());
 
-        assertThat(deleted).isTrue();
+        assertThat(outcome).isEqualTo(ProjectCheckoutService.DeleteOutcome.DELETED);
         assertThat(repositoryOver(tmp).findById(project.id())).isEmpty();
         assertThat(project.workareaPath()).doesNotExist();
     }
 
     @Test
-    void deletingAnUnknownProjectReturnsFalse(@TempDir Path tmp) {
+    void deletingAnUnknownProjectIsNotFound(@TempDir Path tmp) {
         ProjectCheckoutService service = service(tmp);
 
-        assertThat(service.delete(999)).isFalse();
+        assertThat(service.delete(999)).isEqualTo(ProjectCheckoutService.DeleteOutcome.NOT_FOUND);
+    }
+
+    @Test
+    void deleteRefusesAProjectWithAnOpenWorktreeOrConsole(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
+                tmp.resolve("workarea").toString(), Runnable::run, new IssueWorktreeService(sessions));
+        ProjectRecord project = service.createProject(origin.toString(), "still-open");
+        sessions.recordAttach(project.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
+
+        ProjectCheckoutService.DeleteOutcome outcome = service.delete(project.id());
+
+        assertThat(outcome).isEqualTo(ProjectCheckoutService.DeleteOutcome.HAS_OPEN_SESSIONS);
+        assertThat(repositoryOver(tmp).findById(project.id())).isPresent();
+        assertThat(project.workareaPath()).isDirectory();
     }
 
     private static ProjectCheckoutService service(Path tmp) {
-        return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run);
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
+                new IssueWorktreeService(sessions));
     }
 
     private static ProjectRepository repositoryOver(Path tmp) {

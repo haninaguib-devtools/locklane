@@ -12,7 +12,14 @@
       @if (project.status === 'READY') {
         <a class="consoles-link" [routerLink]="['/projects', projectId, 'consoles']">open consoles</a>
       }
+      <button type="button" class="delete-project" [disabled]="deleting" (click)="openDeleteConfirm()">
+        {{ deleting ? 'deleting…' : 'delete project' }}
+      </button>
     </div>
+
+    @if (deleteError; as message) {
+      <p class="delete-error">{{ message }}</p>
+    }
 
     @if (counts; as c) {
       <div class="counts">
@@ -53,3 +60,14 @@
     </dl>
   }
 </section>
+
+@if (showDeleteConfirm) {
+  <app-confirm-dialog
+    title="Delete project?"
+    message="Delete this project? This cannot be undone."
+    confirmLabel="Delete"
+    [danger]="true"
+    (confirmed)="confirmDelete()"
+    (cancelled)="cancelDelete()"
+  />
+}

@@ -14,6 +14,7 @@ import { ProjectConsoleService } from '../../services/project-console.service';
 import { AgentStore } from '../../services/agent-store';
 import { AppEvent, ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '../../services/events.service';
 import { AddProjectPopupComponent } from '../add-project-popup/add-project-popup.component';
+import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
 
@@ -60,7 +61,14 @@ interface PinnedGroup {
 @Component({
   selector: 'app-sidenav',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet, RouterLink, AddProjectPopupComponent, UsageWidgetComponent],
+  imports: [
+    FormsModule,
+    NgTemplateOutlet,
+    RouterLink,
+    AddProjectPopupComponent,
+    ConfirmDialogComponent,
+    UsageWidgetComponent,
+  ],
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })
@@ -101,6 +109,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // rest combine ANDed -- see tree-filter.ts.
   selectedTags: string[] = [];
   readonly classificationTags = CLASSIFICATION_TAGS;
+
+  // The failed project awaiting delete confirmation in the app-styled dialog (#231),
+  // replacing the synchronous native `confirm()` this used to block on.
+  pendingDeleteProjectId: number | null = null;
 
   private openMenuFor: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -215,10 +227,19 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   deleteProject(projectId: number, event: Event): void {
     event.stopPropagation();
-    if (!confirm('Delete this project? This cannot be undone.')) {
-      return;
+    this.pendingDeleteProjectId = projectId;
+  }
+
+  confirmDeleteProject(): void {
+    const projectId = this.pendingDeleteProjectId;
+    this.pendingDeleteProjectId = null;
+    if (projectId !== null) {
+      this.projectsService.delete(projectId).subscribe(() => this.refresh());
     }
-    this.projectsService.delete(projectId).subscribe(() => this.refresh());
+  }
+
+  cancelDeleteProject(): void {
+    this.pendingDeleteProjectId = null;
   }
 
   private load(onDone: () => void): void {

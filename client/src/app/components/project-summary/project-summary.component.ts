@@ -1,6 +1,8 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Project, TreeNode } from '../../models/issue.model';
+import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 
@@ -21,13 +23,14 @@ export interface IssueCounts {
 @Component({
   selector: 'app-project-summary',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, ConfirmDialogComponent],
   templateUrl: './project-summary.component.html',
   styleUrl: './project-summary.component.css',
 })
 export class ProjectSummaryComponent implements OnChanges {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
+  private readonly router = inject(Router);
 
   @Input({ required: true }) projectId!: number;
 
@@ -36,10 +39,44 @@ export class ProjectSummaryComponent implements OnChanges {
   loading = true;
   error = false;
 
+  // The delete-project button (#231): opens the app-styled confirm dialog rather than
+  // deleting immediately, and surfaces the backend's refusal (open worktree/console)
+  // inline rather than navigating away or failing silently.
+  showDeleteConfirm = false;
+  deleting = false;
+  deleteError: string | null = null;
+
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId']) {
       this.load(this.projectId);
     }
+  }
+
+  openDeleteConfirm(): void {
+    this.deleteError = null;
+    this.showDeleteConfirm = true;
+  }
+
+  cancelDelete(): void {
+    this.showDeleteConfirm = false;
+  }
+
+  confirmDelete(): void {
+    this.showDeleteConfirm = false;
+    this.deleting = true;
+    this.deleteError = null;
+    this.projectsService.delete(this.projectId).subscribe({
+      next: () => {
+        this.deleting = false;
+        // The project this page was showing no longer exists -- back to the
+        // workspace Overview (#197), the same place no project selected lands.
+        this.router.navigate(['/']);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.deleting = false;
+        this.deleteError = err.error?.error ?? 'could not delete this project';
+      },
+    });
   }
 
   private load(projectId: number): void {

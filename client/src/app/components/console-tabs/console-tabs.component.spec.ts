@@ -72,9 +72,8 @@ describe('ConsoleTabsComponent', () => {
     expect(c.pickerOpen).toBeFalse();
   });
 
-  it('emits close only after the user confirms', () => {
+  it('closeTab stops propagation and awaits confirmation before emitting', () => {
     const c = new ConsoleTabsComponent();
-    spyOn(window, 'confirm').and.returnValue(true);
     let emitted: string | undefined;
     c.close.subscribe((id) => (emitted = id));
     const event = new Event('click');
@@ -82,19 +81,32 @@ describe('ConsoleTabsComponent', () => {
 
     c.closeTab('7-rename-toggle', event);
 
-    expect(window.confirm).toHaveBeenCalled();
     expect(stopSpy).toHaveBeenCalled();
-    expect(emitted).toBe('7-rename-toggle');
+    expect(c.pendingCloseId).toBe('7-rename-toggle');
+    expect(emitted).toBeUndefined();
   });
 
-  it('emits nothing when the user cancels the confirmation', () => {
+  it('emits close when the pending close is confirmed', () => {
     const c = new ConsoleTabsComponent();
-    spyOn(window, 'confirm').and.returnValue(false);
     let emitted: string | undefined;
     c.close.subscribe((id) => (emitted = id));
-
     c.closeTab('7-rename-toggle', new Event('click'));
 
+    c.confirmClose();
+
+    expect(emitted).toBe('7-rename-toggle');
+    expect(c.pendingCloseId).toBeNull();
+  });
+
+  it('emits nothing when the pending close is cancelled', () => {
+    const c = new ConsoleTabsComponent();
+    let emitted: string | undefined;
+    c.close.subscribe((id) => (emitted = id));
+    c.closeTab('7-rename-toggle', new Event('click'));
+
+    c.cancelClose();
+
     expect(emitted).toBeUndefined();
+    expect(c.pendingCloseId).toBeNull();
   });
 });

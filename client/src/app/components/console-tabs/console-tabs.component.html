@@ -63,3 +63,14 @@
     }
   </div>
 </div>
+
+@if (pendingCloseId !== null) {
+  <app-confirm-dialog
+    title="Close console?"
+    message="Close this console? The session will be terminated and cannot be reattached."
+    confirmLabel="Close"
+    [danger]="true"
+    (confirmed)="confirmClose()"
+    (cancelled)="cancelClose()"
+  />
+}

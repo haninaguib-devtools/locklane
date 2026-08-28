@@ -43,6 +43,13 @@ describe('ProjectConsoleComponent', () => {
     return { sessionId, workingDirectory: '/repo', createdAt: '2026-08-27T09:00:00Z', lastAttachedAt };
   }
 
+  /** Clicks the confirm button of the app-styled confirm dialog opened by a tab close (#231). */
+  function confirmCloseDialog(compiled: HTMLElement): void {
+    const buttons = compiled.querySelectorAll<HTMLButtonElement>('.dialog-actions button');
+    const confirmButton = Array.from(buttons).find((b) => b.textContent?.trim() === 'Close');
+    confirmButton!.click();
+  }
+
   it('attaches straight to an existing session, skipping the agent picker', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
@@ -200,12 +207,14 @@ describe('ProjectConsoleComponent', () => {
       row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
     ]);
     fixture.detectChanges();
-    spyOn(window, 'confirm').and.returnValue(true);
     const closed = jasmine.createSpy('onClosed');
     TestBed.inject(ConsolesService).onClosed.subscribe(closed);
 
     const compiled = fixture.nativeElement as HTMLElement;
     compiled.querySelectorAll<HTMLButtonElement>('.tab-close')[1].click();
+    fixture.detectChanges();
+    confirmCloseDialog(compiled);
+    fixture.detectChanges();
     const req = httpMock.expectOne('/api/projects/1/console/1-console-e5f6a7b8');
     expect(req.request.method).toBe('DELETE');
     req.flush(null);
@@ -221,10 +230,12 @@ describe('ProjectConsoleComponent', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
     fixture.detectChanges();
-    spyOn(window, 'confirm').and.returnValue(true);
 
     const compiled = fixture.nativeElement as HTMLElement;
     compiled.querySelector<HTMLButtonElement>('.tab-close')!.click();
+    fixture.detectChanges();
+    confirmCloseDialog(compiled);
+    fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/console/1-console-a1b2c3d4').flush(null);
     fixture.detectChanges();
 
@@ -236,10 +247,12 @@ describe('ProjectConsoleComponent', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
     fixture.detectChanges();
-    spyOn(window, 'confirm').and.returnValue(true);
 
     const compiled = fixture.nativeElement as HTMLElement;
     compiled.querySelector<HTMLButtonElement>('.tab-close')!.click();
+    fixture.detectChanges();
+    confirmCloseDialog(compiled);
+    fixture.detectChanges();
     httpMock
       .expectOne('/api/projects/1/console/1-console-a1b2c3d4')
       .flush(null, { status: 500, statusText: 'Server Error' });
