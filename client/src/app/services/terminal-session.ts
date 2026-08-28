@@ -32,9 +32,20 @@ export class TerminalSession {
     // Whether this tab is the visible one at connect time (#130) -- if so, a focus
     // notification is sent the moment the socket opens, so a session that was already
     // waiting for attention when its tab is (re)connected clears right away rather
-    // than sitting there until the user happens to type.
+    // than sitting there until the user happens to type. It also means cols/rows carry
+    // a real fitted size rather than xterm's unfitted defaults, so that size is queued
+    // as a resize too (#271): the connect URL's cols/rows are sent for a brand-new
+    // session, but the engine deliberately ignores them on a reattach, so the '1'-tagged
+    // resize message below is the only channel that reaches an already-running PTY.
+    // Queued here rather than left to the terminal's onResize handler, which fires
+    // before this session exists and never fires at all when the fitted size happens to
+    // equal the defaults.
     private readonly initiallyFocused: boolean = false,
-  ) {}
+  ) {
+    if (this.initiallyFocused && this.cols !== null && this.rows !== null) {
+      this.pendingResize = `${this.cols}x${this.rows}`;
+    }
+  }
 
   connect(onMessage: (text: string) => void, onClose: () => void): void {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
