@@ -27,6 +27,11 @@ export class ConsoleTabsComponent {
   // every console runs in the project's own checkout.
   @Input() overview = true;
   @Input() locationChoice = true;
+  // Read from Settings (#219) by the caller and used only in the locationChoice
+  // flow (#220): that flow has no agent picker of its own, unlike the
+  // project-console tab strip's claude/codex/shell picker below, which still
+  // needs its own explicit choice.
+  @Input() defaultAgent: Agent = 'claude';
   @Output() selectedChange = new EventEmitter<string>();
   @Output() open = new EventEmitter<OpenConsoleRequest>();
   @Output() close = new EventEmitter<string>();
@@ -54,6 +59,14 @@ export class ConsoleTabsComponent {
   confirmOpen(): void {
     this.pickerOpen = false;
     this.open.emit({ worktree: this.location === 'worktree', agent: this.agent });
+  }
+
+  // The locationChoice flow (#220): choosing where launches immediately, using
+  // the Settings default agent instead of the removed agent picker + separate
+  // "open" click.
+  chooseLocation(location: 'main' | 'worktree'): void {
+    this.pickerOpen = false;
+    this.open.emit({ worktree: location === 'worktree', agent: this.defaultAgent });
   }
 
   // Bound to `document` (not the host) so a click anywhere else on the page reaches

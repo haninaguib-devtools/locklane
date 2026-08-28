@@ -1,8 +1,13 @@
 import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { Project, TreeNode } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
+import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
+import { ConsolesService } from '../../services/consoles.service';
+import { AgentStore } from '../../services/agent-store';
+import { DefaultAgentStore } from '../../services/default-agent-store';
+import { LastConsoleStore } from '../../services/last-console-store';
 
 /** The issue counts shown on a project's summary, all derived from its tree (#85). */
 export interface IssueCounts {
@@ -21,13 +26,18 @@ export interface IssueCounts {
 @Component({
   selector: 'app-project-summary',
   standalone: true,
-  imports: [RouterLink],
   templateUrl: './project-summary.component.html',
   styleUrl: './project-summary.component.css',
 })
 export class ProjectSummaryComponent implements OnChanges {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
+  private readonly projectConsoleService = inject(ProjectConsoleService);
+  private readonly consolesService = inject(ConsolesService);
+  private readonly agentStore = inject(AgentStore);
+  private readonly defaultAgentStore = inject(DefaultAgentStore);
+  private readonly lastConsoleStore = inject(LastConsoleStore);
+  private readonly router = inject(Router);
 
   @Input({ required: true }) projectId!: number;
 
@@ -35,6 +45,13 @@ export class ProjectSummaryComponent implements OnChanges {
   counts: IssueCounts | null = null;
   loading = true;
   error = false;
+
+  // The project's open consoles (#221), fetched only once the project is known to
+  // be READY -- a cloning or failed project has nowhere to run one. Drives the
+  // console button's label and where it navigates.
+  openConsoles: OpenProjectConsole[] = [];
+  startingConsole = false;
+  consoleError = false;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId']) {
@@ -47,12 +64,18 @@ export class ProjectSummaryComponent implements OnChanges {
     this.counts = null;
     this.loading = true;
     this.error = false;
+    this.openConsoles = [];
+    this.startingConsole = false;
+    this.consoleError = false;
 
     this.projectsService.list().subscribe({
       next: (projects) => {
         this.project = projects.find((p) => p.id === projectId) ?? null;
         this.loading = false;
         this.error = this.project === null;
+        if (this.project?.status === 'READY') {
+          this.loadConsoles(projectId);
+        }
       },
       error: () => {
         this.loading = false;
@@ -73,6 +96,67 @@ export class ProjectSummaryComponent implements OnChanges {
         this.counts = null;
       },
     });
+  }
+
+  private loadConsoles(projectId: number): void {
+    this.projectConsoleService.listOpen(projectId).subscribe({
+      // A failed fetch leaves the button reading "Open console": starting one
+      // fresh is still a safe offer even though the existing list is unknown.
+      next: (consoles) => (this.openConsoles = consoles),
+      error: () => (this.openConsoles = []),
+    });
+  }
+
+  /** The console button's label (#221): switches once the project has any open console. */
+  get consoleButtonLabel(): string {
+    if (this.startingConsole) {
+      return 'starting…';
+    }
+    return this.openConsoles.length > 0 ? 'Open consoles' : 'Open console';
+  }
+
+  onConsoleButtonClick(): void {
+    if (this.startingConsole) {
+      return;
+    }
+    if (this.openConsoles.length === 0) {
+      this.startConsole();
+    } else {
+      this.openMostRecentConsole();
+    }
+  }
+
+  private startConsole(): void {
+    this.startingConsole = true;
+    this.consoleError = false;
+    this.projectConsoleService.start(this.projectId).subscribe({
+      next: (session) => {
+        this.startingConsole = false;
+        this.agentStore.set(session.sessionId, this.defaultAgentStore.agent());
+        this.consolesService.notifyOpened();
+        this.navigateToConsole(session.sessionId);
+      },
+      error: () => {
+        this.startingConsole = false;
+        this.consoleError = true;
+      },
+    });
+  }
+
+  // "Most recently interacted with" (#221): the console the user last selected on
+  // this project's own console page (LastConsoleStore), when it is still one of
+  // the open ones -- otherwise the last entry in the open-consoles list, the same
+  // fallback a user with no recorded interaction yet would land on.
+  private openMostRecentConsole(): void {
+    const remembered = this.lastConsoleStore.get(this.projectId);
+    const target = this.openConsoles.some((c) => c.sessionId === remembered)
+      ? remembered!
+      : this.openConsoles[this.openConsoles.length - 1].sessionId;
+    this.navigateToConsole(target);
+  }
+
+  private navigateToConsole(sessionId: string): void {
+    this.router.navigate(['/projects', this.projectId, 'console'], { queryParams: { session: sessionId } });
   }
 }
 

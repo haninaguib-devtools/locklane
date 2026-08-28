@@ -3,6 +3,7 @@ import { GhIssue, IssueDetail, ResumeSession } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { AgentStore } from '../../services/agent-store';
+import { DefaultAgentStore } from '../../services/default-agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { ActiveTabStore } from '../../services/active-tab-store';
 import { ConsolesService } from '../../services/consoles.service';
@@ -45,6 +46,7 @@ export class MainContentComponent implements OnChanges {
   private readonly projectsService = inject(ProjectsService);
   private readonly consolesService = inject(ConsolesService);
   private readonly agentStore = inject(AgentStore);
+  readonly defaultAgentStore = inject(DefaultAgentStore);
   private readonly activeConsoleStore = inject(ActiveConsoleStore);
   private readonly activeTabStore = inject(ActiveTabStore);
 

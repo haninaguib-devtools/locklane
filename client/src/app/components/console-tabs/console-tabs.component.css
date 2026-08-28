@@ -111,11 +111,6 @@
   cursor: pointer;
 }
 
-.picker-group button.chosen {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 .picker-open {
   align-self: flex-end;
   padding: 4px 12px;

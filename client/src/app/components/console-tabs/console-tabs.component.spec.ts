@@ -15,7 +15,7 @@ describe('ConsoleTabsComponent', () => {
     expect(emitted).toBe('7-rename-toggle');
   });
 
-  it('emits the picked location and agent, and closes the picker', () => {
+  it('emits the picked location and agent, and closes the picker (locationChoice=false flow)', () => {
     const c = new ConsoleTabsComponent();
     c.pickerOpen = true;
     c.location = 'main';
@@ -24,6 +24,19 @@ describe('ConsoleTabsComponent', () => {
     c.open.subscribe((request) => (emitted = request));
 
     c.confirmOpen();
+
+    expect(emitted).toEqual({ worktree: false, agent: 'codex' });
+    expect(c.pickerOpen).toBeFalse();
+  });
+
+  it('launches immediately on the chosen location, using the default agent', () => {
+    const c = new ConsoleTabsComponent();
+    c.pickerOpen = true;
+    c.defaultAgent = 'codex';
+    let emitted: { worktree: boolean; agent: string } | undefined;
+    c.open.subscribe((request) => (emitted = request));
+
+    c.chooseLocation('main');
 
     expect(emitted).toEqual({ worktree: false, agent: 'codex' });
     expect(c.pickerOpen).toBeFalse();
