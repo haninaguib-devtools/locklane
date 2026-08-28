@@ -6,6 +6,7 @@ import { provideRouter, Router } from '@angular/router';
 import { ProjectConsoleComponent } from './project-console.component';
 import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
+import { DefaultAgentStore } from '../../services/default-agent-store';
 import { IssuesService } from '../../services/issues.service';
 import { LastConsoleStore } from '../../services/last-console-store';
 import { TerminalComponent } from '../terminal/terminal.component';
@@ -16,6 +17,7 @@ describe('ProjectConsoleComponent', () => {
   beforeEach(() => {
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.lastConsole');
+    localStorage.removeItem('locklane.defaultAgent');
     TestBed.configureTestingModule({
       imports: [ProjectConsoleComponent],
       // The wildcard route lets tests navigate to a URL carrying the ?session
@@ -33,6 +35,7 @@ describe('ProjectConsoleComponent', () => {
     httpMock.verify();
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.lastConsole');
+    localStorage.removeItem('locklane.defaultAgent');
   });
 
   function init(projectId = 1): ReturnType<typeof TestBed.createComponent<ProjectConsoleComponent>> {
@@ -108,7 +111,7 @@ describe('ProjectConsoleComponent', () => {
     expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
   }));
 
-  it('shows neither an Overview tab nor the main/worktree choice in its strip', () => {
+  it('shows no Overview tab, and its "+" opens no popover (#256)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
     fixture.detectChanges();
@@ -117,11 +120,11 @@ describe('ProjectConsoleComponent', () => {
     expect(compiled.textContent).not.toContain('Overview');
     compiled.querySelector<HTMLButtonElement>('.plus')!.click();
     fixture.detectChanges();
-    expect(compiled.querySelector('.picker')).toBeTruthy();
-    // The agent picker stays; the "where" (main/worktree) group is what's gone.
-    expect(compiled.querySelector('app-agent-picker')).toBeTruthy();
-    const labels = Array.from(compiled.querySelectorAll('.picker-label')).map((l) => l.textContent!.trim());
-    expect(labels).toEqual(['agent']);
+
+    // No picker of any kind -- the "+" starts a console with the default agent
+    // directly (#256).
+    expect(compiled.querySelector('.picker')).toBeFalsy();
+    httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
   });
 
   it('keeps every console mounted, hiding all but the selected tab', () => {
@@ -172,26 +175,26 @@ describe('ProjectConsoleComponent', () => {
     expect(tab.textContent!.trim()).toBe('console · codex');
   });
 
-  it('shows the agent picker when the project has no open console', () => {
+  it('starts a console with no picker of any kind when the project has no open console (#256)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-agent-picker')).toBeTruthy();
+    expect(compiled.querySelector('app-agent-picker')).toBeFalsy();
+    expect(compiled.querySelector('.start')).toBeFalsy();
     expect(compiled.querySelector('app-terminal')).toBeFalsy();
+
+    httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
   });
 
-  it('starts a session with the chosen agent and then shows the terminal', () => {
+  it('starts a session with the Settings default agent and then shows the terminal (#256)', () => {
+    TestBed.inject(DefaultAgentStore).set('codex');
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
     const opened = jasmine.createSpy('onOpened');
     TestBed.inject(ConsolesService).onOpened.subscribe(opened);
-
-    fixture.componentInstance.agent = 'codex';
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.start')!.click();
-    fixture.detectChanges();
 
     const req = httpMock.expectOne('/api/projects/1/console');
     expect(req.request.method).toBe('POST');
@@ -248,7 +251,7 @@ describe('ProjectConsoleComponent', () => {
     expect(closed).toHaveBeenCalled();
   });
 
-  it('shows the starter again once the last console is closed', () => {
+  it('auto-starts a fresh default-agent console once the last one is closed (#256)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
     fixture.detectChanges();
@@ -261,8 +264,12 @@ describe('ProjectConsoleComponent', () => {
     httpMock.expectOne('/api/projects/1/console/1-console-a1b2c3d4').flush(null);
     fixture.detectChanges();
 
-    expect(compiled.querySelector('app-terminal')).toBeFalsy();
-    expect(compiled.querySelector('app-agent-picker')).toBeTruthy();
+    expect(compiled.querySelector('app-agent-picker')).toBeFalsy();
+    httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
+    expect(compiled.querySelector('app-terminal')).toBeTruthy();
   });
 
   it('shows an error and keeps the tab when closing fails', () => {
@@ -284,17 +291,21 @@ describe('ProjectConsoleComponent', () => {
     expect(compiled.querySelectorAll('app-terminal').length).toBe(1);
   });
 
-  it('shows an error and lets the user retry when starting fails', () => {
+  it('shows an error and lets the user retry when the auto-start fails', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
-    fixture.detectChanges();
-
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.start')!.click();
     httpMock.expectOne('/api/projects/1/console').flush(null, { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
     expect(fixture.componentInstance.startError).toBeTrue();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not start a console');
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('could not start a console');
+
+    compiled.querySelector<HTMLButtonElement>('.retry')!.click();
+    httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
   });
 
   it('navigates back to the project\'s issues page', () => {
@@ -333,8 +344,10 @@ describe('ProjectConsoleComponent', () => {
     httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.selected).toBeNull();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-agent-picker')).toBeTruthy();
+    // The new project has no open console either, so it auto-starts one there too.
+    httpMock.expectOne('/api/projects/2/console').flush({ sessionId: '2-console-a1b2c3d4', workingDirectory: '/repo' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('2-console-a1b2c3d4');
   });
 });

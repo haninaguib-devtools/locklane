@@ -237,3 +237,24 @@ h1 {
   font-size: 11px;
   color: var(--muted);
 }
+
+.shell-btn {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--window);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.shell-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.shell-btn:disabled {
+  color: var(--faint);
+  cursor: default;
+}

@@ -1,7 +1,7 @@
 import { Component, Input, OnChanges, OnDestroy, SimpleChanges, inject } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Agent, AgentStore } from '../../services/agent-store';
-import { AgentPickerComponent } from '../agent-picker/agent-picker.component';
+import { DefaultAgentStore } from '../../services/default-agent-store';
 import { ConsolesService } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
@@ -27,7 +27,7 @@ interface OpenConsole {
 @Component({
   selector: 'app-project-console',
   standalone: true,
-  imports: [AgentPickerComponent, ConsoleTabsComponent, TerminalComponent],
+  imports: [ConsoleTabsComponent, TerminalComponent],
   templateUrl: './project-console.component.html',
   styleUrl: './project-console.component.css',
 })
@@ -36,6 +36,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   private readonly consolesService = inject(ConsolesService);
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
+  readonly defaultAgentStore = inject(DefaultAgentStore);
   private readonly lastConsoleStore = inject(LastConsoleStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -46,7 +47,6 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   consoles: OpenConsole[] = [];
   tabs: ConsoleTab[] = [];
   selected: string | null = null;
-  agent: Agent = 'claude';
   starting = false;
   startError = false;
   closeError = false;
@@ -76,6 +76,14 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
     this.closeError = false;
     this.service.listOpen(projectId).subscribe({
       next: (sessions) => {
+        this.loading = false;
+        if (sessions.length === 0) {
+          // #256: landing here with nothing open starts one immediately, using
+          // the same default-agent source the sidenav "+" uses -- no picker, no
+          // separate start button.
+          this.startDefault();
+          return;
+        }
         this.consoles = sessions.map((s) => ({
           id: s.sessionId,
           dir: s.workingDirectory,
@@ -97,7 +105,6 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
               )?.sessionId ?? null,
         );
         this.relabel();
-        this.loading = false;
       },
       error: () => {
         this.loading = false;
@@ -105,9 +112,13 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
     });
   }
 
-  /** The starter's button, shown while the project has no open console. */
-  open(): void {
-    this.start(this.agent);
+  /** Retries the empty-state auto-start after a failure -- the only "start" affordance left. */
+  retryStart(): void {
+    this.startDefault();
+  }
+
+  private startDefault(): void {
+    this.start(this.defaultAgentStore.agent());
   }
 
   /** The tab strip's "+" (the location choice is hidden -- only the agent matters). */
@@ -160,6 +171,12 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
           this.selectConsole(this.consoles[0]?.id ?? null);
         }
         this.consolesService.notifyClosed();
+        if (this.consoles.length === 0) {
+          // #256: this page never sits at zero consoles waiting on a picker --
+          // closing the last one starts a fresh default-agent console the same
+          // way landing here empty does.
+          this.startDefault();
+        }
       },
       error: () => {
         this.closeError = true;

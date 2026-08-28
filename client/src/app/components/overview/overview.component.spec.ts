@@ -1,9 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { OverviewComponent, aggregateCounts } from './overview.component';
 import { Project, TreeNode } from '../../models/issue.model';
+import { AgentStore } from '../../services/agent-store';
+import { ConsolesService } from '../../services/consoles.service';
 
 describe('OverviewComponent', () => {
   let httpMock: HttpTestingController;
@@ -38,6 +40,7 @@ describe('OverviewComponent', () => {
   }
 
   beforeEach(() => {
+    localStorage.removeItem('locklane.sessionAgents');
     TestBed.configureTestingModule({
       imports: [OverviewComponent],
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
@@ -45,7 +48,10 @@ describe('OverviewComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.removeItem('locklane.sessionAgents');
+  });
 
   function init(projects: Project[]): ReturnType<typeof TestBed.createComponent<OverviewComponent>> {
     const fixture = TestBed.createComponent(OverviewComponent);
@@ -169,5 +175,49 @@ describe('OverviewComponent', () => {
 
     const label = (fixture.nativeElement as HTMLElement).querySelector('.completion-label');
     expect(label!.textContent?.trim()).toBe('2/4 closed');
+  });
+
+  it('opens a shell console for a READY project and navigates to it (#256)', () => {
+    const fixture = init([PROJECT_A]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    fixture.detectChanges();
+    const router = TestBed.inject(Router);
+    spyOn(router, 'navigate');
+    const opened = jasmine.createSpy('onOpened');
+    TestBed.inject(ConsolesService).onOpened.subscribe(opened);
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shell-btn')!.click();
+    const req = httpMock.expectOne('/api/projects/1/console');
+    expect(req.request.method).toBe('POST');
+    req.flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+
+    expect(TestBed.inject(AgentStore).get('1-console-a1b2c3d4')).toBe('shell');
+    expect(opened).toHaveBeenCalled();
+    expect(router.navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+      queryParams: { session: '1-console-a1b2c3d4' },
+    });
+  });
+
+  it('has no shell button for a project that is not READY', () => {
+    const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
+    const fixture = init([cloning]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.shell-btn')).toBeFalsy();
+  });
+
+  it('guards the shell button against a double click starting two sessions', () => {
+    const fixture = init([PROJECT_A]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    fixture.detectChanges();
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shell-btn')!;
+    button.click();
+    button.click();
+
+    const req = httpMock.expectOne('/api/projects/1/console');
+    expect(req.request.method).toBe('POST');
+    req.flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
   });
 });

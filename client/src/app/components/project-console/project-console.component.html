@@ -11,6 +11,7 @@
     [starting]="starting"
     [overview]="false"
     [locationChoice]="false"
+    [defaultAgent]="defaultAgentStore.agent()"
     (selectedChange)="selectTab($event)"
     (open)="openFromTabs($event)"
     (close)="closeConsole($event)"
@@ -33,15 +34,12 @@
 } @else {
   <div class="starter">
     <p class="hint">
-      Start a conversation here to open a new issue — the agent runs in this project's own
+      Starting a console here to open a new issue — the agent runs in this project's own
       checkout, with <code>gh</code> available to it.
     </p>
-    <app-agent-picker [agent]="agent" (agentChange)="agent = $event" />
     @if (startError) {
       <div class="action-error">could not start a console — try again</div>
+      <button type="button" class="retry" (click)="retryStart()">retry</button>
     }
-    <button type="button" class="start" [disabled]="starting" (click)="open()">
-      {{ starting ? 'starting…' : 'start' }}
-    </button>
   </div>
 }
