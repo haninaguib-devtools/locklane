@@ -1,6 +1,12 @@
 spring:
   application:
     name: locklane-engine
+  # install.sh (#289) writes ~/.locklane/application-locklane.properties; activating
+  # this profile is what makes a plain `java -jar locklane.jar` run from ~/.locklane
+  # pick that file up automatically (Spring Boot searches the current directory for
+  # profile-specific config in the same locations as application.yml itself).
+  profiles:
+    active: locklane
   flyway:
     # The schema (#107): versioned migrations that each apply exactly once, in order,
     # to whatever state a database is already in. SQL files live under the standard

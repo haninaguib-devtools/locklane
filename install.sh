@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Installs locklane into ~/.locklane (#289): downloads the current engine jar, asks the
+# handful of settings a fresh install needs, and writes them to
+# ~/.locklane/application-locklane.properties. Fetches update.sh alongside it for
+# pulling a newer jar later without repeating any of this.
+#
+# Usage: curl -fsSL <url-to-this-file> | bash
+set -euo pipefail
+
+# Mirrors engine/src/main/resources/application.yml's
+# locklane.release-check.repository — the only release channel that exists today.
+REPO="haninaguib-devtools/locklane"
+INSTALL_DIR="${LOCKLANE_HOME:-$HOME/.locklane}"
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "error: the GitHub CLI (gh) is required — install it from https://cli.github.com, then run 'gh auth login'." >&2
+  exit 1
+fi
+if ! gh auth status >/dev/null 2>&1; then
+  echo "error: gh is not logged in — run 'gh auth login' first." >&2
+  exit 1
+fi
+
+mkdir -p "$INSTALL_DIR"
+
+echo "Downloading locklane.jar (latest build of $REPO)..."
+gh release download latest --repo "$REPO" --pattern locklane.jar \
+  --dir "$INSTALL_DIR" --clobber
+
+echo "Fetching update.sh..."
+gh api -H "Accept: application/vnd.github.raw" "repos/$REPO/contents/update.sh" \
+  > "$INSTALL_DIR/update.sh"
+chmod +x "$INSTALL_DIR/update.sh"
+
+# --- Prompts ------------------------------------------------------------------
+
+port=""
+while true; do
+  read -r -p "Port to run on [8080]: " port
+  port="${port:-8080}"
+  case "$port" in
+    ''|*[!0-9]*) echo "Enter a port number." >&2; continue ;;
+  esac
+  [ "$port" -ge 1 ] && [ "$port" -le 65535 ] && break
+  echo "Port must be between 1 and 65535." >&2
+done
+
+read -r -p "Extra allowed origins, comma-separated (localhost:$port is always allowed) []: " extra_origins
+origins="http://localhost:$port"
+if [ -n "$extra_origins" ]; then
+  origins="$origins,$extra_origins"
+fi
+
+read -r -p "Bootstrap username [admin]: " username
+username="${username:-admin}"
+
+password=""
+while true; do
+  read -r -s -p "Bootstrap password: " password
+  echo
+  if [ -z "$password" ]; then
+    echo "Password cannot be empty." >&2
+    continue
+  fi
+  read -r -s -p "Confirm password: " password_confirm
+  echo
+  if [ "$password" != "$password_confirm" ]; then
+    echo "Passwords did not match — try again." >&2
+    continue
+  fi
+  break
+done
+
+# --- Write the properties file, mode 600 since it holds a password ------------
+
+props_file="$INSTALL_DIR/application-locklane.properties"
+: > "$props_file"
+chmod 600 "$props_file"
+{
+  echo "server.port=$port"
+  echo "locklane.security.allowed-origins=$origins"
+  echo "locklane.security.bootstrap-username=$username"
+  echo "locklane.security.bootstrap-password=$password"
+} > "$props_file"
+
+cat <<EOF
+
+Installed to $INSTALL_DIR:
+  locklane.jar
+  update.sh
+  application-locklane.properties (mode 600)
+
+Start it with:
+  cd $INSTALL_DIR && java -jar locklane.jar
+
+Later, pull a newer build with:
+  $INSTALL_DIR/update.sh
+EOF
