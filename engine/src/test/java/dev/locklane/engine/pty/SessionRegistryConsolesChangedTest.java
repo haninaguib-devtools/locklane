@@ -9,7 +9,10 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -58,7 +61,11 @@ class SessionRegistryConsolesChangedTest {
 
         afterRestart.attach("42-7-slug", workDir);
 
-        verifyNoInteractions(broadcaster);
+        // #233: scoped to this test's own guarantee -- no *consolesChanged* -- rather
+        // than verifyNoInteractions(), which also asserted on consoleAttention, an
+        // unrelated broadcast from the freshly-spawned real PtySession backing this
+        // reattach.
+        verify(broadcaster, never()).broadcast(eq("consolesChanged"), any());
     }
 
     @Test
