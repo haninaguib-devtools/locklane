@@ -8,6 +8,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -27,7 +28,7 @@ class UsageControllerTest {
 
     @Test
     void servesTheSnapshotAsJson() throws Exception {
-        ProviderUsage claude = new ProviderUsage(true, new WindowUsage(75.0, Instant.ofEpochSecond(1000)), null);
+        ProviderUsage claude = new ProviderUsage(true, new WindowUsage(75.0, Instant.ofEpochSecond(1000)), null, List.of());
         when(usageService.snapshot()).thenReturn(new UsageSnapshot(claude, ProviderUsage.unavailable(), Instant.ofEpochSecond(500)));
 
         mockMvc.perform(get("/api/usage"))

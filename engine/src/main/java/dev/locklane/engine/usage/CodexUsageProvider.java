@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -55,7 +56,7 @@ public class CodexUsageProvider implements UsageProvider {
             if (primary == null && secondary == null) {
                 return Optional.empty();
             }
-            return Optional.of(new ProviderUsage(true, primary, secondary));
+            return Optional.of(new ProviderUsage(true, primary, secondary, List.of()));
         } catch (IOException e) {
             return Optional.empty();
         }

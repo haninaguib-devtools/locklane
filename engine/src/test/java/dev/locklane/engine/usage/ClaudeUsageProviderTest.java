@@ -77,6 +77,62 @@ class ClaudeUsageProviderTest {
     }
 
     @Test
+    void parsesEveryWeeklyScopedModelLimitFromTheLimitsArray() throws IOException {
+        ClaudeTokenSource tokenSource = credentialsFile("a-token");
+        String body = """
+                {"five_hour": {"utilization": 25, "resets_at": "2026-01-01T00:00:00Z"},
+                 "seven_day": {"utilization": 35, "resets_at": "2026-01-08T00:00:00Z"},
+                 "limits": [
+                   {"group": "weekly", "utilization": 43, "resets_at": "2026-01-08T00:00:00Z",
+                    "scope": {"model": {"display_name": "Fable"}}},
+                   {"group": "weekly", "utilization": 12, "resets_at": "2026-01-09T00:00:00Z",
+                    "scope": {"model": {"display_name": "Opus"}}}
+                 ]}""";
+        ClaudeUsageProvider provider = new ClaudeUsageProvider(tokenSource, stub((url, headers) -> Optional.of(body)));
+
+        ProviderUsage usage = provider.fetch();
+
+        assertThat(usage.modelWeeklyLimits()).hasSize(2);
+        assertThat(usage.modelWeeklyLimits().get(0).modelName()).isEqualTo("Fable");
+        assertThat(usage.modelWeeklyLimits().get(0).window().percentLeft()).isEqualTo(57.0);
+        assertThat(usage.modelWeeklyLimits().get(0).window().resetsAt()).isEqualTo(Instant.parse("2026-01-08T00:00:00Z"));
+        assertThat(usage.modelWeeklyLimits().get(1).modelName()).isEqualTo("Opus");
+        assertThat(usage.modelWeeklyLimits().get(1).window().percentLeft()).isEqualTo(88.0);
+    }
+
+    @Test
+    void modelWeeklyLimitsIsEmptyWhenTheResponseHasNoLimitsArray() throws IOException {
+        ClaudeTokenSource tokenSource = credentialsFile("a-token");
+        String body = """
+                {"five_hour": {"utilization": 25, "resets_at": "2026-01-01T00:00:00Z"}}""";
+        ClaudeUsageProvider provider = new ClaudeUsageProvider(tokenSource, stub((url, headers) -> Optional.of(body)));
+
+        assertThat(provider.fetch().modelWeeklyLimits()).isEmpty();
+    }
+
+    @Test
+    void ignoresLimitsEntriesThatAreNotWeeklyOrHaveNoModelScope() throws IOException {
+        ClaudeTokenSource tokenSource = credentialsFile("a-token");
+        String body = """
+                {"five_hour": {"utilization": 25, "resets_at": "2026-01-01T00:00:00Z"},
+                 "tangelo": null,
+                 "nimbus_quill": null,
+                 "limits": [
+                   {"group": "five_hour", "utilization": 10, "resets_at": "2026-01-01T00:00:00Z",
+                    "scope": {"model": {"display_name": "Fable"}}},
+                   {"group": "weekly", "utilization": 10, "resets_at": "2026-01-01T00:00:00Z"},
+                   {"group": "weekly", "utilization": 10, "resets_at": "2026-01-01T00:00:00Z", "scope": {}},
+                   "not-an-object"
+                 ]}""";
+        ClaudeUsageProvider provider = new ClaudeUsageProvider(tokenSource, stub((url, headers) -> Optional.of(body)));
+
+        ProviderUsage usage = provider.fetch();
+
+        assertThat(usage.available()).isTrue();
+        assertThat(usage.modelWeeklyLimits()).isEmpty();
+    }
+
+    @Test
     void aWindowWithAnUnparsableResetsAtIsTreatedAsAbsent() throws IOException {
         ClaudeTokenSource tokenSource = credentialsFile("a-token");
         String body = """

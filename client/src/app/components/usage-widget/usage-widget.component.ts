@@ -55,7 +55,10 @@ export class UsageWidgetComponent implements OnInit, OnDestroy {
     return window !== null && window.percentLeft < LOW_PERCENT_LEFT;
   }
 
-  // One row per window a provider actually has data for, in display order.
+  // One row per window a provider actually has data for, in display order -- the
+  // account-wide 5-hour and weekly windows first, then one row per model that has its
+  // own scoped weekly limit (e.g. "Fable"), sourced generically from the list so a
+  // future scoped model shows up without a template change.
   providerWindows(provider: ProviderUsage): { label: string; window: WindowUsage }[] {
     const rows: { label: string; window: WindowUsage }[] = [];
     if (provider.fiveHour) {
@@ -63,6 +66,9 @@ export class UsageWidgetComponent implements OnInit, OnDestroy {
     }
     if (provider.weekly) {
       rows.push({ label: 'Weekly', window: provider.weekly });
+    }
+    for (const limit of provider.modelWeeklyLimits) {
+      rows.push({ label: `${limit.modelName} weekly`, window: limit.window });
     }
     return rows;
   }
