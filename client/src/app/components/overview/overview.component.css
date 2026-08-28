@@ -5,8 +5,19 @@
   padding: 20px 24px;
 }
 
+.overview:not(.zero) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .overview.zero {
   padding: 0;
+}
+
+.content {
+  width: 100%;
+  max-width: 720px;
 }
 
 .state {
@@ -41,40 +52,40 @@
 .zero-content {
   position: relative;
   text-align: center;
-  padding: 20px;
+  padding: 32px;
 }
 
 .zero-eyebrow {
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--faint);
-  margin-bottom: 8px;
+  margin-bottom: 14px;
 }
 
 .zero-content h1 {
-  font-size: 19px;
+  font-size: 32px;
   font-weight: 600;
   color: var(--text);
   border-bottom: none;
   padding-bottom: 0;
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 
 .zero-content p {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--muted);
-  max-width: 280px;
-  margin: 0 auto 18px;
+  max-width: 340px;
+  margin: 0 auto 28px;
 }
 
 .zero-cta {
-  padding: 9px 18px;
+  padding: 13px 26px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--accent);
   color: #fff;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(193, 95, 60, 0.28);
