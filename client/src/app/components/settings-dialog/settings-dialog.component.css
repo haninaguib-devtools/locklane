@@ -44,10 +44,37 @@
   min-height: 120px;
 }
 
+.section + .section {
+  border-top: 1px solid var(--border-soft);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
 .section h2 {
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 8px;
+}
+
+.agent-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-option {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agent-option.chosen {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .muted {

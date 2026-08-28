@@ -3,10 +3,13 @@ import { provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { SettingsDialogComponent } from './settings-dialog.component';
 
+const DEFAULT_AGENT_STORAGE_KEY = 'locklane.defaultAgent';
+
 describe('SettingsDialogComponent', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(async () => {
+    localStorage.removeItem(DEFAULT_AGENT_STORAGE_KEY);
     await TestBed.configureTestingModule({
       imports: [SettingsDialogComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -14,7 +17,10 @@ describe('SettingsDialogComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.removeItem(DEFAULT_AGENT_STORAGE_KEY);
+  });
 
   function create(): ReturnType<typeof TestBed.createComponent<SettingsDialogComponent>> {
     const fixture = TestBed.createComponent(SettingsDialogComponent);
@@ -26,6 +32,34 @@ describe('SettingsDialogComponent', () => {
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled });
     fixture.detectChanges();
   }
+
+  it('defaults to claude and lets the choice be switched to codex and back', () => {
+    const fixture = create();
+    flushStatus(fixture, false);
+    const compiled = fixture.nativeElement as HTMLElement;
+    const options = () => compiled.querySelectorAll<HTMLButtonElement>('.agent-option');
+
+    expect(options()[0].classList.contains('chosen')).toBe(true);
+    expect(options()[1].classList.contains('chosen')).toBe(false);
+
+    options()[1].click();
+    fixture.detectChanges();
+
+    expect(options()[0].classList.contains('chosen')).toBe(false);
+    expect(options()[1].classList.contains('chosen')).toBe(true);
+  });
+
+  it('remembers the default agent choice across dialog instances', () => {
+    const first = create();
+    flushStatus(first, false);
+    (first.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.agent-option')[1].click();
+
+    const second = create();
+    flushStatus(second, false);
+    const options = (second.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.agent-option');
+
+    expect(options[1].classList.contains('chosen')).toBe(true);
+  });
 
   it('renders a title bar and loads the 2FA status', () => {
     const fixture = create();

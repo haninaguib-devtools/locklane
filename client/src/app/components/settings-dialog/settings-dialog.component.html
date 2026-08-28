@@ -6,6 +6,29 @@
     </div>
     <div class="popup-body">
       <section class="section">
+        <h2>Default agent</h2>
+        <p class="muted">Which agent new consoles launch with by default.</p>
+        <div class="agent-toggle" role="group" aria-label="Default agent">
+          <button
+            type="button"
+            class="agent-option"
+            [class.chosen]="defaultAgent() === 'claude'"
+            (click)="chooseDefaultAgent('claude')"
+          >
+            Claude
+          </button>
+          <button
+            type="button"
+            class="agent-option"
+            [class.chosen]="defaultAgent() === 'codex'"
+            (click)="chooseDefaultAgent('codex')"
+          >
+            Codex
+          </button>
+        </div>
+      </section>
+
+      <section class="section">
         <h2>Two-factor authentication</h2>
 
         @if (loadError(); as message) {
