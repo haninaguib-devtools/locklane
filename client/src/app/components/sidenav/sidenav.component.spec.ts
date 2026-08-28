@@ -382,30 +382,6 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 4]);
   });
 
-  it('openAddProject shows the popup, onAddProjectClosed hides it', () => {
-    const fixture = init();
-    flushTree(1, tree());
-
-    expect(fixture.componentInstance.showAddProject).toBeFalse();
-    fixture.componentInstance.openAddProject();
-    expect(fixture.componentInstance.showAddProject).toBeTrue();
-
-    fixture.componentInstance.onAddProjectClosed();
-    expect(fixture.componentInstance.showAddProject).toBeFalse();
-  });
-
-  it('onProjectCreated hides the popup and refreshes the project list', () => {
-    const fixture = init();
-    flushTree(1, tree());
-    fixture.componentInstance.openAddProject();
-
-    fixture.componentInstance.onProjectCreated();
-
-    expect(fixture.componentInstance.showAddProject).toBeFalse();
-    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
-    flushTree(1, tree());
-  });
-
   it('a project still cloning shows a cloning state instead of its tree', () => {
     const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
     const fixture = init([cloning]);

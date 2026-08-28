@@ -180,7 +180,7 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
-  it('shows the "select a project" empty state at "/" when logged in with no projects (#197)', fakeAsync(() => {
+  it('shows the zero-project empty state at "/" when logged in with no projects (#197, #227)', fakeAsync(() => {
     logIn();
     TestBed.inject(Router).navigateByUrl('/');
     tick();
@@ -194,7 +194,39 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('select a project to begin');
+    expect(compiled.textContent).toContain('No projects yet');
+  }));
+
+  it('the zero-state CTA opens the same add-project popup as the header, and creating refreshes both the sidenav and the overview (#227)', fakeAsync(() => {
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    let lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([]));
+    flushUsageWidget();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('app-add-project-popup')).toBeFalsy();
+    compiled.querySelector<HTMLButtonElement>('.zero-cta')!.click();
+    fixture.detectChanges();
+    expect(compiled.querySelector('app-add-project-popup')).toBeTruthy();
+
+    fixture.componentInstance.onProjectCreated();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-add-project-popup')).toBeFalsy();
+    lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([PROJECT]));
+    const trees = httpMock.match('/api/projects/1/issues/tree');
+    expect(trees.length).toBe(2);
+    trees.forEach((request) => request.flush([]));
+    httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
   }));
 
   it('shows the project summary until an issue is selected (#85)', fakeAsync(() => {
@@ -424,6 +456,31 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('.logout')).toBeFalsy();
     expect(compiled.querySelector('.avatar')?.textContent?.trim()).toBe('s');
     expect(compiled.querySelector('.account-menu')).toBeFalsy();
+  }));
+
+  it('opens the add-project popup from the header button, next to the account menu (#227)', fakeAsync(() => {
+    const fixture = openedApp();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    expect(compiled.querySelector('app-add-project-popup')).toBeFalsy();
+    compiled.querySelector<HTMLButtonElement>('.add-project')!.click();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-add-project-popup')).toBeTruthy();
+  }));
+
+  it('creating a project from the header popup closes it and refreshes the sidenav (#227)', fakeAsync(() => {
+    const fixture = openedApp();
+    fixture.componentInstance.openAddProject();
+    fixture.detectChanges();
+
+    fixture.componentInstance.onProjectCreated();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.showAddProject).toBeFalse();
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
   }));
 
   it('toggles the account menu from the avatar, showing the username, a separator, Settings and Sign out', fakeAsync(() => {

@@ -1,4 +1,4 @@
-import { Component, HostListener, computed, inject } from '@angular/core';
+import { Component, HostListener, ViewChild, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -12,6 +12,7 @@ import { ConsoleIndicatorComponent } from './components/console-indicator/consol
 import { ProjectConsoleComponent } from './components/project-console/project-console.component';
 import { ConsolesPageComponent } from './components/consoles-page/consoles-page.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
+import { AddProjectPopupComponent } from './components/add-project-popup/add-project-popup.component';
 import { AuthService } from './services/auth.service';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
 
@@ -32,6 +33,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     SettingsDialogComponent,
     ProjectConsoleComponent,
     ConsolesPageComponent,
+    AddProjectPopupComponent,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -49,6 +51,13 @@ export class AppComponent {
   // them directly.
   menuOpen = false;
   settingsOpen = false;
+
+  // The add-project popup (#227) can be opened from the header button or from the
+  // overview's zero-project CTA, so its state lives here rather than in either opener.
+  showAddProject = false;
+
+  @ViewChild(SidenavComponent) private readonly sidenav?: SidenavComponent;
+  @ViewChild(OverviewComponent) private readonly overview?: OverviewComponent;
 
   // The selected project/issue lives in the URL
   // (`/projects/:projectId/issues/:id`), not in component state -- re-derived from
@@ -141,6 +150,23 @@ export class AppComponent {
 
   closeSettings(): void {
     this.settingsOpen = false;
+  }
+
+  openAddProject(): void {
+    this.showAddProject = true;
+  }
+
+  // Both the sidenav and the overview (#197) fetch the project list independently
+  // (#44), so a project created from the header or the overview's zero-state needs
+  // both refreshed in place rather than relying on either one's own next reload.
+  onProjectCreated(): void {
+    this.showAddProject = false;
+    this.sidenav?.refresh();
+    this.overview?.refresh();
+  }
+
+  onAddProjectClosed(): void {
+    this.showAddProject = false;
   }
 
   logout(): void {

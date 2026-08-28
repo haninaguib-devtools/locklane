@@ -42,6 +42,21 @@
   gap: 12px;
 }
 
+.add-project {
+  padding: 5px 10px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.add-project:hover {
+  border-color: var(--accent);
+}
+
 /* The account menu (#90) anchors to the avatar, so the wrapper is the positioning
    context the absolutely-placed menu hangs from. */
 .account {

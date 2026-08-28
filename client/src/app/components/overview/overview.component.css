@@ -5,17 +5,83 @@
   padding: 20px 24px;
 }
 
-.state,
-.empty-state {
+.overview.zero {
+  padding: 0;
+}
+
+.state {
   font-size: 13px;
   color: var(--faint);
 }
 
-.empty-state {
+/* The zero-project first-run screen (#227): a quiet generated backdrop -- a soft
+   accent/green glow plus a masked dot grid -- rather than a stock image, since the
+   app otherwise has no imagery anywhere. */
+.zero-state {
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  background:
+    radial-gradient(ellipse 60% 50% at 30% 20%, rgba(193, 95, 60, 0.1), transparent 60%),
+    radial-gradient(ellipse 50% 45% at 80% 85%, rgba(92, 138, 78, 0.08), transparent 60%);
+}
+
+.zero-state::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image: radial-gradient(circle, rgba(193, 95, 60, 0.16) 1px, transparent 1px);
+  background-size: 18px 18px;
+  mask-image: radial-gradient(ellipse 70% 70% at 50% 45%, black 20%, transparent 75%);
+}
+
+.zero-content {
+  position: relative;
+  text-align: center;
+  padding: 20px;
+}
+
+.zero-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 8px;
+}
+
+.zero-content h1 {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 6px;
+}
+
+.zero-content p {
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 280px;
+  margin: 0 auto 18px;
+}
+
+.zero-cta {
+  padding: 9px 18px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(193, 95, 60, 0.28);
+}
+
+.zero-cta:hover {
+  opacity: 0.9;
 }
 
 h1 {
