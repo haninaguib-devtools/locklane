@@ -107,6 +107,15 @@
             +
           </button>
         }
+        <button
+          type="button"
+          class="pop-out"
+          (click)="popOutProject(section.project.id, $event)"
+          aria-label="Open this project in its own window"
+          title="Open this project in its own window"
+        >
+          ↗
+        </button>
       </div>
       @if (!isProjectCollapsed(section.project.id)) {
         @if (section.project.status === 'CLONING') {

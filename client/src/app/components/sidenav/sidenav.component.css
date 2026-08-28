@@ -212,6 +212,25 @@
   opacity: 0.5;
 }
 
+/* Pops this one project out into its own focused browser window (#286). */
+.pop-out {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pop-out:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
 .project-status {
   font-size: 10px;
   text-transform: none;

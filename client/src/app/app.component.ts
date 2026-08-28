@@ -101,6 +101,22 @@ export class AppComponent {
     return projectId !== null && issueNumber !== null ? { projectId, issueNumber } : null;
   });
 
+  // A single-project focused window (#286): opened by the sidenav's pop-out control
+  // via `window.open()`, carrying `focus=1` in the URL rather than any shared
+  // service -- so this, like every other selection signal here, is re-derived from
+  // the route on every navigation instead of persisted anywhere.
+  readonly focusMode = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map(() => this.isFocusMode()),
+    ),
+    { initialValue: this.isFocusMode() },
+  );
+
+  readonly focusedProjectId = computed<number | null>(() =>
+    this.focusMode() ? this.selectedProjectId() : null,
+  );
+
   sidebarWidth = loadWidth();
 
   // A project with no issue segment is the project's own summary page (#85).
@@ -188,6 +204,10 @@ export class AppComponent {
   private isProjectConsoleRoute(): boolean {
     const segments = this.route.snapshot.firstChild?.url ?? [];
     return segments.some((segment) => segment.path === 'console');
+  }
+
+  private isFocusMode(): boolean {
+    return this.route.snapshot.queryParamMap.get('focus') === '1';
   }
 }
 
