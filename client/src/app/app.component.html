@@ -13,7 +13,9 @@
         @if (selectedProjectId(); as projectId) {
           <app-console-indicator [projectId]="projectId" />
         }
-        <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
+        @if (!focusMode()) {
+          <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
+        }
         <div class="account">
           <button
             type="button"
@@ -45,6 +47,7 @@
         <app-sidenav
           [selected]="selectedTarget()"
           [selectedProject]="selectedIssue() === null ? selectedProjectId() : null"
+          [focusedProjectId]="focusedProjectId()"
           (projectSelected)="selectProject($event)"
         />
       </aside>

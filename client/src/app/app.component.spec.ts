@@ -385,6 +385,35 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
+  it('a focus=1 query param hides "+ add project" and restricts the sidenav to just that one project (#286)', fakeAsync(() => {
+    const PROJECT2: Project = { ...PROJECT, id: 2, name: 'proj-2' };
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/projects/1/console?focus=1');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    httpMock.expectOne('/api/projects').flush([PROJECT, PROJECT2]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushUsageWidget();
+    flushConsoleIndicator();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    fixture.detectChanges();
+    httpMock
+      .expectOne('/api/projects/1/console')
+      .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
+    flushConsoleIndicator();
+    fixture.detectChanges();
+
+    httpMock.expectNone('/api/projects/2/issues/tree');
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.add-project')).toBeFalsy();
+    expect(compiled.textContent).not.toContain('proj-2');
+    const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
+    expect(sidenav.componentInstance.focusedProjectId).toBe(1);
+  }));
+
   it('the project summary\'s console button (#221) jumps into an already-open console, and the sidenav still shows the project selected', fakeAsync(() => {
     logIn();
     navigateToProjectSummary();

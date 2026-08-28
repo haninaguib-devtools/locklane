@@ -851,4 +851,57 @@ describe('SidenavComponent', () => {
     const left = (el: HTMLElement) => parseFloat(getComputedStyle(el).paddingLeft);
     expect(left(header)).toBeLessThanOrEqual(left(row));
   });
+
+  it('popOutProject opens the current route with focus=1 when the project is currently active (#286)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    const router = TestBed.inject(Router);
+    spyOnProperty(router, 'url', 'get').and.returnValue('/projects/1/issues/4?session=abc');
+    fixture.componentInstance.selected = { projectId: 1, issueNumber: 4 };
+    const openSpy = spyOn(window, 'open');
+
+    fixture.componentInstance.popOutProject(1, new Event('click'));
+
+    expect(openSpy).toHaveBeenCalledWith('/projects/1/issues/4?session=abc&focus=1', '_blank');
+  });
+
+  it("popOutProject falls back to the project's base route when it is not the active project (#286)", () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
+    fixture.componentInstance.selected = { projectId: 1, issueNumber: 4 };
+    const openSpy = spyOn(window, 'open');
+
+    fixture.componentInstance.popOutProject(2, new Event('click'));
+
+    expect(openSpy).toHaveBeenCalledWith('/projects/2/issues?focus=1', '_blank');
+  });
+
+  it('clicking the pop-out control does not select the project (#286)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    spyOn(window, 'open');
+    const emitted: number[] = [];
+    fixture.componentInstance.projectSelected.subscribe((id) => emitted.push(id));
+
+    (fixture.nativeElement.querySelector('.section-header .pop-out') as HTMLElement).click();
+
+    expect(emitted).toEqual([]);
+  });
+
+  it('a focused project only loads and renders that one project, never fetching another (#286)', () => {
+    const fixture = TestBed.createComponent(SidenavComponent);
+    fixture.componentInstance.focusedProjectId = 2;
+    fixture.detectChanges();
+
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
+    httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+
+    httpMock.expectNone('/api/projects/1/issues/tree');
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([2]);
+  });
 });

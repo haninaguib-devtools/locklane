@@ -87,6 +87,11 @@ export class SidenavComponent implements OnInit, OnDestroy {
   @Input() selectedProject: number | null = null;
   @Output() projectSelected = new EventEmitter<number>();
 
+  // Set by AppComponent from the `focus=1` query param (#286): restricts this sidenav
+  // to the one focused project -- it neither fetches nor renders any other project's
+  // section -- rather than the workspace-wide view every other window shows.
+  @Input() focusedProjectId: number | null = null;
+
   private sections: Section[] = [];
   loading = true;
   refreshing = false;
@@ -203,6 +208,25 @@ export class SidenavComponent implements OnInit, OnDestroy {
     return this.startingConsoleFor === projectId;
   }
 
+  // Opens this project alone in a new browser window (#286): the focused state rides
+  // in the URL's `focus` query param, not a shared service, so the popped-out window
+  // re-derives everything from its own route the same way this one does. When this
+  // project is the one currently open, the new window keeps whatever issue/console
+  // route is showing here; otherwise there is no "current" route to carry, so it
+  // falls back to the project's own base route.
+  popOutProject(projectId: number, event: Event): void {
+    event.stopPropagation();
+    const tree = this.isActiveProject(projectId)
+      ? this.router.parseUrl(this.router.url)
+      : this.router.createUrlTree(['/projects', projectId, 'issues']);
+    tree.queryParams = { ...tree.queryParams, focus: '1' };
+    window.open(this.router.serializeUrl(tree), '_blank');
+  }
+
+  private isActiveProject(projectId: number): boolean {
+    return this.selectedProject === projectId || this.selected?.projectId === projectId;
+  }
+
   retryProject(projectId: number, event: Event): void {
     event.stopPropagation();
     this.projectsService.retry(projectId).subscribe(() => this.refresh());
@@ -242,15 +266,21 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.projectsService
       .list()
       .pipe(
-        switchMap((projects) =>
-          projects.length === 0
+        switchMap((projects) => {
+          // Focus mode (#286): narrow to the one focused project before fetching any
+          // tree, so no other project's (expensive) tree is ever requested or shown.
+          const relevant =
+            this.focusedProjectId === null
+              ? projects
+              : projects.filter((p) => p.id === this.focusedProjectId);
+          return relevant.length === 0
             ? of([] as Section[])
             : forkJoin(
-                projects.map((project) =>
+                relevant.map((project) =>
                   this.issuesService.tree(project.id).pipe(map((tree): Section => ({ project, tree }))),
                 ),
-              ),
-        ),
+              );
+        }),
       )
       .subscribe({
         next: (sections) => {
