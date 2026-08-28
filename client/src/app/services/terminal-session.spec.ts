@@ -158,6 +158,38 @@ describe('TerminalSession', () => {
     expect(socket.sent).toEqual(['2', '1133x42']);
   });
 
+  it('delivers the connect-time size as a resize once the socket opens, for a tab that started active (#271)', () => {
+    const { socket } = connect(133, 42, true);
+
+    socket.onopen?.();
+
+    expect(socket.sent).toEqual(['2', '1133x42']);
+  });
+
+  it('delivers the connect-time size even when unchanged from xterm defaults, for a tab that started active (#271)', () => {
+    const { socket } = connect(80, 24, true);
+
+    socket.onopen?.();
+
+    expect(socket.sent).toEqual(['2', '180x24']);
+  });
+
+  it('does not invent a resize at connect for a tab that started inactive (#271)', () => {
+    const { socket } = connect(80, 24, false);
+
+    socket.onopen?.();
+
+    expect(socket.sent).toEqual([]);
+  });
+
+  it('does not invent a resize at connect when no size was given, even if the tab started active (#271)', () => {
+    const { socket } = connect(null, null, true);
+
+    socket.onopen?.();
+
+    expect(socket.sent).toEqual(['2']);
+  });
+
   it('tags a focus notification with the focus type and no body (#130)', () => {
     const { session, socket } = connect();
 
