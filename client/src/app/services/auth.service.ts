@@ -1,6 +1,7 @@
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, catchError, map, of, tap } from 'rxjs';
+import { EventsService } from './events.service';
 
 const FORM_HEADERS = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' });
 
@@ -24,6 +25,12 @@ export interface LoginResult {
  * says `{"twoFactorRequired": true}` and the session is only *pending* -- `login`
  * surfaces that in its {@link LoginResult} without flipping `isLoggedIn`, and
  * `verifyTwoFactor` posts the 6-digit code that completes the login.
+ *
+ * The server-side session can also disappear later -- expired, invalidated, or lost to
+ * a restart (#246). {@link sessionExpired} is what `unauthorizedInterceptor` calls on
+ * any `401` to fall back to the login screen everywhere, not just from `checkSession`'s
+ * own error path; the constructor also re-runs `checkSession` whenever the events
+ * socket reconnects, so a tab sitting idle notices too.
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -32,6 +39,13 @@ export class AuthService {
   private readonly user = signal<string | null>(null);
   readonly isLoggedIn = this.loggedIn.asReadonly();
   readonly username = this.user.asReadonly();
+
+  constructor() {
+    // The events socket reconnecting (#128) means the server was unreachable and is
+    // back -- e.g. it restarted -- so an otherwise-idle tab that made no request in the
+    // meantime still gets a chance to notice its session is gone (#246).
+    inject(EventsService).reconnected$.subscribe(() => this.checkSession().subscribe());
+  }
 
   login(username: string, password: string): Observable<LoginResult> {
     const body = new HttpParams().set('username', username).set('password', password);
@@ -70,6 +84,12 @@ export class AuthService {
       }),
       tap((loggedIn) => this.loggedIn.set(loggedIn)),
     );
+  }
+
+  /** Clears the logged-in state -- called by the 401 interceptor (#246) on any lost session. */
+  sessionExpired(): void {
+    this.loggedIn.set(false);
+    this.user.set(null);
   }
 
   logout(): Observable<void> {
