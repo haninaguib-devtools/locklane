@@ -282,6 +282,33 @@ describe('ProjectSummaryComponent', () => {
     expect(navigateSpy).toHaveBeenCalledWith(['/']);
   });
 
+  it('emits projectDeleted on successful delete, so the sidenav can drop the project (#249)', () => {
+    const fixture = init();
+    fixture.componentInstance.openDeleteConfirm();
+    spyOn(TestBed.inject(Router), 'navigate');
+    const deleted = jasmine.createSpy('projectDeleted');
+    fixture.componentInstance.projectDeleted.subscribe(deleted);
+
+    fixture.componentInstance.confirmDelete();
+    httpMock.expectOne(`/api/projects/${PROJECT.id}`).flush(null);
+
+    expect(deleted).toHaveBeenCalled();
+  });
+
+  it('does not emit projectDeleted when the delete fails', () => {
+    const fixture = init();
+    fixture.componentInstance.openDeleteConfirm();
+    const deleted = jasmine.createSpy('projectDeleted');
+    fixture.componentInstance.projectDeleted.subscribe(deleted);
+
+    fixture.componentInstance.confirmDelete();
+    httpMock
+      .expectOne(`/api/projects/${PROJECT.id}`)
+      .flush({ error: 'nope' }, { status: 409, statusText: 'Conflict' });
+
+    expect(deleted).not.toHaveBeenCalled();
+  });
+
   it('shows the backend refusal inline when the project has an open worktree or console', () => {
     const fixture = init();
     fixture.componentInstance.openDeleteConfirm();

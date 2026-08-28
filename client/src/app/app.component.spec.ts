@@ -6,6 +6,7 @@ import { provideRouter, Router } from '@angular/router';
 import { AppComponent } from './app.component';
 import { AuthService } from './services/auth.service';
 import { SidenavComponent } from './components/sidenav/sidenav.component';
+import { ProjectSummaryComponent } from './components/project-summary/project-summary.component';
 import { Project } from './models/issue.model';
 import { UsageSnapshot } from './models/usage.model';
 import { OpenProjectConsole } from './services/project-console.service';
@@ -254,6 +255,27 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeTruthy();
     expect(compiled.querySelector('.empty-state')).toBeFalsy();
     expect(compiled.textContent).toContain('proj');
+  }));
+
+  it('deleting a project from its summary page refreshes the sidenav in place (#249)', fakeAsync(() => {
+    logIn();
+    navigateToProjectSummary();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    flushSidenavAndSummary();
+    flushProjectConsoleSessions();
+    flushConsoleIndicator();
+    fixture.detectChanges();
+
+    const summary = fixture.debugElement.query(By.directive(ProjectSummaryComponent));
+    summary.componentInstance.projectDeleted.emit();
+
+    // The sidenav's own refresh() (already exercised by the project-creation
+    // wiring) re-fetches the project list and every project's tree.
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(1);
+    lists.forEach((request) => request.flush([]));
   }));
 
   it('selecting a project navigates to /projects/:projectId/issues and shows its summary (#85)', fakeAsync(() => {

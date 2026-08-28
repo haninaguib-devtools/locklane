@@ -157,6 +157,13 @@ export class AppComponent {
     this.showAddProject = false;
   }
 
+  // The project summary page's own delete button (#249) has no other way to tell
+  // the sidenav its project is gone -- the sidenav owns that list privately (#44),
+  // the same reason onProjectCreated() above refreshes it in place.
+  onProjectDeleted(): void {
+    this.sidenav?.refresh();
+  }
+
   logout(): void {
     this.menuOpen = false;
     this.auth.logout().subscribe();
