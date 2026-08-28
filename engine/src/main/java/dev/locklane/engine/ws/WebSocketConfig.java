@@ -1,5 +1,6 @@
 package dev.locklane.engine.ws;
 
+import dev.locklane.engine.github.ReleaseUpdateChecker;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.context.annotation.Configuration;
@@ -13,6 +14,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     private final TerminalWebSocketHandler terminalWebSocketHandler;
     private final EventBroadcaster eventBroadcaster;
+    private final ReleaseUpdateChecker releaseUpdateChecker;
     private final String[] allowedOrigins;
     // The events channel's version stamp (#273): BuildProperties#getTime() is stamped
     // at Maven build time (see engine/pom.xml's build-info execution), so it differs
@@ -20,9 +22,11 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private final String versionStamp;
 
     public WebSocketConfig(TerminalWebSocketHandler terminalWebSocketHandler, EventBroadcaster eventBroadcaster,
+            ReleaseUpdateChecker releaseUpdateChecker,
             @Value("${locklane.security.allowed-origins}") String allowedOrigins, BuildProperties buildProperties) {
         this.terminalWebSocketHandler = terminalWebSocketHandler;
         this.eventBroadcaster = eventBroadcaster;
+        this.releaseUpdateChecker = releaseUpdateChecker;
         this.allowedOrigins = allowedOrigins.split(",");
         this.versionStamp = buildProperties.getTime().toString();
     }
@@ -35,7 +39,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .setAllowedOrigins(allowedOrigins);
         // The app-wide notification channel (#128), separate from the per-session
         // terminal sockets above.
-        registry.addHandler(new EventsWebSocketHandler(eventBroadcaster, versionStamp), "/ws/events")
+        registry.addHandler(new EventsWebSocketHandler(eventBroadcaster, versionStamp,
+                        releaseUpdateChecker::newerVersionAvailable), "/ws/events")
                 .setAllowedOrigins(allowedOrigins);
     }
 }

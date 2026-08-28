@@ -43,3 +43,13 @@ locklane:
     # device silently dropping an idle connection) and closed, so the client finally
     # gets a `close` event to reconnect on.
     heartbeat-interval-ms: 20000
+  release-check:
+    # This repo's own owner/name (#287), for `gh release view --repo` to check for a
+    # newer permanent release than the one running. Explicit rather than relying on
+    # gh's cwd-based auto-detection, since the packaged jar is not guaranteed to run
+    # inside a git checkout of this repo at all.
+    repository: haninaguib-devtools/locklane
+    # How often dev.locklane.engine.github.ReleaseUpdateChecker checks for a newer
+    # permanent release (#287) -- releases are infrequent, so this is deliberately far
+    # coarser than the terminal heartbeat or the per-project issue refresh above.
+    interval-ms: 3600000
