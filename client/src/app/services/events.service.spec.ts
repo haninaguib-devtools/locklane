@@ -123,4 +123,54 @@ describe('EventsService', () => {
     jasmine.clock().tick(1000);
     expect(FakeWebSocket.instances.length).toBe(3);
   });
+
+  it('records the stamp from the first engineVersion message without firing versionChanged$', () => {
+    const service = new EventsService();
+    const changes: void[] = [];
+    service.versionChanged$.subscribe(() => changes.push(undefined));
+    service.connect();
+
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"a"}');
+
+    expect(changes.length).toBe(0);
+  });
+
+  it('fires versionChanged$ when a reconnect delivers a stamp different from the one seen at boot', () => {
+    const service = new EventsService();
+    const changes: void[] = [];
+    service.versionChanged$.subscribe(() => changes.push(undefined));
+    service.connect();
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"a"}');
+
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"b"}');
+
+    expect(changes.length).toBe(1);
+  });
+
+  it('does not fire versionChanged$ when the stamp is unchanged after reconnect', () => {
+    const service = new EventsService();
+    const changes: void[] = [];
+    service.versionChanged$.subscribe(() => changes.push(undefined));
+    service.connect();
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"a"}');
+
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"a"}');
+
+    expect(changes.length).toBe(0);
+  });
+
+  it('keeps comparing every later stamp against the one seen at boot, not the previous message', () => {
+    const service = new EventsService();
+    const changes: void[] = [];
+    service.versionChanged$.subscribe(() => changes.push(undefined));
+    service.connect();
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"a"}');
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"b"}');
+
+    // Still differs from the boot stamp "a" -- if this compared against the previous
+    // message ("b") instead, it would stay silent here.
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"b"}');
+
+    expect(changes.length).toBe(2);
+  });
 });

@@ -43,6 +43,21 @@ export function isConsolesChangedEvent(event: AppEvent): event is ConsolesChange
   return event.type === 'consolesChanged';
 }
 
+/**
+ * The engine's build stamp (#273), sent as the first message on every `/ws/events`
+ * connection -- see `dev.locklane.engine.ws.EventsWebSocketHandler`. A different stamp
+ * on reconnect than the one seen at boot means the engine was redeployed with a
+ * possibly-changed client bundle.
+ */
+export interface EngineVersionEvent extends AppEvent {
+  type: 'engineVersion';
+  version: string;
+}
+
+export function isEngineVersionEvent(event: AppEvent): event is EngineVersionEvent {
+  return event.type === 'engineVersion' && typeof event['version'] === 'string';
+}
+
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 
@@ -66,11 +81,19 @@ export class EventsService {
   // connect after that one, never on the first (there is nothing to catch up on yet).
   private everConnected = false;
 
+  // The stamp from the first `engineVersion` message ever seen (#273) -- set once and
+  // never overwritten, so every later message (one per reconnect) is compared against
+  // what was running when this tab booted, not against the previous reconnect's stamp.
+  private bootVersion: string | null = null;
+
   private readonly eventsSubject = new Subject<AppEvent>();
   private readonly reconnectedSubject = new Subject<void>();
+  private readonly versionChangedSubject = new Subject<void>();
 
   readonly events$: Observable<AppEvent> = this.eventsSubject.asObservable();
   readonly reconnected$: Observable<void> = this.reconnectedSubject.asObservable();
+  /** Fires when a reconnect's `engineVersion` stamp differs from the one seen at boot. */
+  readonly versionChanged$: Observable<void> = this.versionChangedSubject.asObservable();
 
   /** Opens the connection. Idempotent -- a second call while already open/connecting is a no-op. */
   connect(): void {
@@ -95,7 +118,15 @@ export class EventsService {
 
     socket.onmessage = (event: MessageEvent<string>) => {
       try {
-        this.eventsSubject.next(JSON.parse(event.data) as AppEvent);
+        const parsed = JSON.parse(event.data) as AppEvent;
+        if (isEngineVersionEvent(parsed)) {
+          if (this.bootVersion === null) {
+            this.bootVersion = parsed.version;
+          } else if (parsed.version !== this.bootVersion) {
+            this.versionChangedSubject.next();
+          }
+        }
+        this.eventsSubject.next(parsed);
       } catch {
         // Not valid JSON -- nothing productive to do with a malformed event.
       }

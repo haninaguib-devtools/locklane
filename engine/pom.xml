@@ -133,6 +133,20 @@
               <goal>repackage</goal>
             </goals>
           </execution>
+          <!-- Generates META-INF/build-info.properties (#273): the source of the
+               version stamp the events channel sends on connect. Bound to
+               process-resources rather than the goal's default prepare-package, so the
+               file exists on the classpath before the test phase runs; otherwise the
+               BuildProperties bean autoconfigures only in a packaged jar, not under
+               `mvnw test`, and every @SpringBootTest that needs it would fail to
+               start. -->
+          <execution>
+            <id>build-info</id>
+            <goals>
+              <goal>build-info</goal>
+            </goals>
+            <phase>process-resources</phase>
+          </execution>
         </executions>
       </plugin>
     </plugins>

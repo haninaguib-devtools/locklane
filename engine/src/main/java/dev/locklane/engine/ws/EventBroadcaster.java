@@ -61,18 +61,29 @@ public class EventBroadcaster {
      * {@code fields} must not itself use the key {@code "type"}.
      */
     public void broadcast(String type, Map<String, ?> fields) {
+        TextMessage payload = toMessage(type, fields);
+        for (WebSocketSession session : sessions) {
+            send(session, payload);
+        }
+    }
+
+    /**
+     * Sends {@code {"type": "<type>", ...fields}} to a single session, whether or not it
+     * is registered here (#273: the version stamp goes to a session before it is
+     * registered, so a broadcast racing the handshake can never land ahead of it).
+     */
+    public void sendTo(WebSocketSession session, String type, Map<String, ?> fields) {
+        send(session, toMessage(type, fields));
+    }
+
+    private TextMessage toMessage(String type, Map<String, ?> fields) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", type);
         message.putAll(fields);
-        String json;
         try {
-            json = objectMapper.writeValueAsString(message);
+            return new TextMessage(objectMapper.writeValueAsString(message));
         } catch (IOException e) {
             throw new IllegalArgumentException("Event of type '" + type + "' could not be serialized", e);
-        }
-        TextMessage payload = new TextMessage(json);
-        for (WebSocketSession session : sessions) {
-            send(session, payload);
         }
     }
 

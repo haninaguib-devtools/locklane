@@ -3,6 +3,7 @@ package dev.locklane.engine.ws;
 import dev.locklane.engine.persistence.ProjectConsoleService;
 import dev.locklane.engine.pty.SessionRegistry;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.info.BuildProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -16,13 +17,19 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private final ProjectConsoleService projectConsoleService;
     private final EventBroadcaster eventBroadcaster;
     private final String[] allowedOrigins;
+    // The events channel's version stamp (#273): BuildProperties#getTime() is stamped
+    // at Maven build time (see engine/pom.xml's build-info execution), so it differs
+    // between any two builds, including two builds of the same commit.
+    private final String versionStamp;
 
     public WebSocketConfig(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService,
-            EventBroadcaster eventBroadcaster, @Value("${locklane.security.allowed-origins}") String allowedOrigins) {
+            EventBroadcaster eventBroadcaster, @Value("${locklane.security.allowed-origins}") String allowedOrigins,
+            BuildProperties buildProperties) {
         this.sessionRegistry = sessionRegistry;
         this.projectConsoleService = projectConsoleService;
         this.eventBroadcaster = eventBroadcaster;
         this.allowedOrigins = allowedOrigins.split(",");
+        this.versionStamp = buildProperties.getTime().toString();
     }
 
     @Override
@@ -33,7 +40,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .setAllowedOrigins(allowedOrigins);
         // The app-wide notification channel (#128), separate from the per-session
         // terminal sockets above.
-        registry.addHandler(new EventsWebSocketHandler(eventBroadcaster), "/ws/events")
+        registry.addHandler(new EventsWebSocketHandler(eventBroadcaster, versionStamp), "/ws/events")
                 .setAllowedOrigins(allowedOrigins);
     }
 }
