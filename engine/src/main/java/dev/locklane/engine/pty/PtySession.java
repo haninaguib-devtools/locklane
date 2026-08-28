@@ -44,6 +44,19 @@ public final class PtySession {
     // similar CLIs ring on completion.
     private static final byte BEL = 0x07;
 
+    // #233: a BEL is also how an OSC escape sequence (`ESC ] ... BEL`) terminates —
+    // e.g. the window-title convention Debian/Ubuntu's default interactive `bashrc`
+    // emits as part of every prompt. That BEL is punctuation for the sequence, not a
+    // real attention signal, so the scan below tracks whether it is currently inside
+    // one and never treats its terminating BEL as attention-worthy.
+    private static final byte ESC = 0x1B;
+    private static final byte OSC_START = ']';
+    private static final byte ST_TERMINATOR = '\\';
+
+    private enum BelScanState {
+        NORMAL, ESCAPE, OSC, OSC_ESCAPE
+    }
+
     // #130: the quiescence fallback's fixed delay — agents that never ring the bell
     // still go quiet once they finish, so output going silent this long with no input
     // since is itself treated as "waiting for attention". Package-visible so tests can
@@ -59,6 +72,9 @@ public final class PtySession {
     private final AtomicReference<AttentionState> attention = new AtomicReference<>(AttentionState.ACTIVE);
     private volatile long lastOutputAt;
     private volatile long lastInputAt;
+    // #233: only ever touched from this session's own drain thread, so the scan can
+    // carry its state across chunk boundaries with no synchronization.
+    private BelScanState belScanState = BelScanState.NORMAL;
 
     PtySession(String sessionId, Path workingDirectory, String[] command, Map<String, String> environment,
             int initialColumns, int initialRows) {
@@ -90,7 +106,7 @@ public final class PtySession {
             while ((n = in.read(chunk)) != -1) {
                 output.append(chunk, n);
                 lastOutputAt = System.currentTimeMillis();
-                if (containsBel(chunk, n)) {
+                if (scanForAttentionBel(chunk, n)) {
                     setAttention(AttentionState.WAITING);
                 }
                 if (!listeners.isEmpty()) {
@@ -107,13 +123,42 @@ public final class PtySession {
         }
     }
 
-    private static boolean containsBel(byte[] chunk, int length) {
+    /**
+     * True if this chunk contains a BEL that is a real attention signal — i.e. not
+     * the terminator of an OSC escape sequence (#233). The scan is stateful across
+     * calls ({@link #belScanState}) because a sequence can straddle two {@code
+     * read()} chunks.
+     */
+    private boolean scanForAttentionBel(byte[] chunk, int length) {
+        boolean attentionBel = false;
         for (int i = 0; i < length; i++) {
-            if (chunk[i] == BEL) {
-                return true;
+            byte b = chunk[i];
+            switch (belScanState) {
+                case NORMAL:
+                    if (b == ESC) {
+                        belScanState = BelScanState.ESCAPE;
+                    } else if (b == BEL) {
+                        attentionBel = true;
+                    }
+                    break;
+                case ESCAPE:
+                    belScanState = b == OSC_START ? BelScanState.OSC : BelScanState.NORMAL;
+                    break;
+                case OSC:
+                    if (b == BEL) {
+                        // Terminates the sequence — punctuation, not attention.
+                        belScanState = BelScanState.NORMAL;
+                    } else if (b == ESC) {
+                        belScanState = BelScanState.OSC_ESCAPE;
+                    }
+                    break;
+                case OSC_ESCAPE:
+                    // ST (ESC \) also terminates an OSC sequence, with no BEL at all.
+                    belScanState = b == ST_TERMINATOR ? BelScanState.NORMAL : BelScanState.OSC;
+                    break;
             }
         }
-        return false;
+        return attentionBel;
     }
 
     public String sessionId() {

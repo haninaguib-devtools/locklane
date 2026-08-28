@@ -19,7 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * quiescence fallback for an agent that never rings the bell — {@link
  * SessionRegistry#checkQuiescence()} is what calls {@link PtySession#checkQuiescence()}
  * on a schedule in production; these tests call the deterministic {@code (nowMs)}
- * overload directly so the threshold never needs a real sleep.
+ * overload directly so the threshold never needs a real sleep. Also covers #233: a
+ * BEL that only terminates an OSC escape sequence is not a real attention signal.
  */
 class PtySessionAttentionTest {
 
@@ -63,6 +64,38 @@ class PtySessionAttentionTest {
         session.checkQuiescence(System.currentTimeMillis());
 
         assertThat(states).isEmpty();
+    }
+
+    @Test
+    void oscTitleSequenceBellDoesNotMarkWaiting(@TempDir Path workDir) {
+        // #233: the OSC window-title convention (`ESC ] ... BEL`) Debian/Ubuntu's
+        // default interactive bashrc emits on every prompt -- its terminating BEL is
+        // punctuation for the sequence, not a real attention signal.
+        PtySession session = new PtySession("attention-osc-title", workDir,
+                new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
+        List<PtySession.AttentionState> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention(states::add);
+
+        session.write("printf '\\033]0;title\\a'\n");
+        session.write("echo marker-after-osc-title\n");
+        // The drain thread processes bytes in order, so once this later output has
+        // been drained, the earlier OSC-title BEL has already been scanned too --
+        // no sleep-and-hope needed to assert its absence.
+        waitUntil(() -> session.bufferedOutput().contains("marker-after-osc-title"), Duration.ofSeconds(5));
+
+        assertThat(states).isEmpty();
+    }
+
+    @Test
+    void bareBellAfterAnOscTitleSequenceStillMarksWaiting(@TempDir Path workDir) {
+        PtySession session = new PtySession("attention-osc-then-bell", workDir,
+                new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
+        List<PtySession.AttentionState> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention(states::add);
+
+        session.write("printf '\\033]0;title\\a'\n");
+        session.write("printf '\\a'\n");
+        waitUntil(() -> states.contains(PtySession.AttentionState.WAITING), Duration.ofSeconds(5));
     }
 
     @Test
