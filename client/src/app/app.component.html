@@ -3,7 +3,10 @@
 } @else {
   <div class="authed">
     <div class="topbar">
-      <a class="brand" routerLink="/">LockLane</a>
+      <div class="brand-group">
+        <img class="brand-logo" src="logo.svg" alt="" width="24" height="24" />
+        <a class="brand" routerLink="/">LockLane</a>
+      </div>
       <div class="topbar-actions">
         @if (selectedProjectId(); as projectId) {
           <app-console-indicator [projectId]="projectId" />
