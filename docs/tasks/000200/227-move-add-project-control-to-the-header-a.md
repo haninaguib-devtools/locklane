@@ -46,4 +46,10 @@ https://claude.ai/code/artifact/63ded136-e4fb-49fc-b31d-ad71eec6be50
   start tracking its issues here.", CTA "+ Add a project").
 
 ## Deviations / notes
-- none
+- Merged `origin/main` into the branch after #225 (PWA support), #228 (console text
+  copy), #229 (console-picker simplification), and #232 (console-page consolidation)
+  landed and touched `app.component.ts`/`.html` and `sidenav.component.ts`, causing a
+  real conflict in `app.component.ts`'s `imports` array (this task's
+  `AddProjectPopupComponent` addition vs. main's removal of the deleted
+  `ConsolesPageComponent`). Resolved by keeping both this task's addition and main's
+  removal; `./mvnw -B test` and `./scripts/consistency-check.sh` re-run clean afterward.
