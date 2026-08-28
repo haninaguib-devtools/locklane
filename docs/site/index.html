@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="A short overview of how a change moves from idea to main in the locklane repository's delivery system.">
+<meta name="description" content="locklane gives each GitHub issue a persistent, reattachable terminal running Claude, Codex, or a shell in its own git worktree.">
 <meta name="theme-color" content="#ffffff">
-<title>Delivery workflow — locklane</title>
+<title>locklane</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
 <script src="script.js" defer></script>
@@ -15,16 +15,16 @@
 
 <header class="site-header" data-header>
   <div class="nav-wrap">
-    <a class="brand" href="#top" aria-label="Delivery workflow home">
+    <a class="brand" href="#top" aria-label="locklane home">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32"><circle cx="7" cy="16" r="3"/><circle cx="16" cy="7" r="3"/><circle cx="25" cy="16" r="3"/><circle cx="16" cy="25" r="3"/><path d="M9.5 14.5 13.5 9.5M18.5 9.5l4 5M22.5 18l-4 4.5M13.5 22.5l-4-4.5"/></svg>
       </span>
-      <span>Delivery workflow</span>
+      <span>locklane</span>
     </a>
     <nav class="site-nav" aria-label="Primary navigation">
       <a href="#principles">Principles</a>
-      <a href="#pipeline">Pipeline</a>
-      <a href="#skills">Skills</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="#features">Features</a>
       <a href="#reference">Reference</a>
     </nav>
     <a class="github-link" href="https://github.com/haninaguib-devtools/locklane" aria-label="View locklane on GitHub">
@@ -37,149 +37,144 @@
 <main id="main">
   <section class="hero" id="top" aria-labelledby="hero-title">
     <div class="hero-copy">
-      <p class="eyebrow">Adopted · Phase 0 · ADR-001</p>
-      <h1 id="hero-title">Delivery workflow</h1>
-      <p class="hero-summary">A short overview of how a change moves from idea to <code>main</code>. The
-        instructions live in the skills (<code>.claude/skills/</code>); this page explains the shape.
-        Section numbers survive because append-only ADRs cite them.</p>
+      <p class="eyebrow">locklane</p>
+      <h1 id="hero-title">A browser workspace for AI coding agents</h1>
+      <p class="hero-status">Spring Boot engine · Angular PWA client</p>
+      <p class="hero-summary">Each GitHub issue can open one or more consoles — long-lived terminal
+        sessions that keep running on the server after the tab closes. A background thread drains a
+        session's output continuously, so reattaching from any browser replays everything produced
+        while you were away and picks the conversation back up.</p>
       <div class="hero-actions">
-        <a class="button button-primary" href="https://github.com/haninaguib-devtools/locklane/tree/main/.claude/skills">View the skills</a>
+        <a class="button button-primary" href="https://github.com/haninaguib-devtools/locklane/tree/main/engine/src/main/java/dev/locklane/engine/pty">View the engine</a>
         <a class="button button-secondary" href="https://github.com/haninaguib-devtools/locklane">View on GitHub</a>
       </div>
     </div>
 
-    <div class="workflow-preview" aria-label="The core task path from request to main">
+    <div class="workflow-preview" aria-label="A console's lifecycle from project to reattach">
       <div class="preview-header">
-        <span>Core task path</span>
-        <span>main</span>
+        <span>One console's lifecycle</span>
+        <span>live</span>
       </div>
       <ol>
-        <li><span class="preview-node">1</span><div><strong>Open</strong><code>/t-open</code></div><small>Issue</small></li>
-        <li><span class="preview-node">2</span><div><strong>Plan</strong><code>/t-plan</code></div><small>Scope</small></li>
-        <li><span class="preview-node">3</span><div><strong>Work</strong><code>/t-work</code></div><small>Draft PR</small></li>
-        <li><span class="preview-node">4</span><div><strong>Review</strong><code>/t-review</code></div><small>Findings</small></li>
-        <li><span class="preview-node preview-node-final">5</span><div><strong>Ship</strong><code>/t-ship</code></div><small>Merge</small></li>
+        <li><span class="preview-node">1</span><div><strong>Project</strong><code>sidenav</code></div><small>Tree</small></li>
+        <li><span class="preview-node">2</span><div><strong>Issue</strong><code>flow steps</code></div><small>Branch · PR</small></li>
+        <li><span class="preview-node">3</span><div><strong>Console</strong><code>worktree</code></div><small>PTY</small></li>
+        <li><span class="preview-node">4</span><div><strong>Agent</strong><code>claude · codex · shell</code></div><small>Picked</small></li>
+        <li><span class="preview-node preview-node-final">5</span><div><strong>Reattach</strong><code>any browser</code></div><small>Live</small></li>
       </ol>
     </div>
   </section>
 
   <section class="section" id="principles" aria-labelledby="principles-title">
     <div class="section-heading section-heading-centered">
-      <p class="section-label">1. Principles</p>
-      <h2 id="principles-title">What the pipeline optimizes for</h2>
+      <p class="section-label">Principles</p>
+      <h2 id="principles-title">What a console actually is</h2>
     </div>
     <div class="principle-list">
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Review is the scarce resource</strong> — code is cheap; trustworthy verification is not.</p></div>
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Git records outcomes; the tracker and forge host process.</strong> If it isn't merged, it isn't decided.</p></div>
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong><code>main</code> only moves by pull request</strong>, and a human confirms every merge.</p></div>
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Rules the build enforces beat rules the model must remember.</strong></p></div>
-      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Ceremony is spent where it pays</strong> — the stages between issue and merge are chosen per task, and protected surfaces (<code>CONSTITUTION.md</code> §3) keep the full treatment (ADR-001).</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>A session outlives the browser</strong> — it runs independent of any client connection, so closing the tab doesn't stop it.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Reattaching replays what you missed</strong> — output is buffered from the moment a session starts, whether or not anyone is watching.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Live output streams over WebSocket</strong> — a connected browser gets new output pushed in real time, not polled.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>A session's identity is its own</strong>, separate from whichever worktree or checkout it happens to run in — more than one session can point at the same directory.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>The launch command is the agent</strong> — a plain shell, or a CLI such as <code>claude</code> or <code>codex</code>, chosen per console.</p></div>
     </div>
   </section>
 
-  <section class="section section-tint" id="pipeline" aria-labelledby="pipeline-title">
+  <section class="section section-tint" id="how-it-works" aria-labelledby="how-it-works-title">
     <div class="section-heading section-heading-centered">
-      <p class="section-label">5. The pipeline</p>
-      <h2 id="pipeline-title">Five stages on the main task path</h2>
-      <p>Each stage does one job, reports what happened, names the next command, and stops
-        (<code>AGENTS.md</code> §The pipeline carries the full table).</p>
+      <p class="section-label">How it works</p>
+      <h2 id="how-it-works-title">One console, start to reattach</h2>
+      <p>Each of an issue's consoles is one persistent terminal in its own git worktree; this is
+        what opening one actually does.</p>
     </div>
     <ol class="stage-list">
       <li class="stage-card">
-        <div class="stage-top"><span>1</span><code>/t-open</code></div>
-        <h3>Conversation → issue(s)</h3>
-        <p>How all work starts.</p>
-        <div class="stage-output"><span>Produces</span><strong>Issue</strong></div>
+        <div class="stage-top"><span>1</span><code>sidenav</code></div>
+        <h3>Pick a project</h3>
+        <p>The sidenav renders a project's issues as a filterable tree of initiatives and tasks —
+          text, ship-status, and tag filters, pinning, and a live indicator when a node has an open
+          console.</p>
+        <div class="stage-output"><span>Produces</span><strong>Tree</strong></div>
       </li>
       <li class="stage-card">
-        <div class="stage-top"><span>2</span><code>/t-plan</code></div>
-        <h3>Pin scope, risks, validation</h3>
-        <p>Optional; required before changing a protected surface.</p>
-        <div class="stage-output"><span>Produces</span><strong>Plan</strong></div>
+        <div class="stage-top"><span>2</span><code>flow steps</code></div>
+        <h3>Open an issue</h3>
+        <p>An issue's detail carries its flow steps, branch, PR, and checks summary, plus any past
+          Claude/Codex conversation captured in one of its consoles, ready to reopen.</p>
+        <div class="stage-output"><span>Produces</span><strong>Flow steps</strong></div>
       </li>
       <li class="stage-card">
-        <div class="stage-top"><span>3</span><code>/t-work</code></div>
-        <h3>Branch, record, implement, check</h3>
-        <p>One invocation, in the current checkout, ending in a draft PR.</p>
-        <div class="stage-output"><span>Produces</span><strong>Draft PR</strong></div>
+        <div class="stage-top"><span>3</span><code>worktree</code></div>
+        <h3>Launch a console</h3>
+        <p>A console starts a long-lived PTY process in a fresh git worktree or the main checkout.
+          It keeps running on the server independent of any single browser connection.</p>
+        <div class="stage-output"><span>Produces</span><strong>PTY session</strong></div>
       </li>
       <li class="stage-card">
-        <div class="stage-top"><span>4</span><code>/t-review</code></div>
-        <h3>Cold-context review</h3>
-        <p>Findings posted on the PR. Required before shipping a protected surface.</p>
-        <div class="stage-output"><span>Produces</span><strong>Findings</strong></div>
+        <div class="stage-top"><span>4</span><code>claude · codex · shell</code></div>
+        <h3>Choose an agent</h3>
+        <p>Each console launches with whatever command it's given — a plain shell, or an agent CLI
+          such as <code>claude</code> or <code>codex</code> — with several staying open in tabs at
+          once.</p>
+        <div class="stage-output"><span>Produces</span><strong>Live terminal</strong></div>
       </li>
       <li class="stage-card">
-        <div class="stage-top"><span>5</span><code>/t-ship</code></div>
-        <h3>Human-confirmed squash merge</h3>
-        <p>Every path to <code>main</code> is a human-confirmed PR.</p>
-        <div class="stage-output"><span>Produces</span><strong>Trusted main</strong></div>
+        <div class="stage-top"><span>5</span><code>any browser</code></div>
+        <h3>Reattach from anywhere</h3>
+        <p>A background thread keeps draining the session's output into a buffer the whole time,
+          so reconnecting from a new browser replays everything missed instead of losing it.</p>
+        <div class="stage-output"><span>Produces</span><strong>Resumed</strong></div>
       </li>
     </ol>
     <div class="pipeline-notes">
-      <p><strong>Never optional:</strong> an issue before the work, a record riding in the PR, a
-        human-confirmed PR into <code>main</code>. <strong>Chosen per task (ADR-001):</strong> plan,
-        worktree, cold review — except on a protected surface (<code>CONSTITUTION.md</code> §3),
-        where plan and review are both required, decided from the paths the diff touches, not from
-        a label. <strong>Nothing chains:</strong> each stage names the next command and stops, and a
-        <code>not-ready</code> review blocks shipping either way.</p>
-      <p><strong>Only blocker and high findings hold a review open</strong>; the rest are posted for
-        the human to fix, defer, or accept, and judgments no command can settle travel to the merge
-        question, where confirming acknowledges them. <strong>Cancellation is a stage, not a
-        cleanup:</strong> its reason and every neighbour's disposition land on the issue before
-        anything is destroyed (ADR-001 §D3).</p>
+      <p><strong>A session is not a job.</strong> It's a live process someone watches and types
+        into, closer to a terminal you can walk away from than a task you submit and poll for a
+        result. <strong>The working directory is incidental</strong> — a session's identity is
+        separate from whichever worktree or checkout it runs in, so more than one session can point
+        at the same directory.</p>
+      <p><strong>Multiple browsers, one session.</strong> Attaching to a session that's already
+        running joins the existing process rather than starting a new one — its buffered output
+        brings a fresh browser fully caught up. <strong>Real time, over WebSocket.</strong> A
+        connected browser gets new output pushed live, not polled.</p>
     </div>
   </section>
 
-  <section class="section" id="skills" aria-labelledby="skills-title">
+  <section class="section" id="features" aria-labelledby="features-title">
     <div class="section-heading">
-      <p class="section-label">Skill reference</p>
-      <h2 id="skills-title">Nine commands cover the full lifecycle</h2>
-      <p>One row per skill; the skills themselves (<code>.claude/skills/</code>) are the
-        instructions — this table only names the shape.</p>
+      <p class="section-label">Features</p>
+      <h2 id="features-title">What's in the client</h2>
+      <p>One card per component; the components themselves (<code>client/src/app/components/</code>)
+        are the source — this only names the shape.</p>
     </div>
     <div class="skill-grid">
       <article class="skill-card">
-        <div class="skill-title"><code>/t-open</code><span>Core</span></div>
-        <p>Conversation → issue(s). How all work starts.</p>
+        <div class="skill-title"><code>app-sidenav</code><span>Navigation</span></div>
+        <p>Filterable tree of a project's initiatives and tasks — text, ship-status, and tag
+          filters, pinning, and a live attention indicator when a console needs you.</p>
       </article>
       <article class="skill-card">
-        <div class="skill-title"><code>/t-plan</code><span>Core</span></div>
-        <p>Optional; required before changing a protected surface. Pins scope, risks, and
-          validation onto the issue.</p>
+        <div class="skill-title"><code>app-console-tabs</code><span>Terminal</span></div>
+        <p>Multiple consoles stay open in tabs per issue or project, each backed by its own
+          persistent PTY and its own agent choice.</p>
       </article>
       <article class="skill-card">
-        <div class="skill-title"><code>/t-wtree</code><span>Optional</span></div>
-        <p>Optional. Creates or reuses the task's own worktree when isolation is wanted.</p>
+        <div class="skill-title"><code>app-agent-picker</code><span>Terminal</span></div>
+        <p>The claude/codex/shell chooser, shared between an issue's console and a
+          project-level one.</p>
       </article>
       <article class="skill-card">
-        <div class="skill-title"><code>/t-work</code><span>Core</span></div>
-        <p>Branch, record, implement, check, draft PR. One invocation, in the current
-          checkout.</p>
+        <div class="skill-title"><code>app-session-list</code><span>Sessions</span></div>
+        <p>Past Claude/Codex conversations captured in an issue's consoles, listed on its
+          Overview tab and reopenable to resume exactly where they left off.</p>
       </article>
       <article class="skill-card">
-        <div class="skill-title"><code>/t-review</code><span>Core</span></div>
-        <p>Cold-context review; findings posted on the PR. Required before shipping a
-          protected surface.</p>
+        <div class="skill-title"><code>app-overview</code><span>Landing</span></div>
+        <p>The workspace landing page: per-project issue totals — open, closed, initiatives,
+          tasks — composed client-side from the same tree the sidenav uses.</p>
       </article>
       <article class="skill-card">
-        <div class="skill-title"><code>/t-ship</code><span>Core</span></div>
-        <p>Human-confirmed squash merge. Every path to <code>main</code> is a human-confirmed
-          PR.</p>
-      </article>
-      <article class="skill-card">
-        <div class="skill-title"><code>/t-cancel</code><span>Terminal</span></div>
-        <p>Terminal exit: the reason recorded on the issue, every neighbour decided, then
-          teardown.</p>
-      </article>
-      <article class="skill-card">
-        <div class="skill-title"><code>/t-status</code><span>Read only</span></div>
-        <p>Read-only pipeline overview.</p>
-      </article>
-      <article class="skill-card">
-        <div class="skill-title"><code>/t-fix</code><span>Fast path</span></div>
-        <p>A change with no semantic content as one PR — no issue, record, or cold review
-          (ADR-001).</p>
+        <div class="skill-title"><code>app-usage-widget</code><span>Usage</span></div>
+        <p>Tracks remaining LLM usage against the engine's own cache, shifting color as a
+          window runs low.</p>
       </article>
     </div>
   </section>
@@ -187,122 +182,44 @@
   <section class="section section-tint" id="reference" aria-labelledby="reference-title">
     <div class="section-heading">
       <p class="section-label">Reference</p>
-      <h2 id="reference-title">The rest of the shape</h2>
-      <p>What lives where, how a task keeps its identity, and the rules that span every stage.</p>
+      <h2 id="reference-title">Engine and client, package by package</h2>
+      <p>What each part of the source actually does.</p>
     </div>
     <div class="reference-list">
       <div class="reference-item">
-        <h3>2. What lives where</h3>
-        <p>Knowledge lives in the repository, in every clone: <code>CONSTITUTION.md</code>,
-          <code>AGENTS.md</code>, <code>docs/adr/</code>, <code>docs/architecture/</code>,
-          <code>docs/tasks/</code>, <code>.claude/skills/</code>, <code>.github/</code>. Process
-          lives in the tracker and the forge — issues, PRs, reviews, CI runs — which is
-          reconstructable, not load-bearing. The skills reach both only through named operations
-          that <code>docs/adapters/TRACKER.md</code> and <code>docs/adapters/FORGE.md</code> map to
-          the active backends (GitHub for both by default; Jira, GitLab, etc. by editing those two
-          files).</p>
+        <h3>Engine</h3>
+        <p>Spring Boot, packaged under <code>dev.locklane.engine</code>: <code>github</code> syncs
+          issues and PRs, <code>pty</code> runs the terminal processes
+          (<code>PtySession</code>, <code>SessionRegistry</code>, <code>OutputBuffer</code>),
+          <code>ws</code> streams terminal I/O and events to the browser over WebSocket,
+          <code>persistence</code> holds SQLite and its migrations, <code>security</code> gates
+          access, <code>usage</code> tracks LLM quota.</p>
       </div>
       <div class="reference-item">
-        <h3>3. Task identity</h3>
-        <p>A task's ID is its <strong>tracker issue identifier</strong> (on GitHub, the issue
-          number — issues and PRs share one atomically minted sequence, so a bare <code>#142</code>
-          is never ambiguous; on other backends, the native key, e.g. a Jira
-          <code>PROJ-142</code>). Everything inherits it: branch <code>wip/142-&lt;slug&gt;</code>,
-          record <code>docs/tasks/000100/142-&lt;slug&gt;.md</code>, squash-commit line
-          <code>Task: #142</code>. Records shard into <strong>ID buckets of 100</strong> (ADR-001
-          §D4): the directory is the ID rounded down to the nearest 100, zero-padded to 6 digits, so
-          a bucket never exceeds 100 files however fast tasks open, and the path is computable from
-          the ID alone. The PR number is deliberately unimportant as an <em>identifier</em> — nothing
-          is named after it — but every skill still resolves it the same way: list PRs whose head
-          branch is <code>wip/&lt;id&gt;-*</code>.</p>
+        <h3>Client</h3>
+        <p>An Angular PWA (<code>client/</code>) of standalone components backed by services —
+          <code>ProjectsService</code>, <code>IssuesService</code>, <code>ConsolesService</code>,
+          <code>AgentStore</code> — rather than a single central store.</p>
       </div>
       <div class="reference-item">
-        <h3>4. The task record</h3>
-        <p>Every task carries a record, created on the branch when work starts and
-          <strong>merged atomically with the change it describes</strong>
-          (<code>docs/tasks/TEMPLATE.md</code> is the shape). It holds what code cannot: what was
-          asked, what was excluded, the decisions and deviations along the way. Being in the diff it
-          is reviewed too — <em>does this record honestly describe this change?</em> Intent changes
-          there rather than in the issue body once work starts.</p>
+        <h3>Sessions</h3>
+        <p><code>SessionRegistry</code> tracks which sessions are open across engine restarts.
+          Attaching to a session id that already has a running process joins it instead of starting
+          a new one — a session's identity is independent of the worktree or checkout it runs in,
+          so more than one session can point at the same directory.</p>
       </div>
       <div class="reference-item">
-        <h3>6. Work larger than one PR</h3>
-        <p>The unit is the <strong>reviewable merge</strong>; the answer to bigger work is never a
-          bigger PR. Work spanning several PRs gets a tracking issue holding the intent and its
-          children; a child that must wait is opened anyway with <code>Blocked-by: #n</code>.
-          "Releasable" means every merge leaves <code>main</code> green and deployable as a set at
-          the next release cut, but need not satisfy runtime backwards compatibility, since window
-          deploys mean old code never runs against the new schema. Migrations are separate PRs from
-          feature logic, and cross-cutting work splits one task per module.</p>
+        <h3>Terminal environment</h3>
+        <p>A session launched from a context with no real terminal attached — an IDE run
+          configuration, systemd — gets a default <code>TERM</code>/<code>COLORTERM</code> so CLI
+          output still gets color; an environment that already sets its own is left alone.</p>
       </div>
       <div class="reference-item">
-        <h3>7. Design work</h3>
-        <p>Design tasks use the same stages with a document as the deliverable, and
-          <strong>merging is the act of deciding</strong> — one subject per doc PR, because a single
-          "here is the whole design" PR is undiscussable. Review asks whether a design is
-          consistent, unambiguous, and complete against the known hard cases — not whether it is
-          <em>right</em>.</p>
-      </div>
-      <div class="reference-item">
-        <h3>8. Decisions</h3>
-        <p>One ADR per file in <code>docs/adr/</code>, numbered and append-only: context, decision,
-          rationale, alternatives, consequences, revisit triggers. Superseding means a new ADR, and
-          the ceremony is a PR — <em>Proposed</em> on arrival, <em>Accepted</em> on merge.
-          <strong>The promotion rule:</strong> anything durable settled in a PR thread lands in the
-          record, an ADR, or the docs before merge.</p>
-      </div>
-      <div class="reference-item">
-        <h3>9. Mechanical enforcement</h3>
-        <p>In force today, mechanically: branch protection on <code>main</code> (PRs only, squash
-          merges, no force pushes); CI running <code>scripts/consistency-check.sh</code> and the
-          record-present guard on every PR. Held by convention, not by machinery: self-contained
-          squash commit bodies written from the record. On a private repository these need a paid
-          GitHub plan, so until then PR-only <code>main</code> runs on convention.</p>
-      </div>
-      <div class="reference-item">
-        <h3>10. Resilience: losing the GitHub account</h3>
-        <p>Losing GitHub loses verification evidence and conversational texture,
-          <strong>never knowledge</strong>: code, constitution, ADRs, architecture docs, and every
-          record live in git. Mitigations, in order: self-contained squash commits, settings as
-          code, the promotion rule, a periodic export of issues and threads, and bumping a new
-          account's issue counter past the old maximum if numbering ever restarts.</p>
-      </div>
-      <div class="reference-item">
-        <h3>11. Evolving the workflow</h3>
-        <p>The skills, CI config, and this page live in the repository, so changing them is an
-          ordinary task. <strong>Two speeds:</strong> principles change by ADR; mechanics change by
-          ordinary PR and must stay cheap. <strong>The ratchet:</strong> tightening moves at
-          mechanics speed, but <strong>loosening</strong> — removing a gate, demoting a protected
-          surface, weakening an approval rule — needs ADR-grade rationale. Workflow changes
-          accumulate and land together at a periodic retro.</p>
-      </div>
-      <div class="reference-item">
-        <h3>12. The flow in practice</h3>
-        <p>When goal and done-when are statable, <code>/t-open</code> makes the
-          <strong>shape judgment</strong>: one task, an initiative with its clear children, or an
-          initiative whose only child is a design task when decomposition is unknown. Each child is
-          then workable from its issue and the constitution.</p>
+        <h3>Storage</h3>
+        <p>SQLite, configured in <code>application.yml</code>, with its own migration set under
+          <code>persistence/migration</code>.</p>
       </div>
     </div>
-  </section>
-
-  <section class="section" id="open-questions" aria-labelledby="open-questions-title">
-    <div class="section-heading">
-      <p class="section-label">13. Open questions</p>
-      <h2 id="open-questions-title">Still being settled</h2>
-    </div>
-    <ol class="open-questions">
-      <li><span><strong>Draft PR timing</strong> — resolved: at the end of <code>/t-work</code>.</span></li>
-      <li><span><strong>Human approval on the forge</strong> — awaits §9's platform constraint and Q9.</span></li>
-      <li><span><strong>Stage naming</strong> — the <code>t-</code> prefix is a placeholder.</span></li>
-      <li><span><strong>Archive job destination</strong> — where §10's export lands.</span></li>
-      <li><span><strong>Issue templates</strong> — resolved: GitHub issue forms under
-        <code>.github/ISSUE_TEMPLATE/</code>.</span></li>
-      <li><span><strong>Deployment model</strong> — window deploys are assumed (§6.2).</span></li>
-      <li><span><strong>Amendment cadence</strong> — batch at phase boundaries, or every N tasks (§11.6)?</span></li>
-      <li><span><strong>Deadlock rule</strong> — timebox, trial decision, or a per-domain tiebreaker?</span></li>
-      <li><span><strong>Approval policy</strong> — which surfaces need one approval, which the heightened bar.</span></li>
-    </ol>
   </section>
 </main>
 
@@ -312,12 +229,12 @@
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32"><circle cx="7" cy="16" r="3"/><circle cx="16" cy="7" r="3"/><circle cx="25" cy="16" r="3"/><circle cx="16" cy="25" r="3"/><path d="M9.5 14.5 13.5 9.5M18.5 9.5l4 5M22.5 18l-4 4.5M13.5 22.5l-4-4.5"/></svg>
       </span>
-      <span>Delivery workflow</span>
+      <span>locklane</span>
     </a>
-    <p>Generated from <code>docs/workflow.md</code> for browsing on GitHub Pages.</p>
+    <p>locklane's engine and client source live in this repository.</p>
     <nav aria-label="Footer navigation">
       <a href="https://github.com/haninaguib-devtools/locklane">GitHub</a>
-      <a href="https://github.com/haninaguib-devtools/locklane/blob/main/docs/workflow.md">Source</a>
+      <a href="https://github.com/haninaguib-devtools/locklane/tree/main/engine/src/main/java/dev/locklane/engine/pty">Source</a>
     </nav>
   </div>
 </footer>

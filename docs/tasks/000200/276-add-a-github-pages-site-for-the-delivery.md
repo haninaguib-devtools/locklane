@@ -2,17 +2,22 @@
 Issue: #276
 
 ## Asked
-Set up a GitHub Pages site for this repository that presents the delivery-system
-documentation in a browsable site, organized in the same style/shape as the existing
-`docs/workflow.md` overview (principles, the pipeline, task identity, etc.). The repo is
-currently private on GitHub's free plan, so Pages publishing will not actually go live
-yet — GitHub Pages needs either a public repo or a paid plan to serve from a private one.
-The repo is expected to go public soon, so the site and its build/deploy config should be
-built and committed now even though it can't be verified live until then.
+Set up a GitHub Pages site for this repository. Originally scoped to mirror
+`docs/workflow.md` (the delivery pipeline); **redefined by the human (2026-08-28)** once
+that draft was visible — a product repository's Pages site should describe locklane
+itself, not the meta-process it was built under. The site keeps the visual style already
+built to match the `t-workflow` template's own Pages site, but its copy is now sourced
+only from `client/` and `engine/` (source and comments) and git commit history — not from
+`CONSTITUTION.md`, `docs/adr/`, or `docs/workflow.md`. The repo is currently private on
+GitHub's free plan, so Pages publishing will not actually go live yet — GitHub Pages
+needs either a public repo or a paid plan to serve from a private one. The repo is
+expected to go public soon, so the site and its build/deploy config should be built and
+committed now even though it can't be verified live until then.
 
 ## Done when
-- A source for the site exists in the repo (`docs/site/`), mirroring `docs/workflow.md`'s
-  structure and content rather than inventing new content.
+- `docs/site/` describes locklane the product — sessions/consoles, the client's
+  components, the engine's package structure — grounded in `client/` and `engine/`
+  (code, comments, commit history), not in the repository's process docs.
 - A Pages build/deploy configuration exists (`.github/workflows/pages.yml`, using
   `actions/deploy-pages`) that would deploy correctly once the repository is public — a
   human can judge this by reading the config, since it cannot be exercised live yet.
@@ -26,6 +31,9 @@ built and committed now even though it can't be verified live until then.
   reading it against GitHub's documented `actions/deploy-pages` setup and by validating
   its YAML syntax and required permissions, not by a live deploy — the earliest that can
   happen is after the repository goes public.
+- Filling in `README.md`'s one-sentence product description or `CONSTITUTION.md` §4 —
+  both stay reserved/placeholder; this site's copy is independently derived from the code,
+  not a preview of those pending decisions.
 
 ## Decisions made along the way
 - Site source lives at `docs/site/`, built as plain static HTML with no Jekyll/build
@@ -46,6 +54,16 @@ built and committed now even though it can't be verified live until then.
   page's own content a mirror of `docs/workflow.md` — t-workflow's page is
   installer/marketing copy specific to that template project, which does not apply here,
   so only the visual language was reused, not that copy. (human + agent, 2026-08-28)
+- The human then asked why the site was about the delivery pipeline at all — "all I want
+  from t-workflow is the css styles" — and redefined the goal: describe locklane itself,
+  sourced only from reading `client/` and `engine/` (components, engine packages, code
+  comments such as `PtySession`/`SessionRegistry`/`OutputBuffer`'s reattach/buffering
+  behavior) and commit history, explicitly not from `CONSTITUTION.md` or `docs/adr/`.
+  Rewrote every section of `docs/site/index.html` (hero, principles, how-it-works,
+  features, reference) to that brief; dropped the "Open questions" section (`docs/
+  workflow.md`-specific, no locklane equivalent) and its now-unused `.open-questions`
+  CSS. Kept the t-workflow-derived visual system (header/hero/card components, color
+  tokens) unchanged. (human + agent, 2026-08-28)
 
 ## Deviations / notes
 - none
