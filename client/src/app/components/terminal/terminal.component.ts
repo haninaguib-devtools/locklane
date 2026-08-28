@@ -79,8 +79,14 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (this.active) {
       this.term.open(this.container.nativeElement);
       this.opened = true;
-      this.fitAddon.fit();
-      this.term.focus();
+      // The container may not have its final layout size yet at this point in the
+      // change-detection cycle — same reasoning as the tab-switch fit below (#211),
+      // deferred here too so an initially-active tab doesn't lock in a bad cached
+      // size the way #257 did.
+      setTimeout(() => {
+        this.fitAddon?.fit();
+        this.term?.focus();
+      });
     }
     this.term.onData((input) => this.session?.send(input));
     // Fires for every size xterm settles on — the initial fit above, a later
