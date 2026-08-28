@@ -4,11 +4,18 @@ export interface WindowUsage {
   resetsAt: string;
 }
 
+// Mirrors dev.locklane.engine.usage.ModelWeeklyLimit.
+export interface ModelWeeklyLimit {
+  modelName: string;
+  window: WindowUsage;
+}
+
 // Mirrors dev.locklane.engine.usage.ProviderUsage.
 export interface ProviderUsage {
   available: boolean;
   fiveHour: WindowUsage | null;
   weekly: WindowUsage | null;
+  modelWeeklyLimits: ModelWeeklyLimit[];
 }
 
 // Mirrors dev.locklane.engine.usage.UsageSnapshot.

@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -20,6 +22,14 @@ import java.util.Optional;
  * {@code resets_at} timestamp (not Unix-epoch seconds). If Anthropic changes either the
  * endpoint or this shape, every response fails to parse and this provider degrades to
  * {@link ProviderUsage#unavailable()} — never a broken sidebar (#137's Goal).
+ *
+ * <p>The response also carries a generic {@code limits} array (#288) — confirmed live
+ * with an entry whose {@code group} is {@code "weekly"} and whose {@code scope.model}
+ * names a model (e.g. {@code display_name: "Fable"}) that gets its own weekly quota
+ * separate from the account-wide {@code seven_day} figure. Every such entry is read into
+ * {@link ProviderUsage#modelWeeklyLimits()}; any other {@code limits} entry, and every
+ * other top-level field the response happens to carry (this account's response also has
+ * several null/undocumented ones), is ignored rather than failing the parse.
  */
 public class ClaudeUsageProvider implements UsageProvider {
 
@@ -55,7 +65,7 @@ public class ClaudeUsageProvider implements UsageProvider {
             if (fiveHour == null && weekly == null) {
                 return Optional.empty();
             }
-            return Optional.of(new ProviderUsage(true, fiveHour, weekly));
+            return Optional.of(new ProviderUsage(true, fiveHour, weekly, modelWeeklyLimits(root)));
         } catch (IOException e) {
             return Optional.empty();
         }
@@ -73,5 +83,18 @@ public class ClaudeUsageProvider implements UsageProvider {
         } catch (DateTimeParseException e) {
             return null;
         }
+    }
+
+    private static List<ModelWeeklyLimit> modelWeeklyLimits(JsonNode root) {
+        List<ModelWeeklyLimit> limits = new ArrayList<>();
+        for (JsonNode entry : root.path("limits")) {
+            JsonNode group = entry.path("group");
+            JsonNode displayName = entry.path("scope").path("model").path("display_name");
+            WindowUsage window = window(entry);
+            if (group.isTextual() && "weekly".equals(group.asText()) && displayName.isTextual() && window != null) {
+                limits.add(new ModelWeeklyLimit(displayName.asText(), window));
+            }
+        }
+        return limits;
     }
 }

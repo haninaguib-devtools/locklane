@@ -20,8 +20,13 @@ describe('UsageService', () => {
 
   it('fetches the snapshot from GET /api/usage', () => {
     const snapshot: UsageSnapshot = {
-      claude: { available: true, fiveHour: { percentLeft: 75, resetsAt: '2026-01-01T00:00:00Z' }, weekly: null },
-      codex: { available: false, fiveHour: null, weekly: null },
+      claude: {
+        available: true,
+        fiveHour: { percentLeft: 75, resetsAt: '2026-01-01T00:00:00Z' },
+        weekly: null,
+        modelWeeklyLimits: [],
+      },
+      codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       updatedAt: '2026-01-01T00:00:00Z',
     };
     service.snapshot().subscribe((result) => expect(result).toEqual(snapshot));
