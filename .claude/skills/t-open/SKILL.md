@@ -38,6 +38,22 @@ decomposition deferred if unclear.
    creating the issue. Never leave a task issue unlabeled — pick the closest fit rather
    than blocking on an exact match.
 
+   **Then, for a task issue, apply any project-specific labels the tracker already
+   has**, on top of the required classification label above — the two passes have
+   opposite defaults. Call `tracker:list-labels`, drop every workflow-reserved label
+   (`docs/adapters/TRACKER.md` §Workflow-reserved labels), and for each label left in
+   the pool, apply it (`tracker:label <id> <label>`) only when its name or description
+   makes its fit for this issue unambiguous. Skip the rest — this pass never guesses.
+   Never invent a label name: the pool is exactly what a human already created in the
+   tracker, and an issue may end up with zero, one, or several of these in addition to
+   its one required classification label.
+
+   For example, a discovered label named `spike` with the description "Exploratory
+   work, no shipped output expected" fits an issue whose Goal is explicitly
+   exploratory — apply it. A discovered label named `client` with no description does
+   not by itself say whether it means "runs in the browser" or "customer-facing" —
+   skip it rather than guess.
+
    Body template (omit empty sections):
 
    ```markdown
