@@ -8,6 +8,7 @@
         @if (selectedProjectId(); as projectId) {
           <app-console-indicator [projectId]="projectId" />
         }
+        <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
         <div class="account">
           <button
             type="button"
@@ -54,11 +55,14 @@
           }
         }
       } @else {
-        <app-overview />
+        <app-overview (addProject)="openAddProject()" />
       }
     </div>
     @if (settingsOpen) {
       <app-settings-dialog (closed)="closeSettings()" />
+    }
+    @if (showAddProject) {
+      <app-add-project-popup (created)="onProjectCreated()" (closed)="onAddProjectClosed()" />
     }
   </div>
 }

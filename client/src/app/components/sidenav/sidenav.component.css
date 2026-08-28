@@ -104,21 +104,6 @@
   color: var(--panel);
 }
 
-.add-project {
-  align-self: flex-start;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--panel);
-  color: var(--muted);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.add-project:hover {
-  color: var(--text);
-}
-
 .label {
   padding: 8px 16px 4px;
   font-size: 10px;

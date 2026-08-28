@@ -40,15 +40,7 @@
         </button>
       }
     </div>
-    <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
   </div>
-
-  @if (showAddProject) {
-    <app-add-project-popup
-      (created)="onProjectCreated()"
-      (closed)="onAddProjectClosed()"
-    />
-  }
 
   @if (loading) {
     <div class="state">loading…</div>

@@ -14,7 +14,6 @@ import { ProjectConsoleService } from '../../services/project-console.service';
 import { AgentStore } from '../../services/agent-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
 import { AppEvent, ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '../../services/events.service';
-import { AddProjectPopupComponent } from '../add-project-popup/add-project-popup.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
 
@@ -61,7 +60,7 @@ interface PinnedGroup {
 @Component({
   selector: 'app-sidenav',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet, RouterLink, AddProjectPopupComponent, UsageWidgetComponent],
+  imports: [FormsModule, NgTemplateOutlet, RouterLink, UsageWidgetComponent],
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })
@@ -90,8 +89,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
   loading = true;
   refreshing = false;
   error = false;
-
-  showAddProject = false;
 
   // Neither persists across reloads, matching the old app (#22's Goal).
   filterText = '';
@@ -166,19 +163,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
     }
     this.refreshing = true;
     this.load(() => (this.refreshing = false));
-  }
-
-  openAddProject(): void {
-    this.showAddProject = true;
-  }
-
-  onProjectCreated(): void {
-    this.showAddProject = false;
-    this.refresh();
-  }
-
-  onAddProjectClosed(): void {
-    this.showAddProject = false;
   }
 
   // The header's one-click "+" (#180): mints a brand-new console session (#177) and

@@ -71,12 +71,38 @@ describe('OverviewComponent', () => {
     });
   });
 
-  it('shows the "select a project" empty state when there are no projects', () => {
+  it('shows a dedicated zero-project empty state with no stat tiles', () => {
     const fixture = init([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.rows).toEqual([]);
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('select a project to begin');
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('No projects yet');
+    expect(compiled.textContent).not.toContain('select a project to begin');
+    expect(compiled.querySelector('.count')).toBeFalsy();
+  });
+
+  it('the zero-project CTA emits addProject (#227)', () => {
+    const fixture = init([]);
+    fixture.detectChanges();
+    let emitted = false;
+    fixture.componentInstance.addProject.subscribe(() => (emitted = true));
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.zero-cta')!.click();
+
+    expect(emitted).toBeTrue();
+  });
+
+  it('refresh() re-fetches the project list (#227)', () => {
+    const fixture = init([]);
+    fixture.detectChanges();
+
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.rows.length).toBe(1);
   });
 
   it('shows an error state when the project list fails to load', () => {
