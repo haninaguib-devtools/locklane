@@ -3,214 +3,323 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A short overview of how a change moves from idea to main in the locklane repository's delivery system.">
+<meta name="theme-color" content="#ffffff">
 <title>Delivery workflow — locklane</title>
-<meta name="description" content="How a change moves from idea to main in the locklane repository's delivery system.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="styles.css">
+<script src="script.js" defer></script>
 </head>
 <body>
-<div class="layout">
-<nav class="toc" aria-label="Table of contents">
-  <p class="toc-title">Delivery workflow</p>
-  <ol>
-    <li><a href="#principles">1. Principles</a></li>
-    <li><a href="#what-lives-where">2. What lives where</a></li>
-    <li><a href="#task-identity">3. Task identity</a></li>
-    <li><a href="#task-record">4. The task record</a></li>
-    <li><a href="#pipeline">5. The pipeline</a></li>
-    <li><a href="#work-larger">6. Work larger than one PR</a></li>
-    <li><a href="#design-work">7. Design work</a></li>
-    <li><a href="#decisions">8. Decisions</a></li>
-    <li><a href="#enforcement">9. Mechanical enforcement</a></li>
-    <li><a href="#resilience">10. Resilience: losing the GitHub account</a></li>
-    <li><a href="#evolving">11. Evolving the workflow</a></li>
-    <li><a href="#flow-in-practice">12. The flow in practice</a></li>
-    <li><a href="#open-questions">13. Open questions</a></li>
-  </ol>
-  <p class="toc-source">
-    Mirrors
-    <a href="https://github.com/haninaguib-devtools/locklane/blob/main/docs/workflow.md">docs/workflow.md</a>
-    in the repository, the authoritative source. This site is generated for browsing only.
-  </p>
-</nav>
-<main>
-  <header class="page-header">
-    <h1>Delivery workflow</h1>
-    <p class="status"><strong>Status:</strong> adopted (Phase 0) · baseline decided by
-      <a href="https://github.com/haninaguib-devtools/locklane/blob/main/docs/adr/001-phase0-delivery-workflow.md">ADR-001</a>,
-      2026-08-24</p>
-    <p>A short overview of how a change moves from idea to <code>main</code>. The instructions live in
-      the skills (<a href="https://github.com/haninaguib-devtools/locklane/tree/main/.claude/skills">.claude/skills/</a>);
-      this page explains the shape. Section numbers survive because append-only ADRs cite them.</p>
-  </header>
+<a class="skip-link" href="#main">Skip to content</a>
 
-  <section id="principles">
-    <h2>1. Principles</h2>
-    <ol>
-      <li><strong>Review is the scarce resource</strong> — code is cheap; trustworthy verification is not.</li>
-      <li><strong>Git records outcomes; the tracker and forge host process.</strong> If it isn't merged, it isn't decided.</li>
-      <li><strong><code>main</code> only moves by pull request</strong>, and a human confirms every merge.</li>
-      <li><strong>Rules the build enforces beat rules the model must remember.</strong></li>
-      <li><strong>Ceremony is spent where it pays</strong> — the stages between issue and merge are chosen per
-        task, and protected surfaces (<a href="https://github.com/haninaguib-devtools/locklane/blob/main/CONSTITUTION.md">CONSTITUTION.md</a> §3) keep the
-        full treatment (ADR-001).</li>
+<header class="site-header" data-header>
+  <div class="nav-wrap">
+    <a class="brand" href="#top" aria-label="Delivery workflow home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><circle cx="7" cy="16" r="3"/><circle cx="16" cy="7" r="3"/><circle cx="25" cy="16" r="3"/><circle cx="16" cy="25" r="3"/><path d="M9.5 14.5 13.5 9.5M18.5 9.5l4 5M22.5 18l-4 4.5M13.5 22.5l-4-4.5"/></svg>
+      </span>
+      <span>Delivery workflow</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a href="#principles">Principles</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#skills">Skills</a>
+      <a href="#reference">Reference</a>
+    </nav>
+    <a class="github-link" href="https://github.com/haninaguib-devtools/locklane" aria-label="View locklane on GitHub">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.69c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.64-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.6 9.6 0 0 1 12 6.7a9.6 9.6 0 0 1 2.5.34c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.86V21c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+      <span>GitHub</span>
+    </a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <p class="eyebrow">Adopted · Phase 0 · ADR-001</p>
+      <h1 id="hero-title">Delivery workflow</h1>
+      <p class="hero-summary">A short overview of how a change moves from idea to <code>main</code>. The
+        instructions live in the skills (<code>.claude/skills/</code>); this page explains the shape.
+        Section numbers survive because append-only ADRs cite them.</p>
+      <div class="hero-actions">
+        <a class="button button-primary" href="https://github.com/haninaguib-devtools/locklane/tree/main/.claude/skills">View the skills</a>
+        <a class="button button-secondary" href="https://github.com/haninaguib-devtools/locklane">View on GitHub</a>
+      </div>
+    </div>
+
+    <div class="workflow-preview" aria-label="The core task path from request to main">
+      <div class="preview-header">
+        <span>Core task path</span>
+        <span>main</span>
+      </div>
+      <ol>
+        <li><span class="preview-node">1</span><div><strong>Open</strong><code>/t-open</code></div><small>Issue</small></li>
+        <li><span class="preview-node">2</span><div><strong>Plan</strong><code>/t-plan</code></div><small>Scope</small></li>
+        <li><span class="preview-node">3</span><div><strong>Work</strong><code>/t-work</code></div><small>Draft PR</small></li>
+        <li><span class="preview-node">4</span><div><strong>Review</strong><code>/t-review</code></div><small>Findings</small></li>
+        <li><span class="preview-node preview-node-final">5</span><div><strong>Ship</strong><code>/t-ship</code></div><small>Merge</small></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" id="principles" aria-labelledby="principles-title">
+    <div class="section-heading section-heading-centered">
+      <p class="section-label">1. Principles</p>
+      <h2 id="principles-title">What the pipeline optimizes for</h2>
+    </div>
+    <div class="principle-list">
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Review is the scarce resource</strong> — code is cheap; trustworthy verification is not.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Git records outcomes; the tracker and forge host process.</strong> If it isn't merged, it isn't decided.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong><code>main</code> only moves by pull request</strong>, and a human confirms every merge.</p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Rules the build enforces beat rules the model must remember.</strong></p></div>
+      <div><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><p><strong>Ceremony is spent where it pays</strong> — the stages between issue and merge are chosen per task, and protected surfaces (<code>CONSTITUTION.md</code> §3) keep the full treatment (ADR-001).</p></div>
+    </div>
+  </section>
+
+  <section class="section section-tint" id="pipeline" aria-labelledby="pipeline-title">
+    <div class="section-heading section-heading-centered">
+      <p class="section-label">5. The pipeline</p>
+      <h2 id="pipeline-title">Five stages on the main task path</h2>
+      <p>Each stage does one job, reports what happened, names the next command, and stops
+        (<code>AGENTS.md</code> §The pipeline carries the full table).</p>
+    </div>
+    <ol class="stage-list">
+      <li class="stage-card">
+        <div class="stage-top"><span>1</span><code>/t-open</code></div>
+        <h3>Conversation → issue(s)</h3>
+        <p>How all work starts.</p>
+        <div class="stage-output"><span>Produces</span><strong>Issue</strong></div>
+      </li>
+      <li class="stage-card">
+        <div class="stage-top"><span>2</span><code>/t-plan</code></div>
+        <h3>Pin scope, risks, validation</h3>
+        <p>Optional; required before changing a protected surface.</p>
+        <div class="stage-output"><span>Produces</span><strong>Plan</strong></div>
+      </li>
+      <li class="stage-card">
+        <div class="stage-top"><span>3</span><code>/t-work</code></div>
+        <h3>Branch, record, implement, check</h3>
+        <p>One invocation, in the current checkout, ending in a draft PR.</p>
+        <div class="stage-output"><span>Produces</span><strong>Draft PR</strong></div>
+      </li>
+      <li class="stage-card">
+        <div class="stage-top"><span>4</span><code>/t-review</code></div>
+        <h3>Cold-context review</h3>
+        <p>Findings posted on the PR. Required before shipping a protected surface.</p>
+        <div class="stage-output"><span>Produces</span><strong>Findings</strong></div>
+      </li>
+      <li class="stage-card">
+        <div class="stage-top"><span>5</span><code>/t-ship</code></div>
+        <h3>Human-confirmed squash merge</h3>
+        <p>Every path to <code>main</code> is a human-confirmed PR.</p>
+        <div class="stage-output"><span>Produces</span><strong>Trusted main</strong></div>
+      </li>
+    </ol>
+    <div class="pipeline-notes">
+      <p><strong>Never optional:</strong> an issue before the work, a record riding in the PR, a
+        human-confirmed PR into <code>main</code>. <strong>Chosen per task (ADR-001):</strong> plan,
+        worktree, cold review — except on a protected surface (<code>CONSTITUTION.md</code> §3),
+        where plan and review are both required, decided from the paths the diff touches, not from
+        a label. <strong>Nothing chains:</strong> each stage names the next command and stops, and a
+        <code>not-ready</code> review blocks shipping either way.</p>
+      <p><strong>Only blocker and high findings hold a review open</strong>; the rest are posted for
+        the human to fix, defer, or accept, and judgments no command can settle travel to the merge
+        question, where confirming acknowledges them. <strong>Cancellation is a stage, not a
+        cleanup:</strong> its reason and every neighbour's disposition land on the issue before
+        anything is destroyed (ADR-001 §D3).</p>
+    </div>
+  </section>
+
+  <section class="section" id="skills" aria-labelledby="skills-title">
+    <div class="section-heading">
+      <p class="section-label">Skill reference</p>
+      <h2 id="skills-title">Nine commands cover the full lifecycle</h2>
+      <p>One row per skill; the skills themselves (<code>.claude/skills/</code>) are the
+        instructions — this table only names the shape.</p>
+    </div>
+    <div class="skill-grid">
+      <article class="skill-card">
+        <div class="skill-title"><code>/t-open</code><span>Core</span></div>
+        <p>Conversation → issue(s). How all work starts.</p>
+      </article>
+      <article class="skill-card">
+        <div class="skill-title"><code>/t-plan</code><span>Core</span></div>
+        <p>Optional; required before changing a protected surface. Pins scope, risks, and
+          validation onto the issue.</p>
+      </article>
+      <article class="skill-card">
+        <div class="skill-title"><code>/t-wtree</code><span>Optional</span></div>
+        <p>Optional. Creates or reuses the task's own worktree when isolation is wanted.</p>
+      </article>
+      <article class="skill-card">
+        <div class="skill-title"><code>/t-work</code><span>Core</span></div>
+        <p>Branch, record, implement, check, draft PR. One invocation, in the current
+          checkout.</p>
+      </article>
+      <article class="skill-card">
+        <div class="skill-title"><code>/t-review</code><span>Core</span></div>
+        <p>Cold-context review; findings posted on the PR. Required before shipping a
+          protected surface.</p>
+      </article>
+      <article class="skill-card">
+        <div class="skill-title"><code>/t-ship</code><span>Core</span></div>
+        <p>Human-confirmed squash merge. Every path to <code>main</code> is a human-confirmed
+          PR.</p>
+      </article>
+      <article class="skill-card">
+        <div class="skill-title"><code>/t-cancel</code><span>Terminal</span></div>
+        <p>Terminal exit: the reason recorded on the issue, every neighbour decided, then
+          teardown.</p>
+      </article>
+      <article class="skill-card">
+        <div class="skill-title"><code>/t-status</code><span>Read only</span></div>
+        <p>Read-only pipeline overview.</p>
+      </article>
+      <article class="skill-card">
+        <div class="skill-title"><code>/t-fix</code><span>Fast path</span></div>
+        <p>A change with no semantic content as one PR — no issue, record, or cold review
+          (ADR-001).</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section section-tint" id="reference" aria-labelledby="reference-title">
+    <div class="section-heading">
+      <p class="section-label">Reference</p>
+      <h2 id="reference-title">The rest of the shape</h2>
+      <p>What lives where, how a task keeps its identity, and the rules that span every stage.</p>
+    </div>
+    <div class="reference-list">
+      <div class="reference-item">
+        <h3>2. What lives where</h3>
+        <p>Knowledge lives in the repository, in every clone: <code>CONSTITUTION.md</code>,
+          <code>AGENTS.md</code>, <code>docs/adr/</code>, <code>docs/architecture/</code>,
+          <code>docs/tasks/</code>, <code>.claude/skills/</code>, <code>.github/</code>. Process
+          lives in the tracker and the forge — issues, PRs, reviews, CI runs — which is
+          reconstructable, not load-bearing. The skills reach both only through named operations
+          that <code>docs/adapters/TRACKER.md</code> and <code>docs/adapters/FORGE.md</code> map to
+          the active backends (GitHub for both by default; Jira, GitLab, etc. by editing those two
+          files).</p>
+      </div>
+      <div class="reference-item">
+        <h3>3. Task identity</h3>
+        <p>A task's ID is its <strong>tracker issue identifier</strong> (on GitHub, the issue
+          number — issues and PRs share one atomically minted sequence, so a bare <code>#142</code>
+          is never ambiguous; on other backends, the native key, e.g. a Jira
+          <code>PROJ-142</code>). Everything inherits it: branch <code>wip/142-&lt;slug&gt;</code>,
+          record <code>docs/tasks/000100/142-&lt;slug&gt;.md</code>, squash-commit line
+          <code>Task: #142</code>. Records shard into <strong>ID buckets of 100</strong> (ADR-001
+          §D4): the directory is the ID rounded down to the nearest 100, zero-padded to 6 digits, so
+          a bucket never exceeds 100 files however fast tasks open, and the path is computable from
+          the ID alone. The PR number is deliberately unimportant as an <em>identifier</em> — nothing
+          is named after it — but every skill still resolves it the same way: list PRs whose head
+          branch is <code>wip/&lt;id&gt;-*</code>.</p>
+      </div>
+      <div class="reference-item">
+        <h3>4. The task record</h3>
+        <p>Every task carries a record, created on the branch when work starts and
+          <strong>merged atomically with the change it describes</strong>
+          (<code>docs/tasks/TEMPLATE.md</code> is the shape). It holds what code cannot: what was
+          asked, what was excluded, the decisions and deviations along the way. Being in the diff it
+          is reviewed too — <em>does this record honestly describe this change?</em> Intent changes
+          there rather than in the issue body once work starts.</p>
+      </div>
+      <div class="reference-item">
+        <h3>6. Work larger than one PR</h3>
+        <p>The unit is the <strong>reviewable merge</strong>; the answer to bigger work is never a
+          bigger PR. Work spanning several PRs gets a tracking issue holding the intent and its
+          children; a child that must wait is opened anyway with <code>Blocked-by: #n</code>.
+          "Releasable" means every merge leaves <code>main</code> green and deployable as a set at
+          the next release cut, but need not satisfy runtime backwards compatibility, since window
+          deploys mean old code never runs against the new schema. Migrations are separate PRs from
+          feature logic, and cross-cutting work splits one task per module.</p>
+      </div>
+      <div class="reference-item">
+        <h3>7. Design work</h3>
+        <p>Design tasks use the same stages with a document as the deliverable, and
+          <strong>merging is the act of deciding</strong> — one subject per doc PR, because a single
+          "here is the whole design" PR is undiscussable. Review asks whether a design is
+          consistent, unambiguous, and complete against the known hard cases — not whether it is
+          <em>right</em>.</p>
+      </div>
+      <div class="reference-item">
+        <h3>8. Decisions</h3>
+        <p>One ADR per file in <code>docs/adr/</code>, numbered and append-only: context, decision,
+          rationale, alternatives, consequences, revisit triggers. Superseding means a new ADR, and
+          the ceremony is a PR — <em>Proposed</em> on arrival, <em>Accepted</em> on merge.
+          <strong>The promotion rule:</strong> anything durable settled in a PR thread lands in the
+          record, an ADR, or the docs before merge.</p>
+      </div>
+      <div class="reference-item">
+        <h3>9. Mechanical enforcement</h3>
+        <p>In force today, mechanically: branch protection on <code>main</code> (PRs only, squash
+          merges, no force pushes); CI running <code>scripts/consistency-check.sh</code> and the
+          record-present guard on every PR. Held by convention, not by machinery: self-contained
+          squash commit bodies written from the record. On a private repository these need a paid
+          GitHub plan, so until then PR-only <code>main</code> runs on convention.</p>
+      </div>
+      <div class="reference-item">
+        <h3>10. Resilience: losing the GitHub account</h3>
+        <p>Losing GitHub loses verification evidence and conversational texture,
+          <strong>never knowledge</strong>: code, constitution, ADRs, architecture docs, and every
+          record live in git. Mitigations, in order: self-contained squash commits, settings as
+          code, the promotion rule, a periodic export of issues and threads, and bumping a new
+          account's issue counter past the old maximum if numbering ever restarts.</p>
+      </div>
+      <div class="reference-item">
+        <h3>11. Evolving the workflow</h3>
+        <p>The skills, CI config, and this page live in the repository, so changing them is an
+          ordinary task. <strong>Two speeds:</strong> principles change by ADR; mechanics change by
+          ordinary PR and must stay cheap. <strong>The ratchet:</strong> tightening moves at
+          mechanics speed, but <strong>loosening</strong> — removing a gate, demoting a protected
+          surface, weakening an approval rule — needs ADR-grade rationale. Workflow changes
+          accumulate and land together at a periodic retro.</p>
+      </div>
+      <div class="reference-item">
+        <h3>12. The flow in practice</h3>
+        <p>When goal and done-when are statable, <code>/t-open</code> makes the
+          <strong>shape judgment</strong>: one task, an initiative with its clear children, or an
+          initiative whose only child is a design task when decomposition is unknown. Each child is
+          then workable from its issue and the constitution.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="open-questions" aria-labelledby="open-questions-title">
+    <div class="section-heading">
+      <p class="section-label">13. Open questions</p>
+      <h2 id="open-questions-title">Still being settled</h2>
+    </div>
+    <ol class="open-questions">
+      <li><span><strong>Draft PR timing</strong> — resolved: at the end of <code>/t-work</code>.</span></li>
+      <li><span><strong>Human approval on the forge</strong> — awaits §9's platform constraint and Q9.</span></li>
+      <li><span><strong>Stage naming</strong> — the <code>t-</code> prefix is a placeholder.</span></li>
+      <li><span><strong>Archive job destination</strong> — where §10's export lands.</span></li>
+      <li><span><strong>Issue templates</strong> — resolved: GitHub issue forms under
+        <code>.github/ISSUE_TEMPLATE/</code>.</span></li>
+      <li><span><strong>Deployment model</strong> — window deploys are assumed (§6.2).</span></li>
+      <li><span><strong>Amendment cadence</strong> — batch at phase boundaries, or every N tasks (§11.6)?</span></li>
+      <li><span><strong>Deadlock rule</strong> — timebox, trial decision, or a per-domain tiebreaker?</span></li>
+      <li><span><strong>Approval policy</strong> — which surfaces need one approval, which the heightened bar.</span></li>
     </ol>
   </section>
-
-  <section id="what-lives-where">
-    <h2>2. What lives where</h2>
-    <p>Knowledge lives in the repository, in every clone: <code>CONSTITUTION.md</code>, <code>AGENTS.md</code>,
-      <code>docs/adr/</code>, <code>docs/architecture/</code>, <code>docs/tasks/</code>, <code>.claude/skills/</code>,
-      <code>.github/</code>. Process lives in the tracker and the forge — issues, PRs, reviews, CI runs — which is
-      reconstructable, not load-bearing. The skills reach both only through named operations that
-      <a href="https://github.com/haninaguib-devtools/locklane/blob/main/docs/adapters/TRACKER.md">docs/adapters/TRACKER.md</a>
-      and
-      <a href="https://github.com/haninaguib-devtools/locklane/blob/main/docs/adapters/FORGE.md">docs/adapters/FORGE.md</a>
-      map to the active backends (GitHub for both by default; Jira, GitLab, etc. by editing those two files).</p>
-  </section>
-
-  <section id="task-identity">
-    <h2>3. Task identity</h2>
-    <p>A task's ID is its <strong>tracker issue identifier</strong> (on GitHub, the issue number — issues and
-      PRs share one atomically minted sequence, so a bare <code>#142</code> is never ambiguous; on other backends,
-      the native key, e.g. a Jira <code>PROJ-142</code>). Everything inherits it: branch <code>wip/142-&lt;slug&gt;</code>,
-      record <code>docs/tasks/000100/142-&lt;slug&gt;.md</code>, squash-commit line <code>Task: #142</code>. Records
-      shard into <strong>ID buckets of 100</strong> (ADR-001 §D4): the directory is the ID rounded down to the
-      nearest 100, zero-padded to 6 digits, so a bucket never exceeds 100 files however fast tasks open, and the
-      path is computable from the ID alone. If numbering ever restarts, the new counter is bumped past the old
-      maximum (§10, mitigation 5), so paths never collide. The PR number is deliberately unimportant as an
-      <em>identifier</em> — nothing is named after it — but it is still needed to address a PR, and every skill
-      resolves it the same way: list PRs whose head branch is <code>wip/&lt;id&gt;-*</code>.</p>
-  </section>
-
-  <section id="task-record">
-    <h2>4. The task record</h2>
-    <p>Every task carries a record, created on the branch when work starts and <strong>merged atomically with the
-      change it describes</strong> (<code>docs/tasks/TEMPLATE.md</code> is the shape). It holds what code cannot:
-      what was asked, what was excluded, the decisions and deviations along the way. Being in the diff it is
-      reviewed too — <em>does this record honestly describe this change?</em> Intent changes there rather than in
-      the issue body once work starts.</p>
-  </section>
-
-  <section id="pipeline">
-    <h2>5. The pipeline</h2>
-    <p>The stage-by-stage table lives in <code>AGENTS.md</code> §The pipeline (one row per skill); the skills
-      themselves are the instructions. This section carries only the rules that span stages. One stage-level note
-      with no better home: <code>/t-status</code> derives everything from tracker/forge queries and git — status is
-      never a maintained file.</p>
-    <p><strong>Never optional:</strong> an issue before the work, a record riding in the PR, a human-confirmed PR
-      into <code>main</code>. <strong>Chosen per task (ADR-001):</strong> plan, worktree, cold review — except on a
-      protected surface (<code>CONSTITUTION.md</code> §3), where plan and review are both required, decided from
-      the paths the diff touches, not from a label. <strong>Nothing chains:</strong> each stage names the next
-      command and stops, and a <code>not-ready</code> review blocks shipping either way.</p>
-    <p><strong>Only blocker and high findings hold a review open</strong>; the rest are posted for the human to fix,
-      defer, or accept, and judgments no command can settle travel to the merge question, where confirming
-      acknowledges them. <strong>Cancellation is a stage, not a cleanup:</strong> its reason and every neighbour's
-      disposition land on the issue before anything is destroyed (ADR-001 §D3).</p>
-  </section>
-
-  <section id="work-larger">
-    <h2>6. Work larger than one PR</h2>
-    <p>The unit is the <strong>reviewable merge</strong>; the answer to bigger work is never a bigger PR.</p>
-    <p><strong>6.1</strong> Work spanning several PRs gets a tracking issue holding the intent and its children; it
-      has no branch or record of its own, and a child that must wait is opened anyway with
-      <code>Blocked-by: #n</code>. <strong>6.2 "Releasable":</strong> every merge leaves <code>main</code> green and
-      deployable as a set at the next release cut — code unwired, endpoints behind permissions nobody holds,
-      handlers before emitters — but need <strong>not</strong> satisfy runtime backwards compatibility, since window
-      deploys mean old code never runs against the new schema. <strong>6.3</strong> Migrations are separate PRs from
-      feature logic; a destructive one fails CI on its own branch until the code stops using what it drops, so the
-      build dictates the order. <strong>6.4</strong> Cross-cutting work splits one task per module.</p>
-  </section>
-
-  <section id="design-work">
-    <h2>7. Design work</h2>
-    <p>Design tasks use the same stages with a document as the deliverable, and <strong>merging is the act of
-      deciding</strong> — one subject per doc PR, because a single "here is the whole design" PR is undiscussable.
-      Discussion before a draft is free: explore (nothing binding), converge (a proposal PR), ratify (merge).
-      Review asks whether a design is consistent, unambiguous, and complete against the known hard cases — not
-      whether it is <em>right</em>.</p>
-  </section>
-
-  <section id="decisions">
-    <h2>8. Decisions</h2>
-    <p>One ADR per file in <code>docs/adr/</code>, numbered and append-only: context, decision, rationale,
-      alternatives, consequences, revisit triggers. Superseding means a new ADR, and the ceremony is a PR —
-      <em>Proposed</em> on arrival, <em>Accepted</em> on merge. ADRs carry rationale, read on demand;
-      <code>CONSTITUTION.md</code> and <code>AGENTS.md</code> carry the terse rule and a pointer. <strong>The
-      promotion rule:</strong> anything durable settled in a PR thread lands in the record, an ADR, or the docs
-      before merge.</p>
-  </section>
-
-  <section id="enforcement">
-    <h2>9. Mechanical enforcement</h2>
-    <p>In force today, <em>mechanically</em>: branch protection on <code>main</code> (PRs only, squash merges, no
-      force pushes); CI running <code>scripts/consistency-check.sh</code> and the record-present guard on every PR
-      (<code>.github/workflows/ci.yml</code>). Held by convention, not by machinery: self-contained squash commit
-      bodies written from the record — the forge enforces squash <em>merging</em>, nothing checks what the message
-      says. Still to come: CODEOWNERS approval on protected paths, with <code>CONSTITUTION.md</code> and
-      <code>docs/adr/</code> at a heightened bar (§13 Q9), and required approvals above zero, which needs a second
-      maintainer. <strong>Platform constraint:</strong> on a private repository these need a paid GitHub plan, so
-      until then PR-only <code>main</code> runs on convention; <code>scripts/github-bootstrap.sh</code> applies what
-      the plan permits.</p>
-  </section>
-
-  <section id="resilience">
-    <h2>10. Resilience: losing the GitHub account</h2>
-    <p>Losing GitHub loses verification evidence and conversational texture, <strong>never knowledge</strong>: code,
-      constitution, ADRs, architecture docs, and every record live in git. Mitigations, in order: (1) self-contained
-      squash commits; (2) settings as code; (3) the promotion rule; (4) a periodic export of issues and threads; (5)
-      bumping a new account's issue counter past the old maximum if numbering ever restarts. One exception to the
-      guarantee: a cancelled task's reason lives only in its close comment (ADR-001).</p>
-  </section>
-
-  <section id="evolving">
-    <h2>11. Evolving the workflow</h2>
-    <p><strong>11.1</strong> The skills, CI config, and this page live in the repository, so changing them is an
-      ordinary task. <strong>11.2 Two speeds:</strong> principles (§1, the protected-surface list, the shape of the
-      pipeline) change by ADR; mechanics change by ordinary PR and must stay cheap, because a process too expensive
-      to fix gets routed around. <strong>11.3 The ratchet:</strong> tightening moves at mechanics speed, but
-      <strong>loosening</strong> — removing a gate, demoting a protected surface, weakening an approval rule — needs
-      ADR-grade rationale, because "let's simplify the workflow" is what gate removal looks like from the inside;
-      ADR-001 set the baseline at that bar. <strong>11.4</strong> The skills execute; this page carries shape only.
-      <strong>11.5</strong> A deviation is approved in the moment and landed in the record, and <strong>the same
-      deviation twice is a bug in the process</strong>. <strong>11.6 Batch, don't tweak</strong>, except
-      mid-incident: workflow changes accumulate and land together at a periodic <strong>retro</strong> — an
-      ordinary task, titled <code>Workflow retro: &lt;date&gt;</code>, that reviews friction since the last one,
-      samples the <code>/t-fix</code> merges <code>/t-status</code> counts, and records that count in its own task
-      record under <code>## Decisions made along the way</code>. That title is the convention a cold session
-      searches on to find the previous retro and its count; without it the creep signal has no baseline to compare
-      against. <strong>11.7 In-flight tasks</strong> meet new rules at their next gate.</p>
-  </section>
-
-  <section id="flow-in-practice">
-    <h2>12. The flow in practice</h2>
-    <p>When goal and done-when are statable, <code>/t-open</code> makes the <strong>shape judgment</strong>: one
-      task, an initiative with its clear children, or an initiative whose only child is a design task when
-      decomposition is unknown. Each child is then workable from its issue and the constitution.</p>
-  </section>
-
-  <section id="open-questions">
-    <h2>13. Open questions</h2>
-    <ol>
-      <li><strong>Draft PR timing</strong> — resolved: at the end of <code>/t-work</code>.</li>
-      <li><strong>Human approval on the forge</strong> — awaits §9's platform constraint and Q9.</li>
-      <li><strong>Stage naming</strong> — the <code>t-</code> prefix is a placeholder.</li>
-      <li><strong>Archive job destination</strong> — where §10's export lands.</li>
-      <li><strong>Issue templates</strong> — resolved: GitHub issue forms under
-        <code>.github/ISSUE_TEMPLATE/</code>, specified by
-        <a href="https://github.com/haninaguib-devtools/locklane/blob/main/docs/architecture/issue-templates.md">docs/architecture/issue-templates.md</a>.</li>
-      <li><strong>Deployment model</strong> — window deploys are assumed (§6.2).</li>
-      <li><strong>Amendment cadence</strong> — batch at phase boundaries, or every N tasks (§11.6)?</li>
-      <li><strong>Deadlock rule</strong> — timebox, trial decision, or a per-domain tiebreaker?</li>
-      <li><strong>Approval policy</strong> — which surfaces need one approval, which the heightened bar.</li>
-    </ol>
-  </section>
-
-  <footer class="page-footer">
-    <p>Generated from <code>docs/workflow.md</code> for browsing on GitHub Pages. The repository itself
-      (<a href="https://github.com/haninaguib-devtools/locklane">haninaguib-devtools/locklane</a>) is private
-      today, so this site is not live yet — see the source file for the current, authoritative text.</p>
-  </footer>
 </main>
-</div>
+
+<footer class="site-footer">
+  <div class="footer-wrap">
+    <a class="brand" href="#top" aria-label="Back to top">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><circle cx="7" cy="16" r="3"/><circle cx="16" cy="7" r="3"/><circle cx="25" cy="16" r="3"/><circle cx="16" cy="25" r="3"/><path d="M9.5 14.5 13.5 9.5M18.5 9.5l4 5M22.5 18l-4 4.5M13.5 22.5l-4-4.5"/></svg>
+      </span>
+      <span>Delivery workflow</span>
+    </a>
+    <p>Generated from <code>docs/workflow.md</code> for browsing on GitHub Pages.</p>
+    <nav aria-label="Footer navigation">
+      <a href="https://github.com/haninaguib-devtools/locklane">GitHub</a>
+      <a href="https://github.com/haninaguib-devtools/locklane/blob/main/docs/workflow.md">Source</a>
+    </nav>
+  </div>
+</footer>
 </body>
 </html>

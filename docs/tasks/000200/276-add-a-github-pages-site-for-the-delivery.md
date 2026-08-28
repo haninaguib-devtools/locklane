@@ -36,6 +36,16 @@ built and committed now even though it can't be verified live until then.
 - The three GitHub Pages actions (`configure-pages`, `upload-pages-artifact`,
   `deploy-pages`) are pinned to commit SHAs resolved via the GitHub API at plan time,
   matching the pinning style already used in `ci.yml`. (agent, 2026-08-28)
+- After the first draft PR, the human asked for the site's visual style to match the
+  `t-workflow` template repository's own GitHub Pages site
+  (`haninaguib-devtools/t-workflow`, live at
+  `https://haninaguib-devtools.github.io/t-workflow/`) rather than the generic sidebar
+  layout first drafted. Reworked `docs/site/` to reuse that site's actual design tokens,
+  header/hero/button/card components, and brand mark (fetched its live HTML/CSS/JS to
+  copy the design system, trimmed to the components this page uses), while keeping the
+  page's own content a mirror of `docs/workflow.md` — t-workflow's page is
+  installer/marketing copy specific to that template project, which does not apply here,
+  so only the visual language was reused, not that copy. (human + agent, 2026-08-28)
 
 ## Deviations / notes
 - none
