@@ -1,6 +1,6 @@
 <div class="header">
   <button type="button" class="back" (click)="back()">← back to issues</button>
-  <h1>New issue console</h1>
+  <h1>Project console</h1>
 </div>
 @if (loading) {
   <div class="loading">loading…</div>
@@ -11,7 +11,7 @@
     [starting]="starting"
     [overview]="false"
     [locationChoice]="false"
-    (selectedChange)="selected = $event"
+    (selectedChange)="selectTab($event)"
     (open)="openFromTabs($event)"
     (close)="closeConsole($event)"
   />

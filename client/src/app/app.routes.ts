@@ -9,14 +9,11 @@ export const routes: Routes = [
   // sidenav lands here. Since #85 AppComponent renders the project's own
   // summary here rather than an empty state.
   { path: 'projects/:projectId/issues', children: [] },
-  // The project-level console (#140) that starts a new issue's discussion before
-  // any issue exists -- reached from the "New issue (agent)" button on the
-  // project's own summary page above, never from the sidenav.
+  // The project-level console (#140), consolidated from two pages into this one
+  // (#221) -- reached from the sidenav's "+" or the project summary's console
+  // button, which create a session when none is open yet or jump back into an
+  // existing one.
   { path: 'projects/:projectId/console', children: [] },
-  // The project's open consoles (#179): every console currently running for this
-  // project, each reattachable -- the page the sidenav "+" and the project page
-  // will link to (#180).
-  { path: 'projects/:projectId/consoles', children: [] },
   // The workspace Overview (#197): no project id picked, so AppComponent renders
   // it directly -- no redirect into a project the way #43 used to. Not logged in
   // / no projects yet: OverviewComponent and AppComponent's own login check

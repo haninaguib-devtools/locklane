@@ -1,9 +1,13 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { ProjectSummaryComponent, countIssues } from './project-summary.component';
 import { Project, TreeNode } from '../../models/issue.model';
+import { OpenProjectConsole } from '../../services/project-console.service';
+import { AgentStore } from '../../services/agent-store';
+import { ConsolesService } from '../../services/consoles.service';
+import { LastConsoleStore } from '../../services/last-console-store';
 
 describe('ProjectSummaryComponent', () => {
   let httpMock: HttpTestingController;
@@ -36,7 +40,14 @@ describe('ProjectSummaryComponent', () => {
     ];
   }
 
+  function session(sessionId: string, createdAt = '2026-08-27T09:00:00Z'): OpenProjectConsole {
+    return { sessionId, workingDirectory: '/tmp/a', createdAt, lastAttachedAt: createdAt };
+  }
+
   beforeEach(() => {
+    localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.defaultAgent');
+    localStorage.removeItem('locklane.lastConsole');
     TestBed.configureTestingModule({
       imports: [ProjectSummaryComponent],
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
@@ -44,18 +55,31 @@ describe('ProjectSummaryComponent', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.defaultAgent');
+    localStorage.removeItem('locklane.lastConsole');
+  });
 
-  /** Creates the component for a project id and flushes both of its requests. */
+  /**
+   * Creates the component for a project id and flushes its requests: the project
+   * list and issue tree always, plus the open-consoles list whenever the target
+   * project is READY (#221) -- a cloning or failed project never fetches it.
+   */
   function init(
     projects: Project[] = [PROJECT],
     nodes: TreeNode[] = tree(),
     projectId = 1,
+    consoles: OpenProjectConsole[] = [],
   ): ReturnType<typeof TestBed.createComponent<ProjectSummaryComponent>> {
     const fixture = TestBed.createComponent(ProjectSummaryComponent);
     fixture.componentRef.setInput('projectId', projectId);
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').flush(projects);
+    if (projects.find((p) => p.id === projectId)?.status === 'READY') {
+      httpMock.expectOne(`/api/projects/${projectId}/console/sessions`).flush(consoles);
+    }
     httpMock.expectOne(`/api/projects/${projectId}/issues/tree`).flush(nodes);
     fixture.detectChanges();
     return fixture;
@@ -106,6 +130,7 @@ describe('ProjectSummaryComponent', () => {
     fixture.componentRef.setInput('projectId', 1);
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').flush([PROJECT]);
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     httpMock
       .expectOne('/api/projects/1/issues/tree')
       .flush('boom', { status: 500, statusText: 'Server Error' });
@@ -117,19 +142,97 @@ describe('ProjectSummaryComponent', () => {
     expect(text).toContain('could not load the issue counts');
   });
 
-  it('links a ready project to its consoles page in place of the old "New issue (agent)" button (#180)', () => {
-    const fixture = init();
-
-    const link = (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('a.consoles-link');
-    expect(link).toBeTruthy();
-    expect(link!.getAttribute('href')).toBe('/projects/1/consoles');
-    expect((fixture.nativeElement as HTMLElement).querySelector('.new-issue')).toBeFalsy();
-  });
-
-  it('hides the consoles link while the project is still cloning', () => {
+  it('hides the console button while the project is still cloning', () => {
     const fixture = init([{ ...PROJECT, status: 'CLONING' }]);
 
-    expect((fixture.nativeElement as HTMLElement).querySelector('.consoles-link')).toBeFalsy();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.console-button')).toBeFalsy();
+  });
+
+  it('reads "Open console" and starts one, landing on it with the default agent, when none is open (#221)', () => {
+    const fixture = init();
+    const opened = jasmine.createSpy('onOpened');
+    TestBed.inject(ConsolesService).onOpened.subscribe(opened);
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
+    expect(button.textContent?.trim()).toBe('Open console');
+    button.click();
+    fixture.detectChanges();
+
+    expect(button.disabled).toBeTrue();
+    const req = httpMock.expectOne('/api/projects/1/console');
+    expect(req.request.method).toBe('POST');
+    req.flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+    fixture.detectChanges();
+
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+      queryParams: { session: 'proj-1-console-abc' },
+    });
+    expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('claude');
+    expect(opened).toHaveBeenCalled();
+  });
+
+  it('uses the Settings default agent (not a hardcoded one) when starting a console', () => {
+    localStorage.setItem('locklane.defaultAgent', 'codex');
+    const fixture = init();
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!.click();
+    httpMock
+      .expectOne('/api/projects/1/console')
+      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+
+    expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('codex');
+  });
+
+  it('shows an error and re-arms the button when starting a console fails', () => {
+    const fixture = init();
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
+    button.click();
+    httpMock.expectOne('/api/projects/1/console').flush(null, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.consoleError).toBeTrue();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not start a console');
+    expect(button.disabled).toBeFalse();
+  });
+
+  it('reads "Open consoles" and navigates to the most recently interacted-with one when any are open (#221)', () => {
+    const fixture = init([PROJECT], tree(), 1, [session('proj-1-console-a'), session('proj-1-console-b')]);
+    TestBed.inject(LastConsoleStore).set(1, 'proj-1-console-b');
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
+    expect(button.textContent?.trim()).toBe('Open consoles');
+    button.click();
+
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+      queryParams: { session: 'proj-1-console-b' },
+    });
+  });
+
+  it('falls back to the last console in the list when there is no recorded recency (#221)', () => {
+    const fixture = init([PROJECT], tree(), 1, [session('proj-1-console-a'), session('proj-1-console-b')]);
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!.click();
+
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+      queryParams: { session: 'proj-1-console-b' },
+    });
+  });
+
+  it('falls back to the last console in the list when the recorded one is no longer open (#221)', () => {
+    const fixture = init([PROJECT], tree(), 1, [session('proj-1-console-a'), session('proj-1-console-b')]);
+    TestBed.inject(LastConsoleStore).set(1, 'proj-1-console-gone');
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!.click();
+
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+      queryParams: { session: 'proj-1-console-b' },
+    });
   });
 
   it('reloads when the project id changes', () => {
@@ -137,6 +240,7 @@ describe('ProjectSummaryComponent', () => {
     fixture.componentRef.setInput('projectId', 2);
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').flush([PROJECT, { ...PROJECT, id: 2, name: 'proj-b' }]);
+    httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
     httpMock.expectOne('/api/projects/2/issues/tree').flush([]);
     fixture.detectChanges();
 

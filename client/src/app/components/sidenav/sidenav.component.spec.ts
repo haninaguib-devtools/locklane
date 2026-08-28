@@ -708,12 +708,32 @@ describe('SidenavComponent', () => {
       queryParams: { session: 'proj-1-console-abc' },
     });
     expect(emitted).toEqual([]);
-    // The one-click entry has no agent picker: the new console gets the default agent.
+    // The one-click entry has no agent picker: the new console gets the Settings
+    // default agent (#219), 'claude' when nothing else was chosen there.
     expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('claude');
     // #194: the header consoles widget must learn about it, the same way any other
     // newly opened console is announced.
     expect(opened).toHaveBeenCalled();
     localStorage.removeItem('locklane.sessionAgents');
+  });
+
+  it('the header "+" uses the Settings default agent instead of hardcoding claude (#221)', () => {
+    localStorage.removeItem('locklane.sessionAgents');
+    localStorage.setItem('locklane.defaultAgent', 'codex');
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    (fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement).click();
+    httpMock
+      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
+      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+    flushConsoles();
+
+    expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('codex');
+    localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.defaultAgent');
   });
 
   it('the "+" ignores further clicks while a console is still being minted (#180)', () => {
