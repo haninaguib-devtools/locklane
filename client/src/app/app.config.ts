@@ -1,16 +1,19 @@
 import { ApplicationConfig, inject, provideAppInitializer, provideZoneChangeDetection, isDevMode } from '@angular/core';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { routes } from './app.routes';
 import { AuthService } from './services/auth.service';
 import { EventsService } from './services/events.service';
+import { unauthorizedInterceptor } from './services/unauthorized.interceptor';
 import { provideServiceWorker } from '@angular/service-worker';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
-    provideHttpClient(),
+    // Falls back to the login screen on any 401, from any request (#246) -- see
+    // unauthorized.interceptor.ts.
+    provideHttpClient(withInterceptors([unauthorizedInterceptor])),
     provideRouter(routes),
     // Ask the engine whether the session cookie is still valid before first
     // render (#58) -- otherwise a page refresh always starts logged-out and
