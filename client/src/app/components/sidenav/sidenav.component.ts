@@ -95,9 +95,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // Neither persists across reloads, matching the old app (#22's Goal).
   filterText = '';
   hideShipped = true;
-  // Off by default (#110): most issues have no branch yet, so defaulting to on
-  // would hide almost everything.
-  activeBranchOnly = false;
   // Empty means no tag filter (#111); non-empty ORs within itself, same as the
   // rest combine ANDed -- see tree-filter.ts.
   selectedTags: string[] = [];
@@ -371,13 +368,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
             : n,
         );
       // hideShipped never removes a pin, only the text filter can -- see tree-filter.ts.
-      const nodes = filterPinnedTree(
-        ordered,
-        this.filterText,
-        this.hideShipped,
-        this.activeBranchOnly,
-        this.selectedTags,
-      );
+      const nodes = filterPinnedTree(ordered, this.filterText, this.hideShipped, this.selectedTags);
       if (nodes.length > 0) {
         groups.push({ project: section.project, nodes });
       }
@@ -402,7 +393,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
           ? { ...n, children: n.children.filter((c) => !pinnedNumbers.has(c.number)) }
           : n,
       );
-    return filterTree(topLevel, this.filterText, this.hideShipped, this.activeBranchOnly, this.selectedTags);
+    return filterTree(topLevel, this.filterText, this.hideShipped, this.selectedTags);
   }
 
   isTagSelected(tag: string): boolean {
@@ -491,7 +482,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   private hasActiveFilter(): boolean {
-    return this.filterText.trim().length > 0 || this.activeBranchOnly || this.selectedTags.length > 0;
+    return this.filterText.trim().length > 0 || this.selectedTags.length > 0;
   }
 
   private flatten(nodes: TreeNode[]): TreeNode[] {
