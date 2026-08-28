@@ -130,6 +130,54 @@ describe('ConsoleIndicatorComponent', () => {
     expect(fixture.componentInstance.entries().length).toBe(0);
   });
 
+  it('shows "console" with no count when exactly one console is open (#215)', () => {
+    const fixture = init();
+    flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);
+    fixture.detectChanges();
+
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector('.badge');
+    expect(button.textContent?.trim()).toBe('console');
+  });
+
+  it('shows "consoles (N)" when two or more consoles are open', () => {
+    const fixture = init();
+    flushInitialFetch(
+      ['1-7-rename-toggle', '1-8-rename-toggle'],
+      [issue(7, 'Seven'), issue(8, 'Eight')],
+    );
+    fixture.detectChanges();
+
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector('.badge');
+    expect(button.textContent?.trim()).toBe('consoles (2)');
+  });
+
+  it('clicking the trigger with exactly one console navigates directly instead of opening the picker (#215)', () => {
+    const fixture = init();
+    flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate');
+
+    fixture.componentInstance.onTriggerClick();
+
+    expect(navigateSpy).toHaveBeenCalledWith(['/projects', 1, 'issues', 7]);
+    expect(fixture.componentInstance.open()).toBeFalse();
+  });
+
+  it('clicking the trigger with two or more consoles still opens the picker (#215)', () => {
+    const fixture = init();
+    flushInitialFetch(
+      ['1-7-rename-toggle', '1-8-rename-toggle'],
+      [issue(7, 'Seven'), issue(8, 'Eight')],
+    );
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate');
+
+    fixture.componentInstance.onTriggerClick();
+
+    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.open()).toBeTrue();
+  });
+
   it("jumping to an entry remembers it as the issue's active console, closes the picker, and navigates there", () => {
     const fixture = init();
     flushInitialFetch(['1-7-rename-toggle'], [issue(7, 'Seven')]);

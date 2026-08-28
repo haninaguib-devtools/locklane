@@ -115,6 +115,17 @@ export class ConsoleIndicatorComponent implements OnChanges, OnDestroy {
     }
   }
 
+  // With exactly one console open, the trigger is a direct link (#215) -- jump
+  // straight there instead of opening a picker with a single row in it.
+  onTriggerClick(): void {
+    const entries = this.entries();
+    if (entries.length === 1) {
+      this.jumpTo(entries[0]);
+    } else {
+      this.toggle();
+    }
+  }
+
   close(): void {
     this.open.set(false);
     queueMicrotask(() => this.triggerRef?.nativeElement.focus());
