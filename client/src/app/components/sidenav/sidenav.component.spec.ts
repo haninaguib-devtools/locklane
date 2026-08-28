@@ -309,6 +309,39 @@ describe('SidenavComponent', () => {
     expect(initiative.children.map((c) => c.number)).toEqual([2]);
   });
 
+  it('an issue with an open console stays visible under hideShipped even when closed (#263)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-3-fix-thing']);
+
+    const section = fixture.componentInstance.projectSections[0];
+    const initiative = fixture.componentInstance.mainNodesFor(section)[0];
+
+    expect(fixture.componentInstance.hideShipped).toBeTrue();
+    expect(initiative.children.map((c) => c.number)).toEqual([2, 3]);
+  });
+
+  it('an issue with an open console stays visible regardless of the typed search text (#263)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-4-standalone']);
+
+    fixture.componentInstance.filterText = 'no match at all';
+    const section = fixture.componentInstance.projectSections[0];
+
+    expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([4]);
+  });
+
+  it('an issue with no open console is unaffected by either filter (#263)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    fixture.componentInstance.filterText = 'no match at all';
+    const section = fixture.componentInstance.projectSections[0];
+
+    expect(fixture.componentInstance.mainNodesFor(section)).toEqual([]);
+  });
+
   it('toggleTag selects and deselects a tag, and mainNodesFor narrows to matching issues', () => {
     const fixture = init();
     const withLabels: TreeNode[] = [

@@ -368,7 +368,13 @@ export class SidenavComponent implements OnInit, OnDestroy {
             : n,
         );
       // hideShipped never removes a pin, only the text filter can -- see tree-filter.ts.
-      const nodes = filterPinnedTree(ordered, this.filterText, this.hideShipped, this.selectedTags);
+      const nodes = filterPinnedTree(
+        ordered,
+        this.filterText,
+        this.hideShipped,
+        this.selectedTags,
+        (n) => this.hasOpenConsole(section.project.id, n.number),
+      );
       if (nodes.length > 0) {
         groups.push({ project: section.project, nodes });
       }
@@ -393,7 +399,13 @@ export class SidenavComponent implements OnInit, OnDestroy {
           ? { ...n, children: n.children.filter((c) => !pinnedNumbers.has(c.number)) }
           : n,
       );
-    return filterTree(topLevel, this.filterText, this.hideShipped, this.selectedTags);
+    return filterTree(
+      topLevel,
+      this.filterText,
+      this.hideShipped,
+      this.selectedTags,
+      (n) => this.hasOpenConsole(section.project.id, n.number),
+    );
   }
 
   isTagSelected(tag: string): boolean {
