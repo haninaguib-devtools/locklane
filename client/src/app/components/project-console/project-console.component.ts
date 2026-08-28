@@ -172,10 +172,11 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
         }
         this.consolesService.notifyClosed();
         if (this.consoles.length === 0) {
-          // #256: this page never sits at zero consoles waiting on a picker --
-          // closing the last one starts a fresh default-agent console the same
-          // way landing here empty does.
-          this.startDefault();
+          // #265: closing the last console leaves the console view rather than
+          // auto-starting a new one -- back to the project page, where the "+"
+          // affordance lives if they want another later. Landing here directly
+          // with zero sessions is unaffected (#256's load()-time auto-start).
+          this.back();
         }
       },
       error: () => {
