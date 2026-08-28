@@ -4,66 +4,68 @@
   } @else if (error || !project) {
     <div class="state">could not load this project</div>
   } @else {
-    <div class="header">
-      <h1>{{ project.name }}</h1>
-      <span class="status" [class.cloning]="project.status === 'CLONING'" [class.failed]="project.status === 'FAILED'">
-        {{ project.status.toLowerCase() }}
-      </span>
-      @if (project.status === 'READY') {
-        <button type="button" class="console-button" [disabled]="startingConsole" (click)="onConsoleButtonClick()">
-          {{ consoleButtonLabel }}
+    <div class="content">
+      <div class="header">
+        <h1>{{ project.name }}</h1>
+        <span class="status" [class.cloning]="project.status === 'CLONING'" [class.failed]="project.status === 'FAILED'">
+          {{ project.status.toLowerCase() }}
+        </span>
+        @if (project.status === 'READY') {
+          <button type="button" class="console-button" [disabled]="startingConsole" (click)="onConsoleButtonClick()">
+            {{ consoleButtonLabel }}
+          </button>
+        }
+        <button type="button" class="delete-project" [disabled]="deleting" (click)="openDeleteConfirm()">
+          {{ deleting ? 'deleting…' : 'delete project' }}
         </button>
-      }
-      <button type="button" class="delete-project" [disabled]="deleting" (click)="openDeleteConfirm()">
-        {{ deleting ? 'deleting…' : 'delete project' }}
-      </button>
-    </div>
-
-    @if (deleteError; as message) {
-      <p class="delete-error">{{ message }}</p>
-    }
-
-    @if (consoleError) {
-      <div class="action-error">could not start a console — try again</div>
-    }
-
-    @if (counts; as c) {
-      <div class="counts">
-        <div class="count primary">
-          <span class="value">{{ c.total }}</span>
-          <span class="caption">issues</span>
-        </div>
-        <div class="count">
-          <span class="value">{{ c.open }}</span>
-          <span class="caption">open</span>
-        </div>
-        <div class="count">
-          <span class="value">{{ c.closed }}</span>
-          <span class="caption">closed</span>
-        </div>
-        <div class="count">
-          <span class="value">{{ c.initiatives }}</span>
-          <span class="caption">initiatives</span>
-        </div>
-        <div class="count">
-          <span class="value">{{ c.tasks }}</span>
-          <span class="caption">tasks</span>
-        </div>
       </div>
-    } @else {
-      <div class="state">could not load the issue counts</div>
-    }
 
-    <dl class="facts">
-      <dt>repository</dt>
-      <dd class="mono">{{ project.gitUrl }}</dd>
-      <dt>default branch</dt>
-      <dd class="mono">{{ project.defaultBranch || '—' }}</dd>
-      <dt>workarea</dt>
-      <dd class="mono">{{ project.workareaPath }}</dd>
-      <dt>added</dt>
-      <dd>{{ project.createdAt || '—' }}</dd>
-    </dl>
+      @if (deleteError; as message) {
+        <p class="delete-error">{{ message }}</p>
+      }
+
+      @if (consoleError) {
+        <div class="action-error">could not start a console — try again</div>
+      }
+
+      @if (counts; as c) {
+        <div class="counts">
+          <div class="count primary">
+            <span class="value">{{ c.total }}</span>
+            <span class="caption">issues</span>
+          </div>
+          <div class="count">
+            <span class="value">{{ c.open }}</span>
+            <span class="caption">open</span>
+          </div>
+          <div class="count">
+            <span class="value">{{ c.closed }}</span>
+            <span class="caption">closed</span>
+          </div>
+          <div class="count">
+            <span class="value">{{ c.initiatives }}</span>
+            <span class="caption">initiatives</span>
+          </div>
+          <div class="count">
+            <span class="value">{{ c.tasks }}</span>
+            <span class="caption">tasks</span>
+          </div>
+        </div>
+      } @else {
+        <div class="state">could not load the issue counts</div>
+      }
+
+      <dl class="facts">
+        <dt>repository</dt>
+        <dd class="mono">{{ project.gitUrl }}</dd>
+        <dt>default branch</dt>
+        <dd class="mono">{{ project.defaultBranch || '—' }}</dd>
+        <dt>workarea</dt>
+        <dd class="mono">{{ project.workareaPath }}</dd>
+        <dt>added</dt>
+        <dd>{{ project.createdAt || '—' }}</dd>
+      </dl>
+    </div>
   }
 </section>
 
