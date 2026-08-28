@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -73,7 +74,7 @@ class ProjectControllerTest {
         ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), Instant.now());
         ProjectController controller = controller(tmp, repository);
 
-        ResponseEntity<Void> response = controller.delete(created.id());
+        ResponseEntity<?> response = controller.delete(created.id());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(controller.list()).isEmpty();
@@ -84,6 +85,23 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         assertThat(controller.delete(999).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void deleteOnAProjectWithAnOpenSessionIsAConflictWithAMessage(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), Instant.now());
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        sessions.recordAttach(created.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
+        ProjectController controller = controller(tmp, repository, new IssueWorktreeService(sessions));
+
+        ResponseEntity<?> response = controller.delete(created.id());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        @SuppressWarnings("unchecked")
+        Map<String, String> body = (Map<String, String>) response.getBody();
+        assertThat(body).containsKey("error");
+        assertThat(controller.list()).extracting(ProjectController.ProjectView::name).containsExactly("foo");
     }
 
     @Test
@@ -126,8 +144,13 @@ class ProjectControllerTest {
     }
 
     private static ProjectController controller(Path tmp, ProjectRepository repository) throws IOException {
-        ProjectCheckoutService checkoutService =
-                new ProjectCheckoutService(repository, tmp.resolve("workarea").toString(), Runnable::run);
+        return controller(tmp, repository, new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp)));
+    }
+
+    private static ProjectController controller(Path tmp, ProjectRepository repository,
+            IssueWorktreeService issueWorktreeService) throws IOException {
+        ProjectCheckoutService checkoutService = new ProjectCheckoutService(repository,
+                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService);
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
         ProjectGhResources ghResources = new ProjectGhResources(repository, tokenCipher, (path, token) -> {
             throw new UnsupportedOperationException("not exercised by ProjectController's own tests");

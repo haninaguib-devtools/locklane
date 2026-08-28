@@ -28,13 +28,16 @@ public class ProjectCheckoutService {
     private final ProjectRepository repository;
     private final Path workareaRoot;
     private final Executor cloneExecutor;
+    private final IssueWorktreeService issueWorktreeService;
 
     public ProjectCheckoutService(ProjectRepository repository,
             @Value("${locklane.workarea-root}") String workareaRoot,
-            @Qualifier("projectCloneExecutor") Executor cloneExecutor) {
+            @Qualifier("projectCloneExecutor") Executor cloneExecutor,
+            IssueWorktreeService issueWorktreeService) {
         this.repository = repository;
         this.workareaRoot = Path.of(workareaRoot).normalize();
         this.cloneExecutor = cloneExecutor;
+        this.issueWorktreeService = issueWorktreeService;
     }
 
     /**
@@ -67,15 +70,26 @@ public class ProjectCheckoutService {
         return Optional.of(cloning);
     }
 
-    /** Forgets the project and best-effort removes its workarea directory. False if it didn't exist. */
-    public boolean delete(long id) {
+    /**
+     * Forgets the project and best-effort removes its workarea directory — refusing
+     * (#231) when any worktree or console session is still open for it, so deleting
+     * never orphans one out from under whoever is attached to it.
+     */
+    public DeleteOutcome delete(long id) {
         Optional<ProjectRecord> existing = repository.findById(id);
         if (existing.isEmpty()) {
-            return false;
+            return DeleteOutcome.NOT_FOUND;
+        }
+        if (issueWorktreeService.hasAnySessions(id)) {
+            return DeleteOutcome.HAS_OPEN_SESSIONS;
         }
         repository.delete(id);
         deleteDirectoryQuietly(existing.get().workareaPath());
-        return true;
+        return DeleteOutcome.DELETED;
+    }
+
+    public enum DeleteOutcome {
+        NOT_FOUND, HAS_OPEN_SESSIONS, DELETED
     }
 
     private void clone(ProjectRecord project) {

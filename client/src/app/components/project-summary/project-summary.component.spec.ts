@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter, Router } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { ProjectSummaryComponent, countIssues } from './project-summary.component';
 import { Project, TreeNode } from '../../models/issue.model';
 import { OpenProjectConsole } from '../../services/project-console.service';
@@ -246,5 +246,64 @@ describe('ProjectSummaryComponent', () => {
 
     expect(fixture.componentInstance.project?.name).toBe('proj-b');
     expect(fixture.componentInstance.counts?.total).toBe(0);
+  });
+
+  it('opening delete confirmation does not call the API', () => {
+    const fixture = init();
+
+    fixture.componentInstance.openDeleteConfirm();
+
+    expect(fixture.componentInstance.showDeleteConfirm).toBeTrue();
+    httpMock.expectNone(`/api/projects/${PROJECT.id}`);
+  });
+
+  it('cancelling delete confirmation does nothing', () => {
+    const fixture = init();
+    fixture.componentInstance.openDeleteConfirm();
+
+    fixture.componentInstance.cancelDelete();
+
+    expect(fixture.componentInstance.showDeleteConfirm).toBeFalse();
+    httpMock.expectNone(`/api/projects/${PROJECT.id}`);
+  });
+
+  it('confirming delete calls the API and navigates to the overview on success', () => {
+    const fixture = init();
+    fixture.componentInstance.openDeleteConfirm();
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate');
+
+    fixture.componentInstance.confirmDelete();
+
+    httpMock.expectOne(`/api/projects/${PROJECT.id}`).flush(null);
+
+    expect(fixture.componentInstance.showDeleteConfirm).toBeFalse();
+    expect(fixture.componentInstance.deleting).toBeFalse();
+    expect(navigateSpy).toHaveBeenCalledWith(['/']);
+  });
+
+  it('shows the backend refusal inline when the project has an open worktree or console', () => {
+    const fixture = init();
+    fixture.componentInstance.openDeleteConfirm();
+    const router = TestBed.inject(Router);
+    const navigateSpy = spyOn(router, 'navigate');
+
+    fixture.componentInstance.confirmDelete();
+
+    httpMock
+      .expectOne(`/api/projects/${PROJECT.id}`)
+      .flush(
+        { error: 'This project has an open worktree or console — close it before deleting the project.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+
+    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.deleteError).toBe(
+      'This project has an open worktree or console — close it before deleting the project.',
+    );
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'This project has an open worktree or console',
+    );
   });
 });

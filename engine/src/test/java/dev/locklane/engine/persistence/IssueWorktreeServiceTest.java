@@ -191,6 +191,38 @@ class IssueWorktreeServiceTest {
     }
 
     @Test
+    void hasAnySessionsIsTrueForAWorktreeOrAConsoleRegardlessOfOwner(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-174-bobs-session", dbDir.resolve("wt1"), now, "bob");
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        assertThat(service.hasAnySessions(1)).isTrue();
+        assertThat(service.hasAnySessions(2)).isFalse();
+    }
+
+    @Test
+    void hasAnySessionsIsTrueForAProjectConsoleWithNoIssue(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt1"), now, "alice");
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        assertThat(service.hasAnySessions(1)).isTrue();
+    }
+
+    @Test
+    void hasAnySessionsIsFalseWhenNoSessionsAreRecordedAtAll(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        assertThat(service.hasAnySessions(1)).isFalse();
+    }
+
+    @Test
     void allWorktreeIdsSpansEveryIssueInOneProjectButExcludesOtherProjectsAndUsers(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");

@@ -1,6 +1,7 @@
 import { Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
 import { Agent } from '../../services/agent-store';
 import { AgentPickerComponent } from '../agent-picker/agent-picker.component';
+import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ConsoleTab, OVERVIEW_TAB_ID } from './console-labels';
 
 export interface OpenConsoleRequest {
@@ -11,7 +12,7 @@ export interface OpenConsoleRequest {
 @Component({
   selector: 'app-console-tabs',
   standalone: true,
-  imports: [AgentPickerComponent],
+  imports: [AgentPickerComponent, ConfirmDialogComponent],
   templateUrl: './console-tabs.component.html',
   styleUrl: './console-tabs.component.css',
 })
@@ -40,16 +41,29 @@ export class ConsoleTabsComponent {
   location: 'main' | 'worktree' = 'worktree';
   agent: Agent = 'claude';
 
+  // The tab whose close is awaiting confirmation in the app-styled dialog (#231),
+  // replacing the synchronous native `confirm()` this used to block on.
+  pendingCloseId: string | null = null;
+
   select(id: string): void {
     this.selectedChange.emit(id);
   }
 
   closeTab(id: string, event: Event): void {
     event.stopPropagation();
-    if (!confirm('Close this console? The session will be terminated and cannot be reattached.')) {
-      return;
+    this.pendingCloseId = id;
+  }
+
+  confirmClose(): void {
+    const id = this.pendingCloseId;
+    this.pendingCloseId = null;
+    if (id !== null) {
+      this.close.emit(id);
     }
-    this.close.emit(id);
+  }
+
+  cancelClose(): void {
+    this.pendingCloseId = null;
   }
 
   togglePicker(): void {

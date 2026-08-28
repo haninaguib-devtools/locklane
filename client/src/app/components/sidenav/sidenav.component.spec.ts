@@ -436,25 +436,36 @@ describe('SidenavComponent', () => {
     flushTree(1, tree());
   });
 
-  it('deleteProject asks for confirmation, and on confirm calls delete and refreshes', () => {
-    spyOn(window, 'confirm').and.returnValue(true);
+  it('deleteProject awaits confirmation in the dialog before calling delete', () => {
     const fixture = init();
     flushTree(1, tree());
 
     fixture.componentInstance.deleteProject(1, new Event('click'));
 
-    expect(window.confirm).toHaveBeenCalled();
+    expect(fixture.componentInstance.pendingDeleteProjectId).toBe(1);
+    httpMock.expectNone('/api/projects/1');
+  });
+
+  it('confirmDeleteProject calls delete and refreshes', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.componentInstance.deleteProject(1, new Event('click'));
+
+    fixture.componentInstance.confirmDeleteProject();
+
+    expect(fixture.componentInstance.pendingDeleteProjectId).toBeNull();
     httpMock.expectOne('/api/projects/1').flush(null);
     httpMock.expectOne('/api/projects').flush([]);
   });
 
-  it('deleteProject does nothing when the confirmation is declined', () => {
-    spyOn(window, 'confirm').and.returnValue(false);
+  it('cancelDeleteProject does nothing', () => {
     const fixture = init();
     flushTree(1, tree());
-
     fixture.componentInstance.deleteProject(1, new Event('click'));
 
+    fixture.componentInstance.cancelDeleteProject();
+
+    expect(fixture.componentInstance.pendingDeleteProjectId).toBeNull();
     httpMock.expectNone('/api/projects/1');
   });
 

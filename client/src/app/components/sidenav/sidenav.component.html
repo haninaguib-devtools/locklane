@@ -42,6 +42,17 @@
     </div>
   </div>
 
+  @if (pendingDeleteProjectId !== null) {
+    <app-confirm-dialog
+      title="Delete project?"
+      message="Delete this project? This cannot be undone."
+      confirmLabel="Delete"
+      [danger]="true"
+      (confirmed)="confirmDeleteProject()"
+      (cancelled)="cancelDeleteProject()"
+    />
+  }
+
   @if (loading) {
     <div class="state">loading…</div>
   } @else if (error) {

@@ -14,7 +14,14 @@
           {{ consoleButtonLabel }}
         </button>
       }
+      <button type="button" class="delete-project" [disabled]="deleting" (click)="openDeleteConfirm()">
+        {{ deleting ? 'deleting…' : 'delete project' }}
+      </button>
     </div>
+
+    @if (deleteError; as message) {
+      <p class="delete-error">{{ message }}</p>
+    }
 
     @if (consoleError) {
       <div class="action-error">could not start a console — try again</div>
@@ -59,3 +66,14 @@
     </dl>
   }
 </section>
+
+@if (showDeleteConfirm) {
+  <app-confirm-dialog
+    title="Delete project?"
+    message="Delete this project? This cannot be undone."
+    confirmLabel="Delete"
+    [danger]="true"
+    (confirmed)="confirmDelete()"
+    (cancelled)="cancelDelete()"
+  />
+}
