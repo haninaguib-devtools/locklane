@@ -38,6 +38,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   private resizeSub: IDisposable | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private pendingFit: ReturnType<typeof setTimeout> | null = null;
+  /** The deferred first measure-then-connect for an initially-active tab (#268). */
+  private pendingInit: ReturnType<typeof setTimeout> | null = null;
   /** Whether term.open() has run yet — deferred for a tab that starts inactive (#211). */
   private opened = false;
 
@@ -82,10 +84,15 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       // The container may not have its final layout size yet at this point in the
       // change-detection cycle — same reasoning as the tab-switch fit below (#211),
       // deferred here too so an initially-active tab doesn't lock in a bad cached
-      // size the way #257 did.
-      setTimeout(() => {
+      // size the way #257 did. The connection waits for that measurement rather than
+      // racing it: the size on the connect URL is the size the engine starts the new
+      // PTY at, so connecting first would start the process at xterm's 80x24
+      // constructor defaults and never correct it (#268).
+      this.pendingInit = setTimeout(() => {
+        this.pendingInit = null;
         this.fitAddon?.fit();
         this.term?.focus();
+        this.connect();
       });
     }
     this.term.onData((input) => this.session?.send(input));
@@ -108,7 +115,13 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       }, TerminalComponent.FIT_QUIET_MS);
     });
     this.resizeObserver.observe(this.container.nativeElement);
-    this.connect();
+    if (!this.active) {
+      // A tab that starts hidden has nothing measurable to wait for, so it connects
+      // straight away at xterm's defaults; the fit on its first activation emits the
+      // real size, which TerminalSession holds until the socket opens if the two
+      // happen to race (#268).
+      this.connect();
+    }
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -139,6 +152,11 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   ngOnDestroy(): void {
     if (this.pendingFit !== null) {
       clearTimeout(this.pendingFit);
+    }
+    // Cancelling this matters now that it is what opens the connection: a tab torn
+    // down inside the first tick would otherwise leave a socket nothing owns (#268).
+    if (this.pendingInit !== null) {
+      clearTimeout(this.pendingInit);
     }
     this.resizeObserver?.disconnect();
     this.resizeSub?.dispose();

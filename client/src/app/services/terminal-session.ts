@@ -13,6 +13,12 @@ const FOCUS = '2';
 
 export class TerminalSession {
   private socket: WebSocket | null = null;
+  /* A size the terminal settled on before the socket finished its handshake (#268).
+     Sending it then would silently drop it, and nothing re-emits a size once the
+     browser terminal is already correct — so it is held here and delivered on open.
+     One slot, not a queue: only the size the terminal actually ended at matters, and
+     replaying superseded ones would just make the PTY reflow more than once. */
+  private pendingResize: string | null = null;
 
   constructor(
     private readonly sessionId: string,
@@ -54,6 +60,11 @@ export class TerminalSession {
       if (this.initiallyFocused) {
         this.focus();
       }
+      if (this.pendingResize !== null) {
+        const size = this.pendingResize;
+        this.pendingResize = null;
+        this.sendFramed(RESIZE, size);
+      }
     };
     this.socket.onmessage = (event) => onMessage(event.data);
     this.socket.onclose = () => onClose();
@@ -64,7 +75,10 @@ export class TerminalSession {
   }
 
   resize(cols: number, rows: number): void {
-    this.sendFramed(RESIZE, `${cols}x${rows}`);
+    const size = `${cols}x${rows}`;
+    if (!this.sendFramed(RESIZE, size)) {
+      this.pendingResize = size;
+    }
   }
 
   /** Tells the engine this session's tab is the one the user is looking at (#130). */
@@ -77,9 +91,12 @@ export class TerminalSession {
     this.socket = null;
   }
 
-  private sendFramed(type: string, payload: string): void {
+  /** Sends if the socket is open; returns whether it went out. */
+  private sendFramed(type: string, payload: string): boolean {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(type + payload);
+      return true;
     }
+    return false;
   }
 }
