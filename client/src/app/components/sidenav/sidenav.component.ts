@@ -10,7 +10,12 @@ import { ProjectsService } from '../../services/projects.service';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
-import { ConsolesService, issueNumberFromSessionId, projectIssueKeyFromSessionId } from '../../services/consoles.service';
+import {
+  ConsolesService,
+  isProjectConsoleSessionId,
+  issueNumberFromSessionId,
+  projectIssueKeyFromSessionId,
+} from '../../services/consoles.service';
 import { ProjectConsoleService } from '../../services/project-console.service';
 import { AgentStore } from '../../services/agent-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
@@ -113,6 +118,11 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // "<projectId>:<issueNumber>" for every issue with at least one open console
   // (#108), refreshed whenever a console opens or closes anywhere in the app.
   private openConsoleIssues = new Set<string>();
+  // Project ids with an open project-level console (#330) -- a session id like
+  // "<projectId>-console" or "<projectId>-console-<suffix>" carries no issue number,
+  // so it can never land in openConsoleIssues; tracked separately and merged into
+  // hasOpenConsoleForProject below.
+  private openConsoleProjects = new Set<number>();
   // "<projectId>:<issueNumber>" for every issue with a console currently waiting for
   // attention (#130) -- a bell, or output gone quiet with no input since. Kept as its
   // own set (rather than folded into openConsoleIssues) since a dot can need to pulse
@@ -306,6 +316,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private refreshConsoleIndicators(): void {
     if (this.sections.length === 0) {
       this.openConsoleIssues = new Set();
+      this.openConsoleProjects = new Set();
       return;
     }
     forkJoin(
@@ -314,15 +325,19 @@ export class SidenavComponent implements OnInit, OnDestroy {
       ),
     ).subscribe((results) => {
       const issues = new Set<string>();
+      const projects = new Set<number>();
       for (const { projectId, ids } of results) {
         for (const id of ids) {
           const issueNumber = issueNumberFromSessionId(id);
           if (issueNumber !== null) {
             issues.add(`${projectId}:${issueNumber}`);
+          } else if (isProjectConsoleSessionId(id)) {
+            projects.add(projectId);
           }
         }
       }
       this.openConsoleIssues = issues;
+      this.openConsoleProjects = projects;
     });
   }
 
@@ -330,12 +345,14 @@ export class SidenavComponent implements OnInit, OnDestroy {
     return this.openConsoleIssues.has(`${projectId}:${issueNumber}`);
   }
 
-  // Backs the section header's per-project consoles button (#312) -- reuses
-  // openConsoleIssues/waitingIssues rather than tracking anything new, so this
-  // only ever reflects the same open/waiting state each row's own dot already
-  // shows, aggregated across the project's rows.
+  // Backs the section header's per-project consoles button (#312). Tracks
+  // project-level console sessions exclusively (#330) -- it does not aggregate
+  // issue-attached consoles under the project; each issue row's own dot already
+  // covers those. A project-level session id ("<projectId>-console[-suffix]") carries
+  // no issue number, so it's tracked separately in openConsoleProjects rather than
+  // openConsoleIssues.
   hasOpenConsoleForProject(projectId: number): boolean {
-    return this.anyKeyForProject(this.openConsoleIssues, projectId);
+    return this.openConsoleProjects.has(projectId);
   }
 
   hasAttentionWaitingForProject(projectId: number): boolean {
