@@ -1,10 +1,10 @@
 import { Component, ElementRef, OnDestroy, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { Observable, ReplaySubject, Subscription, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
+import { Observable, Subscription, combineLatest, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { ConsolesService, isProjectConsoleSessionId, issueNumberFromSessionId } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
-import { ProjectsService } from '../../services/projects.service';
+import { CurrentProjectService } from '../../services/current-project.service';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { EventsService, isConsoleAttentionEvent } from '../../services/events.service';
@@ -33,9 +33,10 @@ export interface ConsoleGroup {
 }
 
 // The "Open Shells"-style header badge (#32): shows how many consoles are open
-// across every project the user has (#290), and a picker that jumps straight to
-// one. Redesigned in #105 to match portstow's `open-shells` modal (scrim, focus
-// trap, arrow/enter/escape) and to read `entries` off a reactive stream --
+// across every project the user has (#290), narrowed to just the project open
+// in this window once one is selected (#309), and a picker that jumps straight
+// to one. Redesigned in #105 to match portstow's `open-shells` modal (scrim,
+// focus trap, arrow/enter/escape) and to read `entries` off a reactive stream --
 // `onOpened`/`onClosed` (#108) -- instead of a cached field only `refresh()` ever
 // touched, which is what let the badge miss an opened console until something else
 // happened to close.
@@ -46,7 +47,7 @@ export interface ConsoleGroup {
   styleUrl: './console-indicator.component.css',
 })
 export class ConsoleIndicatorComponent implements OnDestroy {
-  private readonly projectsService = inject(ProjectsService);
+  private readonly currentProject = inject(CurrentProjectService);
   private readonly consolesService = inject(ConsolesService);
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
@@ -57,17 +58,24 @@ export class ConsoleIndicatorComponent implements OnDestroy {
   @ViewChild('results') private readonly resultsRef?: ElementRef<HTMLElement>;
   @ViewChild('trigger') private readonly triggerRef?: ElementRef<HTMLElement>;
 
-  // Fetched once per mount (#290), fed through a ReplaySubject the same way the
-  // single-project version fed `projectId$` off ngOnChanges -- unlike the entries
-  // below, the project list itself is not re-fetched when a console opens or
-  // closes; AppComponent's own project-creation/deletion flows already refresh
-  // the sidenav explicitly rather than relying on this widget to notice on its
-  // own.
-  private readonly projects$ = new ReplaySubject<Project[]>(1);
-  private readonly projects = toSignal(this.projects$, { initialValue: [] as Project[] });
+  // The project list itself comes from CurrentProjectService (#309), shared with
+  // the header -- fetched once, not re-fetched when a console opens or closes;
+  // AppComponent's own project-creation/deletion flows already refresh the
+  // sidenav explicitly rather than relying on this widget to notice on its own.
+  // Narrowed to just the current project (#309) when the window has one open;
+  // every project otherwise, unchanged from #290's all-projects behavior. Built
+  // from the service's own observables, not its signals, so this stays
+  // synchronous the same way the widget's pre-#309 project fetch was -- a
+  // signal-to-observable bridge only updates on the next change-detection tick.
+  private readonly visibleProjects$: Observable<Project[]> = combineLatest([
+    this.currentProject.projects$,
+    this.currentProject.projectId$,
+  ]).pipe(map(([projects, id]) => (id === null ? projects : projects.filter((project) => project.id === id))));
+
+  private readonly visibleProjects = toSignal(this.visibleProjects$, { initialValue: [] as Project[] });
 
   readonly entries = toSignal(
-    this.projects$.pipe(
+    this.visibleProjects$.pipe(
       switchMap((projects) =>
         merge(of(null), this.consolesService.onOpened, this.consolesService.onClosed).pipe(
           switchMap(() => this.fetchEntries(projects)),
@@ -77,14 +85,15 @@ export class ConsoleIndicatorComponent implements OnDestroy {
     { initialValue: [] as ConsoleEntry[] },
   );
 
-  // Headings are shown once the user has more than one project at all, regardless
-  // of how many of those projects currently have an open console -- otherwise
-  // headings would flicker in and out as consoles open/close elsewhere while the
-  // project count stays the same (#290).
-  readonly showGroupHeadings = computed(() => this.projects().length > 1);
+  // Headings are shown once the visible project set has more than one project,
+  // regardless of how many of those projects currently have an open console --
+  // otherwise headings would flicker in and out as consoles open/close elsewhere
+  // while the project count stays the same (#290). Scoped to one project (#309),
+  // this is never more than one, so headings never show for it.
+  readonly showGroupHeadings = computed(() => this.visibleProjects().length > 1);
 
   readonly groups = computed<ConsoleGroup[]>(() => {
-    const projects = this.projects();
+    const projects = this.visibleProjects();
     const entries = this.entries();
     const byProject = new Map<number, ConsoleEntry[]>();
     for (const entry of entries) {
@@ -140,10 +149,6 @@ export class ConsoleIndicatorComponent implements OnDestroy {
         this.waitingSessions.delete(event.sessionId);
       }
     });
-
-    // A one-shot call -- completes on its own once the response lands, so there
-    // is nothing here to unsubscribe on destroy.
-    this.projectsService.list().subscribe((projects) => this.projects$.next(projects));
   }
 
   ngOnDestroy(): void {

@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
@@ -8,6 +8,7 @@ import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
 import { EventsService } from '../../services/events.service';
 import { GhIssue, Project } from '../../models/issue.model';
+import { routes } from '../../app.routes';
 
 describe('ConsoleIndicatorComponent', () => {
   let httpMock: HttpTestingController;
@@ -323,4 +324,82 @@ describe('ConsoleIndicatorComponent', () => {
     expect(fixture.componentInstance.entries()).toEqual([]);
     expect(fixture.componentInstance.showGroupHeadings()).toBeFalse();
   });
+});
+
+// #309: narrowed to the project open in this window when the route carries a
+// projectId, via the shared CurrentProjectService -- needs a real route (unlike
+// the suite above, which never navigates and so is always in the all-projects
+// case CurrentProjectService reports for `null`) to exercise the scoped case.
+describe('ConsoleIndicatorComponent, scoped to a project (#309)', () => {
+  let httpMock: HttpTestingController;
+
+  const PROJECT_A: Project = {
+    id: 1,
+    name: 'Alpha',
+    gitUrl: 'url-a',
+    workareaPath: '/tmp/a',
+    defaultBranch: 'main',
+    status: 'READY',
+    createdAt: '',
+  };
+  const PROJECT_B: Project = { ...PROJECT_A, id: 2, name: 'Beta', gitUrl: 'url-b', workareaPath: '/tmp/b' };
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [ConsoleIndicatorComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter(routes)],
+    });
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+  });
+
+  function issue(number: number, title: string): GhIssue {
+    return { number, title, state: 'OPEN', labels: [], body: '', createdAt: '', updatedAt: '' };
+  }
+
+  it("lists only the open project's entries when the route carries a projectId", fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues');
+    tick();
+
+    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/consoles').flush(['1-7-rename-toggle']);
+    httpMock.expectOne('/api/projects/1/issues').flush([issue(7, 'Seven')]);
+
+    expect(fixture.componentInstance.entries().map((e) => e.sessionId)).toEqual(['1-7-rename-toggle']);
+    // Project 2's own consoles/issues are never requested -- httpMock.verify()
+    // in afterEach would fail if they were left outstanding, and fail
+    // differently (a stray request) if they were fetched at all.
+  }));
+
+  it('never shows group headings when scoped to one project, even with several projects total', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues');
+    tick();
+
+    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/consoles').flush(['1-7-rename-toggle']);
+    httpMock.expectOne('/api/projects/1/issues').flush([issue(7, 'Seven')]);
+
+    expect(fixture.componentInstance.showGroupHeadings()).toBeFalse();
+    expect(fixture.componentInstance.groups().map((g) => g.projectName)).toEqual(['Alpha']);
+  }));
+
+  it('falls back to every project (#290) once the window has no project open', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/');
+    tick();
+
+    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/consoles').flush(['1-7-rename-toggle']);
+    httpMock.expectOne('/api/projects/1/issues').flush([issue(7, 'Seven')]);
+    httpMock.expectOne('/api/projects/2/consoles').flush([]);
+    httpMock.expectOne('/api/projects/2/issues').flush([]);
+
+    expect(fixture.componentInstance.entries().map((e) => e.projectId)).toEqual([1]);
+    expect(fixture.componentInstance.showGroupHeadings()).toBeTrue();
+  }));
 });

@@ -1,4 +1,4 @@
-import { Component, HostListener, ViewChild, computed, inject } from '@angular/core';
+import { Component, HostListener, Injector, ViewChild, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -15,6 +15,7 @@ import { AddProjectPopupComponent } from './components/add-project-popup/add-pro
 import { UpdateBannerComponent } from './components/update-banner/update-banner.component';
 import { ReleaseBannerComponent } from './components/release-banner/release-banner.component';
 import { AuthService } from './services/auth.service';
+import { CurrentProjectService } from './services/current-project.service';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
 
 const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
@@ -44,6 +45,19 @@ export class AppComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly injector = inject(Injector);
+
+  // Injected lazily, on first read rather than as an eager field: this
+  // service fetches the project list as soon as it exists (#309), and eagerly
+  // injecting it here would construct it -- and fire that fetch,
+  // unauthenticated -- the moment AppComponent itself does, before the authed
+  // shell (and its login check) has rendered at all. `selectedProjectId` and
+  // `headerTitle` below are both `computed()`, so they don't force this
+  // getter to run until the template actually reads them, which control flow
+  // only does once `isLoggedIn()` is true.
+  private get currentProject(): CurrentProjectService {
+    return this.injector.get(CurrentProjectService);
+  }
 
   readonly isLoggedIn = this.auth.isLoggedIn;
   readonly username = this.auth.username;
@@ -64,14 +78,21 @@ export class AppComponent {
   // The selected project/issue lives in the URL
   // (`/projects/:projectId/issues/:id`), not in component state -- re-derived from
   // the route on every navigation so a direct load, a browser back/forward, or a
-  // shared link all select the right project and issue.
-  readonly selectedProjectId = toSignal(
-    this.router.events.pipe(
-      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-      map(() => this.currentProjectId()),
-    ),
-    { initialValue: this.currentProjectId() },
-  );
+  // shared link all select the right project and issue. The project id itself
+  // comes from CurrentProjectService (#309), shared with the header title below
+  // and the consoles widget, rather than re-derived here privately -- wrapped in
+  // `computed()` (rather than assigned straight to its signal) so reading it is
+  // what triggers the lazy `currentProject` getter above, not this field's own
+  // initialization.
+  readonly selectedProjectId = computed(() => this.currentProject.projectId());
+
+  // "LockLane - {project}" once a project is open in this window, so someone
+  // with several project windows open can tell them apart at a glance (#309);
+  // plain "LockLane" otherwise.
+  readonly headerTitle = computed(() => {
+    const project = this.currentProject.current();
+    return project ? `LockLane - ${project.name}` : 'LockLane';
+  });
 
   readonly selectedIssue = toSignal(
     this.router.events.pipe(
@@ -191,12 +212,6 @@ export class AppComponent {
 
   private currentIssueId(): number | null {
     const raw = this.route.snapshot.firstChild?.paramMap.get('id') ?? null;
-    const id = raw !== null ? Number(raw) : NaN;
-    return Number.isFinite(id) ? id : null;
-  }
-
-  private currentProjectId(): number | null {
-    const raw = this.route.snapshot.firstChild?.paramMap.get('projectId') ?? null;
     const id = raw !== null ? Number(raw) : NaN;
     return Number.isFinite(id) ? id : null;
   }
