@@ -36,26 +36,31 @@
           [attr.aria-activedescendant]="'console-row-' + selected()"
           (keydown)="onKey($event)"
         >
-          @for (entry of entries(); track entry.sessionId; let index = $index) {
-            <button
-              type="button"
-              class="entry"
-              role="option"
-              [id]="'console-row-' + index"
-              [attr.aria-selected]="index === selected()"
-              [class.selected]="index === selected()"
-              (mouseenter)="selected.set(index)"
-              (click)="jumpTo(entry)"
-            >
-              <span class="issue ellipsis">
-                @if (entry.issueNumber !== null) {
-                  #{{ entry.issueNumber }} {{ entry.issueTitle }}
-                } @else {
-                  {{ entry.issueTitle }}
-                }
-              </span>
-              <span class="meta">{{ entry.label }}</span>
-            </button>
+          @for (group of groups(); track group.projectId) {
+            @if (showGroupHeadings()) {
+              <div class="group-heading">{{ group.projectName }}</div>
+            }
+            @for (item of group.entries; track item.entry.sessionId) {
+              <button
+                type="button"
+                class="entry"
+                role="option"
+                [id]="'console-row-' + item.index"
+                [attr.aria-selected]="item.index === selected()"
+                [class.selected]="item.index === selected()"
+                (mouseenter)="selected.set(item.index)"
+                (click)="jumpTo(item.entry)"
+              >
+                <span class="issue ellipsis">
+                  @if (item.entry.issueNumber !== null) {
+                    #{{ item.entry.issueNumber }} {{ item.entry.issueTitle }}
+                  } @else {
+                    {{ item.entry.issueTitle }}
+                  }
+                </span>
+                <span class="meta">{{ item.entry.label }}</span>
+              </button>
+            }
           }
         </div>
       </div>

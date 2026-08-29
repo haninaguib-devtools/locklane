@@ -70,13 +70,17 @@ describe('AppComponent', () => {
   }
 
   /**
-   * The header's app-console-indicator fetches these on every init (#32). The
-   * sidenav also fetches the same consoles list, to drive its own open-console
-   * dot (#108), so there are two requests for it once the sidenav is present.
+   * The header's app-console-indicator fetches these per project on every init
+   * (#32, #290) -- one call per id in `projectIds`, defaulting to just the
+   * fixture PROJECT most tests use. The sidenav also fetches the same consoles
+   * list, to drive its own open-console dot (#108), so there are two requests
+   * for that endpoint once the sidenav is present.
    */
-  function flushConsoleIndicator(): void {
-    httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
-    httpMock.expectOne('/api/projects/1/issues').flush([]);
+  function flushConsoleIndicator(projectIds: number[] = [1]): void {
+    for (const projectId of projectIds) {
+      httpMock.match(`/api/projects/${projectId}/consoles`).forEach((request) => request.flush([]));
+      httpMock.expectOne(`/api/projects/${projectId}/issues`).flush([]);
+    }
   }
 
   const EMPTY_USAGE: UsageSnapshot = {
@@ -99,8 +103,10 @@ describe('AppComponent', () => {
    * for the same URL, not one.
    */
   function flushSidenav(): void {
+    // sidenav + main-content's own project-list fetch + the header's
+    // app-console-indicator (#290), all mounted in the same pass.
     const lists = httpMock.match('/api/projects');
-    expect(lists.length).toBe(2);
+    expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
@@ -113,8 +119,10 @@ describe('AppComponent', () => {
    * `expectOne` would see two of each.
    */
   function flushSidenavAndSummary(): void {
+    // sidenav + project-summary/overview's own project-list fetch + the header's
+    // app-console-indicator (#290), all mounted in the same pass.
     const lists = httpMock.match('/api/projects');
-    expect(lists.length).toBe(2);
+    expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT]));
     const trees = httpMock.match('/api/projects/1/issues/tree');
     expect(trees.length).toBe(2);
@@ -189,11 +197,11 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     // The sidenav and app-overview each fetch the project list and its tree
     // independently (#44, #197) -- the same shape flushSidenavAndSummary()
-    // already handles for the sidenav/project-summary pair. No console
-    // indicator here: it only mounts once a project is selected, which '/'
-    // never is.
+    // already handles for the sidenav/project-summary pair. The header's
+    // app-console-indicator now mounts unconditionally too (#290), independent
+    // of whether a project is selected, which '/' never has.
     flushSidenavAndSummary();
-    httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
+    flushConsoleIndicator();
     fixture.detectChanges();
 
     expect(TestBed.inject(Router).url).toBe('/');
@@ -209,8 +217,11 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
+    // sidenav + app-overview + the header's app-console-indicator (#290), all
+    // mounted in the same pass; zero projects means the indicator has nothing
+    // further to fetch.
     const lists = httpMock.match('/api/projects');
-    expect(lists.length).toBe(2);
+    expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([]));
     flushUsageWidget();
     fixture.detectChanges();
@@ -226,8 +237,10 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
+    // sidenav + app-overview + the header's app-console-indicator (#290), all
+    // mounted in the same pass.
     let lists = httpMock.match('/api/projects');
-    expect(lists.length).toBe(2);
+    expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([]));
     flushUsageWidget();
     fixture.detectChanges();
@@ -242,6 +255,8 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     expect(compiled.querySelector('app-add-project-popup')).toBeFalsy();
+    // onProjectCreated() only refreshes the sidenav and the overview (#227) --
+    // the indicator's own project list, fetched once at mount, is not among them.
     lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(2);
     lists.forEach((request) => request.flush([PROJECT]));
@@ -368,7 +383,11 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.onProjectConsole()).toBeTrue();
-    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    // sidenav + the header's app-console-indicator (#290) -- ProjectConsoleComponent
+    // itself never calls /api/projects.
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
     flushConsoleIndicator();
@@ -395,16 +414,21 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
 
-    httpMock.expectOne('/api/projects').flush([PROJECT, PROJECT2]);
+    // sidenav (restricted to project 1 by focus mode) + the header's
+    // app-console-indicator, which is not focus-aware and fetches every project
+    // (#290) -- so it also fans consoles+issues calls out to project 2 below.
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([PROJECT, PROJECT2]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
-    flushConsoleIndicator();
+    flushConsoleIndicator([1, 2]);
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
     httpMock
       .expectOne('/api/projects/1/console')
       .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
-    flushConsoleIndicator();
+    flushConsoleIndicator([1, 2]);
     fixture.detectChanges();
 
     httpMock.expectNone('/api/projects/2/issues/tree');
