@@ -53,6 +53,43 @@ describe('ConsoleTabsComponent', () => {
     expect(c.pickerOpen).toBeFalse();
   });
 
+  it('the "+" launches a worktree console directly when directWorktree is set (#318)', () => {
+    const c = new ConsoleTabsComponent();
+    c.locationChoice = false;
+    c.directWorktree = true;
+    c.defaultAgent = 'claude';
+    let emitted: { worktree: boolean; agent: string } | undefined;
+    c.open.subscribe((request) => (emitted = request));
+
+    c.plusClicked();
+
+    expect(emitted).toEqual({ worktree: true, agent: 'claude' });
+    expect(c.pickerOpen).toBeFalse();
+  });
+
+  it('shows the open button when there are no open tabs, even with hideOpenWhenActive set (#318)', () => {
+    const c = new ConsoleTabsComponent();
+    c.hideOpenWhenActive = true;
+    c.tabs = [];
+
+    expect(c.showOpenButton).toBeTrue();
+  });
+
+  it('hides the open button once a tab is open, when hideOpenWhenActive is set (#318)', () => {
+    const c = new ConsoleTabsComponent();
+    c.hideOpenWhenActive = true;
+    c.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
+
+    expect(c.showOpenButton).toBeFalse();
+  });
+
+  it('keeps showing the open button with tabs open when hideOpenWhenActive is not set', () => {
+    const c = new ConsoleTabsComponent();
+    c.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
+
+    expect(c.showOpenButton).toBeTrue();
+  });
+
   it('closes the picker on a click outside it', () => {
     const c = new ConsoleTabsComponent();
     c.pickerOpen = true;
