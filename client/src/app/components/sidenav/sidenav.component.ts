@@ -330,6 +330,35 @@ export class SidenavComponent implements OnInit, OnDestroy {
     return this.openConsoleIssues.has(`${projectId}:${issueNumber}`);
   }
 
+  // Backs the section header's per-project consoles button (#312) -- reuses
+  // openConsoleIssues/waitingIssues rather than tracking anything new, so this
+  // only ever reflects the same open/waiting state each row's own dot already
+  // shows, aggregated across the project's rows.
+  hasOpenConsoleForProject(projectId: number): boolean {
+    return this.anyKeyForProject(this.openConsoleIssues, projectId);
+  }
+
+  hasAttentionWaitingForProject(projectId: number): boolean {
+    return this.anyKeyForProject(this.waitingIssues, projectId);
+  }
+
+  private anyKeyForProject(keys: Set<string>, projectId: number): boolean {
+    const prefix = `${projectId}:`;
+    for (const key of keys) {
+      if (key.startsWith(prefix)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Jumps straight to this project's console page (#312) -- the button that
+  // triggers this only ever renders once hasOpenConsoleForProject is true.
+  openProjectConsoles(projectId: number, event: Event): void {
+    event.stopPropagation();
+    this.router.navigate(['/projects', projectId, 'console']);
+  }
+
   /** Applies one `consoleAttention` event (#130) onto whichever issue its session belongs to. */
   private applyAttentionEvent(event: ConsoleAttentionEvent): void {
     const key = projectIssueKeyFromSessionId(event.sessionId);
