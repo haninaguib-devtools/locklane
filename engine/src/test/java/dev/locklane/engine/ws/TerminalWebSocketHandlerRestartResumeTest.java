@@ -17,8 +17,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Covers #173: after an engine restart the live processes are gone but the resume
- * ids captured by #102 are not, so a client reattaching to a claude/codex session id
- * gets its conversation back — the launch command resolves to the tool's own resume
+ * ids captured by #102/#295 are not, so a client reattaching to a
+ * claude/codex/opencode session id gets its conversation back — the launch command
+ * resolves to the tool's own resume
  * command, filled from the most recently captured id for that session and tool. A
  * session with nothing captured, an explicit {@code resume} parameter, or a process
  * that is still alive all resolve exactly as they did before.
@@ -28,6 +29,7 @@ class TerminalWebSocketHandlerRestartResumeTest {
     private static final String OLDER_ID = "11111111-2222-4333-8444-555555555555";
     private static final String NEWER_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     private static final String CODEX_ID = "99999999-8888-4777-8666-555555555554";
+    private static final String OPENCODE_ID = "ses_3cf7dd8d4ffeUPfENpVxfFojZ2";
 
     @TempDir
     Path dbDir;
@@ -65,6 +67,14 @@ class TerminalWebSocketHandlerRestartResumeTest {
 
         assertThat(handler.resolveLaunchCommand("42-worktree", "codex", null))
                 .containsExactly("codex", "resume", CODEX_ID);
+    }
+
+    @Test
+    void openCodeResumesWithItsOwnCommandShape() {
+        resumeRepository.record("42-worktree", "opencode", OPENCODE_ID, Instant.parse("2026-08-27T10:00:00Z"));
+
+        assertThat(handler.resolveLaunchCommand("42-worktree", "opencode", null))
+                .containsExactly("opencode", "--session", OPENCODE_ID);
     }
 
     @Test

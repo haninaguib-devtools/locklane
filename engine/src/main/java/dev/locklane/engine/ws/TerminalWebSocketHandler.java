@@ -30,16 +30,17 @@ import java.util.regex.Pattern;
  * directory is already known (in-memory if the session is still live, or from SQLite via
  * {@link SessionRegistry#lastKnownWorkingDirectory} after a restart). {@code cmd}
  * chooses what a brand-new session launches — an agent CLI (e.g. {@code claude},
- * {@code codex}) or a plain shell (the default, when {@code cmd} is absent or
- * {@code shell}) — and is ignored on a reattach to an already-running session.
- * {@code resume} (#103) makes a brand-new {@code claude}/{@code codex} session resume
- * a past conversation instead of starting a blank one ({@code claude --resume <id>} /
- * {@code codex resume <id>}, the ids captured by #102); the command is composed here,
- * never accepted as a free-form string, and {@code resume} is ignored for any other
- * {@code cmd} or an id not shaped like one. Reattaching to a {@code claude}/{@code
- * codex} session whose process did not survive an engine restart resumes on its own
- * (#173): with no explicit {@code resume} and no live process, the most recently
- * captured resume id for that session and tool fills in automatically.
+ * {@code codex}, {@code opencode}) or a plain shell (the default, when {@code cmd} is
+ * absent or {@code shell}) — and is ignored on a reattach to an already-running session.
+ * {@code resume} (#103, #295) makes a brand-new {@code claude}/{@code codex}/
+ * {@code opencode} session resume a past conversation instead of starting a blank one
+ * ({@code claude --resume <id>} / {@code codex resume <id>} / {@code opencode --session
+ * <id>}, the ids captured by #102); the command is composed here, never accepted as a
+ * free-form string, and {@code resume} is ignored for any other {@code cmd} or an id not
+ * shaped like one. Reattaching to a {@code claude}/{@code codex}/{@code opencode}
+ * session whose process did not survive an engine restart resumes on its own (#173):
+ * with no explicit {@code resume} and no live process, the most recently captured resume
+ * id for that session and tool fills in automatically.
  * {@code cols}/{@code rows} size a brand-new session's PTY to the browser terminal's
  * actual size instead of a hardcoded default (#62); once attached, later size changes
  * arrive as resize messages (see below), not new query parameters. A brand-new
@@ -209,10 +210,13 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         return sessionRegistry.lastKnownWorkingDirectory(sessionId).orElse(null);
     }
 
-    // The ids #102 captures are UUIDs; anything else is not something the resume
-    // commands accept, so it is ignored rather than handed to a process.
-    private static final Pattern RESUME_ID =
-            Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+    // The ids #102 captures for claude/codex are UUIDs; #295's opencode ids are
+    // ULID-based (`ses_` + 20-32 base32-ish characters) instead. Anything else is not
+    // something the resume commands accept, so it is ignored rather than handed to a
+    // process.
+    private static final Pattern RESUME_ID = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+                    + "|ses_[0-9A-Za-z]{20,32}");
 
     /**
      * As {@link #resolveLaunchCommand(String, String)}, but when the client named no
@@ -226,7 +230,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * plain reattach stays untouched. Package-visible for tests.
      */
     String[] resolveLaunchCommand(String sessionId, String cmd, String resume) {
-        if (resume == null && cmd != null && (cmd.equals("claude") || cmd.equals("codex"))
+        if (resume == null && cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode"))
                 && sessionRegistry.find(sessionId).isEmpty()) {
             resume = sessionRegistry.latestResumeId(sessionId, cmd).orElse(null);
         }
@@ -244,6 +248,9 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             }
             if (cmd.equals("codex")) {
                 return new String[] {"codex", "resume", resume};
+            }
+            if (cmd.equals("opencode")) {
+                return new String[] {"opencode", "--session", resume};
             }
         }
         return new String[] {cmd};

@@ -6,8 +6,8 @@ import java.time.Instant;
 
 /**
  * Caches the last fetched snapshot for a few minutes (#137's Goal) so the sidebar
- * widget can poll on a short timer without hitting either CLI's undocumented endpoint
- * on every poll. A cache miss re-fetches both providers regardless of which one is
+ * widget can poll on a short timer without hitting any CLI's undocumented endpoint
+ * on every poll. A cache miss re-fetches every provider regardless of which one is
  * stale — they are cheap, independent, best-effort calls, not worth tracking
  * separately.
  */
@@ -17,14 +17,17 @@ public class UsageService {
 
     private final UsageProvider claudeProvider;
     private final UsageProvider codexProvider;
+    private final UsageProvider openCodeProvider;
     private final Clock clock;
 
     private UsageSnapshot cached;
     private Instant cacheExpiresAt = Instant.MIN;
 
-    public UsageService(UsageProvider claudeProvider, UsageProvider codexProvider, Clock clock) {
+    public UsageService(UsageProvider claudeProvider, UsageProvider codexProvider, UsageProvider openCodeProvider,
+            Clock clock) {
         this.claudeProvider = claudeProvider;
         this.codexProvider = codexProvider;
+        this.openCodeProvider = openCodeProvider;
         this.clock = clock;
     }
 
@@ -33,7 +36,8 @@ public class UsageService {
         if (cached != null && now.isBefore(cacheExpiresAt)) {
             return cached;
         }
-        UsageSnapshot fresh = new UsageSnapshot(claudeProvider.fetch(), codexProvider.fetch(), now);
+        UsageSnapshot fresh =
+                new UsageSnapshot(claudeProvider.fetch(), codexProvider.fetch(), openCodeProvider.fetch(), now);
         cached = fresh;
         cacheExpiresAt = now.plus(CACHE_TTL);
         return fresh;

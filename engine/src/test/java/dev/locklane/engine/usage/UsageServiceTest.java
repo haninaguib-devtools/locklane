@@ -19,7 +19,8 @@ class UsageServiceTest {
         MutableClock clock = new MutableClock(Instant.EPOCH);
         CountingProvider claude = new CountingProvider();
         CountingProvider codex = new CountingProvider();
-        UsageService service = new UsageService(claude, codex, clock);
+        CountingProvider opencode = new CountingProvider();
+        UsageService service = new UsageService(claude, codex, opencode, clock);
 
         service.snapshot();
         service.snapshot();
@@ -27,6 +28,7 @@ class UsageServiceTest {
 
         assertThat(claude.calls.get()).isEqualTo(1);
         assertThat(codex.calls.get()).isEqualTo(1);
+        assertThat(opencode.calls.get()).isEqualTo(1);
     }
 
     @Test
@@ -34,7 +36,8 @@ class UsageServiceTest {
         MutableClock clock = new MutableClock(Instant.EPOCH);
         CountingProvider claude = new CountingProvider();
         CountingProvider codex = new CountingProvider();
-        UsageService service = new UsageService(claude, codex, clock);
+        CountingProvider opencode = new CountingProvider();
+        UsageService service = new UsageService(claude, codex, opencode, clock);
 
         service.snapshot();
         clock.now.set(clock.now.get().plus(UsageService.CACHE_TTL).plus(Duration.ofSeconds(1)));
@@ -42,6 +45,7 @@ class UsageServiceTest {
 
         assertThat(claude.calls.get()).isEqualTo(2);
         assertThat(codex.calls.get()).isEqualTo(2);
+        assertThat(opencode.calls.get()).isEqualTo(2);
     }
 
     private static final class MutableClock extends Clock {

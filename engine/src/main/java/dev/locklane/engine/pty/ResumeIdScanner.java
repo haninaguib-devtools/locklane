@@ -9,11 +9,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Watches one session's output stream for a Claude/Codex resume id (#102) — the id
- * that {@code claude --resume <id>} / {@code codex resume <id>} accepts. Current CLI
- * versions print no id at plain startup; ids surface later — a status screen, a
- * crash/exit hint — so the scanner watches the whole stream for the session's
- * lifetime, not a startup banner.
+ * Watches one session's output stream for a Claude/Codex/OpenCode resume id (#102,
+ * #295) — the id that {@code claude --resume <id>}, {@code codex resume <id>}, or
+ * {@code opencode --session <id>} accepts. Current CLI versions print no id at plain
+ * startup; ids surface later — a status screen, a crash/exit hint — so the scanner
+ * watches the whole stream for the session's lifetime, not a startup banner.
  *
  * <p>Terminal UIs interleave ANSI escape sequences with text and split lines across
  * PTY reads, so raw chunks are accumulated into a bounded rolling window and escape
@@ -33,15 +33,24 @@ final class ResumeIdScanner {
 
     static final String CLAUDE = "claude";
     static final String CODEX = "codex";
+    static final String OPENCODE = "opencode";
 
     private static final String UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+    // OpenCode's own ids are ULID-based (`ses_` + 26 base32 characters), not UUIDs; the
+    // length is allowed a little slack rather than pinned exactly, since it was
+    // confirmed from OpenCode's public source references rather than a live account.
+    private static final String OPENCODE_ID_PREFIX = "ses_";
+    private static final String OPENCODE_ID = OPENCODE_ID_PREFIX + "[0-9A-Za-z]{20,32}";
+    private static final String ANY_ID = "(?:" + UUID + "|" + OPENCODE_ID + ")";
 
     private static final Pattern CLAUDE_RESUME_COMMAND =
             Pattern.compile("(?i)\\bclaude\\s+(?:--resume|-r)\\s+(" + UUID + ")");
     private static final Pattern CODEX_RESUME_COMMAND =
             Pattern.compile("(?i)\\bcodex\\s+resume\\s+(" + UUID + ")");
+    private static final Pattern OPENCODE_RESUME_COMMAND =
+            Pattern.compile("(?i)\\bopencode\\s+(?:--session|-s)\\s+(" + OPENCODE_ID + ")");
     private static final Pattern LABELED_SESSION_ID =
-            Pattern.compile("(?i)\\bsession[ _-]?id\\s*[:=]?\\s*(" + UUID + ")");
+            Pattern.compile("(?i)\\bsession[ _-]?id\\s*[:=]?\\s*(" + ANY_ID + ")");
 
     // Applied in order: OSC (title/color sequences, string terminator BEL or ESC \),
     // CSI (parameters + intermediates + final byte), two-byte charset designations,
@@ -67,7 +76,7 @@ final class ResumeIdScanner {
     private final StringBuilder window = new StringBuilder();
     private final Set<String> reported = new HashSet<>();
 
-    /** {@code toolHint}: {@link #CLAUDE}, {@link #CODEX}, or null when the launch command names neither. */
+    /** {@code toolHint}: {@link #CLAUDE}, {@link #CODEX}, {@link #OPENCODE}, or null when the launch command names neither. */
     ResumeIdScanner(String toolHint) {
         this.toolHint = toolHint;
     }
@@ -85,6 +94,9 @@ final class ResumeIdScanner {
         if (basename.startsWith(CODEX)) {
             return CODEX;
         }
+        if (basename.startsWith(OPENCODE)) {
+            return OPENCODE;
+        }
         return null;
     }
 
@@ -101,6 +113,7 @@ final class ResumeIdScanner {
         List<Capture> captures = new ArrayList<>();
         collect(captures, CLAUDE_RESUME_COMMAND, plain, CLAUDE);
         collect(captures, CODEX_RESUME_COMMAND, plain, CODEX);
+        collect(captures, OPENCODE_RESUME_COMMAND, plain, OPENCODE);
         if (toolHint != null) {
             collect(captures, LABELED_SESSION_ID, plain, toolHint);
         }
@@ -110,7 +123,11 @@ final class ResumeIdScanner {
     private void collect(List<Capture> captures, Pattern pattern, String plain, String tool) {
         Matcher matcher = pattern.matcher(plain);
         while (matcher.find()) {
-            String resumeId = matcher.group(1).toLowerCase();
+            // A UUID (Claude/Codex) is case-insensitive by definition and its
+            // canonical form is lowercase; OpenCode's ULID-based id is not, and
+            // altering its case would make it not match the session it names.
+            String captured = matcher.group(1);
+            String resumeId = captured.toLowerCase().startsWith(OPENCODE_ID_PREFIX) ? captured : captured.toLowerCase();
             if (reported.add(tool + ":" + resumeId)) {
                 captures.add(new Capture(tool, resumeId));
             }
