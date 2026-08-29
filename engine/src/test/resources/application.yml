@@ -30,3 +30,8 @@ locklane:
     repository: test-owner/test-repo
     # Long enough that no @SpringBootTest run ever sees the scheduler fire.
     interval-ms: 3600000
+  worktree-cleanup:
+    # See src/main/resources/application.yml -- WorktreeCleanupSweeperTest calls
+    # sweep() directly rather than through the scheduler, so this only needs to be
+    # long enough that no @SpringBootTest run ever sees it fire.
+    interval-ms: 3600000
