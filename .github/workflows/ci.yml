@@ -185,11 +185,12 @@ jobs:
             echo "FAIL: branch '$HEAD_REF' is not wip/<id>-<slug>."
             exit 1
           fi
-          # `gh api graphql`, not `gh issue view --json blockedBy`: the runner's gh
-          # version is not pinned by this workflow, and stateReason — needed to tell a
-          # cancelled blocker from a completed one (ADR-001 §D3.2) — is promised by the
-          # underlying GraphQL field but not (yet) by docs/adapters/TRACKER.md's
-          # tracker:list-blockers contract table, which names only `state`.
+          # `gh api graphql`, not `gh issue view --json blockedBy`: the latter never
+          # returns stateReason, needed to tell a cancelled blocker from a completed one
+          # (ADR-001 §D3.2). This is the same query docs/adapters/TRACKER.md's
+          # tracker:list-blockers now documents as the command for this operation (#68)
+          # — kept inline here rather than shelling out to the adapter doc, since this
+          # runner's gh version isn't pinned by this workflow.
           gh api graphql -f query='
             query($owner: String!, $name: String!, $num: Int!) {
               repository(owner: $owner, name: $name) {

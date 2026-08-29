@@ -70,16 +70,17 @@ before relying on them (ADR-003).
 |---|---|
 | GitHub | `gh issue view <id> --json number,title,body,state,labels,parent,subIssuesSummary` |
 
-### `tracker:list-open` — ALL open issues with id, title, labels, body, and blockedBy
+### `tracker:list-open` — ALL open issues with id, title, labels, body, blockedBy, updatedAt
 
 Contract: the scan must be **complete** (paginate or raise the page size until it is; a
 truncated list must be reported as an incomplete scan, never as "none found") and each
-row carries its labels and `blockedBy`, so callers can filter initiatives and check
-blocked state without extra per-issue calls.
+row carries its labels, `blockedBy`, and `updatedAt`, so callers can filter initiatives,
+check blocked state, and detect an issue body edited after its PR opened, all without
+extra per-issue calls.
 
 | Backend | Command |
 |---|---|
-| GitHub | `gh issue list --state open --limit 1000 --json number,title,body,labels,blockedBy` (default limit is 30 — always pass it) |
+| GitHub | `gh issue list --state open --limit 1000 --json number,title,body,labels,blockedBy,updatedAt` (default limit is 30 — always pass it) |
 
 ### `tracker:list-initiatives` — open issues labeled `initiative`, with `subIssuesSummary`
 
@@ -165,14 +166,18 @@ bootstrap script when adopting another backend).
 |---|---|
 | GitHub | `gh issue edit <id> --remove-blocked-by <blocker-id>` |
 
-### `tracker:list-blockers <id>` — issues blocking `<id>`, each with number, title, state
+### `tracker:list-blockers <id>` — issues blocking `<id>`, each with number, state, stateReason
 
-Contract: state is required per blocker — the blocker gate (`/t-work`) must tell a
-closed-as-completed blocker from one closed-as-cancelled (abandoned, not satisfied).
+Contract: state **and** stateReason are required per blocker — `check-blocker-gate.sh`
+(invoked by `/t-work` and `/t-drive`) must tell a closed-as-completed blocker from one
+closed-as-cancelled (abandoned, not satisfied). `gh issue view <id> --json blockedBy`
+does not return `stateReason` — confirmed empirically against this repo, returning only
+`id, number, state, title, url` — so the command below goes straight to GraphQL, the
+same query `.github/workflows/ci.yml`'s `blockers` job already runs.
 
 | Backend | Command |
 |---|---|
-| GitHub | `gh issue view <id> --json blockedBy` |
+| GitHub | `gh api graphql -f query='query($owner:String!,$name:String!,$num:Int!){repository(owner:$owner,name:$name){issue(number:$num){blockedBy(first:100){nodes{number state stateReason}}}}}' -F owner="$(gh repo view --json owner -q .owner.login)" -F name="$(gh repo view --json name -q .name)" -F num=<id> --jq '.data.repository.issue.blockedBy.nodes'` |
 
 ### `tracker:list-blocking <id>` — issues `<id>` blocks (its dependents), same fields
 

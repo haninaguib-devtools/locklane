@@ -18,10 +18,11 @@ implementation before editing files.
    `## Plan` section), the tracking issue if there is one, and any merged design doc the
    issue names. Resolve every `tracker:*` / `forge:*` operation named in this skill via
    `docs/adapters/TRACKER.md` and `docs/adapters/FORGE.md` (GitHub by default).
-2. **Blockers.** `tracker:list-blockers <id>` must come back either empty or with every
-   entry *closed*. A blocker **cancelled** rather than completed was abandoned, not
-   satisfied — stop and say so, even though it is closed (ADR-001 §D3.2, over the
-   native `blockedBy` field per ADR-003).
+2. **Blockers.** `tracker:list-blockers <id>`, written to a file, then
+   `.t-workflow/scripts/check-blocker-gate.sh <file>`. Exit 0 → continue. Exit 1 → stop
+   and say so: a blocker **cancelled** rather than completed was abandoned, not
+   satisfied, even though it is closed (ADR-001 §D3.2, over the native `blockedBy` field
+   plus `stateReason` per ADR-003).
 3. **Protected surfaces.** If the work will touch a protected path and the issue has no
    `## Plan` section, stop and recommend `/t-plan <id>`. Decide with
    `.t-workflow/scripts/protected-paths.sh <paths>` (`CONSTITUTION.md` §3 in executable form) over
@@ -51,7 +52,7 @@ implementation before editing files.
    origin/main`), stop and report if ahead or diverged. Never commit on `main`.
 
 5. **Normal or fix mode.** Resolve the task's PR, if it has one, from the branch:
-   `forge:pr-find-by-task <id>` — none on a fresh task, exactly one once Phase 3 step 4
+   `forge:pr-find-by-task <id>` — none on a fresh task, exactly one once Phase 3 step 5
    has run, more than one is a stop-and-report. If that PR carries a review
    (`forge:pr-reviews <pr>`) with unresolved `blocker`/`high` findings and the human has
    asked for them to be addressed, read the existing record and go to **Fix mode**
@@ -103,13 +104,29 @@ implementation before editing files.
    diff, that means something is wrong with the command, not a clean diff. A protected
    path here with no `## Plan` on the issue stops the task for `/t-plan <id>` rather
    than opening a PR that `/t-ship` will refuse.
-3. Commit on the branch — real messages, imperative, no `wip`, no trailers.
-4. Push (`git push -u origin wip/<id>-<slug>`) and open the draft PR
+3. **Pinned-consumer local gates.** When `.template-manifest.json` exists at the repo
+   root — this repo never does; a repo generated from this template does once it
+   adopts — run the same checks a consumer's own CI would run, locally, before pushing,
+   so a drift the plan step didn't catch fails here instead of round-tripping through
+   CI:
+   - `.t-workflow/scripts/check-manifest.sh` — pure local, no tracker call.
+   - `.t-workflow/scripts/check-record.sh <id> <record-file>` — pure local, no tracker
+     call; `<id>` and `<record-file>` are already fixed, from Phase 1 step 6.
+   - `git -c core.quotePath=false diff --name-only main...HEAD | bash
+     .t-workflow/scripts/check-plan-gate.sh <issue-body-file>`, `<issue-body-file>`
+     being `tracker:view <id>`'s body written to disk (mirrors the `plan-gate` job in
+     `.github/workflows/ci.yml`) — re-fetch it first if the issue could have changed
+     since Phase 1's read (after a re-plan, say), rather than trusting a stale copy.
+
+   A failure from any of these three is a check failure like any other — fixed before
+   continuing, never bypassed (`CONSTITUTION.md` §1.5).
+4. Commit on the branch — real messages, imperative, no `wip`, no trailers.
+5. Push (`git push -u origin wip/<id>-<slug>`) and open the draft PR
    (`forge:pr-create-draft`) — title: `[<id>] <issue title>`; body: the tracker's
    auto-close phrase for `<id>` when it has one (`tracker:auto-close-on-merge`),
    followed by what changed, what was verified with actual results, and what remains
    open.
-5. **Stop and report.** Nothing chains from here (ADR-001). Say what the change does in
+6. **Stop and report.** Nothing chains from here (ADR-001). Say what the change does in
    ordinary language, what the checks actually returned, and name the next command:
    `/t-review <id>` — **required** when the diff touches a protected surface
    (`CONSTITUTION.md` §3) — otherwise `/t-review <id>` if the human wants a cold read,
