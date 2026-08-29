@@ -35,6 +35,11 @@ import java.util.Optional;
  * <p>{@link #sweep()} is the whole of the guard logic, callable on its own schedule
  * below or, per this task's done-when, programmatically — #320's on-demand "run
  * cleanup now" trigger calls the same method rather than duplicating it.
+ *
+ * <p>{@link #removalRefusalReason} exposes the same three-part guard one worktree at a
+ * time, with a human-readable reason attached to whichever check fails first — #320's
+ * per-row manual "remove worktree" action calls this rather than re-deriving the
+ * guard's conditions for itself, and shows the reason verbatim when it refuses.
  */
 @Service
 public class WorktreeCleanupSweeper {
@@ -79,18 +84,35 @@ public class WorktreeCleanupSweeper {
     }
 
     private boolean isSafeToRemove(IssueWorktreeService.ConsoleWorktree worktree) {
-        Optional<GhIssue> issue = ghResources.forProject(worktree.projectId())
-                .flatMap(ctx -> ctx.cache().issue(worktree.issueNumber()));
-        if (issue.isEmpty() || !CLOSED.equals(issue.get().state())) {
-            return false;
-        }
-        if (!isClean(worktree.workingDirectory())) {
-            return false;
-        }
-        return !sessionRegistry.hasLiveSessionIn(worktree.workingDirectory());
+        return removalRefusalReason(worktree).isEmpty();
     }
 
-    private boolean isClean(Path workingDirectory) {
+    /**
+     * Empty when {@code worktree} clears every one of {@link #sweep()}'s three guard
+     * conditions, checked fresh, in the same order {@link #sweep()} checks them;
+     * otherwise the reason the first failing one refuses, worded for a human reading
+     * it on the project page (#320) rather than a log line.
+     */
+    public Optional<String> removalRefusalReason(IssueWorktreeService.ConsoleWorktree worktree) {
+        Optional<GhIssue> issue = ghResources.forProject(worktree.projectId())
+                .flatMap(ctx -> ctx.cache().issue(worktree.issueNumber()));
+        if (issue.isEmpty()) {
+            return Optional.of("issue #" + worktree.issueNumber() + " could not be found — refusing to remove its worktree");
+        }
+        if (!CLOSED.equals(issue.get().state())) {
+            return Optional.of("issue #" + worktree.issueNumber() + " is still open — close it before removing its worktree");
+        }
+        if (!isClean(worktree.workingDirectory())) {
+            return Optional.of("the worktree has uncommitted changes — commit or discard them before removing it");
+        }
+        if (sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())) {
+            return Optional.of("a console session is still attached to this worktree — close it before removing the worktree");
+        }
+        return Optional.empty();
+    }
+
+    /** Whether {@code git status --porcelain} in {@code workingDirectory} reports nothing outstanding. */
+    public boolean isClean(Path workingDirectory) {
         if (!Files.isDirectory(workingDirectory)) {
             // Already gone, or never actually created — nothing here to remove, and
             // "clean" would be a lie: there is no git status to have checked at all.
@@ -100,7 +122,15 @@ public class WorktreeCleanupSweeper {
         return output.map(String::isEmpty).orElse(false);
     }
 
-    private boolean removeWorktree(IssueWorktreeService.ConsoleWorktree worktree) {
+    /**
+     * Removes exactly this worktree's directory (via {@code git worktree remove}, no
+     * {@code --force}) and forgets its persisted session record. Callers outside
+     * {@link #sweep()} — #320's manual remove action — must have already confirmed
+     * {@link #removalRefusalReason} is empty; this method itself performs no guard
+     * check, only the removal, so the guard is asked exactly once per call site
+     * rather than silently re-run here too.
+     */
+    public boolean removeWorktree(IssueWorktreeService.ConsoleWorktree worktree) {
         Optional<ProjectRecord> project = projectRepository.findById(worktree.projectId());
         if (project.isEmpty()) {
             return false;

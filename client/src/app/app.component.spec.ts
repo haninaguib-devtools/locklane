@@ -139,6 +139,15 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/console/sessions').flush(sessions);
   }
 
+  /**
+   * The project summary's worktree list (#320) fetches this project's worktrees once
+   * it learns the project is READY -- the same gate as {@link flushProjectConsoleSessions},
+   * so every caller of that flushes this immediately afterward too.
+   */
+  function flushProjectWorktrees(): void {
+    httpMock.expectOne('/api/projects/1/worktrees').flush([]);
+  }
+
   function flushIssue(number: number): void {
     httpMock.expectOne(`/api/projects/1/issues/${number}`).flush({
       number,
@@ -278,6 +287,7 @@ describe('AppComponent', () => {
     flushProjectConsoleSessions();
     flushConsoleIndicator();
     fixture.detectChanges();
+    flushProjectWorktrees();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-project-summary')).toBeTruthy();
@@ -295,6 +305,7 @@ describe('AppComponent', () => {
     flushProjectConsoleSessions();
     flushConsoleIndicator();
     fixture.detectChanges();
+    flushProjectWorktrees();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.brand')?.textContent?.trim()).toBe('LockLane - proj');
@@ -310,6 +321,7 @@ describe('AppComponent', () => {
     flushProjectConsoleSessions();
     flushConsoleIndicator();
     fixture.detectChanges();
+    flushProjectWorktrees();
 
     const summary = fixture.debugElement.query(By.directive(ProjectSummaryComponent));
     summary.componentInstance.projectDeleted.emit();
@@ -341,6 +353,7 @@ describe('AppComponent', () => {
     flushProjectConsoleSessions();
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     fixture.detectChanges();
+    flushProjectWorktrees();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-project-summary')).toBeTruthy();
@@ -474,6 +487,7 @@ describe('AppComponent', () => {
     ]);
     flushConsoleIndicator();
     fixture.detectChanges();
+    flushProjectWorktrees();
 
     const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
     expect(button.textContent?.trim()).toBe('Open consoles');
@@ -567,6 +581,8 @@ describe('AppComponent', () => {
     flushSidenavAndSummary();
     flushProjectConsoleSessions();
     flushConsoleIndicator();
+    fixture.detectChanges();
+    flushProjectWorktrees();
     return fixture;
   }
 

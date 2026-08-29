@@ -3,6 +3,7 @@ import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, injec
 import { Router } from '@angular/router';
 import { Project, TreeNode } from '../../models/issue.model';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
+import { WorktreeListComponent } from '../worktree-list/worktree-list.component';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
@@ -28,7 +29,7 @@ export interface IssueCounts {
 @Component({
   selector: 'app-project-summary',
   standalone: true,
-  imports: [ConfirmDialogComponent],
+  imports: [ConfirmDialogComponent, WorktreeListComponent],
   templateUrl: './project-summary.component.html',
   styleUrl: './project-summary.component.css',
 })

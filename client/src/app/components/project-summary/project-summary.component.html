@@ -65,6 +65,10 @@
         <dt>added</dt>
         <dd>{{ project.createdAt || '—' }}</dd>
       </dl>
+
+      @if (project.status === 'READY') {
+        <app-worktree-list [projectId]="projectId" />
+      }
     </div>
   }
 </section>
