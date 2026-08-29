@@ -22,8 +22,11 @@ import org.springframework.http.HttpStatus;
  * being. Gated behind authentication: the two-factor
  * enrollment endpoints for the signed-in account (everything under
  * {@code /api/account/2fa/}, #88 — turning 2FA on and off is account
- * self-service, so it presupposes a session rather than establishing one);
- * the worktree-session
+ * self-service, so it presupposes a session rather than establishing one), the
+ * self-service password change at {@code /api/account/password} (#241 — same
+ * reasoning; the forced-first-login version of that same change goes through the
+ * deliberately unauthenticated {@code /api/auth/password/change} instead, the mirror
+ * image of {@code /api/auth/2fa/verify} below); the worktree-session
  * endpoints (list/start under {@code /api/projects/{projectId}/issues/{number}/worktrees},
  * #48, nested under a project id since #43; the cross-issue listing under
  * {@code /api/projects/{projectId}/consoles}, #32), the project-level console
@@ -43,6 +46,13 @@ import org.springframework.http.HttpStatus;
  * (single path-segment wildcards, not a blanket match on everything under
  * {@code /api/projects}) so the open {@code /api/projects/{projectId}/issues}
  * paths never get swept into this gate.
+ *
+ * <p>Admin-only, on top of plain authentication: {@code /api/admin/**} (#240 —
+ * {@link AdminUserController}'s user creation/deletion, the only way a second account
+ * ever comes to exist, ADR-007 Decision 3). {@code hasRole("ADMIN")} implies
+ * authentication, so an unauthenticated caller still gets 401 from the same entry
+ * point as everything else; an authenticated non-admin caller gets Spring Security's
+ * default 403, which is what #240's done-when asks for.
  */
 @Configuration
 @EnableWebSecurity
@@ -64,6 +74,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/me").authenticated()
                         .requestMatchers("/api/account/2fa/**").authenticated()
+                        .requestMatchers("/api/account/password").authenticated()
                         .requestMatchers("/api/projects").authenticated()
                         .requestMatchers("/api/projects/*").authenticated()
                         .requestMatchers("/api/projects/*/retry").authenticated()
@@ -75,6 +86,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects/*/console/*").authenticated()
                         .requestMatchers("/api/usage").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll())
                 .formLogin(form -> form
                         .loginProcessingUrl("/api/auth/login")

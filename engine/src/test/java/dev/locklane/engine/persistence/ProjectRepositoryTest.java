@@ -14,13 +14,14 @@ class ProjectRepositoryTest {
     @Test
     void aCreatedProjectStartsCloningWithNoDefaultBranch(@TempDir Path dbDir) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
-        Path workarea = dbDir.resolve("workareas/foo");
+        Path workarea = dbDir.resolve("workareas/1/foo");
 
-        ProjectRecord created = repository.create("foo", "https://example.com/foo.git", workarea, Instant.now());
+        ProjectRecord created = repository.create("foo", "https://example.com/foo.git", workarea, 1L, Instant.now());
 
         assertThat(created.name()).isEqualTo("foo");
         assertThat(created.gitUrl()).isEqualTo("https://example.com/foo.git");
         assertThat(created.workareaPath()).isEqualTo(workarea);
+        assertThat(created.ownerUserId()).isEqualTo(1L);
         assertThat(created.status()).isEqualTo(ProjectStatus.CLONING);
         assertThat(created.defaultBranch()).isNull();
     }
@@ -28,7 +29,7 @@ class ProjectRepositoryTest {
     @Test
     void markReadySetsStatusAndDefaultBranch(@TempDir Path dbDir) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
-        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), Instant.now());
+        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), 1L, Instant.now());
 
         repository.markReady(created.id(), "master");
 
@@ -40,7 +41,7 @@ class ProjectRepositoryTest {
     @Test
     void markFailedSetsStatusOnly(@TempDir Path dbDir) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
-        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), Instant.now());
+        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), 1L, Instant.now());
 
         repository.markFailed(created.id());
 
@@ -51,7 +52,7 @@ class ProjectRepositoryTest {
     @Test
     void markCloningClearsAPreviousDefaultBranch(@TempDir Path dbDir) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
-        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), Instant.now());
+        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), 1L, Instant.now());
         repository.markReady(created.id(), "main");
 
         repository.markCloning(created.id());
@@ -65,7 +66,7 @@ class ProjectRepositoryTest {
     void findByWorkareaPathFindsAnExistingProject(@TempDir Path dbDir) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
         Path workarea = dbDir.resolve("bar");
-        repository.create("bar", "url", workarea, Instant.now());
+        repository.create("bar", "url", workarea, 1L, Instant.now());
 
         Optional<ProjectRecord> found = repository.findByWorkareaPath(workarea);
 
@@ -80,18 +81,29 @@ class ProjectRepositoryTest {
     }
 
     @Test
-    void findAllReturnsEveryProject(@TempDir Path dbDir) {
+    void findAllReturnsEveryProjectRegardlessOfOwner(@TempDir Path dbDir) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
-        repository.create("a", "url-a", dbDir.resolve("a"), Instant.now());
-        repository.create("b", "url-b", dbDir.resolve("b"), Instant.now());
+        repository.create("a", "url-a", dbDir.resolve("a"), 1L, Instant.now());
+        repository.create("b", "url-b", dbDir.resolve("b"), 2L, Instant.now());
 
         assertThat(repository.findAll()).extracting(ProjectRecord::name).containsExactlyInAnyOrder("a", "b");
     }
 
     @Test
+    void findAllOwnedByFiltersToOnlyThatOwnersProjects(@TempDir Path dbDir) {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
+        repository.create("mine", "url-a", dbDir.resolve("a"), 1L, Instant.now());
+        repository.create("theirs", "url-b", dbDir.resolve("b"), 2L, Instant.now());
+
+        assertThat(repository.findAllOwnedBy(1L)).extracting(ProjectRecord::name).containsExactly("mine");
+        assertThat(repository.findAllOwnedBy(2L)).extracting(ProjectRecord::name).containsExactly("theirs");
+        assertThat(repository.findAllOwnedBy(999L)).isEmpty();
+    }
+
+    @Test
     void deleteForgetsTheProject(@TempDir Path dbDir) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
-        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), Instant.now());
+        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), 1L, Instant.now());
 
         repository.delete(created.id());
 

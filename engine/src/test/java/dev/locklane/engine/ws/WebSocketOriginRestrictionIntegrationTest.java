@@ -1,5 +1,6 @@
 package dev.locklane.engine.ws;
 
+import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,6 +31,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * a single fixed origin ({@code http://allowed-test-origin.example}), so these tests
  * exercise both sides of that allowlist directly, independent of authentication
  * (which is covered separately in {@link WebSocketSessionOwnershipIntegrationTest}).
+ * The allowed-origin case connects as an admin, since its worktree id has no real
+ * project behind it and #242's authorization would otherwise reject the attach on
+ * ownership grounds unrelated to what this test covers; the disallowed-origin case
+ * never reaches that check at all (rejected earlier, at the handshake).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class WebSocketOriginRestrictionIntegrationTest {
@@ -48,7 +53,7 @@ class WebSocketOriginRestrictionIntegrationTest {
     @Test
     void aConnectionFromTheAllowedOriginSucceeds(@TempDir Path workDir) throws Exception {
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-origin-allowed", "password");
+                "ws-origin-allowed", "password", UserRecord.Role.ADMIN);
         String worktreeId = "ws-origin-allowed-" + Instant.now().toEpochMilli();
 
         RecordingHandler handler = new RecordingHandler();

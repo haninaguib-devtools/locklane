@@ -29,6 +29,7 @@ class WorktreeControllerTest {
 
     @Test
     void returnsTheWorktreeIdsForAnIssue(@TempDir Path dbDir) {
+        createProject(dbDir, "alice"); // project 1
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "alice");
         WorktreeController controller = controller(dbDir, repository, List.of());
@@ -44,7 +45,8 @@ class WorktreeControllerTest {
     }
 
     @Test
-    void doesNotReturnAnotherUsersWorktree(@TempDir Path dbDir) {
+    void doesNotReturnAnotherProjectsWorktree(@TempDir Path dbDir) {
+        createProject(dbDir, "bob"); // project 1, owned by bob -- not alice
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("1-174-bobs-session", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "bob");
         WorktreeController controller = controller(dbDir, repository, List.of());
@@ -54,6 +56,7 @@ class WorktreeControllerTest {
 
     @Test
     void closingASessionRemovesItFromTheWorktreeListAndStopsTheRegistry(@TempDir Path dbDir) {
+        createProject(dbDir, "alice"); // project 1
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "alice");
         SessionRegistry sessionRegistry = new SessionRegistry(repository);
@@ -67,7 +70,8 @@ class WorktreeControllerTest {
     }
 
     @Test
-    void closingAnotherUsersSessionIsNotFound(@TempDir Path dbDir) {
+    void closingAnotherProjectsSessionIsNotFound(@TempDir Path dbDir) {
+        createProject(dbDir, "bob"); // project 1, owned by bob -- not alice
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("1-174-bobs-session", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "bob");
         WorktreeController controller = controller(dbDir, repository, List.of());
@@ -114,10 +118,11 @@ class WorktreeControllerTest {
 
     @Test
     void reopeningAConsoleWithNoVisibleConversationIsNotFound(@TempDir Path dbDir) {
+        createProject(dbDir, "bob"); // project 1, owned by bob -- not alice
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         ConsoleResumeSessionRepository resumeRepository =
                 new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
-        // Bob's console is still open, so its conversation stays his (#48).
+        // Bob's console is open in his own project, so its conversation stays his (#242).
         repository.recordAttach("1-174-bobs-session", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "bob");
         resumeRepository.record("1-174-bobs-session", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-25T12:00:00Z"));
@@ -135,7 +140,9 @@ class WorktreeControllerTest {
         ConsoleResumeSessionRepository resumeRepository =
                 new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("workarea"), "main", Instant.now()).id();
+        long ownerId = TestSqliteDatabases.newUserRepository(dbDir).create("alice", "bcrypt-hash", Instant.now()).id();
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("workarea"), "main", ownerId, Instant.now()).id();
         String originalId = projectId + "-174-rename-toggle";
         repository.recordAttach(originalId, dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "alice");
         resumeRepository.record(originalId, "claude", "aaaaaaaa-0000-0000-0000-000000000000",
@@ -148,6 +155,13 @@ class WorktreeControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().get("worktreeId")).startsWith(projectId + "-174-resume-");
         assertThat(response.getBody().get("workingDirectory")).isEqualTo(dbDir.resolve("wt").toString());
+    }
+
+    /** A real project row (id 1, the first ever created in {@code dbDir}) owned by {@code ownerUsername}'s account. */
+    private static void createProject(Path dbDir, String ownerUsername) {
+        UserRecord owner = TestSqliteDatabases.newUserRepository(dbDir).create(ownerUsername, "bcrypt-hash", Instant.now());
+        TestSqliteDatabases.newProjectRepository(dbDir).createReady("proj-" + ownerUsername, "url",
+                dbDir.resolve("work-" + ownerUsername), "main", owner.id(), Instant.now());
     }
 
     private static WorktreeController controller(Path dbDir, WorktreeSessionRepository repository, List<GhIssue> issues) {
@@ -169,7 +183,9 @@ class WorktreeControllerTest {
     private static WorktreeController controller(WorktreeSessionRepository repository,
             ConsoleResumeSessionRepository resumeRepository, ProjectRepository projectRepository,
             SessionRegistry sessionRegistry, List<GhIssue> issues, Path dbDir) {
-        IssueWorktreeService worktreeService = new IssueWorktreeService(repository, resumeRepository);
+        WorktreeSessionAuthorization authorization =
+                new WorktreeSessionAuthorization(projectRepository, TestSqliteDatabases.newUserRepository(dbDir));
+        IssueWorktreeService worktreeService = new IssueWorktreeService(repository, resumeRepository, authorization);
         ProjectGhResources ghResources =
                 new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient(issues));
         WorktreeCreationService creationService =

@@ -93,7 +93,8 @@ class TwoFactorLoginIntegrationTest {
 
         mockMvc.perform(verifyWith(session, totpService.currentCode(secret, Instant.now())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value(USERNAME));
+                .andExpect(jsonPath("$.username").value(USERNAME))
+                .andExpect(jsonPath("$.role").value("ADMIN"));
 
         mockMvc.perform(get("/api/auth/me").session(session))
                 .andExpect(status().isOk())

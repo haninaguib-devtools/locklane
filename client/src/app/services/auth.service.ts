@@ -1,13 +1,19 @@
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, catchError, map, of, tap } from 'rxjs';
 import { EventsService } from './events.service';
 
 const FORM_HEADERS = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' });
 
-/** What a successful `POST /api/auth/login` meant: session established, or a code pending. */
+/**
+ * What a successful `POST /api/auth/login` meant: session established, or a second step
+ * pending -- a 2FA code, or (#238, #241) a forced password change for an admin-created
+ * account. The two are mutually exclusive: the engine checks 2FA first, so an account
+ * only ever sees `mustChangePasswordRequired` once any 2FA challenge is already clear.
+ */
 export interface LoginResult {
   twoFactorRequired: boolean;
+  mustChangePasswordRequired: boolean;
 }
 
 /**
@@ -19,12 +25,18 @@ export interface LoginResult {
  *
  * `username` (#90) is the signed-in account's name, for the header's account menu.
  * It comes from whichever call established the session -- the credentials on login,
- * the `/api/auth/me` body on a restore -- and is cleared on logout.
+ * the `/api/auth/me` body on a restore -- and is cleared on logout. `role` (#240) comes
+ * from the same responses and drives {@link isAdmin}, which the admin user-management
+ * panel gates its visibility on -- purely a display decision, since every admin-only
+ * endpoint enforces that server-side regardless of what this client believes.
  *
  * With 2FA on the account (#89), correct credentials still answer 200 but the body
  * says `{"twoFactorRequired": true}` and the session is only *pending* -- `login`
  * surfaces that in its {@link LoginResult} without flipping `isLoggedIn`, and
- * `verifyTwoFactor` posts the 6-digit code that completes the login.
+ * `verifyTwoFactor` posts the 6-digit code that completes the login. An account created
+ * with `must_change_password` set (#238) works the same way: the body says
+ * `{"mustChangePasswordRequired": true}` instead, and `completePasswordChange` (#241)
+ * posts the current (temporary) and new password that completes *that* login.
  *
  * The server-side session can also disappear later -- expired, invalidated, or lost to
  * a restart (#246). {@link sessionExpired} is what `unauthorizedInterceptor` calls on
@@ -37,8 +49,11 @@ export class AuthService {
   private readonly http = inject(HttpClient);
   private readonly loggedIn = signal(false);
   private readonly user = signal<string | null>(null);
+  private readonly userRole = signal<string | null>(null);
   readonly isLoggedIn = this.loggedIn.asReadonly();
   readonly username = this.user.asReadonly();
+  /** Whether the signed-in account is an admin (#240) -- see the class doc above. */
+  readonly isAdmin = computed(() => this.userRole() === 'ADMIN');
 
   constructor() {
     // The events socket reconnecting (#128) means the server was unreachable and is
@@ -50,36 +65,67 @@ export class AuthService {
   login(username: string, password: string): Observable<LoginResult> {
     const body = new HttpParams().set('username', username).set('password', password);
     return this.http
-      .post<{ twoFactorRequired?: boolean } | null>('/api/auth/login', body.toString(), { headers: FORM_HEADERS })
+      .post<{ twoFactorRequired?: boolean; mustChangePasswordRequired?: boolean; role?: string } | null>(
+        '/api/auth/login',
+        body.toString(),
+        { headers: FORM_HEADERS },
+      )
       .pipe(
-        map((response) => ({ twoFactorRequired: response?.twoFactorRequired === true })),
-        tap(({ twoFactorRequired }) => {
-          if (!twoFactorRequired) {
+        tap((response) => {
+          if (response?.twoFactorRequired !== true && response?.mustChangePasswordRequired !== true) {
             this.loggedIn.set(true);
             this.user.set(username);
+            this.userRole.set(response?.role ?? null);
           }
         }),
+        map((response) => ({
+          twoFactorRequired: response?.twoFactorRequired === true,
+          mustChangePasswordRequired: response?.mustChangePasswordRequired === true,
+        })),
       );
   }
 
   /** Completes a login left pending by {@link login} -- errors with 401 on a wrong code. */
   verifyTwoFactor(code: string): Observable<void> {
-    return this.http.post<{ username?: string }>('/api/auth/2fa/verify', { code }).pipe(
+    return this.http.post<{ username?: string; role?: string }>('/api/auth/2fa/verify', { code }).pipe(
       tap((response) => {
         this.loggedIn.set(true);
         this.user.set(response?.username ?? null);
+        this.userRole.set(response?.role ?? null);
       }),
       map(() => undefined),
     );
   }
 
+  /**
+   * Completes a login left pending by {@link login} when the account has to set a new
+   * password (#238, #241) -- errors with 401 on a wrong current password, 400 on a blank
+   * new one.
+   */
+  completePasswordChange(currentPassword: string, newPassword: string): Observable<void> {
+    return this.http
+      .post<{ username?: string; role?: string }>('/api/auth/password/change', { currentPassword, newPassword })
+      .pipe(
+        tap((response) => {
+          this.loggedIn.set(true);
+          this.user.set(response?.username ?? null);
+          this.userRole.set(response?.role ?? null);
+        }),
+        map(() => undefined),
+      );
+  }
+
   /** Restores `isLoggedIn` from the server-side session; never errors. */
   checkSession(): Observable<boolean> {
-    return this.http.get<{ username?: string }>('/api/auth/me').pipe(
-      tap((body) => this.user.set(body?.username ?? null)),
+    return this.http.get<{ username?: string; role?: string }>('/api/auth/me').pipe(
+      tap((body) => {
+        this.user.set(body?.username ?? null);
+        this.userRole.set(body?.role ?? null);
+      }),
       map(() => true),
       catchError(() => {
         this.user.set(null);
+        this.userRole.set(null);
         return of(false);
       }),
       tap((loggedIn) => this.loggedIn.set(loggedIn)),
@@ -90,6 +136,7 @@ export class AuthService {
   sessionExpired(): void {
     this.loggedIn.set(false);
     this.user.set(null);
+    this.userRole.set(null);
   }
 
   logout(): Observable<void> {
@@ -97,6 +144,7 @@ export class AuthService {
       tap(() => {
         this.loggedIn.set(false);
         this.user.set(null);
+        this.userRole.set(null);
       }),
     );
   }

@@ -44,15 +44,18 @@ public class ProjectCheckoutService {
      * Persists a new project in {@link ProjectStatus#CLONING} and starts cloning it
      * asynchronously. {@code requestedName} blank/{@code null} derives a name from
      * {@code gitUrl}; the workarea directory name is derived from the (derived or
-     * given) name, disambiguated with a numeric suffix on collision.
+     * given) name, disambiguated with a numeric suffix on collision. {@code ownerUserId}
+     * (#239) is the authenticated caller creating the project — the workarea lands
+     * under {@code workareas/<ownerUserId>/<slug>} (ADR-007 Decision 2), organizational
+     * only, never itself the authorization boundary.
      */
-    public ProjectRecord createProject(String gitUrl, String requestedName) {
+    public ProjectRecord createProject(String gitUrl, String requestedName, long ownerUserId) {
         String trimmedUrl = gitUrl.strip();
         String name = (requestedName == null || requestedName.isBlank())
                 ? deriveName(trimmedUrl) : requestedName.strip();
-        Path workareaPath = uniqueWorkareaPath(slug(name));
+        Path workareaPath = uniqueWorkareaPath(ownerUserId, slug(name));
 
-        ProjectRecord project = repository.create(name, trimmedUrl, workareaPath, Instant.now());
+        ProjectRecord project = repository.create(name, trimmedUrl, workareaPath, ownerUserId, Instant.now());
         cloneExecutor.execute(() -> clone(project));
         return project;
     }
@@ -92,9 +95,29 @@ public class ProjectCheckoutService {
         NOT_FOUND, HAS_OPEN_SESSIONS, DELETED
     }
 
+    /**
+     * Unconditionally deletes a project and everything scoped to it: any worktree or
+     * console sessions, its DB row, and its on-disk workarea checkout (best-effort, same
+     * as {@link #delete}) — never refuses on an open session the way {@link #delete}
+     * does. Only {@link UserCascadeDeleteService} calls this (#240, ADR-007 Decision 4):
+     * cascade-deleting a user is exactly the case where its projects' sessions are
+     * supposed to disappear along with the project, not block the delete the way they do
+     * for an ordinary single-project delete. A no-op if the project is already gone, so
+     * it is safe to call again after a partial failure.
+     */
+    public void forceDelete(long id) {
+        Optional<ProjectRecord> existing = repository.findById(id);
+        if (existing.isEmpty()) {
+            return;
+        }
+        issueWorktreeService.deleteSessionsForProject(id);
+        repository.delete(id);
+        deleteDirectoryQuietly(existing.get().workareaPath());
+    }
+
     private void clone(ProjectRecord project) {
         try {
-            Files.createDirectories(workareaRoot);
+            Files.createDirectories(project.workareaPath().getParent());
             ProcessResult cloneResult = run("git", "clone", project.gitUrl(), project.workareaPath().toString());
             if (cloneResult.exitCode() != 0) {
                 repository.markFailed(project.id());
@@ -113,11 +136,12 @@ public class ProjectCheckoutService {
         }
     }
 
-    private Path uniqueWorkareaPath(String slug) {
-        Path candidate = workareaRoot.resolve(slug);
+    private Path uniqueWorkareaPath(long ownerUserId, String slug) {
+        Path ownerRoot = workareaRoot.resolve(String.valueOf(ownerUserId));
+        Path candidate = ownerRoot.resolve(slug);
         int suffix = 2;
         while (Files.exists(candidate) || repository.findByWorkareaPath(candidate).isPresent()) {
-            candidate = workareaRoot.resolve(slug + "-" + suffix++);
+            candidate = ownerRoot.resolve(slug + "-" + suffix++);
         }
         return candidate;
     }

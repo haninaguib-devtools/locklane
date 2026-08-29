@@ -103,6 +103,41 @@ class UserRepositoryTest {
     }
 
     @Test
+    void aNewUserDefaultsToRoleUserAndDoesNotRequireAPasswordChange(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        UserRecord created = repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+
+        assertThat(created.role()).isEqualTo(UserRecord.Role.USER);
+        assertThat(created.mustChangePassword()).isFalse();
+    }
+
+    @Test
+    void createWithAnExplicitRoleStoresThatRole(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        UserRecord created = repository.create(
+                "admin", "hash", Instant.parse("2026-08-25T12:00:00Z"), UserRecord.Role.ADMIN);
+
+        assertThat(created.role()).isEqualTo(UserRecord.Role.ADMIN);
+        assertThat(repository.findByUsername("admin").orElseThrow().role())
+                .isEqualTo(UserRecord.Role.ADMIN);
+    }
+
+    @Test
+    void changePasswordReplacesTheHashAndClearsMustChangePassword(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        repository.create("hani", "old-hash", Instant.parse("2026-08-25T12:00:00Z"));
+        repository.changePassword("hani", "new-hash");
+
+        UserRecord after = repository.findByUsername("hani").orElseThrow();
+        assertThat(after.passwordHash()).isEqualTo("new-hash");
+        assertThat(after.mustChangePassword())
+                .as("a plain voluntary change already satisfies whatever must_change_password was asking for")
+                .isFalse();
+    }
+
+    @Test
     void anyExistIsFalseUntilAUserIsCreated(@TempDir Path dbDir) {
         UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
 
@@ -111,5 +146,61 @@ class UserRepositoryTest {
         repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
 
         assertThat(repository.anyExist()).isTrue();
+    }
+
+    @Test
+    void createWithMustChangePasswordSetStoresThatFlag(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        UserRecord created = repository.create(
+                "hani", "hash", Instant.parse("2026-08-25T12:00:00Z"), UserRecord.Role.USER, true);
+
+        assertThat(created.mustChangePassword())
+                .as("an admin-created account (#240) has to change the password the admin chose")
+                .isTrue();
+        assertThat(repository.findByUsername("hani").orElseThrow().mustChangePassword()).isTrue();
+    }
+
+    @Test
+    void findByIdReturnsTheSameRowAsFindByUsername(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        UserRecord created = repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+
+        assertThat(repository.findById(created.id())).contains(created);
+    }
+
+    @Test
+    void findByIdOnAnUnknownIdIsEmpty(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        assertThat(repository.findById(999)).isEmpty();
+    }
+
+    @Test
+    void findAllReturnsEveryAccountOldestFirst(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        repository.create("alice", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+        repository.create("bob", "hash", Instant.parse("2026-08-25T12:01:00Z"));
+
+        assertThat(repository.findAll()).extracting(UserRecord::username).containsExactly("alice", "bob");
+    }
+
+    @Test
+    void deleteByIdForgetsTheAccount(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        UserRecord created = repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+
+        repository.deleteById(created.id());
+
+        assertThat(repository.findByUsername("hani")).isEmpty();
+    }
+
+    @Test
+    void deleteByIdOnAnUnknownIdIsANoOp(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        repository.deleteById(999);
+
+        assertThat(repository.findAll()).isEmpty();
     }
 }

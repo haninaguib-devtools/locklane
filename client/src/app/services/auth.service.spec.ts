@@ -48,6 +48,40 @@ describe('AuthService', () => {
     expect(service.username()).toBeNull();
   });
 
+  it('reports a pending forced password change without flipping isLoggedIn', () => {
+    let result: { mustChangePasswordRequired: boolean } | undefined;
+    service.login('hani', 'temp-password').subscribe((r) => (result = r));
+
+    httpMock.expectOne('/api/auth/login').flush({ mustChangePasswordRequired: true });
+
+    expect(result?.mustChangePasswordRequired).toBe(true);
+    expect(service.isLoggedIn()).toBe(false);
+    expect(service.username()).toBeNull();
+  });
+
+  it('completes a pending forced password change by POSTing to /api/auth/password/change', () => {
+    service.login('hani', 'temp-password').subscribe();
+    httpMock.expectOne('/api/auth/login').flush({ mustChangePasswordRequired: true });
+
+    service.completePasswordChange('temp-password', 'a-brand-new-password').subscribe();
+    const req = httpMock.expectOne('/api/auth/password/change');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ currentPassword: 'temp-password', newPassword: 'a-brand-new-password' });
+    req.flush({ username: 'hani' });
+
+    expect(service.isLoggedIn()).toBe(true);
+    expect(service.username()).toBe('hani');
+  });
+
+  it('stays logged out when the forced password change is rejected', () => {
+    service.completePasswordChange('wrong-password', 'a-brand-new-password').subscribe({ error: () => {} });
+
+    httpMock.expectOne('/api/auth/password/change').flush(null, { status: 401, statusText: 'Unauthorized' });
+
+    expect(service.isLoggedIn()).toBe(false);
+    expect(service.username()).toBeNull();
+  });
+
   it('completes a pending login by POSTing the code to /api/auth/2fa/verify', () => {
     service.login('hani', 's3cret').subscribe();
     httpMock.expectOne('/api/auth/login').flush({ twoFactorRequired: true });
@@ -113,5 +147,69 @@ describe('AuthService', () => {
 
     expect(service.isLoggedIn()).toBe(false);
     expect(service.username()).toBeNull();
+  });
+
+  it('starts with isAdmin false', () => {
+    expect(service.isAdmin()).toBe(false);
+  });
+
+  it('reads role from a plain login response and sets isAdmin (#240)', () => {
+    service.login('root', 's3cret').subscribe();
+
+    httpMock.expectOne('/api/auth/login').flush({ role: 'ADMIN' });
+
+    expect(service.isAdmin()).toBe(true);
+  });
+
+  it('an ordinary account is not admin even once logged in', () => {
+    service.login('hani', 's3cret').subscribe();
+
+    httpMock.expectOne('/api/auth/login').flush({ role: 'USER' });
+
+    expect(service.isAdmin()).toBe(false);
+  });
+
+  it('reads role from GET /api/auth/me', () => {
+    service.checkSession().subscribe();
+
+    httpMock.expectOne('/api/auth/me').flush({ username: 'root', role: 'ADMIN' });
+
+    expect(service.isAdmin()).toBe(true);
+  });
+
+  it('reads role from a completed 2FA verification', () => {
+    service.verifyTwoFactor('123456').subscribe();
+
+    httpMock.expectOne('/api/auth/2fa/verify').flush({ username: 'root', role: 'ADMIN' });
+
+    expect(service.isAdmin()).toBe(true);
+  });
+
+  it('reads role from a completed forced password change', () => {
+    service.completePasswordChange('temp', 'new-password').subscribe();
+
+    httpMock.expectOne('/api/auth/password/change').flush({ username: 'root', role: 'ADMIN' });
+
+    expect(service.isAdmin()).toBe(true);
+  });
+
+  it('clears isAdmin on logout', () => {
+    service.login('root', 's3cret').subscribe();
+    httpMock.expectOne('/api/auth/login').flush({ role: 'ADMIN' });
+    expect(service.isAdmin()).toBe(true);
+
+    service.logout().subscribe();
+    httpMock.expectOne('/api/auth/logout').flush(null);
+
+    expect(service.isAdmin()).toBe(false);
+  });
+
+  it('clears isAdmin when the session expires', () => {
+    service.login('root', 's3cret').subscribe();
+    httpMock.expectOne('/api/auth/login').flush({ role: 'ADMIN' });
+
+    service.sessionExpired();
+
+    expect(service.isAdmin()).toBe(false);
   });
 });

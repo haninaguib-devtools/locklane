@@ -7,6 +7,7 @@ import javax.sql.DataSource;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -23,20 +24,67 @@ public class UserRepository {
         this.jdbcTemplate = new JdbcTemplate(dataSource);
     }
 
+    /** Creates an ordinary account. See {@link #create(String, String, Instant, UserRecord.Role)}. */
     public UserRecord create(String username, String passwordHash, Instant now) {
+        return create(username, passwordHash, now, UserRecord.Role.USER);
+    }
+
+    /**
+     * Creates an account with an explicit role (#238), not required to change its
+     * password. See {@link #create(String, String, Instant, UserRecord.Role, boolean)}.
+     * {@link dev.locklane.engine.security.UserBootstrapper} calls this with
+     * {@code ADMIN} for the account it seeds; every other caller passes {@code USER}.
+     */
+    public UserRecord create(String username, String passwordHash, Instant now, UserRecord.Role role) {
+        return create(username, passwordHash, now, role, false);
+    }
+
+    /**
+     * Creates an account with an explicit role and {@code must_change_password} state
+     * (#238/#240) — an admin creating another account (#240) passes {@code true}, since
+     * the password it was created with is one the admin, not the account holder, chose.
+     * Always sets both columns explicitly rather than omitting them and relying on the
+     * migration's backfill defaults, which exist only to backfill rows that pre-date
+     * those columns, never to decide the state of a row created after them.
+     */
+    public UserRecord create(
+            String username, String passwordHash, Instant now, UserRecord.Role role, boolean mustChangePassword) {
         jdbcTemplate.update(
-                "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
-                username, passwordHash, now.toString());
+                "INSERT INTO users (username, password_hash, created_at, role, must_change_password) "
+                        + "VALUES (?, ?, ?, ?, ?)",
+                username, passwordHash, now.toString(), role.name(), mustChangePassword);
         return findByUsername(username).orElseThrow();
     }
 
     public Optional<UserRecord> findByUsername(String username) {
         return jdbcTemplate.query(
-                "SELECT id, username, password_hash, created_at, totp_secret, totp_enabled "
-                        + "FROM users WHERE username = ?",
+                "SELECT id, username, password_hash, created_at, totp_secret, totp_enabled, "
+                        + "role, must_change_password FROM users WHERE username = ?",
                 (rs, rowNum) -> toRecord(rs),
                 username
         ).stream().findFirst();
+    }
+
+    public Optional<UserRecord> findById(long id) {
+        return jdbcTemplate.query(
+                "SELECT id, username, password_hash, created_at, totp_secret, totp_enabled, "
+                        + "role, must_change_password FROM users WHERE id = ?",
+                (rs, rowNum) -> toRecord(rs),
+                id
+        ).stream().findFirst();
+    }
+
+    /** Every account (#240's admin user-management panel) — oldest first, so the bootstrap admin sorts first. */
+    public List<UserRecord> findAll() {
+        return jdbcTemplate.query(
+                "SELECT id, username, password_hash, created_at, totp_secret, totp_enabled, "
+                        + "role, must_change_password FROM users ORDER BY id",
+                (rs, rowNum) -> toRecord(rs));
+    }
+
+    /** Forgets the account entirely (#240) — the caller has already removed everything it owned. */
+    public void deleteById(long id) {
+        jdbcTemplate.update("DELETE FROM users WHERE id = ?", id);
     }
 
     public boolean anyExist() {
@@ -81,6 +129,18 @@ public class UserRepository {
                 username);
     }
 
+    /**
+     * Replaces the stored password hash (#241) -- self-service or completing a
+     * forced-first-login change, the caller has already checked the current password before
+     * calling this. Always clears {@code must_change_password}, whether or not it was set,
+     * so this is safe to call for a plain voluntary change too.
+     */
+    public void changePassword(String username, String newPasswordHash) {
+        jdbcTemplate.update(
+                "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE username = ?",
+                newPasswordHash, username);
+    }
+
     private static UserRecord toRecord(ResultSet rs) throws SQLException {
         return new UserRecord(
                 rs.getLong("id"),
@@ -88,6 +148,8 @@ public class UserRepository {
                 rs.getString("password_hash"),
                 Instant.parse(rs.getString("created_at")),
                 rs.getString("totp_secret"),
-                rs.getBoolean("totp_enabled"));
+                rs.getBoolean("totp_enabled"),
+                UserRecord.Role.valueOf(rs.getString("role")),
+                rs.getBoolean("must_change_password"));
     }
 }

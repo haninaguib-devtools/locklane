@@ -1,0 +1,107 @@
+<div class="backdrop" (click)="closed.emit()">
+  <div class="popup" role="dialog" aria-modal="true" aria-label="Manage users" (click)="$event.stopPropagation()">
+    <div class="popup-header">
+      <span>manage users</span>
+      <button type="button" class="close" (click)="closed.emit()" aria-label="Close">×</button>
+    </div>
+    <div class="popup-body">
+      <section class="section">
+        <h2>Add a user</h2>
+        <p class="muted">
+          There is no self-registration -- this is the only way a second account ever
+          gets access. Leave the password blank to generate a random one.
+        </p>
+
+        <form (ngSubmit)="createUser()">
+          <label>
+            Username
+            <input
+              type="text"
+              name="newUsername"
+              autocomplete="off"
+              [(ngModel)]="newUsername"
+              [disabled]="creating"
+              required
+            />
+          </label>
+          <label>
+            Password (optional)
+            <input
+              type="text"
+              name="newPassword"
+              autocomplete="off"
+              placeholder="generated automatically if left blank"
+              [(ngModel)]="newPassword"
+              [disabled]="creating"
+            />
+          </label>
+
+          @if (createError) {
+            <p class="error">{{ createError }}</p>
+          }
+
+          <div class="actions">
+            <button type="submit" [disabled]="!newUsername.trim() || creating">
+              {{ creating ? 'Adding…' : 'Add user' }}
+            </button>
+          </div>
+        </form>
+
+        @if (lastCreated; as created) {
+          <div class="temp-password">
+            <p class="muted">
+              Temporary password for <strong>{{ created.username }}</strong> -- shown once, copy
+              it now. The account must change it on first login.
+            </p>
+            <p class="secret">{{ created.temporaryPassword }}</p>
+          </div>
+        }
+      </section>
+
+      <section class="section">
+        <h2>Accounts</h2>
+
+        @if (loadError(); as message) {
+          <p class="error">{{ message }}</p>
+        } @else if (loading()) {
+          <p class="muted">Loading…</p>
+        } @else if (deleteError) {
+          <p class="error">{{ deleteError }}</p>
+        }
+
+        <ul class="user-list">
+          @for (user of users(); track user.id) {
+            <li>
+              <div class="user-info">
+                <span class="username">{{ user.username }}</span>
+                <span class="role" [class.admin]="user.role === 'ADMIN'">{{ user.role }}</span>
+                @if (user.mustChangePassword) {
+                  <span class="pending">password change pending</span>
+                }
+              </div>
+              @if (user.username !== currentUsername()) {
+                <button type="button" class="secondary danger" (click)="requestDelete(user)">
+                  Delete
+                </button>
+              }
+            </li>
+          }
+        </ul>
+      </section>
+    </div>
+  </div>
+</div>
+
+@if (deleteTarget; as target) {
+  <app-confirm-dialog
+    title="Delete this account?"
+    [message]="
+      'This permanently deletes ' + target.username + ', every project they own, ' +
+      'those projects\' on-disk checkouts, and any open worktree or console sessions on them.'
+    "
+    confirmLabel="Delete"
+    [danger]="true"
+    (confirmed)="confirmDelete()"
+    (cancelled)="cancelDelete()"
+  />
+}

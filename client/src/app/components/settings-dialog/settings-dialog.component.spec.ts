@@ -255,4 +255,40 @@ describe('SettingsDialogComponent', () => {
     expect(component.stage()).toBe('enabled');
     expect(compiled.querySelector('.error')?.textContent?.trim()).toBe('that password is not correct');
   });
+
+  it('changes the password and shows a confirmation', () => {
+    const fixture = create();
+    flushStatus(fixture, false);
+    const component = fixture.componentInstance;
+
+    component.currentPasswordForChange = 'old-password';
+    component.newPasswordForChange = 'new-password';
+    component.changePassword();
+    const req = httpMock.expectOne('/api/account/password');
+    expect(req.request.body).toEqual({ currentPassword: 'old-password', newPassword: 'new-password' });
+    req.flush(null);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Password changed.');
+    expect(component.currentPasswordForChange).toBe('');
+    expect(component.newPasswordForChange).toBe('');
+  });
+
+  it('shows an inline error on a wrong current password when changing it', () => {
+    const fixture = create();
+    flushStatus(fixture, false);
+    const component = fixture.componentInstance;
+
+    component.currentPasswordForChange = 'wrong-password';
+    component.newPasswordForChange = 'new-password';
+    component.changePassword();
+    httpMock
+      .expectOne('/api/account/password')
+      .flush({ error: 'that password is not correct' }, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.error')?.textContent?.trim()).toBe('that password is not correct');
+  });
 });

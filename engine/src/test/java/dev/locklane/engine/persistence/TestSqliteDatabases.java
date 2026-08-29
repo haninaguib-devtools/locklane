@@ -5,6 +5,9 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.sqlite.SQLiteDataSource;
 
 import javax.sql.DataSource;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -92,5 +95,23 @@ public final class TestSqliteDatabases {
 
     public static BackupCodeRepository newBackupCodeRepository(Path dbDirectory) {
         return new BackupCodeRepository(newDataSource(dbDirectory));
+    }
+
+    /**
+     * A {@link WorktreeSessionAuthorization} over a fresh, empty, throwaway
+     * database of its own — for the many pre-#242 tests (worktree creation, the
+     * cleanup sweep, project deletion) that only ever call it with a {@code null}
+     * requestingUsername, the internal-bypass case documented on
+     * {@link WorktreeSessionAuthorization#isVisibleTo(String, String)}: neither
+     * backing repository is ever actually consulted, so it needs no relationship to
+     * whatever project/session data the test itself set up.
+     */
+    public static WorktreeSessionAuthorization newNoopAuthorization() {
+        try {
+            Path dbDirectory = Files.createTempDirectory("noop-authorization");
+            return new WorktreeSessionAuthorization(newProjectRepository(dbDirectory), newUserRepository(dbDirectory));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }

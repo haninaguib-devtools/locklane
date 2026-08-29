@@ -164,13 +164,14 @@ class WorktreeCleanupSweeperTest {
         Path projectRoot = initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
-        long projectId = projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", 1L, Instant.now()).id();
         return new Fixture(projectRoot, projectId, repository, projectRepository);
     }
 
     private static WorktreeAndId createWorktree(Fixture fx, int issueNumber, String title) throws IOException, InterruptedException {
         GhIssue issue = new GhIssue(issueNumber, title, "OPEN", List.of(), "", "", "");
-        IssueWorktreeService worktreeService = new IssueWorktreeService(fx.repository);
+        IssueWorktreeService worktreeService =
+                new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources creationGhResources = new ProjectGhResources(fx.projectRepository, tokenCipher(),
                 (path, token) -> new FixedGhClient(List.of(issue)));
         WorktreeCreationService creationService =
@@ -185,7 +186,8 @@ class WorktreeCleanupSweeperTest {
     }
 
     private static WorktreeCleanupSweeper sweeper(Fixture fx, SessionRegistry sessionRegistry, List<GhIssue> issues) {
-        IssueWorktreeService worktreeService = new IssueWorktreeService(fx.repository);
+        IssueWorktreeService worktreeService =
+                new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources ghResources =
                 new ProjectGhResources(fx.projectRepository, tokenCipher(), (path, token) -> new FixedGhClient(issues));
         return new WorktreeCleanupSweeper(worktreeService, fx.projectRepository, ghResources, sessionRegistry);

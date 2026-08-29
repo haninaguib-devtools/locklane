@@ -41,6 +41,7 @@ class AuthControllerIntegrationTest {
         mockMvc.perform(get("/api/auth/me")
                         .session((MockHttpSession) loginResult.getRequest().getSession(false)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value("test-user"));
+                .andExpect(jsonPath("$.username").value("test-user"))
+                .andExpect(jsonPath("$.role").value("ADMIN"));
     }
 }

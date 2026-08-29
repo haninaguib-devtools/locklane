@@ -13,6 +13,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -38,6 +39,13 @@ import java.util.Map;
  * {@code authenticated()} — the request arriving here is, by definition, not authenticated yet.
  * A backup code (#93) works here too, in place of a TOTP code, for when the authenticator
  * device is unavailable.
+ *
+ * <p>And the other end of a forced-first-login password change (#238, #241): when {@link
+ * TwoFactorAwareLoginSuccessHandler} has left a session pending a new password, {@code
+ * /api/auth/password/change} is the mirror-image of {@code /api/auth/2fa/verify} — it checks
+ * the (temporary) current password, replaces it, clears {@code must_change_password}, and
+ * turns that pending session into an authenticated one. Also outside {@code authenticated()}
+ * for the same reason.
  */
 @RestController
 public class AuthController {
@@ -47,6 +55,7 @@ public class AuthController {
     private final TokenCipher tokenCipher;
     private final BackupCodeService backupCodeService;
     private final UserDetailsService userDetailsService;
+    private final PasswordEncoder passwordEncoder;
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
     public AuthController(
@@ -54,17 +63,25 @@ public class AuthController {
             TotpService totpService,
             TokenCipher tokenCipher,
             BackupCodeService backupCodeService,
-            UserDetailsService userDetailsService) {
+            UserDetailsService userDetailsService,
+            PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.totpService = totpService;
         this.tokenCipher = tokenCipher;
         this.backupCodeService = backupCodeService;
         this.userDetailsService = userDetailsService;
+        this.passwordEncoder = passwordEncoder;
     }
 
+    /**
+     * {@code role} (#240) is what the client gates its admin user-management panel's
+     * visibility on ({@code AuthService.isAdmin}) — never itself an authorization
+     * check, since every admin-only endpoint enforces that server-side regardless of
+     * what a client believes about its own role.
+     */
     @GetMapping("/api/auth/me")
     public Map<String, String> me(Authentication authentication) {
-        return Map.of("username", authentication.getName());
+        return Map.of("username", authentication.getName(), "role", roleOf(authentication.getName()));
     }
 
     /**
@@ -101,7 +118,62 @@ public class AuthController {
         }
 
         session.removeAttribute(PendingTwoFactorLogin.SESSION_ATTRIBUTE);
+        establishSession(request, response, username);
 
+        return ResponseEntity.ok(Map.of("username", username, "role", roleOf(username)));
+    }
+
+    /**
+     * Checks the (temporary) current password against the account named in the pending
+     * session left by login, and on a match replaces it, clears {@code must_change_password},
+     * and authenticates the session -- the mirror image of {@link #verifyTwoFactor}. A wrong
+     * password, or no pending session at all, leaves the request exactly as unauthenticated as
+     * it arrived, and the pending session (if any) is left in place so a mistyped current
+     * password can simply be retried.
+     */
+    @PostMapping("/api/auth/password/change")
+    public ResponseEntity<?> changePendingPassword(
+            HttpServletRequest request, HttpServletResponse response, @RequestBody ChangePasswordRequest body) {
+        HttpSession session = request.getSession(false);
+        String username = session == null
+                ? null
+                : (String) session.getAttribute(PendingPasswordChangeLogin.SESSION_ATTRIBUTE);
+        if (username == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "no login is pending a password change"));
+        }
+
+        UserRecord user = userRepository.findByUsername(username).orElse(null);
+        if (user == null || !user.mustChangePassword()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "no login is pending a password change"));
+        }
+
+        if (body.currentPassword() == null || !passwordEncoder.matches(body.currentPassword(), user.passwordHash())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "that password is not correct"));
+        }
+        if (body.newPassword() == null || body.newPassword().isBlank()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "the new password must not be blank"));
+        }
+
+        userRepository.changePassword(username, passwordEncoder.encode(body.newPassword()));
+        session.removeAttribute(PendingPasswordChangeLogin.SESSION_ATTRIBUTE);
+        establishSession(request, response, username);
+
+        return ResponseEntity.ok(Map.of("username", username, "role", roleOf(username)));
+    }
+
+    /** {@code "USER"} for an account row that somehow doesn't exist any more — should never happen for an authenticated caller. */
+    private String roleOf(String username) {
+        return userRepository.findByUsername(username)
+                .map(user -> user.role().name())
+                .orElse(UserRecord.Role.USER.name());
+    }
+
+    /** Authenticates the current session as {@code username}, the last step of either pending flow. */
+    private void establishSession(HttpServletRequest request, HttpServletResponse response, String username) {
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
         UsernamePasswordAuthenticationToken authentication =
                 UsernamePasswordAuthenticationToken.authenticated(
@@ -110,10 +182,11 @@ public class AuthController {
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
-
-        return ResponseEntity.ok(Map.of("username", username));
     }
 
     public record CodeRequest(String code) {
+    }
+
+    public record ChangePasswordRequest(String currentPassword, String newPassword) {
     }
 }
