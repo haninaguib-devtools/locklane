@@ -35,28 +35,30 @@
       </button>
     </span>
   }
-  <div class="plus-wrap">
-    <button
-      type="button"
-      class="plus"
-      [disabled]="starting"
-      [attr.aria-expanded]="locationChoice && pickerOpen"
-      aria-label="open a new console"
-      (click)="plusClicked()"
-    >
-      {{ starting ? '…' : '+' }}
-    </button>
+  @if (showOpenButton) {
+    <div class="plus-wrap">
+      <button
+        type="button"
+        class="plus"
+        [disabled]="starting"
+        [attr.aria-expanded]="locationChoice && pickerOpen"
+        aria-label="open a new console"
+        (click)="plusClicked()"
+      >
+        {{ starting ? '…' : openLabel }}
+      </button>
 
-    @if (locationChoice && pickerOpen) {
-      <div class="picker">
-        <div class="picker-group">
-          <span class="picker-label">where</span>
-          <button type="button" (click)="chooseLocation('worktree')">worktree</button>
-          <button type="button" (click)="chooseLocation('main')">main</button>
+      @if (locationChoice && pickerOpen) {
+        <div class="picker">
+          <div class="picker-group">
+            <span class="picker-label">where</span>
+            <button type="button" (click)="chooseLocation('worktree')">worktree</button>
+            <button type="button" (click)="chooseLocation('main')">main</button>
+          </div>
         </div>
-      </div>
-    }
-  </div>
+      }
+    </div>
+  }
 </div>
 
 @if (pendingCloseId !== null) {
