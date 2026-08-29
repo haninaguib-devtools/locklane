@@ -343,33 +343,6 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.mainNodesFor(section)).toEqual([]);
   });
 
-  it('toggleTag selects and deselects a tag, and mainNodesFor narrows to matching issues', () => {
-    const fixture = init();
-    const withLabels: TreeNode[] = [
-      { number: 1, title: 'Bug', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: ['bug'], children: [] },
-      {
-        number: 2,
-        title: 'Docs',
-        kind: 'TASK',
-        state: 'OPEN',
-        hasActiveBranch: false,
-        labels: ['documentation'],
-        children: [],
-      },
-    ];
-    flushTree(1, withLabels);
-    const section = fixture.componentInstance.projectSections[0];
-
-    expect(fixture.componentInstance.isTagSelected('bug')).toBeFalse();
-    fixture.componentInstance.toggleTag('bug');
-    expect(fixture.componentInstance.isTagSelected('bug')).toBeTrue();
-    expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1]);
-
-    fixture.componentInstance.toggleTag('bug');
-    expect(fixture.componentInstance.isTagSelected('bug')).toBeFalse();
-    expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 2]);
-  });
-
   it('refresh() re-fetches everything and updates the list in place', () => {
     const fixture = init();
     flushTree(1, tree());

@@ -72,6 +72,7 @@
 .opened-toggle {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   font-size: 11px;
   color: var(--muted);
@@ -107,32 +108,6 @@
   border: solid var(--panel);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
-}
-
-.tag-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.tag-chip {
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--muted);
-  font-size: 10px;
-  cursor: pointer;
-}
-
-.tag-chip:hover {
-  color: var(--text);
-}
-
-.tag-chip.selected {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--panel);
 }
 
 .label {
