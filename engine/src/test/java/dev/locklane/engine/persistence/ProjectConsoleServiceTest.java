@@ -39,11 +39,11 @@ class ProjectConsoleServiceTest {
     }
 
     @Test
-    void startingOnAReadyProjectMintsAFreshFamilyIdEveryCall(@TempDir Path dbDir) {
-        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        Path workarea = dbDir.resolve("work");
+    void startingOnAReadyProjectMintsAFreshFamilyIdEveryCall(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = projectRepository.createReady("proj", "url", workarea, "main", Instant.now()).id();
-        ProjectConsoleService service = service(dbDir, projectRepository);
+        ProjectConsoleService service = service(tmp, projectRepository);
 
         Optional<ProjectConsoleService.ConsoleSession> first = service.start(projectId);
         Optional<ProjectConsoleService.ConsoleSession> second = service.start(projectId);
@@ -51,10 +51,44 @@ class ProjectConsoleServiceTest {
         assertThat(first).isPresent();
         assertThat(second).isPresent();
         assertThat(first.get().sessionId()).matches("^" + projectId + "-console-[0-9a-f]{8}$");
-        assertThat(first.get().workingDirectory()).isEqualTo(workarea.toString());
         // Several consoles side by side (#177): a second open is a new session, never a reuse.
         assertThat(second.get().sessionId()).isNotEqualTo(first.get().sessionId())
                 .matches("^" + projectId + "-console-[0-9a-f]{8}$");
+    }
+
+    @Test
+    void startingCreatesAFreshSiblingWorktreePerSessionNeverTheSharedCheckout(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", Instant.now()).id();
+        ProjectConsoleService service = service(tmp, projectRepository);
+
+        Optional<ProjectConsoleService.ConsoleSession> first = service.start(projectId);
+        Optional<ProjectConsoleService.ConsoleSession> second = service.start(projectId);
+
+        // Neither session reuses the project's own shared checkout (#314) ...
+        assertThat(first.get().workingDirectory()).isNotEqualTo(workarea.toString());
+        assertThat(second.get().workingDirectory()).isNotEqualTo(workarea.toString());
+        // ... and pressing "+" twice produces two separate worktrees, not a reuse.
+        assertThat(second.get().workingDirectory()).isNotEqualTo(first.get().workingDirectory());
+        assertThat(Path.of(first.get().workingDirectory())).isDirectory();
+        assertThat(Path.of(second.get().workingDirectory())).isDirectory();
+    }
+
+    @Test
+    void closingASessionLeavesItsWorktreeOnDisk(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(tmp);
+        ProjectConsoleService service = service(tmp, projectRepository, sessionRepository);
+        ProjectConsoleService.ConsoleSession session = service.start(projectId).get();
+        sessionRepository.recordAttach(session.sessionId(), Path.of(session.workingDirectory()), EARLIER, "alice");
+
+        assertThat(service.close(projectId, "alice")).isTrue();
+
+        // Cleanup is deliberately out of scope for #314 -- the worktree stays put.
+        assertThat(Path.of(session.workingDirectory())).isDirectory();
     }
 
     @Test

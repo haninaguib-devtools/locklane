@@ -22,10 +22,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The worktree-creating path exercises real git commands against a throwaway local
- * repository (a local bare "origin", no network, no real GitHub) — for genuine
- * confidence, not just a mocked assertion that git was "called" (#20). Since #43,
- * the checkout a worktree is created against is resolved per project — each test
- * registers a {@link ProjectRecord} pointing at its own throwaway repo.
+ * repository ({@link GitTestRepos} — a local bare "origin", no network, no real
+ * GitHub) — for genuine confidence, not just a mocked assertion that git was "called"
+ * (#20). Since #43, the checkout a worktree is created against is resolved per
+ * project — each test registers a {@link ProjectRecord} pointing at its own throwaway
+ * repo.
  */
 class WorktreeCreationServiceTest {
 
@@ -47,7 +48,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void startingASessionOnAProjectStillCloningIsEmpty(@TempDir Path root) throws IOException, InterruptedException {
-        Path projectRoot = initTestRepo(root);
+        Path projectRoot = GitTestRepos.initTestRepo(root);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
         long projectId = projectRepository.create("proj", "url", projectRoot, Instant.now()).id(); // still CLONING
@@ -58,7 +59,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void reusesAnExistingWorktreeWithoutTouchingGit(@TempDir Path root) throws IOException, InterruptedException {
-        Path projectRoot = initTestRepo(root);
+        Path projectRoot = GitTestRepos.initTestRepo(root);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -74,7 +75,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void withoutAWorktreeTheSessionUsesTheProjectCheckoutAndNoGitWorktreeRuns(@TempDir Path root) throws IOException, InterruptedException {
-        Path projectRoot = initTestRepo(root);
+        Path projectRoot = GitTestRepos.initTestRepo(root);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -90,7 +91,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void withoutAWorktreeEachCallStartsAFreshSessionId(@TempDir Path root) throws IOException, InterruptedException {
-        Path projectRoot = initTestRepo(root);
+        Path projectRoot = GitTestRepos.initTestRepo(root);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -106,7 +107,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void withoutAWorktreeAnUnknownIssueIsEmpty(@TempDir Path root) throws IOException, InterruptedException {
-        Path projectRoot = initTestRepo(root);
+        Path projectRoot = GitTestRepos.initTestRepo(root);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -117,7 +118,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void unknownIssueIsEmpty(@TempDir Path root) throws IOException, InterruptedException {
-        Path projectRoot = initTestRepo(root);
+        Path projectRoot = GitTestRepos.initTestRepo(root);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -128,7 +129,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void createsARealWorktreeOnANewBranch(@TempDir Path tmp) throws Exception {
-        Path projectRoot = initTestRepo(tmp);
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -142,14 +143,14 @@ class WorktreeCreationServiceTest {
         Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-42");
         assertThat(worktreePath).isDirectory();
         // The git branch itself carries no project prefix -- each project is its own repo.
-        assertThat(currentBranch(worktreePath)).isEqualTo("wip/42-add-the-frobnicator");
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/42-add-the-frobnicator");
         assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
                 .contains(worktreePath.toString());
     }
 
     @Test
     void callingItAgainForTheSameIssueReturnsTheSameIdWithoutRecreating(@TempDir Path tmp) throws Exception {
-        Path projectRoot = initTestRepo(tmp);
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -164,8 +165,8 @@ class WorktreeCreationServiceTest {
 
     @Test
     void twoProjectsWithTheSameIssueNumberGetIndependentWorktrees(@TempDir Path tmp) throws Exception {
-        Path projectARoot = initTestRepo(tmp.resolve("a"));
-        Path projectBRoot = initTestRepo(tmp.resolve("b"));
+        Path projectARoot = GitTestRepos.initTestRepo(tmp.resolve("a"));
+        Path projectBRoot = GitTestRepos.initTestRepo(tmp.resolve("b"));
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectA = readyProject(projectRepository, projectARoot).id();
@@ -184,7 +185,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void aReopenedSessionIsNeverMistakenForTheReusableWorktreeSession(@TempDir Path tmp) throws Exception {
-        Path projectRoot = initTestRepo(tmp);
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -201,7 +202,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void reopeningMintsAFreshIdInTheOriginalConsolesRecordedDirectory(@TempDir Path tmp) throws Exception {
-        Path projectRoot = initTestRepo(tmp);
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -220,7 +221,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void reopeningAClosedMainConsoleUsesTheProjectCheckoutAndAMainShapedId(@TempDir Path tmp) throws Exception {
-        Path projectRoot = initTestRepo(tmp);
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -238,7 +239,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void reopeningAClosedWorktreeConsoleRecreatesTheWorktreeWhenItIsGone(@TempDir Path tmp) throws Exception {
-        Path projectRoot = initTestRepo(tmp);
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -256,7 +257,7 @@ class WorktreeCreationServiceTest {
 
     @Test
     void reopeningAnIdFromAnotherIssueIsEmpty(@TempDir Path tmp) throws Exception {
-        Path projectRoot = initTestRepo(tmp);
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
@@ -282,42 +283,6 @@ class WorktreeCreationServiceTest {
             return new TokenCipher(new EncryptionKeyProvider(Files.createTempDirectory("gh-key").toString()));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
-        }
-    }
-
-    /** A minimal local repo with an "origin" remote and a main branch — no network. */
-    private static Path initTestRepo(Path dir) throws IOException, InterruptedException {
-        Files.createDirectories(dir);
-        Path bare = dir.resolve("origin.git");
-        Path work = dir.resolve("work");
-        Files.createDirectories(work);
-
-        run(dir, "git", "init", "--bare", "-b", "main", bare.toString());
-        run(dir, "git", "init", "-b", "main", work.toString());
-        run(work, "git", "config", "user.email", "test@example.com");
-        run(work, "git", "config", "user.name", "Test");
-        Files.writeString(work.resolve("README.md"), "test repo");
-        run(work, "git", "add", "README.md");
-        run(work, "git", "commit", "-m", "initial commit");
-        run(work, "git", "remote", "add", "origin", bare.toString());
-        run(work, "git", "push", "origin", "main");
-        run(work, "git", "branch", "--set-upstream-to=origin/main", "main");
-        return work;
-    }
-
-    private static String currentBranch(Path worktree) throws IOException, InterruptedException {
-        Process p = new ProcessBuilder("git", "-C", worktree.toString(), "branch", "--show-current").start();
-        String out = new String(p.getInputStream().readAllBytes()).strip();
-        p.waitFor();
-        return out;
-    }
-
-    private static void run(Path cwd, String... command) throws IOException, InterruptedException {
-        Process process = new ProcessBuilder(command).directory(cwd.toFile()).redirectErrorStream(true).start();
-        String output = new String(process.getInputStream().readAllBytes());
-        int exit = process.waitFor();
-        if (exit != 0) {
-            throw new AssertionError("Command failed (" + exit + "): " + String.join(" ", command) + "\n" + output);
         }
     }
 

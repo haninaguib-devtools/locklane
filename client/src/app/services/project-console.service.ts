@@ -16,10 +16,12 @@ export interface OpenProjectConsole {
 }
 
 /**
- * Project-level console sessions (#139/#140): persistent agent sessions running in the
- * project's own checkout rather than an issue worktree. Since #177 a project can have
- * several open at once — start mints a fresh id every call, listOpen lists the open
- * ones, and close ends one specific console.
+ * Project-level console sessions (#139/#140): persistent agent sessions with no issue
+ * of their own. Since #314 each one runs in its own freshly created git worktree
+ * rather than sharing the project's checkout; `workingDirectory` is whatever the
+ * engine reports, opaque to callers. Since #177 a project can have several open at
+ * once — start mints a fresh id every call, listOpen lists the open ones, and close
+ * ends one specific console (never removing its worktree — that cleanup is deferred).
  */
 @Injectable({ providedIn: 'root' })
 export class ProjectConsoleService {

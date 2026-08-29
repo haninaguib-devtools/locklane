@@ -32,19 +32,21 @@ class ProjectConsoleControllerTest {
     }
 
     @Test
-    void startingOnAReadyProjectMintsAFreshSessionIdEveryCall(@TempDir Path dbDir) {
-        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        Path workarea = dbDir.resolve("work");
+    void startingOnAReadyProjectMintsAFreshSessionIdEveryCall(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = projectRepository.createReady("proj", "url", workarea, "main", Instant.now()).id();
         ProjectConsoleController controller =
-                controller(dbDir, projectRepository, TestSqliteDatabases.newRepository(dbDir));
+                controller(tmp, projectRepository, TestSqliteDatabases.newRepository(tmp));
 
         var first = controller.start(projectId);
         var second = controller.start(projectId);
 
         assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(first.getBody().get("sessionId")).matches("^" + projectId + "-console-[0-9a-f]{8}$");
-        assertThat(first.getBody()).containsEntry("workingDirectory", workarea.toString());
+        // A fresh sibling worktree per session (#314), never the shared checkout, never reused.
+        assertThat(first.getBody().get("workingDirectory")).isNotEqualTo(workarea.toString());
+        assertThat(second.getBody().get("workingDirectory")).isNotEqualTo(first.getBody().get("workingDirectory"));
         assertThat(second.getBody().get("sessionId")).isNotEqualTo(first.getBody().get("sessionId"));
     }
 

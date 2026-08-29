@@ -184,7 +184,14 @@ public class WorktreeCreationService {
     public record StartedSession(String worktreeId, String workingDirectory) {
     }
 
-    private void createWorktree(String branch, Path worktreePath, Path projectRoot) {
+    /**
+     * Runs a real {@code git worktree add} for {@code branch} at {@code worktreePath}
+     * inside {@code projectRoot} — package-visible (and static: it touches no
+     * instance state) so {@link ProjectConsoleService} (#314) can reuse the exact
+     * same git plumbing for a project console's own sibling worktree, rather than
+     * duplicating it.
+     */
+    static void createWorktree(String branch, Path worktreePath, Path projectRoot) {
         run("git", "-C", projectRoot.toString(), "fetch", "--prune", "origin");
 
         boolean branchExists =
@@ -203,7 +210,8 @@ public class WorktreeCreationService {
         }
     }
 
-    private static String repoName(Path projectRoot) {
+    /** Package-visible for the same reason as {@link #createWorktree}: shared with {@link ProjectConsoleService}. */
+    static String repoName(Path projectRoot) {
         Path name = projectRoot.getFileName();
         return name != null ? name.toString() : "repo";
     }

@@ -19,9 +19,11 @@ interface OpenConsole {
 }
 
 // The project-level console page (#140, part of #138): lets a user start a
-// Claude/Codex/shell conversation in the project's own checkout -- where the
-// /t-open skill and `gh` are available -- before any issue exists, so an agent can
-// open one. Since #177 a project can have several consoles open at once, so this
+// Claude/Codex/shell conversation -- where the /t-open skill and `gh` are available
+// -- before any issue exists, so an agent can open one. Since #314 each console runs
+// in its own fresh git worktree rather than sharing one checkout; `dir` below is
+// whatever directory the engine reports for that session, opaque to this component.
+// Since #177 a project can have several consoles open at once, so this
 // page shows the same tab strip an issue's consoles get (#178) -- minus the
 // Overview tab and the main/worktree choice, which only make sense for an issue.
 @Component({

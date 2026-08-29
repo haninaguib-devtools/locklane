@@ -4,6 +4,7 @@ import dev.locklane.engine.pty.SessionRegistry;
 import dev.locklane.engine.security.TokenCipher;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -15,9 +16,15 @@ import java.util.regex.Pattern;
 
 /**
  * Project-scoped console sessions (#139) — unlike a worktree session (#29), they have
- * no issue and their working directory is always the project's own checkout
- * ({@link ProjectCheckoutService}'s workarea), never a `git worktree add` copy. A
- * project can have several open at once (#177): each {@link #start} mints a fresh id
+ * no issue of their own. Since #314 each session gets its own freshly created git
+ * worktree — a sibling checkout next to the project's own
+ * ({@link ProjectCheckoutService}'s workarea), following the same
+ * {@code ../<repo-name>-<suffix>} pattern and reusing the exact same
+ * {@code git worktree add} plumbing ({@link WorktreeCreationService#createWorktree})
+ * as the per-issue flow — rather than every console sharing that one checkout, as
+ * before #314. Closing a console never removes its worktree (that cleanup is
+ * deliberately deferred, per #314's task record). A project can have several open at
+ * once (#177): each {@link #start} mints a fresh id
  * {@code "<projectId>-console-<8-hex>"} — the same short-suffix convention
  * {@code WorktreeCreationService} uses for its {@code -main-}/{@code -resume-} ids —
  * stored in the same {@link WorktreeSessionRepository} table as any other session and
@@ -54,9 +61,11 @@ public class ProjectConsoleService {
     }
 
     /**
-     * Mints a brand-new console session id in the project's family and reports its
-     * working directory — a fresh id every call (#177), so several consoles can run
-     * side by side; never a reattach to one already open. Empty for an unknown or
+     * Mints a brand-new console session id in the project's family, creates it a
+     * fresh sibling git worktree (#314), and reports that worktree's directory — a
+     * fresh id and a fresh worktree every call (#177), so several consoles can run
+     * side by side, each in its own checkout; never a reattach to one already open,
+     * and never the project's shared checkout. Empty for an unknown or
      * not-yet-{@link ProjectStatus#READY} project — same rule
      * {@code WorktreeCreationService.startSession} already applies. No owner check
      * here: like starting a worktree session, the real ownership gate is the
@@ -66,7 +75,16 @@ public class ProjectConsoleService {
     public Optional<ConsoleSession> start(long projectId) {
         return projectRepository.findById(projectId)
                 .filter(project -> project.status() == ProjectStatus.READY)
-                .map(project -> new ConsoleSession(mintSessionId(projectId), project.workareaPath().toString()));
+                .map(project -> startWorktreeSession(projectId, project.workareaPath()));
+    }
+
+    private ConsoleSession startWorktreeSession(long projectId, Path projectRoot) {
+        String suffix = shortId();
+        String sessionId = projectId + "-console-" + suffix;
+        String branch = "console/" + suffix;
+        Path worktreePath = projectRoot.resolveSibling(WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix);
+        WorktreeCreationService.createWorktree(branch, worktreePath, projectRoot);
+        return new ConsoleSession(sessionId, worktreePath.toString());
     }
 
     /**
@@ -164,8 +182,8 @@ public class ProjectConsoleService {
         return record.ownerUsername() == null || record.ownerUsername().equals(requestingUsername);
     }
 
-    private static String mintSessionId(long projectId) {
-        return projectId + "-console-" + UUID.randomUUID().toString().substring(0, 8);
+    private static String shortId() {
+        return UUID.randomUUID().toString().substring(0, 8);
     }
 
     public record ConsoleSession(String sessionId, String workingDirectory) {
