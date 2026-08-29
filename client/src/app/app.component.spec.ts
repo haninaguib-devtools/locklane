@@ -82,6 +82,7 @@ describe('AppComponent', () => {
   const EMPTY_USAGE: UsageSnapshot = {
     claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
     codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+    opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
     updatedAt: new Date().toISOString(),
   };
 

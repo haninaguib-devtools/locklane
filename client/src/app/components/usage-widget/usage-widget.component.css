@@ -53,6 +53,10 @@
   background: var(--amber);
 }
 
+.mini-bar.opencode .mini-fill {
+  background: #5f7ea6;
+}
+
 .mini-bar.low .mini-fill {
   background: var(--accent);
 }
@@ -106,6 +110,10 @@
 
 .usage-window-bar.codex .usage-window-fill {
   background: var(--amber);
+}
+
+.usage-window-bar.opencode .usage-window-fill {
+  background: #5f7ea6;
 }
 
 .usage-window-bar.low .usage-window-fill {

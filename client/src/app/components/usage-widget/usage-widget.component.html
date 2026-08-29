@@ -16,6 +16,9 @@
           <span class="mini-bar codex" [class.low]="isLow(s.codex)">
             <span class="mini-fill" [style.width.%]="barPercentUsed(s.codex)"></span>
           </span>
+          <span class="mini-bar opencode" [class.low]="isLow(s.opencode)">
+            <span class="mini-fill" [style.width.%]="barPercentUsed(s.opencode)"></span>
+          </span>
         </span>
       </button>
 
@@ -50,6 +53,25 @@
                     <span class="usage-window-meta">{{ resetLabel(row.window) }} &middot; {{ usedLabel(row.window) }}</span>
                   </div>
                   <div class="usage-window-bar codex" [class.low]="isWindowLow(row.window)">
+                    <div class="usage-window-fill" [style.width.%]="percentUsed(row.window)"></div>
+                  </div>
+                </div>
+              }
+            } @else {
+              <div class="usage-unavailable">unavailable</div>
+            }
+          </div>
+
+          <div class="usage-provider">
+            <div class="usage-provider-name">OpenCode</div>
+            @if (s.opencode.available) {
+              @for (row of providerWindows(s.opencode); track row.label) {
+                <div class="usage-window-row">
+                  <div class="usage-window-line">
+                    <span class="usage-window-label">{{ row.label }}</span>
+                    <span class="usage-window-meta">{{ resetLabel(row.window) }} &middot; {{ usedLabel(row.window) }}</span>
+                  </div>
+                  <div class="usage-window-bar opencode" [class.low]="isWindowLow(row.window)">
                     <div class="usage-window-fill" [style.width.%]="percentUsed(row.window)"></div>
                   </div>
                 </div>

@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 
 const STORAGE_KEY = 'locklane.sessionAgents';
 
-export type Agent = 'claude' | 'codex' | 'shell';
+export type Agent = 'claude' | 'codex' | 'opencode' | 'shell';
 
 /**
  * Which agent each console session was launched with, keyed by session id.
@@ -34,7 +34,7 @@ function load(): Record<string, Agent> {
     }
     const valid: Record<string, Agent> = {};
     for (const [id, agent] of Object.entries(parsed)) {
-      if (agent === 'claude' || agent === 'codex' || agent === 'shell') {
+      if (agent === 'claude' || agent === 'codex' || agent === 'opencode' || agent === 'shell') {
         valid[id] = agent;
       }
     }

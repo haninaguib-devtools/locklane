@@ -32,6 +32,7 @@ describe('UsageWidgetComponent', () => {
     flush({
       claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       updatedAt: new Date().toISOString(),
     });
     fixture.detectChanges();
@@ -44,6 +45,7 @@ describe('UsageWidgetComponent', () => {
     flush({
       claude: { available: true, fiveHour: { percentLeft: 75, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
       codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       updatedAt: new Date().toISOString(),
     });
     fixture.detectChanges();
@@ -62,6 +64,7 @@ describe('UsageWidgetComponent', () => {
     flush({
       claude: { available: true, fiveHour: { percentLeft: 40, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
       codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       updatedAt: new Date().toISOString(),
     });
     fixture.detectChanges();
@@ -71,6 +74,30 @@ describe('UsageWidgetComponent', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('unavailable');
     expect(text).toContain('60% used');
+  });
+
+  it('shows OpenCode as a third provider, alongside Claude and Codex', () => {
+    const fixture = init();
+    flush({
+      claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+      codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+      opencode: { available: true, fiveHour: { percentLeft: 90, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
+      updatedAt: new Date().toISOString(),
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.usage-widget')).not.toBeNull();
+
+    fixture.componentInstance.toggle();
+    fixture.detectChanges();
+
+    const names = Array.from(
+      fixture.nativeElement.querySelectorAll('.usage-provider-name') as NodeListOf<HTMLElement>,
+    ).map((el) => el.textContent);
+    expect(names).toEqual(['Claude', 'Codex', 'OpenCode']);
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('10% used');
   });
 
   it('renders one row per window when weekly data is present, and only the 5-hour row when it is not', () => {
@@ -88,6 +115,7 @@ describe('UsageWidgetComponent', () => {
         weekly: null,
         modelWeeklyLimits: [],
       },
+      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       updatedAt: new Date().toISOString(),
     });
     fixture.detectChanges();
@@ -122,6 +150,7 @@ describe('UsageWidgetComponent', () => {
         ],
       },
       codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       updatedAt: new Date().toISOString(),
     });
     fixture.detectChanges();
@@ -146,6 +175,7 @@ describe('UsageWidgetComponent', () => {
     flush({
       claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       updatedAt: new Date().toISOString(),
     });
     fixture.detectChanges();
@@ -164,6 +194,7 @@ describe('UsageWidgetComponent', () => {
     flush({
       claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       updatedAt: new Date().toISOString(),
     });
     fixture.detectChanges();

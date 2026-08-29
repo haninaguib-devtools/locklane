@@ -27,6 +27,7 @@ describe('UsageService', () => {
         modelWeeklyLimits: [],
       },
       codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
       updatedAt: '2026-01-01T00:00:00Z',
     };
     service.snapshot().subscribe((result) => expect(result).toEqual(snapshot));

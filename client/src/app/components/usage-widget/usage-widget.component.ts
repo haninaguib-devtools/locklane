@@ -37,7 +37,7 @@ export class UsageWidgetComponent implements OnInit, OnDestroy {
   }
 
   hasAnyProvider(snapshot: UsageSnapshot): boolean {
-    return snapshot.claude.available || snapshot.codex.available;
+    return snapshot.claude.available || snapshot.codex.available || snapshot.opencode.available;
   }
 
   // The collapsed row's mini bar has room for one number per provider -- the 5-hour
