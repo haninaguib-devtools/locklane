@@ -162,7 +162,10 @@ incomplete scan, reported as one, never as "no PR exists".
 
 Variants a skill may ask for: open PRs; merged PRs (id, title, head branch); all-state
 PRs for a given head branch (an exact name, never a glob — see
-`forge:pr-find-by-task`).
+`forge:pr-find-by-task`); all-state PRs repo-wide with every field `forge:pr-files`,
+`forge:pr-reviews`, and `forge:pr-checks` would otherwise fetch per PR
+(`.t-workflow/scripts/status-snapshot.sh` uses this last variant to correlate every local
+`wip/*` branch and worktree against its PR in one call, instead of one lookup each).
 
 Contract: the listing must be **complete** for what the caller asked. Paginate or raise
 the page size until it is; a result sitting exactly at the page limit is an incomplete
@@ -171,7 +174,7 @@ values below are starting points, not ceilings.
 
 | Backend | Command |
 |---|---|
-| GitHub | `gh pr list --state open` · `gh pr list --state merged --limit 100 --json number,title,headRefName` · `gh pr list --head <branch> --state all` |
+| GitHub | `gh pr list --state open` · `gh pr list --state merged --limit 100 --json number,title,headRefName` · `gh pr list --head <branch> --state all` · `gh pr list --state all --limit 200 --json number,title,state,isDraft,headRefName,url,createdAt,mergeable,mergeStateStatus,reviews,files,statusCheckRollup` |
 
 ### `forge:pr-approval` — where a human approves, when approval rules are configured
 

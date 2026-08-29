@@ -19,7 +19,21 @@ optional, and `/t-work` will refuse without it.
    its tracking issue if any.
 2. Inspect the repository enough to plan honestly — relevant files, existing structure.
    Do not load everything by default.
-3. Produce the plan and **write it to the issue body** (`tracker:edit-body <id>`),
+3. **Template-owned-file check.** Check whether `.template-manifest.json` exists at the
+   repo root — that is what marks a pinned template consumer
+   (`docs/architecture/manifest.md`); this repository itself never carries one. When it
+   does, and a candidate target sits inside a template-owned file
+   (`.t-workflow/scripts/template-owned-paths.sh --list`), do not decide where the
+   content lands by reasoning about the file's own section prose ("this reads like
+   Conventions, put it there"). Read `docs/architecture/local-slots.md` and resolve the
+   target against its named `<!-- local -->` … `<!-- /local -->` slots instead — those
+   are the only regions a consumer edit may land in; everything else is hashed into the
+   manifest and fails `.t-workflow/scripts/check-manifest.sh` after the fact. If the
+   change fits inside a named slot, that slot's location becomes the Allowed path. If it
+   does not — no slot covers it — the plan must not target that file: say so in the
+   report and name the slot that would be needed (or that none exists), rather than
+   writing an Allowed path outside one.
+4. Produce the plan and **write it to the issue body** (`tracker:edit-body <id>`),
    preserving everything else there. On a first plan that means appending the section;
    on a re-plan it means replacing it, per the rule below. Either way, changing only
    this section is the one edit to an issue body that is expected after its PR opens —
@@ -59,7 +73,7 @@ optional, and `/t-work` will refuse without it.
      - <judgments cheaper or more reliable for a human>
    ```
 
-4. **Scope-overlap check.** List every open issue and compare Allowed paths and Scope
+5. **Scope-overlap check.** List every open issue and compare Allowed paths and Scope
    lines, using `tracker:list-open` — its contract requires a complete scan. A truncated
    list reports "no overlap" because it never looked, so a result that hits the backend's
    page limit is an incomplete scan: say so and paginate rather than concluding anything
@@ -67,7 +81,7 @@ optional, and `/t-work` will refuse without it.
    is not automatically a refusal (some overlaps are sequential by a blocked-by
    dependency), but it must be named in the plan so a person decides at plan time
    rather than at merge-conflict time.
-5. Report — in plain prose per AGENTS.md §Communication, saying what the plan means in
+6. Report — in plain prose per AGENTS.md §Communication, saying what the plan means in
    ordinary language before any internal terminology: validation ownership, open
    questions, and whether the task is ready for `/t-work`.
 

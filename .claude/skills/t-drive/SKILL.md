@@ -22,8 +22,11 @@ and that ADR differ, the ADR wins — flag it, do not improvise.
    directly.
 2. `tracker:list-children <id>` — every sub-issue, with state. **Refuse** an initiative
    with no open children — nothing to drive; say so.
-3. For each open child, `tracker:list-blockers <child-id>` — build the dependency graph
-   among this initiative's own children, and note any blocker outside it (Phase 2 step 1
+3. `tracker:list-open` **once**, filtered client-side to this initiative's open
+   children — the same bulk `blockedBy`-bearing call `t-status` already relies on
+   (ADR-003), not a `tracker:list-blockers <child-id>` loop: one round trip for the
+   whole dependency graph instead of one per child. Build the graph from each child's
+   `blockedBy` field, and note any blocker outside the initiative (Phase 2 step 1
    handles both cases). A child already closed (merged in an earlier `/t-drive` run, or
    cancelled) is done; report it and skip it below.
 
@@ -52,9 +55,12 @@ read-write agent per child, reporting back — while children in a dependency ch
 topological order, one after another.
 
 1. **Eligibility.**
-   - Blocked by an issue outside this initiative, not closed as completed → excluded
-     immediately (the same blocker-gate refusal `/t-work` already enforces), spending no
-     retry.
+   - **Blocked by an issue outside this initiative.** `tracker:list-blockers
+     <child-id>`, filtered to just the blocker(s) Phase 0 step 3 already flagged as
+     outside the initiative, into `.t-workflow/scripts/check-blocker-gate.sh <file>`.
+     Exit 1 → excluded immediately (the same blocker-gate refusal `/t-work` already
+     enforces), spending no retry. Exit 0 (satisfied, or no outside blocker at all) →
+     not excluded on this ground; the bullets below still apply.
    - Blocked by another child of this initiative, not yet resolved → hold; revisit once
      that child's outcome (merged or excluded) is known.
    - Blocked by another child already **excluded** in this run → excluded immediately,

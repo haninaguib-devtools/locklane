@@ -31,14 +31,19 @@ has already left the pipeline, say which and stop.
    Stop and name `/t-plan <id>`; the task then returns through `/t-review`.
 
 2. **Review.** Required when the PR touches a protected surface; missing → stop and name
-   `/t-review <id>`. If a review exists (`forge:pr-reviews <pr>`), its latest verdict
-   governs regardless: `not-ready` → `/t-work <id>` in fix mode. No review and no
-   protected path → continue, saying out loud that none ran.
+   `/t-review <id>`. If a review exists, fetch it once here with `forge:pr-reviews <pr>`
+   and hold the result — **precondition 7 below reuses this same fetch**, never
+   re-querying it. Its latest verdict governs regardless: `not-ready` → `/t-work <id>`
+   in fix mode. No review and no protected path → continue, saying out loud that none
+   ran.
 
-   On a protected surface, two more checks: the `isolation:` line must not read `same
-   session` (a missing line is unknown, treated the same way); the latest review's
-   timestamp must be newer than the head commit (`forge:pr-view <pr>`). Either failure →
-   stop, send it back to `/t-review <id>`.
+   On a protected surface, feed the same fetched reviews and the PR's changed paths
+   (precondition 0's own `forge:pr-files <pr>`, already computed) into
+   `.t-workflow/scripts/check-review-gate.sh <head-commit-time> <reviews-file>`
+   (`<head-commit-time>` from `forge:pr-view <pr>`'s head commit), rather than checking
+   the `isolation:` line and staleness by hand. Exit 1 → stop, send it back to
+   `/t-review <id>`, quoting the script's own reason (a missing or `same session`
+   isolation line, or a review older than the head commit).
 3. CI, if configured, is green: `forge:pr-checks <pr>`. No CI configured is acceptable,
    said out loud.
 4. The branch merges cleanly against current `origin/main` (`forge:pr-view <pr>`). A
@@ -56,7 +61,8 @@ has already left the pipeline, say which and stop.
    initiative's aggregate PR (`/t-drive`, ADR-004, branch `wip/<id>-integration`), every
    included child's own record is in the diff, each already current from its own merge
    into the integration branch.
-7. **Pending human checks**, when a review exists (`forge:pr-reviews <pr>`): its
+7. **Pending human checks**, when a review exists: read it from **precondition 2's own
+   `forge:pr-reviews <pr>` fetch** — never a second call for the same PR. Its
    `## Pending human checks` section lists judgments no command can settle. **Checks
    listed** → carry them into the confirmation, non-blocking, acknowledged by
    confirming. **Reads `none`** → say so, carry `none` as the evidence value. **A

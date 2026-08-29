@@ -265,5 +265,13 @@ expect_rc "verify mode: a file the manifest lists but the tree lacks fails" \
   1 bash -c 'cd "$1" && "$2/.t-workflow/scripts/check-manifest.sh"' _ "$work/mrepo" "$root"
 echo
 
+# --- 9. .t-workflow/scripts/status-snapshot.sh: usage only ---------------------------------
+# The script's live gh/git calls need a real repo and network access, so this fixture
+# suite only asserts its argument handling — no `gh` call is reachable from here.
+echo "status-snapshot.sh"
+expect_rc "an unexpected argument is a usage error, no gh call reached" \
+  2 .t-workflow/scripts/status-snapshot.sh unexpected-argument
+echo
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
