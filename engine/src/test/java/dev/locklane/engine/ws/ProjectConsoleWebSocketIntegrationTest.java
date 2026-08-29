@@ -47,7 +47,7 @@ class ProjectConsoleWebSocketIntegrationTest {
 
     @Test
     void aProjectConsoleSessionSeesTheProjectsDecryptedGithubToken(@TempDir Path workDir) throws Exception {
-        long projectId = projectRepository.createReady("token-project", "url", workDir, "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("token-project", "url", workDir, "main", 1L, Instant.now()).id();
         projectRepository.setGithubToken(projectId, tokenCipher.encrypt("ghp_project139secret"));
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
                 "console-token-user", "password-console-token");
@@ -62,7 +62,7 @@ class ProjectConsoleWebSocketIntegrationTest {
 
     @Test
     void aProjectConsoleSessionWithNoStoredTokenGetsNoGhToken(@TempDir Path workDir) throws Exception {
-        long projectId = projectRepository.createReady("no-token-project", "url", workDir, "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("no-token-project", "url", workDir, "main", 1L, Instant.now()).id();
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
                 "console-no-token-user", "password-console-no-token");
         RecordingHandler client = new RecordingHandler();

@@ -37,11 +37,13 @@ class ProjectCheckoutServiceTest {
         Path origin = initBareOriginWithDefaultBranch(tmp, "trunk");
         ProjectCheckoutService service = service(tmp);
 
-        ProjectRecord project = service.createProject(origin.toString(), "myproj");
+        ProjectRecord project = service.createProject(origin.toString(), "myproj", 1L);
 
         assertThat(project.name()).isEqualTo("myproj");
-        Path workarea = tmp.resolve("workarea").resolve("myproj");
+        assertThat(project.ownerUserId()).isEqualTo(1L);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("myproj");
         assertThat(workarea).isDirectory();
+        assertThat(project.workareaPath()).isEqualTo(workarea);
 
         ProjectRepository repository = repositoryOver(tmp);
         ProjectRecord found = repository.findById(project.id()).orElseThrow();
@@ -54,7 +56,7 @@ class ProjectCheckoutServiceTest {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");
         ProjectCheckoutService service = service(tmp);
 
-        ProjectRecord project = service.createProject(origin.toString(), "  ");
+        ProjectRecord project = service.createProject(origin.toString(), "  ", 1L);
 
         assertThat(project.name()).isEqualTo(ProjectCheckoutService.deriveName(origin.toString()));
     }
@@ -63,7 +65,7 @@ class ProjectCheckoutServiceTest {
     void aFailedCloneMarksTheProjectFailedAndLeavesTheGitUrlIntact(@TempDir Path tmp) {
         ProjectCheckoutService service = service(tmp);
 
-        ProjectRecord project = service.createProject("/does/not/exist", "broken");
+        ProjectRecord project = service.createProject("/does/not/exist", "broken", 1L);
 
         ProjectRepository repository = repositoryOver(tmp);
         ProjectRecord found = repository.findById(project.id()).orElseThrow();
@@ -77,17 +79,32 @@ class ProjectCheckoutServiceTest {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");
         ProjectCheckoutService service = service(tmp);
 
-        ProjectRecord first = service.createProject(origin.toString(), "dup");
-        ProjectRecord second = service.createProject(origin.toString(), "dup");
+        ProjectRecord first = service.createProject(origin.toString(), "dup", 1L);
+        ProjectRecord second = service.createProject(origin.toString(), "dup", 1L);
 
         assertThat(first.workareaPath()).isNotEqualTo(second.workareaPath());
         assertThat(second.workareaPath().getFileName().toString()).isEqualTo("dup-2");
     }
 
     @Test
+    void twoDifferentOwnersCanEachHaveAProjectOfTheSameSlug(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        ProjectCheckoutService service = service(tmp);
+
+        ProjectRecord ownedByOne = service.createProject(origin.toString(), "shared-name", 1L);
+        ProjectRecord ownedByTwo = service.createProject(origin.toString(), "shared-name", 2L);
+
+        assertThat(ownedByOne.workareaPath().getFileName().toString()).isEqualTo("shared-name");
+        assertThat(ownedByTwo.workareaPath().getFileName().toString()).isEqualTo("shared-name");
+        assertThat(ownedByOne.workareaPath()).isNotEqualTo(ownedByTwo.workareaPath());
+        assertThat(ownedByOne.workareaPath()).isDirectory();
+        assertThat(ownedByTwo.workareaPath()).isDirectory();
+    }
+
+    @Test
     void retryReClonesAFailedProject(@TempDir Path tmp) throws Exception {
         ProjectCheckoutService service = service(tmp);
-        ProjectRecord failed = service.createProject("/does/not/exist", "will-retry");
+        ProjectRecord failed = service.createProject("/does/not/exist", "will-retry", 1L);
         assertThat(repositoryOver(tmp).findById(failed.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
 
         // Point retry at a real repo isn't possible without changing the stored git
@@ -104,7 +121,7 @@ class ProjectCheckoutServiceTest {
     void retryOnAReadyProjectIsEmpty(@TempDir Path tmp) throws Exception {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");
         ProjectCheckoutService service = service(tmp);
-        ProjectRecord ready = service.createProject(origin.toString(), "already-ready");
+        ProjectRecord ready = service.createProject(origin.toString(), "already-ready", 1L);
 
         assertThat(service.retry(ready.id())).isEmpty();
     }
@@ -120,7 +137,7 @@ class ProjectCheckoutServiceTest {
     void deleteRemovesTheProjectAndItsWorkareaDirectory(@TempDir Path tmp) throws Exception {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");
         ProjectCheckoutService service = service(tmp);
-        ProjectRecord project = service.createProject(origin.toString(), "to-delete");
+        ProjectRecord project = service.createProject(origin.toString(), "to-delete", 1L);
         assertThat(project.workareaPath()).isDirectory();
 
         ProjectCheckoutService.DeleteOutcome outcome = service.delete(project.id());
@@ -143,7 +160,7 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
                 tmp.resolve("workarea").toString(), Runnable::run, new IssueWorktreeService(sessions));
-        ProjectRecord project = service.createProject(origin.toString(), "still-open");
+        ProjectRecord project = service.createProject(origin.toString(), "still-open", 1L);
         sessions.recordAttach(project.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
 
         ProjectCheckoutService.DeleteOutcome outcome = service.delete(project.id());

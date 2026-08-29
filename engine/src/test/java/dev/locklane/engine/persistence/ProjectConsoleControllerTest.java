@@ -35,7 +35,7 @@ class ProjectConsoleControllerTest {
     void startingOnAReadyProjectMintsAFreshSessionIdEveryCall(@TempDir Path tmp) throws Exception {
         Path workarea = GitTestRepos.initTestRepo(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
-        long projectId = projectRepository.createReady("proj", "url", workarea, "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", 1L, Instant.now()).id();
         ProjectConsoleController controller =
                 controller(tmp, projectRepository, TestSqliteDatabases.newRepository(tmp));
 
@@ -53,7 +53,7 @@ class ProjectConsoleControllerTest {
     @Test
     void discoveringBeforeAnyAttachIsNotFound(@TempDir Path dbDir) {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
         ProjectConsoleController controller =
                 controller(dbDir, projectRepository, TestSqliteDatabases.newRepository(dbDir));
 
@@ -63,7 +63,7 @@ class ProjectConsoleControllerTest {
     @Test
     void discoveringAfterAnAttachReturnsItToItsOwner(@TempDir Path dbDir) {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-0a1b2c3d", dbDir, EARLIER, "alice");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
@@ -77,7 +77,7 @@ class ProjectConsoleControllerTest {
     @Test
     void discoveringAnotherUsersSessionIsNotFound(@TempDir Path dbDir) {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-0a1b2c3d", dbDir, EARLIER, "bob");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
@@ -88,7 +88,7 @@ class ProjectConsoleControllerTest {
     @Test
     void listingOpenConsolesReturnsTheCallersOldestFirst(@TempDir Path dbDir) {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-bbbbbbbb", dbDir, LATER, "alice");
         sessionRepository.recordAttach(projectId + "-console-aaaaaaaa", dbDir, EARLIER, "alice");
@@ -114,7 +114,7 @@ class ProjectConsoleControllerTest {
     @Test
     void closingTheOwnersSessionSucceeds(@TempDir Path dbDir) {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-0a1b2c3d", dbDir, EARLIER, "alice");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
@@ -128,7 +128,7 @@ class ProjectConsoleControllerTest {
     @Test
     void closingAnotherUsersSessionIsNotFoundAndLeavesItRunning(@TempDir Path dbDir) {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-0a1b2c3d", dbDir, EARLIER, "bob");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
@@ -140,7 +140,7 @@ class ProjectConsoleControllerTest {
     @Test
     void closingOneConsoleByIdLeavesItsSiblingsOpen(@TempDir Path dbDir) {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-aaaaaaaa", dbDir, EARLIER, "alice");
         sessionRepository.recordAttach(projectId + "-console-bbbbbbbb", dbDir, LATER, "alice");
@@ -157,7 +157,7 @@ class ProjectConsoleControllerTest {
     @Test
     void closingByIdRefusesAnIdOutsideTheProjectsFamilyOrAnotherUsers(@TempDir Path dbDir) {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-174-some-worktree", dbDir, EARLIER, "alice");
         sessionRepository.recordAttach(projectId + "-console-bbbbbbbb", dbDir, EARLIER, "bob");

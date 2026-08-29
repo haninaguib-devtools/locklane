@@ -51,7 +51,7 @@ class WorktreeCreationServiceTest {
         Path projectRoot = GitTestRepos.initTestRepo(root);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
-        long projectId = projectRepository.create("proj", "url", projectRoot, Instant.now()).id(); // still CLONING
+        long projectId = projectRepository.create("proj", "url", projectRoot, 1L, Instant.now()).id(); // still CLONING
         WorktreeCreationService service = service(repository, projectRepository, List.of());
 
         assertThat(service.startSession(projectId, 9)).isEmpty();
@@ -267,7 +267,7 @@ class WorktreeCreationServiceTest {
     }
 
     private static ProjectRecord readyProject(ProjectRepository projectRepository, Path projectRoot) {
-        return projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", Instant.now());
+        return projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", 1L, Instant.now());
     }
 
     private static WorktreeCreationService service(WorktreeSessionRepository repository,
