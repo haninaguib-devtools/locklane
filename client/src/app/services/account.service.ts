@@ -35,6 +35,12 @@ function withPlainError<T>(source: Observable<T>): Observable<T> {
  * secret; confirm checks a code against it and turns 2FA on, handing back a backup code
  * set (#93) shown once; disable checks the current password and turns it off (#91).
  * `regenerateBackupCodes` replaces that set, also behind the current password.
+ *
+ * `changePassword` (#241) posts to `/api/account/password` (`AccountPasswordController`) --
+ * the current password plus a new one, for a signed-in user changing their password
+ * voluntarily. The forced-first-login version of the same change is a different, deliberately
+ * unauthenticated endpoint handled by `AuthService.completePasswordChange` instead, since that
+ * one runs before a session exists to call this one with.
  */
 @Injectable({ providedIn: 'root' })
 export class AccountService {
@@ -59,6 +65,12 @@ export class AccountService {
   regenerateBackupCodes(password: string): Observable<BackupCodes> {
     return withPlainError(
       this.http.post<BackupCodes>('/api/account/2fa/backup-codes/regenerate', { password }),
+    );
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Observable<void> {
+    return withPlainError(
+      this.http.post<void>('/api/account/password', { currentPassword, newPassword }),
     );
   }
 }

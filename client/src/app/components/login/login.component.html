@@ -15,7 +15,7 @@
       }
       <button type="submit" [disabled]="submitting">{{ submitting ? 'Logging in…' : 'Log in' }}</button>
     </form>
-  } @else {
+  } @else if (step === 'code') {
     <form class="login-card" (ngSubmit)="submitCode()">
       <h1>locklane</h1>
       <p class="hint">Enter the 6-digit code from your authenticator app, or a backup code.</p>
@@ -34,6 +34,25 @@
         <p class="error">{{ error }}</p>
       }
       <button type="submit" [disabled]="submitting">{{ submitting ? 'Verifying…' : 'Verify' }}</button>
+    </form>
+  } @else {
+    <form class="login-card" (ngSubmit)="submitPasswordChange()">
+      <h1>locklane</h1>
+      <p class="hint">This account needs a new password before continuing.</p>
+      <label>
+        New password
+        <input
+          name="newPassword"
+          type="password"
+          [(ngModel)]="newPassword"
+          autocomplete="new-password"
+          required
+        />
+      </label>
+      @if (error) {
+        <p class="error">{{ error }}</p>
+      }
+      <button type="submit" [disabled]="submitting">{{ submitting ? 'Setting password…' : 'Set new password' }}</button>
     </form>
   }
 </div>

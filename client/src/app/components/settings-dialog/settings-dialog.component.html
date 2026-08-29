@@ -37,6 +37,52 @@
       </section>
 
       <section class="section">
+        <h2>Password</h2>
+        <p class="muted">Change the password used to sign in.</p>
+
+        <form (ngSubmit)="changePassword()">
+          <label>
+            Current password
+            <input
+              type="password"
+              name="currentPasswordForChange"
+              autocomplete="current-password"
+              [(ngModel)]="currentPasswordForChange"
+              [disabled]="changingPassword"
+              required
+            />
+          </label>
+          <label>
+            New password
+            <input
+              type="password"
+              name="newPasswordForChange"
+              autocomplete="new-password"
+              [(ngModel)]="newPasswordForChange"
+              [disabled]="changingPassword"
+              required
+            />
+          </label>
+
+          @if (passwordChangeError; as message) {
+            <p class="error">{{ message }}</p>
+          }
+          @if (passwordChanged) {
+            <p class="muted">Password changed.</p>
+          }
+
+          <div class="actions">
+            <button
+              type="submit"
+              [disabled]="!currentPasswordForChange || !newPasswordForChange || changingPassword"
+            >
+              {{ changingPassword ? 'Changing…' : 'Change password' }}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="section">
         <h2>Two-factor authentication</h2>
 
         @if (loadError(); as message) {

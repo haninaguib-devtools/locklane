@@ -125,6 +125,19 @@ class UserRepositoryTest {
     }
 
     @Test
+    void changePasswordReplacesTheHashAndClearsMustChangePassword(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        repository.create("hani", "old-hash", Instant.parse("2026-08-25T12:00:00Z"));
+        repository.changePassword("hani", "new-hash");
+
+        UserRecord after = repository.findByUsername("hani").orElseThrow();
+        assertThat(after.passwordHash()).isEqualTo("new-hash");
+        assertThat(after.mustChangePassword())
+                .as("a plain voluntary change already satisfies whatever must_change_password was asking for")
+                .isFalse();
+    }
+
+    @Test
     void anyExistIsFalseUntilAUserIsCreated(@TempDir Path dbDir) {
         UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
 
