@@ -362,4 +362,33 @@ class IssueWorktreeServiceTest {
         return new WorktreeSessionAuthorization(TestSqliteDatabases.newProjectRepository(dbDir),
                 TestSqliteDatabases.newUserRepository(dbDir));
     }
+
+    @Test
+    void deleteSessionsForProjectRemovesWorktreesAndConsolesForThatProjectOnly(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), now, "alice");
+        repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt2"), now, "alice");
+        repository.recordAttach("2-174-other-project", dbDir.resolve("wt3"), now, "alice");
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+        service.deleteSessionsForProject(1);
+
+        assertThat(service.hasAnySessions(1))
+                .as("#240's cascade-delete: every session scoped to project 1 is gone")
+                .isFalse();
+        assertThat(service.hasAnySessions(2))
+                .as("a different project's session is untouched")
+                .isTrue();
+    }
+
+    @Test
+    void deleteSessionsForProjectWithNoSessionsIsANoOp(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        service.deleteSessionsForProject(1);
+
+        assertThat(service.hasAnySessions(1)).isFalse();
+    }
 }

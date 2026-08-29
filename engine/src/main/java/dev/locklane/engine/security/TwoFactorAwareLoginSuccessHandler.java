@@ -63,7 +63,14 @@ class TwoFactorAwareLoginSuccessHandler implements AuthenticationSuccessHandler 
             return;
         }
 
+        // Neither gate applies -- the session Spring Security's login filter already
+        // saved stands as-is. The body names the role (#240) so the client can gate its
+        // admin panel's visibility without a second round trip to /api/auth/me.
         response.setStatus(HttpServletResponse.SC_OK);
+        if (user != null) {
+            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            objectMapper.writeValue(response.getWriter(), Map.of("username", username, "role", user.role().name()));
+        }
     }
 
     /**

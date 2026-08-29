@@ -32,6 +32,11 @@
               <button type="button" class="account-item" role="menuitem" (click)="openSettings()">
                 Settings
               </button>
+              @if (isAdmin()) {
+                <button type="button" class="account-item" role="menuitem" (click)="openAdminUsers()">
+                  Manage users
+                </button>
+              }
               <button type="button" class="account-item" role="menuitem" (click)="logout()">
                 Sign out
               </button>
@@ -66,6 +71,9 @@
     </div>
     @if (settingsOpen) {
       <app-settings-dialog (closed)="closeSettings()" />
+    }
+    @if (adminUsersOpen) {
+      <app-admin-users (closed)="closeAdminUsers()" />
     }
     @if (showAddProject) {
       <app-add-project-popup (created)="onProjectCreated()" (closed)="onAddProjectClosed()" />

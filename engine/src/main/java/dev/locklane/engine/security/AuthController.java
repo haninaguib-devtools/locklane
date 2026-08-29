@@ -73,9 +73,15 @@ public class AuthController {
         this.passwordEncoder = passwordEncoder;
     }
 
+    /**
+     * {@code role} (#240) is what the client gates its admin user-management panel's
+     * visibility on ({@code AuthService.isAdmin}) — never itself an authorization
+     * check, since every admin-only endpoint enforces that server-side regardless of
+     * what a client believes about its own role.
+     */
     @GetMapping("/api/auth/me")
     public Map<String, String> me(Authentication authentication) {
-        return Map.of("username", authentication.getName());
+        return Map.of("username", authentication.getName(), "role", roleOf(authentication.getName()));
     }
 
     /**
@@ -114,7 +120,7 @@ public class AuthController {
         session.removeAttribute(PendingTwoFactorLogin.SESSION_ATTRIBUTE);
         establishSession(request, response, username);
 
-        return ResponseEntity.ok(Map.of("username", username));
+        return ResponseEntity.ok(Map.of("username", username, "role", roleOf(username)));
     }
 
     /**
@@ -156,7 +162,14 @@ public class AuthController {
         session.removeAttribute(PendingPasswordChangeLogin.SESSION_ATTRIBUTE);
         establishSession(request, response, username);
 
-        return ResponseEntity.ok(Map.of("username", username));
+        return ResponseEntity.ok(Map.of("username", username, "role", roleOf(username)));
+    }
+
+    /** {@code "USER"} for an account row that somehow doesn't exist any more — should never happen for an authenticated caller. */
+    private String roleOf(String username) {
+        return userRepository.findByUsername(username)
+                .map(user -> user.role().name())
+                .orElse(UserRecord.Role.USER.name());
     }
 
     /** Authenticates the current session as {@code username}, the last step of either pending flow. */
