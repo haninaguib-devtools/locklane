@@ -3,10 +3,12 @@ package dev.locklane.engine.persistence;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,6 +39,11 @@ public class IssueWorktreeService {
 
     private static final Pattern PROJECT_AND_ISSUE_PREFIXED = Pattern.compile("^(\\d+)-(\\d+)-");
     private static final Pattern PROJECT_CONSOLE_PREFIXED = Pattern.compile("^(\\d+)-console(-.+)?$");
+    // The two id shapes minted for a single issue that are NOT its one reusable
+    // worktree session (WorktreeCreationService): a main-checkout console, or a
+    // reopened conversation. Both still match PROJECT_AND_ISSUE_PREFIXED above, since
+    // their first two segments are the same project/issue numbers.
+    private static final Pattern MAIN_OR_RESUME_SUFFIX = Pattern.compile("^(main|resume)-");
 
     private final WorktreeSessionRepository repository;
     private final ConsoleResumeSessionRepository resumeRepository;
@@ -143,5 +150,41 @@ public class IssueWorktreeService {
         return repository.findAll().stream()
                 .anyMatch(record -> matchesProject(record.worktreeId(), projectId)
                         || matchesProjectConsole(record.worktreeId(), projectId));
+    }
+
+    /**
+     * Every project's console-created, per-issue worktree session — the ones
+     * {@link dev.locklane.engine.persistence.WorktreeCreationService#startSession}
+     * creates a real {@code git worktree add} for — across every project, with no
+     * ownership filter (#319's cleanup sweep is a system-level operation, like
+     * {@link #hasAnySessions}, not a "what can this user see" listing). Excludes a
+     * project's own console family (never a worktree) and, for a given issue, the
+     * {@code -main-} (no worktree, shares the project checkout) and {@code -resume-}
+     * (a reopened conversation, may share an existing worktree's directory) session
+     * shapes — the same exclusion {@code WorktreeCreationService.startSession}
+     * applies for one issue at a time, generalized here to every issue at once.
+     */
+    public List<ConsoleWorktree> allIssueWorktrees() {
+        return repository.findAll().stream()
+                .flatMap(record -> asConsoleWorktree(record).stream())
+                .toList();
+    }
+
+    private static Optional<ConsoleWorktree> asConsoleWorktree(WorktreeSessionRecord record) {
+        Matcher m = PROJECT_AND_ISSUE_PREFIXED.matcher(record.worktreeId());
+        if (!m.find()) {
+            return Optional.empty();
+        }
+        String suffix = record.worktreeId().substring(m.end());
+        if (MAIN_OR_RESUME_SUFFIX.matcher(suffix).find()) {
+            return Optional.empty();
+        }
+        long projectId = Long.parseLong(m.group(1));
+        int issueNumber = Integer.parseInt(m.group(2));
+        return Optional.of(new ConsoleWorktree(projectId, issueNumber, record.worktreeId(), record.workingDirectory()));
+    }
+
+    /** One console-created worktree, with the project/issue it belongs to already parsed out of its id. */
+    public record ConsoleWorktree(long projectId, int issueNumber, String worktreeId, Path workingDirectory) {
     }
 }

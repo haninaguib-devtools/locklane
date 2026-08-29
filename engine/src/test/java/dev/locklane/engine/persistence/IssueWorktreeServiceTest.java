@@ -223,6 +223,65 @@ class IssueWorktreeServiceTest {
     }
 
     @Test
+    void allIssueWorktreesSpansEveryProjectAndParsesTheProjectAndIssueOutOfTheId(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), now, "alice");
+        repository.recordAttach("2-9-different-project", dbDir.resolve("wt2"), now, "bob");
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        assertThat(service.allIssueWorktrees()).containsExactlyInAnyOrder(
+                new IssueWorktreeService.ConsoleWorktree(1, 174, "1-174-rename-toggle", dbDir.resolve("wt1")),
+                new IssueWorktreeService.ConsoleWorktree(2, 9, "2-9-different-project", dbDir.resolve("wt2")));
+    }
+
+    @Test
+    void allIssueWorktreesExcludesMainAndResumeShapedSessionsForTheSameIssue(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), now, "alice"); // the real worktree
+        repository.recordAttach("1-174-main-a1b2c3d4", dbDir.resolve("wt2"), now, "alice"); // no worktree at all
+        repository.recordAttach("1-174-resume-deadbeef", dbDir.resolve("wt1"), now, "alice"); // reopened, same dir
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        assertThat(service.allIssueWorktrees())
+                .extracting(IssueWorktreeService.ConsoleWorktree::worktreeId)
+                .containsExactly("1-174-rename-toggle");
+    }
+
+    @Test
+    void allIssueWorktreesExcludesProjectConsolesAndNonConformingIds(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("main", dbDir.resolve("wt1"), now, "alice");
+        repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt2"), now, "alice");
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt3"), now, "alice");
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        assertThat(service.allIssueWorktrees())
+                .extracting(IssueWorktreeService.ConsoleWorktree::worktreeId)
+                .containsExactly("1-174-rename-toggle");
+    }
+
+    @Test
+    void allIssueWorktreesIgnoresOwnershipUnlikeTheVisibilityScopedListings(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-174-bobs-session", dbDir.resolve("wt1"), now, "bob");
+
+        IssueWorktreeService service = new IssueWorktreeService(repository);
+
+        // #319's cleanup sweep is a system-level operation, like hasAnySessions — it
+        // must see every issue worktree regardless of who owns it.
+        assertThat(service.allIssueWorktrees())
+                .extracting(IssueWorktreeService.ConsoleWorktree::worktreeId)
+                .containsExactly("1-174-bobs-session");
+    }
+
+    @Test
     void allWorktreeIdsSpansEveryIssueInOneProjectButExcludesOtherProjectsAndUsers(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");

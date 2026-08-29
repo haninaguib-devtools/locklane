@@ -1,0 +1,64 @@
+<section class="worktrees">
+  <div class="header">
+    <h2>worktrees</h2>
+    <button type="button" class="cleanup-button" [disabled]="cleaningUp" (click)="runCleanupNow()">
+      {{ cleaningUp ? 'cleaning up…' : 'run cleanup now' }}
+    </button>
+  </div>
+
+  @if (cleanupMessage) {
+    <p class="cleanup-message">{{ cleanupMessage }}</p>
+  }
+  @if (cleanupError) {
+    <p class="cleanup-message error">could not run cleanup — try again</p>
+  }
+
+  @if (loading) {
+    <div class="state">loading…</div>
+  } @else if (loadError) {
+    <div class="state">could not load the worktree list</div>
+  } @else if (rows.length === 0) {
+    <div class="state">no worktrees for this project</div>
+  } @else {
+    <table>
+      <thead>
+        <tr>
+          <th>issue</th>
+          <th>path</th>
+          <th>status</th>
+          <th>session</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows; track row.worktreeId) {
+          <tr>
+            <td>#{{ row.issueNumber }}</td>
+            <td class="mono path">{{ row.workingDirectory }}</td>
+            <td>
+              <span class="badge" [class.dirty]="!row.clean">{{ row.clean ? 'clean' : 'dirty' }}</span>
+            </td>
+            <td>
+              <span class="badge" [class.attached]="row.sessionAttached">
+                {{ row.sessionAttached ? 'attached' : 'none' }}
+              </span>
+            </td>
+            <td class="actions">
+              <button
+                type="button"
+                class="remove-button"
+                [disabled]="removingId === row.worktreeId"
+                (click)="remove(row)"
+              >
+                {{ removingId === row.worktreeId ? 'removing…' : 'remove' }}
+              </button>
+              @if (removeErrors.get(row.worktreeId); as message) {
+                <div class="row-error">{{ message }}</div>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</section>
