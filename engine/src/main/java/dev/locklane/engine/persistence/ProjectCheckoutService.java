@@ -95,6 +95,26 @@ public class ProjectCheckoutService {
         NOT_FOUND, HAS_OPEN_SESSIONS, DELETED
     }
 
+    /**
+     * Unconditionally deletes a project and everything scoped to it: any worktree or
+     * console sessions, its DB row, and its on-disk workarea checkout (best-effort, same
+     * as {@link #delete}) — never refuses on an open session the way {@link #delete}
+     * does. Only {@link UserCascadeDeleteService} calls this (#240, ADR-007 Decision 4):
+     * cascade-deleting a user is exactly the case where its projects' sessions are
+     * supposed to disappear along with the project, not block the delete the way they do
+     * for an ordinary single-project delete. A no-op if the project is already gone, so
+     * it is safe to call again after a partial failure.
+     */
+    public void forceDelete(long id) {
+        Optional<ProjectRecord> existing = repository.findById(id);
+        if (existing.isEmpty()) {
+            return;
+        }
+        issueWorktreeService.deleteSessionsForProject(id);
+        repository.delete(id);
+        deleteDirectoryQuietly(existing.get().workareaPath());
+    }
+
     private void clone(ProjectRecord project) {
         try {
             Files.createDirectories(project.workareaPath().getParent());

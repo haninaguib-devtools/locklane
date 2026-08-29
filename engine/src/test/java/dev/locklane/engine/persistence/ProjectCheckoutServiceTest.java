@@ -170,6 +170,34 @@ class ProjectCheckoutServiceTest {
         assertThat(project.workareaPath()).isDirectory();
     }
 
+    @Test
+    void forceDeleteRemovesAnOpenSessionsWorkareaAndDbRowUnlikeDelete(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        IssueWorktreeService issueWorktreeService = new IssueWorktreeService(sessions);
+        ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
+                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService);
+        ProjectRecord project = service.createProject(origin.toString(), "force-delete-me", 1L);
+        sessions.recordAttach(project.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
+
+        // #240's cascade-delete: unlike delete(), forceDelete() never refuses on an
+        // open session -- it removes the session too.
+        service.forceDelete(project.id());
+
+        assertThat(repositoryOver(tmp).findById(project.id())).isEmpty();
+        assertThat(project.workareaPath()).doesNotExist();
+        assertThat(issueWorktreeService.hasAnySessions(project.id())).isFalse();
+    }
+
+    @Test
+    void forceDeleteOnAnUnknownProjectIsANoOp(@TempDir Path tmp) {
+        ProjectCheckoutService service = service(tmp);
+
+        service.forceDelete(999);
+
+        assertThat(repositoryOver(tmp).findById(999)).isEmpty();
+    }
+
     private static ProjectCheckoutService service(Path tmp) {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,

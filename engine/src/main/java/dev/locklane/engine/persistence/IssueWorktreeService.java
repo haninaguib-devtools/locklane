@@ -153,6 +153,23 @@ public class IssueWorktreeService {
     }
 
     /**
+     * Forgets every worktree/console session belonging to this project (#240's
+     * cascade-delete of a deleted user's owned projects, ADR-007 Decision 4) — the same
+     * "does this session belong to this project" test as {@link #hasAnySessions}, but
+     * removing the rows instead of just reporting them. Deliberately unconditional,
+     * unlike the single-project delete path ({@code ProjectCheckoutService#delete}) that
+     * refuses when {@link #hasAnySessions} is true: deleting the owning user is exactly
+     * the case where these sessions are supposed to go away too, not block the delete.
+     */
+    public void deleteSessionsForProject(long projectId) {
+        repository.findAll().stream()
+                .filter(record -> matchesProject(record.worktreeId(), projectId)
+                        || matchesProjectConsole(record.worktreeId(), projectId))
+                .map(WorktreeSessionRecord::worktreeId)
+                .forEach(repository::delete);
+    }
+
+    /**
      * Every project's console-created, per-issue worktree session — the ones
      * {@link dev.locklane.engine.persistence.WorktreeCreationService#startSession}
      * creates a real {@code git worktree add} for — across every project, with no

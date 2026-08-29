@@ -106,7 +106,8 @@ class ForcedPasswordChangeLoginIntegrationTest {
 
         mockMvc.perform(changeWith(session, PASSWORD, "a-brand-new-password"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value(USERNAME));
+                .andExpect(jsonPath("$.username").value(USERNAME))
+                .andExpect(jsonPath("$.role").value("ADMIN"));
 
         mockMvc.perform(get("/api/auth/me").session(session))
                 .andExpect(status().isOk())

@@ -46,6 +46,13 @@ import org.springframework.http.HttpStatus;
  * (single path-segment wildcards, not a blanket match on everything under
  * {@code /api/projects}) so the open {@code /api/projects/{projectId}/issues}
  * paths never get swept into this gate.
+ *
+ * <p>Admin-only, on top of plain authentication: {@code /api/admin/**} (#240 —
+ * {@link AdminUserController}'s user creation/deletion, the only way a second account
+ * ever comes to exist, ADR-007 Decision 3). {@code hasRole("ADMIN")} implies
+ * authentication, so an unauthenticated caller still gets 401 from the same entry
+ * point as everything else; an authenticated non-admin caller gets Spring Security's
+ * default 403, which is what #240's done-when asks for.
  */
 @Configuration
 @EnableWebSecurity
@@ -79,6 +86,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects/*/console/*").authenticated()
                         .requestMatchers("/api/usage").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll())
                 .formLogin(form -> form
                         .loginProcessingUrl("/api/auth/login")

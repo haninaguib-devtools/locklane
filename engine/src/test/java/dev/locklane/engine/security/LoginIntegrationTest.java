@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -40,6 +41,17 @@ class LoginIntegrationTest {
                         .param("username", "test-user")
                         .param("password", "test-password"))
                 .andExpect(status().isOk());
+    }
+
+    /** #240: the login response body names the account's role, for the client's admin-panel gate. */
+    @Test
+    void aPlainLoginResponseNamesTheAccountsRole() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .param("username", "test-user")
+                        .param("password", "test-password"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("test-user"))
+                .andExpect(jsonPath("$.role").value("ADMIN"));
     }
 
     @Test

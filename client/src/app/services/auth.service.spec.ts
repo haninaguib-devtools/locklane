@@ -148,4 +148,68 @@ describe('AuthService', () => {
     expect(service.isLoggedIn()).toBe(false);
     expect(service.username()).toBeNull();
   });
+
+  it('starts with isAdmin false', () => {
+    expect(service.isAdmin()).toBe(false);
+  });
+
+  it('reads role from a plain login response and sets isAdmin (#240)', () => {
+    service.login('root', 's3cret').subscribe();
+
+    httpMock.expectOne('/api/auth/login').flush({ role: 'ADMIN' });
+
+    expect(service.isAdmin()).toBe(true);
+  });
+
+  it('an ordinary account is not admin even once logged in', () => {
+    service.login('hani', 's3cret').subscribe();
+
+    httpMock.expectOne('/api/auth/login').flush({ role: 'USER' });
+
+    expect(service.isAdmin()).toBe(false);
+  });
+
+  it('reads role from GET /api/auth/me', () => {
+    service.checkSession().subscribe();
+
+    httpMock.expectOne('/api/auth/me').flush({ username: 'root', role: 'ADMIN' });
+
+    expect(service.isAdmin()).toBe(true);
+  });
+
+  it('reads role from a completed 2FA verification', () => {
+    service.verifyTwoFactor('123456').subscribe();
+
+    httpMock.expectOne('/api/auth/2fa/verify').flush({ username: 'root', role: 'ADMIN' });
+
+    expect(service.isAdmin()).toBe(true);
+  });
+
+  it('reads role from a completed forced password change', () => {
+    service.completePasswordChange('temp', 'new-password').subscribe();
+
+    httpMock.expectOne('/api/auth/password/change').flush({ username: 'root', role: 'ADMIN' });
+
+    expect(service.isAdmin()).toBe(true);
+  });
+
+  it('clears isAdmin on logout', () => {
+    service.login('root', 's3cret').subscribe();
+    httpMock.expectOne('/api/auth/login').flush({ role: 'ADMIN' });
+    expect(service.isAdmin()).toBe(true);
+
+    service.logout().subscribe();
+    httpMock.expectOne('/api/auth/logout').flush(null);
+
+    expect(service.isAdmin()).toBe(false);
+  });
+
+  it('clears isAdmin when the session expires', () => {
+    service.login('root', 's3cret').subscribe();
+    httpMock.expectOne('/api/auth/login').flush({ role: 'ADMIN' });
+
+    service.sessionExpired();
+
+    expect(service.isAdmin()).toBe(false);
+  });
 });

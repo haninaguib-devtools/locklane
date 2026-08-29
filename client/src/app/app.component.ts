@@ -11,6 +11,7 @@ import { LoginComponent } from './components/login/login.component';
 import { ConsoleIndicatorComponent } from './components/console-indicator/console-indicator.component';
 import { ProjectConsoleComponent } from './components/project-console/project-console.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
+import { AdminUsersComponent } from './components/admin-users/admin-users.component';
 import { AddProjectPopupComponent } from './components/add-project-popup/add-project-popup.component';
 import { UpdateBannerComponent } from './components/update-banner/update-banner.component';
 import { ReleaseBannerComponent } from './components/release-banner/release-banner.component';
@@ -33,6 +34,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     LoginComponent,
     ConsoleIndicatorComponent,
     SettingsDialogComponent,
+    AdminUsersComponent,
     ProjectConsoleComponent,
     AddProjectPopupComponent,
     UpdateBannerComponent,
@@ -61,12 +63,17 @@ export class AppComponent {
 
   readonly isLoggedIn = this.auth.isLoggedIn;
   readonly username = this.auth.username;
+  // Gates the account menu's "Manage users" item and the panel it opens (#240) --
+  // purely a display decision, since every /api/admin/** request is independently
+  // enforced server-side regardless of what this signal says.
+  readonly isAdmin = this.auth.isAdmin;
 
-  // The header's account menu (#90) and the settings dialog it opens. Both are plain
-  // fields rather than signals: nothing derives from them, and the template reads
-  // them directly.
+  // The header's account menu (#90) and the settings/admin-users dialogs it opens.
+  // All plain fields rather than signals: nothing derives from them, and the
+  // template reads them directly.
   menuOpen = false;
   settingsOpen = false;
+  adminUsersOpen = false;
 
   // The add-project popup (#227) can be opened from the header button or from the
   // overview's zero-project CTA, so its state lives here rather than in either opener.
@@ -179,6 +186,15 @@ export class AppComponent {
 
   closeSettings(): void {
     this.settingsOpen = false;
+  }
+
+  openAdminUsers(): void {
+    this.menuOpen = false;
+    this.adminUsersOpen = true;
+  }
+
+  closeAdminUsers(): void {
+    this.adminUsersOpen = false;
   }
 
   openAddProject(): void {

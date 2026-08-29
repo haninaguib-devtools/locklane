@@ -147,4 +147,60 @@ class UserRepositoryTest {
 
         assertThat(repository.anyExist()).isTrue();
     }
+
+    @Test
+    void createWithMustChangePasswordSetStoresThatFlag(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        UserRecord created = repository.create(
+                "hani", "hash", Instant.parse("2026-08-25T12:00:00Z"), UserRecord.Role.USER, true);
+
+        assertThat(created.mustChangePassword())
+                .as("an admin-created account (#240) has to change the password the admin chose")
+                .isTrue();
+        assertThat(repository.findByUsername("hani").orElseThrow().mustChangePassword()).isTrue();
+    }
+
+    @Test
+    void findByIdReturnsTheSameRowAsFindByUsername(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        UserRecord created = repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+
+        assertThat(repository.findById(created.id())).contains(created);
+    }
+
+    @Test
+    void findByIdOnAnUnknownIdIsEmpty(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        assertThat(repository.findById(999)).isEmpty();
+    }
+
+    @Test
+    void findAllReturnsEveryAccountOldestFirst(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        repository.create("alice", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+        repository.create("bob", "hash", Instant.parse("2026-08-25T12:01:00Z"));
+
+        assertThat(repository.findAll()).extracting(UserRecord::username).containsExactly("alice", "bob");
+    }
+
+    @Test
+    void deleteByIdForgetsTheAccount(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+        UserRecord created = repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+
+        repository.deleteById(created.id());
+
+        assertThat(repository.findByUsername("hani")).isEmpty();
+    }
+
+    @Test
+    void deleteByIdOnAnUnknownIdIsANoOp(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        repository.deleteById(999);
+
+        assertThat(repository.findAll()).isEmpty();
+    }
 }

@@ -52,10 +52,14 @@ describe('AppComponent', () => {
     httpMock.verify();
   });
 
-  /** Logs the injected AuthService in synchronously, via a flushed fake response. */
-  function logIn(): void {
+  /**
+   * Logs the injected AuthService in synchronously, via a flushed fake response.
+   * `role` (#240) drives {@link AuthService.isAdmin} -- omitted, the login response
+   * carries no role at all, exactly like every pre-#240 test in this file.
+   */
+  function logIn(role?: string): void {
     TestBed.inject(AuthService).login('someone', 'password').subscribe();
-    httpMock.expectOne('/api/auth/login').flush(null);
+    httpMock.expectOne('/api/auth/login').flush(role ? { role } : null);
   }
 
   /**
@@ -573,8 +577,8 @@ describe('AppComponent', () => {
    * The account menu (#90). `logIn()` signs in as 'someone', so that is the name
    * the menu header shows and 's' the avatar's initial.
    */
-  function openedApp(): ReturnType<typeof TestBed.createComponent<AppComponent>> {
-    logIn();
+  function openedApp(role?: string): ReturnType<typeof TestBed.createComponent<AppComponent>> {
+    logIn(role);
     navigateToProjectSummary();
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
@@ -637,6 +641,40 @@ describe('AppComponent', () => {
     compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
     fixture.detectChanges();
     expect(compiled.querySelector('.account-menu')).toBeFalsy();
+  }));
+
+  it('shows "Manage users" in the account menu only for an admin account (#240)', fakeAsync(() => {
+    const fixture = openedApp('ADMIN');
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
+    fixture.detectChanges();
+
+    const items = Array.from(compiled.querySelectorAll('.account-item')).map((el) =>
+      el.textContent?.trim(),
+    );
+    expect(items).toEqual(['Settings', 'Manage users', 'Sign out']);
+  }));
+
+  it('opens the admin-users panel from the menu and closes it again (#240)', fakeAsync(() => {
+    const fixture = openedApp('ADMIN');
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
+    fixture.detectChanges();
+    compiled.querySelectorAll<HTMLButtonElement>('.account-item')[1].click();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-admin-users')).toBeTruthy();
+    // Opening the panel closes the menu behind it, same as Settings.
+    expect(compiled.querySelector('.account-menu')).toBeFalsy();
+
+    httpMock.expectOne('/api/admin/users').flush([]);
+    fixture.detectChanges();
+
+    fixture.componentInstance.closeAdminUsers();
+    fixture.detectChanges();
+    expect(compiled.querySelector('app-admin-users')).toBeFalsy();
   }));
 
   it('dismisses the account menu on an outside click', fakeAsync(() => {
