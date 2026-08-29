@@ -1,5 +1,6 @@
 package dev.locklane.engine.security;
 
+import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,9 +13,10 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 
 /**
- * Seeds a single account on first run, so there is always at least one user to log in
- * as (#47) — full multi-user management (invite/create/delete via UI) is out of scope
- * here. No-op once any user exists.
+ * Seeds a single admin account on first run, so there is always at least one user to
+ * log in as (#47), and it is one who can administer the app (#238) — full multi-user
+ * management (invite/create/delete via UI) is out of scope here. No-op once any user
+ * exists.
  */
 @Component
 public class UserBootstrapper implements ApplicationRunner {
@@ -42,7 +44,8 @@ public class UserBootstrapper implements ApplicationRunner {
         if (userRepository.anyExist()) {
             return;
         }
-        userRepository.create(bootstrapUsername, passwordEncoder.encode(bootstrapPassword), Instant.now());
+        userRepository.create(bootstrapUsername, passwordEncoder.encode(bootstrapPassword), Instant.now(),
+                UserRecord.Role.ADMIN);
         log.warn("No users existed yet — created bootstrap user '{}'. Override "
                         + "locklane.security.bootstrap-username/-password before any real deployment.",
                 bootstrapUsername);
