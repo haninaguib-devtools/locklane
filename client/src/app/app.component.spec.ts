@@ -208,6 +208,8 @@ describe('AppComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-overview')).toBeTruthy();
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
+    // No project open in this window (#309) -- the header stays plain.
+    expect(compiled.querySelector('.brand')?.textContent?.trim()).toBe('LockLane');
   }));
 
   it('shows the zero-project empty state at "/" when logged in with no projects (#197, #227)', fakeAsync(() => {
@@ -281,6 +283,21 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeTruthy();
     expect(compiled.querySelector('.empty-state')).toBeFalsy();
     expect(compiled.textContent).toContain('proj');
+  }));
+
+  it('shows the project name in the header once a project is open in this window (#309)', fakeAsync(() => {
+    logIn();
+    navigateToProjectSummary();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    flushSidenavAndSummary();
+    flushProjectConsoleSessions();
+    flushConsoleIndicator();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.brand')?.textContent?.trim()).toBe('LockLane - proj');
   }));
 
   it('deleting a project from its summary page refreshes the sidenav in place (#249)', fakeAsync(() => {
@@ -415,20 +432,21 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     // sidenav (restricted to project 1 by focus mode) + the header's
-    // app-console-indicator, which is not focus-aware and fetches every project
-    // (#290) -- so it also fans consoles+issues calls out to project 2 below.
+    // app-console-indicator, now narrowed to project 1 too (#309) since the
+    // route carries a projectId -- a focus window is always a single-project
+    // window, so it only ever fans consoles+issues calls out to project 1.
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(2);
     lists.forEach((request) => request.flush([PROJECT, PROJECT2]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
-    flushConsoleIndicator([1, 2]);
+    flushConsoleIndicator();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
     httpMock
       .expectOne('/api/projects/1/console')
       .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
-    flushConsoleIndicator([1, 2]);
+    flushConsoleIndicator();
     fixture.detectChanges();
 
     httpMock.expectNone('/api/projects/2/issues/tree');
