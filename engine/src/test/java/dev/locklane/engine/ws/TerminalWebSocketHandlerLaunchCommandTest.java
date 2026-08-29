@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TerminalWebSocketHandlerLaunchCommandTest {
 
     private static final String UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    private static final String OPENCODE_ID = "ses_3cf7dd8d4ffeUPfENpVxfFojZ2";
 
     @Test
     void absentBlankOrShellCmdDefersToTheDefaultShell() {
@@ -25,6 +26,7 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     void aPlainCmdLaunchesAsItself() {
         assertThat(TerminalWebSocketHandler.resolveLaunchCommand("claude", null)).containsExactly("claude");
         assertThat(TerminalWebSocketHandler.resolveLaunchCommand("codex", null)).containsExactly("codex");
+        assertThat(TerminalWebSocketHandler.resolveLaunchCommand("opencode", null)).containsExactly("opencode");
     }
 
     @Test
@@ -33,6 +35,8 @@ class TerminalWebSocketHandlerLaunchCommandTest {
                 .containsExactly("claude", "--resume", UUID);
         assertThat(TerminalWebSocketHandler.resolveLaunchCommand("codex", UUID))
                 .containsExactly("codex", "resume", UUID);
+        assertThat(TerminalWebSocketHandler.resolveLaunchCommand("opencode", OPENCODE_ID))
+                .containsExactly("opencode", "--session", OPENCODE_ID);
     }
 
     @Test

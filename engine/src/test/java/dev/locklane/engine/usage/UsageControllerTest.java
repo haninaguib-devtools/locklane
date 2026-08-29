@@ -29,13 +29,15 @@ class UsageControllerTest {
     @Test
     void servesTheSnapshotAsJson() throws Exception {
         ProviderUsage claude = new ProviderUsage(true, new WindowUsage(75.0, Instant.ofEpochSecond(1000)), null, List.of());
-        when(usageService.snapshot()).thenReturn(new UsageSnapshot(claude, ProviderUsage.unavailable(), Instant.ofEpochSecond(500)));
+        when(usageService.snapshot()).thenReturn(new UsageSnapshot(claude, ProviderUsage.unavailable(),
+                ProviderUsage.unavailable(), Instant.ofEpochSecond(500)));
 
         mockMvc.perform(get("/api/usage"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claude.available").value(true))
                 .andExpect(jsonPath("$.claude.fiveHour.percentLeft").value(75.0))
                 .andExpect(jsonPath("$.claude.weekly").doesNotExist())
-                .andExpect(jsonPath("$.codex.available").value(false));
+                .andExpect(jsonPath("$.codex.available").value(false))
+                .andExpect(jsonPath("$.opencode.available").value(false));
     }
 }

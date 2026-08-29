@@ -31,10 +31,16 @@ public class UsageConfig {
     }
 
     @Bean
+    UsageProvider openCodeUsageProvider() {
+        return new OpenCodeUsageProvider(OpenCodeTokenSource.forCurrentUser());
+    }
+
+    @Bean
     UsageService usageService(
             @Qualifier("claudeUsageProvider") UsageProvider claudeUsageProvider,
             @Qualifier("codexUsageProvider") UsageProvider codexUsageProvider,
+            @Qualifier("openCodeUsageProvider") UsageProvider openCodeUsageProvider,
             Clock usageClock) {
-        return new UsageService(claudeUsageProvider, codexUsageProvider, usageClock);
+        return new UsageService(claudeUsageProvider, codexUsageProvider, openCodeUsageProvider, usageClock);
     }
 }

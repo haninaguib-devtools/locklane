@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Serves the sidebar's usage widget (#137). One snapshot for both providers — the
+ * Serves the sidebar's usage widget (#137). One snapshot for every provider — the
  * widget shows them side by side, and per-provider "unavailable" is carried inside
  * {@link ProviderUsage} rather than as an HTTP error, so this endpoint has nothing to
  * 404 or 500 on: it always returns 200 with whatever {@link UsageService} has.

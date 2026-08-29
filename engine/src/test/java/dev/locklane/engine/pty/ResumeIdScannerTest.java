@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ResumeIdScannerTest {
 
     private static final String ID = "123e4567-e89b-42d3-a456-426614174000";
+    private static final String OPENCODE_ID = "ses_3cf7dd8d4ffeUPfENpVxfFojZ2";
 
     @Test
     void capturesAClaudeResumeCommand() {
@@ -43,6 +44,33 @@ class ResumeIdScannerTest {
                 scanner.feed(bytes("To continue this session, run codex resume " + ID + ".\n"));
 
         assertThat(captures).containsExactly(new ResumeIdScanner.Capture("codex", ID));
+    }
+
+    @Test
+    void capturesAnOpenCodeResumeCommand() {
+        ResumeIdScanner scanner = new ResumeIdScanner(null);
+
+        List<ResumeIdScanner.Capture> captures =
+                scanner.feed(bytes("To continue this session, run opencode --session " + OPENCODE_ID + ".\n"));
+
+        assertThat(captures).containsExactly(new ResumeIdScanner.Capture("opencode", OPENCODE_ID));
+    }
+
+    @Test
+    void capturesAnOpenCodeShortFlagResumeCommand() {
+        ResumeIdScanner scanner = new ResumeIdScanner(null);
+
+        assertThat(scanner.feed(bytes("opencode -s " + OPENCODE_ID + "\n")))
+                .containsExactly(new ResumeIdScanner.Capture("opencode", OPENCODE_ID));
+    }
+
+    @Test
+    void anOpenCodeIdsCaseIsPreservedUnlikeAUuids() {
+        ResumeIdScanner scanner = new ResumeIdScanner(null);
+        String mixedCaseId = "ses_AbCdEf1234567890ABCDEFabcd";
+
+        assertThat(scanner.feed(bytes("opencode --session " + mixedCaseId + "\n")))
+                .containsExactly(new ResumeIdScanner.Capture("opencode", mixedCaseId));
     }
 
     @Test
@@ -118,6 +146,7 @@ class ResumeIdScannerTest {
     void toolHintComesFromTheLaunchCommandsExecutableBasename() {
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"claude"})).isEqualTo("claude");
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"/usr/local/bin/codex"})).isEqualTo("codex");
+        assertThat(ResumeIdScanner.toolHintFor(new String[] {"/usr/local/bin/opencode"})).isEqualTo("opencode");
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"/bin/sh", "-i"})).isNull();
         assertThat(ResumeIdScanner.toolHintFor(null)).isNull();
     }
