@@ -83,11 +83,7 @@ only). Plain `git` is never abstracted.
   `/t-ship` and `/t-cancel` run from any checkout, including inside a task's own
   worktree — neither one destroys it (ADR-002), and nothing else does either: a stale
   local worktree or branch is left alone permanently (ADR-005), removed by hand
-  (`git worktree remove`, `git branch -D`) only if it is ever actually in the way. The
-  one narrow exception is a console-created, per-issue worktree in the application
-  itself: a periodic sweep removes it automatically once its issue is confirmed closed,
-  it is clean, and no console session is attached (ADR-006) — every other worktree,
-  including this pipeline's own, is still governed by ADR-005 alone.
+  (`git worktree remove`, `git branch -D`) only if it is ever actually in the way.
 - `main` only moves by pull request. Never commit or push to `main` directly. The trunk
   name is `main` literally, throughout the skills and scripts — it is not abstracted the
   way the tracker and forge are; changing it is a find-and-replace across protected

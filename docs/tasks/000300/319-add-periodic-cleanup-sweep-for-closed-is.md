@@ -33,11 +33,31 @@ permanently, removed by hand only") and must be recorded as such.
 - Giving project-console sessions their own worktree — a separate concern, #314.
 
 ## Decisions made along the way
-- Pointer line lands in `AGENTS.md`, not `CONSTITUTION.md` — ADR-005's own rule
-  already lives in `AGENTS.md`'s Conventions section, so the narrower automatic-deletion
-  exception is documented as a qualification next to it; `CONSTITUTION.md` itself stays
-  untouched (`/t-plan`, see issue #319's `## Plan`).
+- Pointer line lands in `CONSTITUTION.md` §4's `<!-- local -->` block, not
+  `AGENTS.md` — corrected after the first pass; see Deviations below (`/t-plan`
+  re-plan, see issue #319's `## Plan`).
 - New ADR is `docs/adr/006-*.md` (next free number after 005) (`/t-plan`).
 
 ## Deviations / notes
-- none
+- **Re-plan mid-implementation, caught by CI's `manifest` job, not by review.** The
+  first pass of `/t-plan` chose `AGENTS.md` over `CONSTITUTION.md` for the ADR pointer
+  line ("`AGENTS.md` — the pointer line (§2.3); not `CONSTITUTION.md` — ADR-005's own
+  rule already lives in `AGENTS.md`'s Conventions section... keeping `CONSTITUTION.md`
+  itself untouched"). That reasoning didn't account for this repo being a pinned
+  consumer of the `t-workflow` template (`.template-manifest.json`): per
+  `docs/architecture/local-slots.md`, only `CONSTITUTION.md` §4 and `AGENTS.md`
+  §Checks item 1 are per-repo local slots — everything else in either file is
+  template-owned and hashed into the manifest. The sentence added to `AGENTS.md`'s
+  Conventions section landed outside its one slot, and CI's `manifest` job
+  (`./.t-workflow/scripts/check-manifest.sh`, `.github/workflows/ci.yml`) failed with
+  `DRIFT: AGENTS.md` after the PR was opened and reviewed `readiness: ready`.
+  Corrected by: reverting the `AGENTS.md` edit entirely, and instead adding the
+  pointer as a second numbered item inside `CONSTITUTION.md` §4's existing local
+  block — the same slot that already cites this app's own ADR-002 for the
+  worktree/PTY architecture, one line above. Re-ran `/t-plan 319`, which replaced the
+  `## Plan` section's Allowed paths (was: `AGENTS.md`, not `CONSTITUTION.md`; now:
+  `CONSTITUTION.md` §4's local block only, not `AGENTS.md`) and added the manifest
+  check to Validation. Approved in the moment by this task's own driver (`/t-drive`
+  317, acting per its ADR-004 delegated authority) — no unrelated content changed.
+  `./.t-workflow/scripts/check-manifest.sh` now reports `OK: 48 template-owned
+  file(s) match the pinned manifest`.
