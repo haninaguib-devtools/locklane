@@ -27,6 +27,50 @@ class IssueTreeServiceTest {
     }
 
     @Test
+    void anInitiativesDirectChildrenNestBeneathItViaNativeParent() {
+        // #325: gh's native --parent link, with no "Part of:" body text at all.
+        IssueTreeService service = service(
+                initiative(1, "Rebuild the app"),
+                taskWithParent(2, "Server piece", 1),
+                taskWithParent(3, "Client piece", 1));
+
+        List<TreeNode> tree = service.tree();
+
+        assertThat(tree).hasSize(1);
+        TreeNode initiative = tree.get(0);
+        assertThat(initiative.children()).extracting(TreeNode::number).containsExactlyInAnyOrder(2, 3);
+    }
+
+    @Test
+    void aTaskWithNativeParentPointingAtANonInitiativeIsStandalone() {
+        IssueTreeService service = service(
+                task(1, "Just a task, not an initiative"),
+                taskWithParent(2, "Points at #1", 1));
+
+        List<TreeNode> tree = service.tree();
+
+        assertThat(tree).extracting(TreeNode::number).containsExactlyInAnyOrder(1, 2);
+        assertThat(tree).allMatch(n -> n.children().isEmpty());
+    }
+
+    @Test
+    void nativeParentTakesPrecedenceOverPartOfBodyText() {
+        // A re-parented issue's body may still carry a stale "Part of:" pointing
+        // elsewhere; the native relationship is the current truth.
+        IssueTreeService service = service(
+                initiative(1, "Correct initiative"),
+                initiative(4, "Stale initiative"),
+                new GhIssue(2, "Re-parented", "OPEN", List.of(), partOf(4), "", "", 1));
+
+        List<TreeNode> tree = service.tree();
+
+        TreeNode correct = tree.stream().filter(n -> n.number() == 1).findFirst().orElseThrow();
+        assertThat(correct.children()).extracting(TreeNode::number).containsExactly(2);
+        TreeNode stale = tree.stream().filter(n -> n.number() == 4).findFirst().orElseThrow();
+        assertThat(stale.children()).isEmpty();
+    }
+
+    @Test
     void aTaskWithNoPartOfIsStandalone() {
         IssueTreeService service = service(task(9, "Loose end", ""));
 
@@ -167,6 +211,10 @@ class IssueTreeServiceTest {
 
     private static GhIssue task(int number, String title) {
         return task(number, title, "");
+    }
+
+    private static GhIssue taskWithParent(int number, String title, int parent) {
+        return new GhIssue(number, title, "OPEN", List.of(), "", "", "", parent);
     }
 
     private static GhIssue closedTask(int number, String title) {

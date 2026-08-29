@@ -36,7 +36,7 @@ public class CliGhClient implements GhClient {
     @Override
     public List<GhIssue> issues() {
         String json = run("gh", "issue", "list", "--state", "all", "--limit", "1000",
-                "--json", "number,title,state,labels,body,createdAt,updatedAt");
+                "--json", "number,title,state,labels,body,createdAt,updatedAt,parent");
         try {
             List<GhIssue> result = new ArrayList<>();
             for (JsonNode issue : MAPPER.readTree(json)) {
@@ -82,6 +82,8 @@ public class CliGhClient implements GhClient {
         for (JsonNode label : issue.path("labels")) {
             labels.add(label.path("name").asText());
         }
+        JsonNode parentNode = issue.path("parent");
+        Integer parent = parentNode.has("number") ? parentNode.path("number").asInt() : null;
         return new GhIssue(
                 issue.path("number").asInt(),
                 issue.path("title").asText(),
@@ -89,7 +91,8 @@ public class CliGhClient implements GhClient {
                 labels,
                 issue.path("body").asText(""),
                 issue.path("createdAt").asText(""),
-                issue.path("updatedAt").asText(""));
+                issue.path("updatedAt").asText(""),
+                parent);
     }
 
     private static GhPullRequest toPullRequest(JsonNode pr) {
