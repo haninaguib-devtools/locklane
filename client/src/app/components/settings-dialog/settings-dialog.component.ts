@@ -7,13 +7,14 @@ type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enable
 
 /**
  * The settings dialog (#90): a title bar and a body holding a default-agent section
- * (#219) and the two-factor authentication section (#91) -- enable (enroll,
- * scan/enter, confirm), disable (password), and the current status in between.
- * Visually it follows `add-project-popup`: a full-page backdrop that dismisses on
- * click, holding a bordered panel whose own clicks do not. No approved mockup existed
- * for the three states, so this one is designed to match `portstow`'s settings-page
- * two-factor section (a plain status/enroll/confirm flow), restyled with locklane's
- * own tokens.
+ * (#219), a password section (#241) for self-service password change, and the
+ * two-factor authentication section (#91) -- enable (enroll, scan/enter, confirm),
+ * disable (password), and the current status in between. Visually it follows
+ * `add-project-popup`: a full-page backdrop that dismisses on click, holding a bordered
+ * panel whose own clicks do not. No approved mockup existed for the three 2FA states, so
+ * that section is designed to match `portstow`'s settings-page two-factor section (a
+ * plain status/enroll/confirm flow), restyled with locklane's own tokens; the password
+ * section follows the same plain form-plus-inline-error look.
  *
  * <p>Confirming an enrollment, and regenerating from the enabled state, both land on the
  * `backup-codes` stage (#93) so the freshly generated set is shown exactly once before
@@ -33,6 +34,12 @@ export class SettingsDialogComponent implements OnInit {
   @Output() closed = new EventEmitter<void>();
 
   readonly defaultAgent = this.defaultAgentStore.agent;
+
+  currentPasswordForChange = '';
+  newPasswordForChange = '';
+  changingPassword = false;
+  passwordChangeError: string | null = null;
+  passwordChanged = false;
 
   readonly stage = signal<TwoFactorStage>('loading');
   readonly loadError = signal<string | null>(null);
@@ -59,6 +66,27 @@ export class SettingsDialogComponent implements OnInit {
 
   chooseDefaultAgent(agent: DefaultAgent): void {
     this.defaultAgentStore.set(agent);
+  }
+
+  changePassword(): void {
+    if (!this.currentPasswordForChange || !this.newPasswordForChange || this.changingPassword) {
+      return;
+    }
+    this.changingPassword = true;
+    this.passwordChangeError = null;
+    this.passwordChanged = false;
+    this.accountService.changePassword(this.currentPasswordForChange, this.newPasswordForChange).subscribe({
+      next: () => {
+        this.changingPassword = false;
+        this.currentPasswordForChange = '';
+        this.newPasswordForChange = '';
+        this.passwordChanged = true;
+      },
+      error: (err: Error) => {
+        this.changingPassword = false;
+        this.passwordChangeError = err.message;
+      },
+    });
   }
 
   ngOnInit(): void {

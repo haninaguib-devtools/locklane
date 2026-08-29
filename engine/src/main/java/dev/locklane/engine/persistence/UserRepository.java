@@ -95,6 +95,18 @@ public class UserRepository {
                 username);
     }
 
+    /**
+     * Replaces the stored password hash (#241) -- self-service or completing a
+     * forced-first-login change, the caller has already checked the current password before
+     * calling this. Always clears {@code must_change_password}, whether or not it was set,
+     * so this is safe to call for a plain voluntary change too.
+     */
+    public void changePassword(String username, String newPasswordHash) {
+        jdbcTemplate.update(
+                "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE username = ?",
+                newPasswordHash, username);
+    }
+
     private static UserRecord toRecord(ResultSet rs) throws SQLException {
         return new UserRecord(
                 rs.getLong("id"),
