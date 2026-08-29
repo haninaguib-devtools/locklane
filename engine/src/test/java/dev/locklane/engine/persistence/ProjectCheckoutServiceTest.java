@@ -158,8 +158,9 @@ class ProjectCheckoutServiceTest {
     void deleteRefusesAProjectWithAnOpenWorktreeOrConsole(@TempDir Path tmp) throws Exception {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        IssueWorktreeService worktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
-                tmp.resolve("workarea").toString(), Runnable::run, new IssueWorktreeService(sessions));
+                tmp.resolve("workarea").toString(), Runnable::run, worktreeService);
         ProjectRecord project = service.createProject(origin.toString(), "still-open", 1L);
         sessions.recordAttach(project.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
 
@@ -173,7 +174,7 @@ class ProjectCheckoutServiceTest {
     private static ProjectCheckoutService service(Path tmp) {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
-                new IssueWorktreeService(sessions));
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()));
     }
 
     private static ProjectRepository repositoryOver(Path tmp) {

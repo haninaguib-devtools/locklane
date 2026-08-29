@@ -52,8 +52,10 @@ class ProjectConsoleControllerTest {
 
     @Test
     void discoveringBeforeAnyAttachIsNotFound(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
         ProjectConsoleController controller =
                 controller(dbDir, projectRepository, TestSqliteDatabases.newRepository(dbDir));
 
@@ -62,8 +64,10 @@ class ProjectConsoleControllerTest {
 
     @Test
     void discoveringAfterAnAttachReturnsItToItsOwner(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-0a1b2c3d", dbDir, EARLIER, "alice");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
@@ -75,24 +79,34 @@ class ProjectConsoleControllerTest {
     }
 
     @Test
-    void discoveringAnotherUsersSessionIsNotFound(@TempDir Path dbDir) {
+    void discoveringAnotherProjectsSessionIsNotFound(@TempDir Path dbDir) {
+        createUser(dbDir, "alice");
+        long bobId = createUser(dbDir, "bob");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        // #242: visibility follows the project's owner, not whoever attached.
+        long bobsProjectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", bobId, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
-        sessionRepository.recordAttach(projectId + "-console-0a1b2c3d", dbDir, EARLIER, "bob");
+        sessionRepository.recordAttach(bobsProjectId + "-console-0a1b2c3d", dbDir, EARLIER, "bob");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
 
-        assertThat(controller.get(projectId, ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.get(bobsProjectId, ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test
     void listingOpenConsolesReturnsTheCallersOldestFirst(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        long bobId = createUser(dbDir, "bob");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        // A session in bob's own (different) project must never appear in alice's list.
+        long bobsProjectId = projectRepository
+                .createReady("bobs-proj", "url", dbDir.resolve("bobs-work"), "main", bobId, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-bbbbbbbb", dbDir, LATER, "alice");
         sessionRepository.recordAttach(projectId + "-console-aaaaaaaa", dbDir, EARLIER, "alice");
-        sessionRepository.recordAttach(projectId + "-console-cccccccc", dbDir, EARLIER, "bob");
+        sessionRepository.recordAttach(bobsProjectId + "-console-cccccccc", dbDir, EARLIER, "bob");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
 
         assertThat(controller.sessions(projectId, ALICE))
@@ -113,8 +127,10 @@ class ProjectConsoleControllerTest {
 
     @Test
     void closingTheOwnersSessionSucceeds(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-0a1b2c3d", dbDir, EARLIER, "alice");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
@@ -126,21 +142,26 @@ class ProjectConsoleControllerTest {
     }
 
     @Test
-    void closingAnotherUsersSessionIsNotFoundAndLeavesItRunning(@TempDir Path dbDir) {
+    void closingAnotherProjectsSessionIsNotFoundAndLeavesItRunning(@TempDir Path dbDir) {
+        createUser(dbDir, "alice");
+        long bobId = createUser(dbDir, "bob");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        long bobsProjectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", bobId, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
-        sessionRepository.recordAttach(projectId + "-console-0a1b2c3d", dbDir, EARLIER, "bob");
+        sessionRepository.recordAttach(bobsProjectId + "-console-0a1b2c3d", dbDir, EARLIER, "bob");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
 
-        assertThat(controller.close(projectId, ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(controller.get(projectId, BOB).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(controller.close(bobsProjectId, ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.get(bobsProjectId, BOB).getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test
     void closingOneConsoleByIdLeavesItsSiblingsOpen(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-console-aaaaaaaa", dbDir, EARLIER, "alice");
         sessionRepository.recordAttach(projectId + "-console-bbbbbbbb", dbDir, LATER, "alice");
@@ -155,25 +176,42 @@ class ProjectConsoleControllerTest {
     }
 
     @Test
-    void closingByIdRefusesAnIdOutsideTheProjectsFamilyOrAnotherUsers(@TempDir Path dbDir) {
+    void closingByIdRefusesAnIdOutsideTheProjectsFamilyOrBelongingToAnotherProject(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        long bobId = createUser(dbDir, "bob");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        long bobsProjectId = projectRepository
+                .createReady("bobs-proj", "url", dbDir.resolve("bobs-work"), "main", bobId, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(projectId + "-174-some-worktree", dbDir, EARLIER, "alice");
-        sessionRepository.recordAttach(projectId + "-console-bbbbbbbb", dbDir, EARLIER, "bob");
+        sessionRepository.recordAttach(bobsProjectId + "-console-bbbbbbbb", dbDir, EARLIER, "bob");
         ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
 
+        // An issue session is never a project console, whatever the caller claims.
         assertThat(controller.close(projectId, projectId + "-174-some-worktree", ALICE).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(controller.close(projectId, projectId + "-console-bbbbbbbb", ALICE).getStatusCode())
+        // Another project's console, reached through this project's id.
+        assertThat(controller.close(projectId, bobsProjectId + "-console-bbbbbbbb", ALICE).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        // The same console, reached through its own (correct) project id -- still
+        // refused because alice isn't that project's owner (#242).
+        assertThat(controller.close(bobsProjectId, bobsProjectId + "-console-bbbbbbbb", ALICE).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(sessionRepository.findAll()).hasSize(2);
     }
 
+    private static long createUser(Path dbDir, String username) {
+        return TestSqliteDatabases.newUserRepository(dbDir).create(username, "bcrypt-hash", Instant.now()).id();
+    }
+
     private static ProjectConsoleController controller(Path dbDir, ProjectRepository projectRepository,
             WorktreeSessionRepository sessionRepository) {
+        WorktreeSessionAuthorization authorization =
+                new WorktreeSessionAuthorization(projectRepository, TestSqliteDatabases.newUserRepository(dbDir));
         return new ProjectConsoleController(new ProjectConsoleService(projectRepository, tokenCipher(dbDir),
-                new SessionRegistry(sessionRepository), sessionRepository));
+                new SessionRegistry(sessionRepository), sessionRepository, authorization));
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {

@@ -92,8 +92,11 @@ public class SessionRegistry {
      * {@code null} launch command falls back to the default shell — the launch
      * command only matters for a session's first attach; a reattach reaches the
      * process already running, whatever it was started with. {@code ownerUsername}
-     * (nullable) is stamped as the session's owner on a first attach only (#48) —
-     * see {@link dev.locklane.engine.persistence.WorktreeSessionRepository#recordAttach}.
+     * (nullable) is stamped on a first attach only — see {@link
+     * dev.locklane.engine.persistence.WorktreeSessionRepository#recordAttach} — but is
+     * purely informational since #242: who may attach at all is decided upstream
+     * ({@code TerminalWebSocketHandler}, against the session's owning project), not
+     * by this column.
      */
     public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand, String ownerUsername) {
         return attach(sessionId, workingDirectory, launchCommand, ownerUsername, null, null);
@@ -236,15 +239,6 @@ public class SessionRegistry {
                 .filter(record -> record.tool().equals(tool))
                 .reduce((older, newer) -> newer)
                 .map(ConsoleResumeSessionRecord::resumeId);
-    }
-
-    /**
-     * The session's recorded owner, or empty when it has none — no session with
-     * this id exists yet, or it was created before per-user ownership existed / by
-     * an unauthenticated attach (#48). Either way, treated as unclaimed.
-     */
-    public Optional<String> ownerUsername(String sessionId) {
-        return repository.find(sessionId).map(WorktreeSessionRecord::ownerUsername);
     }
 
     private static String[] defaultShellCommand() {

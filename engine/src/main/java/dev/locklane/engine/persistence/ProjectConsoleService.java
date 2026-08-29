@@ -51,13 +51,16 @@ public class ProjectConsoleService {
     private final TokenCipher tokenCipher;
     private final SessionRegistry sessionRegistry;
     private final WorktreeSessionRepository sessionRepository;
+    private final WorktreeSessionAuthorization authorization;
 
     public ProjectConsoleService(ProjectRepository projectRepository, TokenCipher tokenCipher,
-            SessionRegistry sessionRegistry, WorktreeSessionRepository sessionRepository) {
+            SessionRegistry sessionRegistry, WorktreeSessionRepository sessionRepository,
+            WorktreeSessionAuthorization authorization) {
         this.projectRepository = projectRepository;
         this.tokenCipher = tokenCipher;
         this.sessionRegistry = sessionRegistry;
         this.sessionRepository = sessionRepository;
+        this.authorization = authorization;
     }
 
     /**
@@ -89,11 +92,11 @@ public class ProjectConsoleService {
 
     /**
      * The project's current console session — the most recently attached open one
-     * visible to {@code requestingUsername} (unclaimed or owned by them, same
-     * visibility rule as {@link IssueWorktreeService}). "Open" means it has a
-     * persisted record: attached to at least once and not explicitly closed. Empty
-     * when the project has none. With a single open console this is exactly the
-     * pre-#177 "the project's one console" answer.
+     * visible to {@code requestingUsername} (this project's owner, or an admin —
+     * #242, same visibility rule as {@link IssueWorktreeService}). "Open" means it
+     * has a persisted record: attached to at least once and not explicitly closed.
+     * Empty when the project has none. With a single open console this is exactly
+     * the pre-#177 "the project's one console" answer.
      */
     public Optional<ConsoleSession> find(long projectId, String requestingUsername) {
         return openRecords(projectId, requestingUsername).stream()
@@ -178,8 +181,8 @@ public class ProjectConsoleService {
         return matcher.matches() && Long.parseLong(matcher.group(1)) == projectId;
     }
 
-    private static boolean isVisibleTo(WorktreeSessionRecord record, String requestingUsername) {
-        return record.ownerUsername() == null || record.ownerUsername().equals(requestingUsername);
+    private boolean isVisibleTo(WorktreeSessionRecord record, String requestingUsername) {
+        return authorization.isVisibleTo(record.worktreeId(), requestingUsername);
     }
 
     private static String shortId() {

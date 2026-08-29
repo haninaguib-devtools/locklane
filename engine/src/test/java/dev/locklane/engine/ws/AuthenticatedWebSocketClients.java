@@ -1,5 +1,6 @@
 package dev.locklane.engine.ws;
 
+import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.socket.WebSocketHandler;
@@ -26,11 +27,25 @@ final class AuthenticatedWebSocketClients {
     private AuthenticatedWebSocketClients() {
     }
 
-    /** Bootstraps a user directly (no signup endpoint exists), logs in, returns the session cookie header value. */
+    /**
+     * Bootstraps an ordinary (non-admin) user directly (no signup endpoint exists),
+     * logs in, returns the session cookie header value.
+     */
     static String loginAs(int port, UserRepository userRepository, PasswordEncoder passwordEncoder,
             String username, String password) throws Exception {
+        return loginAs(port, userRepository, passwordEncoder, username, password, UserRecord.Role.USER);
+    }
+
+    /**
+     * As above, with an explicit role (#242's admin-sees-everything case, and for
+     * tests that only exercise terminal I/O and have no project of their own to be
+     * authorized against — they log in as an admin, who may attach to any session,
+     * rather than fabricate one).
+     */
+    static String loginAs(int port, UserRepository userRepository, PasswordEncoder passwordEncoder,
+            String username, String password, UserRecord.Role role) throws Exception {
         if (userRepository.findByUsername(username).isEmpty()) {
-            userRepository.create(username, passwordEncoder.encode(password), Instant.now());
+            userRepository.create(username, passwordEncoder.encode(password), Instant.now(), role);
         }
 
         HttpClient client = HttpClient.newHttpClient();

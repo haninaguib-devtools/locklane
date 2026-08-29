@@ -113,7 +113,8 @@ class ProjectWorktreesControllerTest {
 
     private static WorktreeAndId createWorktree(Fixture fx, int issueNumber, String title) throws IOException, InterruptedException {
         GhIssue issue = new GhIssue(issueNumber, title, "OPEN", List.of(), "", "", "");
-        IssueWorktreeService worktreeService = new IssueWorktreeService(fx.repository);
+        IssueWorktreeService worktreeService =
+                new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources creationGhResources = new ProjectGhResources(fx.projectRepository, tokenCipher(),
                 (path, token) -> new FixedGhClient(List.of(issue)));
         WorktreeCreationService creationService =
@@ -124,7 +125,8 @@ class ProjectWorktreesControllerTest {
     }
 
     private static ProjectWorktreesController controller(Fixture fx, List<GhIssue> issues) {
-        IssueWorktreeService worktreeService = new IssueWorktreeService(fx.repository);
+        IssueWorktreeService worktreeService =
+                new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
         SessionRegistry sessionRegistry = new SessionRegistry(fx.repository);
         ProjectGhResources ghResources =
                 new ProjectGhResources(fx.projectRepository, tokenCipher(), (path, token) -> new FixedGhClient(issues));
