@@ -10,9 +10,7 @@
         <a class="brand" routerLink="/">LockLane</a>
       </div>
       <div class="topbar-actions">
-        @if (selectedProjectId(); as projectId) {
-          <app-console-indicator [projectId]="projectId" />
-        }
+        <app-console-indicator />
         @if (!focusMode()) {
           <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
         }

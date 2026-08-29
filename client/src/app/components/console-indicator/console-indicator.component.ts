@@ -1,40 +1,52 @@
-import { Component, ElementRef, Input, OnChanges, OnDestroy, ViewChild, effect, inject, signal } from '@angular/core';
+import { Component, ElementRef, OnDestroy, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { Observable, ReplaySubject, Subscription, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { ConsolesService, isProjectConsoleSessionId, issueNumberFromSessionId } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
+import { ProjectsService } from '../../services/projects.service';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { EventsService, isConsoleAttentionEvent } from '../../services/events.service';
+import { Project } from '../../models/issue.model';
 import { labelConsoles } from '../console-tabs/console-labels';
 
 /**
  * An issue's own console (issueNumber set) or one of the project's own consoles
  * (#139/#177, issueNumber null -- there is no issue to jump to, and no per-issue
- * "active console" to remember).
+ * "active console" to remember). Carries its own project (#290) since entries now
+ * span every project the user has, not just whichever one is currently selected.
  */
 export interface ConsoleEntry {
   sessionId: string;
+  projectId: number;
   issueNumber: number | null;
   issueTitle: string;
   label: string;
 }
 
+/** One project's entries, in the order `groups` below picks headings by (#290). */
+export interface ConsoleGroup {
+  projectId: number;
+  projectName: string;
+  entries: { entry: ConsoleEntry; index: number }[];
+}
+
 // The "Open Shells"-style header badge (#32): shows how many consoles are open
-// across every issue in the current project (#43), and a picker that jumps
-// straight to one. Redesigned in #105 to match portstow's `open-shells` modal
-// (scrim, focus trap, arrow/enter/escape) and to read `entries` off a reactive
-// stream -- `onOpened`/`onClosed` (#108) plus a fresh `projectId` -- instead of a
-// cached field only `refresh()` ever touched, which is what let the badge miss an
-// opened console until something else happened to close.
+// across every project the user has (#290), and a picker that jumps straight to
+// one. Redesigned in #105 to match portstow's `open-shells` modal (scrim, focus
+// trap, arrow/enter/escape) and to read `entries` off a reactive stream --
+// `onOpened`/`onClosed` (#108) -- instead of a cached field only `refresh()` ever
+// touched, which is what let the badge miss an opened console until something else
+// happened to close.
 @Component({
   selector: 'app-console-indicator',
   standalone: true,
   templateUrl: './console-indicator.component.html',
   styleUrl: './console-indicator.component.css',
 })
-export class ConsoleIndicatorComponent implements OnChanges, OnDestroy {
+export class ConsoleIndicatorComponent implements OnDestroy {
+  private readonly projectsService = inject(ProjectsService);
   private readonly consolesService = inject(ConsolesService);
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
@@ -42,30 +54,69 @@ export class ConsoleIndicatorComponent implements OnChanges, OnDestroy {
   private readonly eventsService = inject(EventsService);
   private readonly router = inject(Router);
 
-  @Input({ required: true }) projectId!: number;
-
   @ViewChild('results') private readonly resultsRef?: ElementRef<HTMLElement>;
   @ViewChild('trigger') private readonly triggerRef?: ElementRef<HTMLElement>;
 
-  private readonly projectId$ = new ReplaySubject<number>(1);
+  // Fetched once per mount (#290), fed through a ReplaySubject the same way the
+  // single-project version fed `projectId$` off ngOnChanges -- unlike the entries
+  // below, the project list itself is not re-fetched when a console opens or
+  // closes; AppComponent's own project-creation/deletion flows already refresh
+  // the sidenav explicitly rather than relying on this widget to notice on its
+  // own.
+  private readonly projects$ = new ReplaySubject<Project[]>(1);
+  private readonly projects = toSignal(this.projects$, { initialValue: [] as Project[] });
 
   readonly entries = toSignal(
-    this.projectId$.pipe(
-      switchMap((projectId) =>
+    this.projects$.pipe(
+      switchMap((projects) =>
         merge(of(null), this.consolesService.onOpened, this.consolesService.onClosed).pipe(
-          switchMap(() => this.fetchEntries(projectId)),
+          switchMap(() => this.fetchEntries(projects)),
         ),
       ),
     ),
     { initialValue: [] as ConsoleEntry[] },
   );
 
+  // Headings are shown once the user has more than one project at all, regardless
+  // of how many of those projects currently have an open console -- otherwise
+  // headings would flicker in and out as consoles open/close elsewhere while the
+  // project count stays the same (#290).
+  readonly showGroupHeadings = computed(() => this.projects().length > 1);
+
+  readonly groups = computed<ConsoleGroup[]>(() => {
+    const projects = this.projects();
+    const entries = this.entries();
+    const byProject = new Map<number, ConsoleEntry[]>();
+    for (const entry of entries) {
+      const list = byProject.get(entry.projectId);
+      if (list) {
+        list.push(entry);
+      } else {
+        byProject.set(entry.projectId, [entry]);
+      }
+    }
+    let index = 0;
+    const groups: ConsoleGroup[] = [];
+    for (const project of projects) {
+      const projectEntries = byProject.get(project.id);
+      if (!projectEntries) {
+        continue;
+      }
+      groups.push({
+        projectId: project.id,
+        projectName: project.name,
+        entries: projectEntries.map((entry) => ({ entry, index: index++ })),
+      });
+    }
+    return groups;
+  });
+
   readonly open = signal(false);
   readonly selected = signal(0);
 
-  // Session ids currently waiting for attention (#130), across every project -- this
-  // component only ever renders the ones that also show up in `entries`, which is
-  // already scoped to `projectId`.
+  // Session ids currently waiting for attention (#130), across every project the
+  // user has -- this component only ever renders the ones that also show up in
+  // `entries`, which already spans every project (#290).
   private waitingSessions = new Set<string>();
   private readonly attentionSub: Subscription;
 
@@ -89,10 +140,10 @@ export class ConsoleIndicatorComponent implements OnChanges, OnDestroy {
         this.waitingSessions.delete(event.sessionId);
       }
     });
-  }
 
-  ngOnChanges(): void {
-    this.projectId$.next(this.projectId);
+    // A one-shot call -- completes on its own once the response lands, so there
+    // is nothing here to unsubscribe on destroy.
+    this.projectsService.list().subscribe((projects) => this.projects$.next(projects));
   }
 
   ngOnDestroy(): void {
@@ -116,7 +167,8 @@ export class ConsoleIndicatorComponent implements OnChanges, OnDestroy {
   }
 
   // With exactly one console open, the trigger is a direct link (#215) -- jump
-  // straight there instead of opening a picker with a single row in it.
+  // straight there instead of opening a picker with a single row in it. Now
+  // measured against the total across every project (#290).
   onTriggerClick(): void {
     const entries = this.entries();
     if (entries.length === 1) {
@@ -166,13 +218,15 @@ export class ConsoleIndicatorComponent implements OnChanges, OnDestroy {
     }
   }
 
+  // Navigates to the entry's own project (#290) -- not necessarily whichever
+  // project happens to be selected elsewhere in the app.
   jumpTo(entry: ConsoleEntry): void {
     this.open.set(false);
     if (entry.issueNumber !== null) {
       this.activeConsoleStore.set(entry.issueNumber, entry.sessionId);
-      this.router.navigate(['/projects', this.projectId, 'issues', entry.issueNumber]);
+      this.router.navigate(['/projects', entry.projectId, 'issues', entry.issueNumber]);
     } else {
-      this.router.navigate(['/projects', this.projectId, 'console'], {
+      this.router.navigate(['/projects', entry.projectId, 'console'], {
         queryParams: { session: entry.sessionId },
       });
     }
@@ -185,36 +239,51 @@ export class ConsoleIndicatorComponent implements OnChanges, OnDestroy {
     }
   }
 
-  private fetchEntries(projectId: number): Observable<ConsoleEntry[]> {
-    return forkJoin([this.consolesService.list(projectId), this.issuesService.list(projectId)]).pipe(
+  // Fans the existing per-project consoles/issues calls out across every project
+  // the user has (#290), the same forkJoin pattern sidenav.component.ts's own
+  // refreshConsoleIndicators() already uses.
+  private fetchEntries(projects: Project[]): Observable<ConsoleEntry[]> {
+    return projects.length === 0
+      ? of([])
+      : forkJoin(projects.map((project) => this.fetchProjectEntries(project))).pipe(map((perProject) => perProject.flat()));
+  }
+
+  private fetchProjectEntries(project: Project): Observable<ConsoleEntry[]> {
+    return forkJoin([this.consolesService.list(project.id), this.issuesService.list(project.id)]).pipe(
       map(([ids, issues]) => {
         const titles = new Map(issues.map((issue) => [issue.number, issue.title]));
         const issueEntries = ids
-          .map((id) => this.toIssueEntry(id, titles))
+          .map((id) => this.toIssueEntry(project, id, titles))
           .filter((entry): entry is ConsoleEntry => entry !== null);
-        const projectEntries = this.toProjectEntries(ids.filter(isProjectConsoleSessionId));
+        const projectEntries = this.toProjectEntries(project, ids.filter(isProjectConsoleSessionId));
         return [...issueEntries, ...projectEntries];
       }),
     );
   }
 
-  private toIssueEntry(sessionId: string, titles: Map<number, string>): ConsoleEntry | null {
+  private toIssueEntry(project: Project, sessionId: string, titles: Map<number, string>): ConsoleEntry | null {
     const issueNumber = issueNumberFromSessionId(sessionId);
     if (issueNumber === null) {
       return null;
     }
     const [{ label }] = labelConsoles([{ id: sessionId, agent: this.agentStore.get(sessionId) }]);
-    return { sessionId, issueNumber, issueTitle: titles.get(issueNumber) ?? `#${issueNumber}`, label };
+    return {
+      sessionId,
+      projectId: project.id,
+      issueNumber,
+      issueTitle: titles.get(issueNumber) ?? `#${issueNumber}`,
+      label,
+    };
   }
 
   // Project consoles have no location (main/wtree) to label by -- just "console",
   // "console 2", ... plus the agent when known, matching the project-console
   // page's own tab labels.
-  private toProjectEntries(sessionIds: string[]): ConsoleEntry[] {
+  private toProjectEntries(project: Project, sessionIds: string[]): ConsoleEntry[] {
     return sessionIds.map((sessionId, index) => {
       const agent = this.agentStore.get(sessionId);
       const label = `console${index > 0 ? ` ${index + 1}` : ''}${agent ? ` · ${agent}` : ''}`;
-      return { sessionId, issueNumber: null, issueTitle: 'Project console', label };
+      return { sessionId, projectId: project.id, issueNumber: null, issueTitle: 'Project console', label };
     });
   }
 }
