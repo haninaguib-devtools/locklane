@@ -178,7 +178,8 @@ class ProjectControllerTest {
         ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         sessions.recordAttach(created.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
-        ProjectController controller = controller(tmp, repository, new IssueWorktreeService(sessions));
+        ProjectController controller =
+                controller(tmp, repository, new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()));
 
         ResponseEntity<?> response = controller.delete(created.id(), alice.authentication());
 
@@ -248,7 +249,8 @@ class ProjectControllerTest {
     }
 
     private static ProjectController controller(Path tmp, ProjectRepository repository) throws IOException {
-        return controller(tmp, repository, new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp)));
+        return controller(tmp, repository,
+                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()));
     }
 
     private static ProjectController controller(Path tmp, ProjectRepository repository,

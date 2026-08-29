@@ -1,5 +1,6 @@
 package dev.locklane.engine.ws;
 
+import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,7 +24,11 @@ import java.util.function.Supplier;
  * a client attaches, exchanges terminal I/O, disconnects without killing the
  * session, and a new connection sees output produced while it was gone. Since #50,
  * the endpoint requires an authenticated session, so every connection here logs in
- * first via {@link AuthenticatedWebSocketClients} rather than connecting anonymously.
+ * first via {@link AuthenticatedWebSocketClients} rather than connecting anonymously
+ * — as an admin, since these worktree ids are arbitrary test strings with no real
+ * project behind them, and #242's project-owner-derived authorization (covered by
+ * {@code WebSocketSessionOwnershipIntegrationTest}, not here) would otherwise reject
+ * every attach in this class as unowned.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class TerminalWebSocketHandlerIntegrationTest {
@@ -41,7 +46,7 @@ class TerminalWebSocketHandlerIntegrationTest {
     void aClientCanAttachAndExchangeLiveTerminalIoOverTheNetwork(@TempDir Path workDir) throws Exception {
         String worktreeId = "ws-worktree-a";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-a", "password-a");
+                "ws-handler-a", "password-a", UserRecord.Role.ADMIN);
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri(worktreeId, workDir));
 
@@ -55,7 +60,7 @@ class TerminalWebSocketHandlerIntegrationTest {
     void closingAConnectionDoesNotKillTheSessionAndAReattachSeesWhatWasMissed(@TempDir Path workDir) throws Exception {
         String worktreeId = "ws-worktree-b";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-b", "password-b");
+                "ws-handler-b", "password-b", UserRecord.Role.ADMIN);
 
         RecordingHandler first = new RecordingHandler();
         WebSocketSession firstSession = AuthenticatedWebSocketClients.connect(first, cookie, uri(worktreeId, workDir));
@@ -83,7 +88,7 @@ class TerminalWebSocketHandlerIntegrationTest {
     void aNewSessionsPtyStartsAtTheRequestedSize(@TempDir Path workDir) throws Exception {
         String worktreeId = "ws-worktree-initial-size";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-initial-size", "password-initial-size");
+                "ws-handler-initial-size", "password-initial-size", UserRecord.Role.ADMIN);
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session =
                 AuthenticatedWebSocketClients.connect(client, cookie, uriWithSize(worktreeId, workDir, 150, 45));
@@ -98,7 +103,7 @@ class TerminalWebSocketHandlerIntegrationTest {
     void aClientCanResizeTheSessionsPtyAfterAttaching(@TempDir Path workDir) throws Exception {
         String worktreeId = "ws-worktree-resize";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-resize", "password-resize");
+                "ws-handler-resize", "password-resize", UserRecord.Role.ADMIN);
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri(worktreeId, workDir));
 
@@ -113,7 +118,7 @@ class TerminalWebSocketHandlerIntegrationTest {
     void aMalformedResizeMessageIsIgnoredRatherThanBreakingTheConnection(@TempDir Path workDir) throws Exception {
         String worktreeId = "ws-worktree-bad-resize";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-bad-resize", "password-bad-resize");
+                "ws-handler-bad-resize", "password-bad-resize", UserRecord.Role.ADMIN);
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri(worktreeId, workDir));
 

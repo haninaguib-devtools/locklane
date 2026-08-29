@@ -1,6 +1,7 @@
 package dev.locklane.engine.ws;
 
 import dev.locklane.engine.persistence.ProjectConsoleService;
+import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
 import dev.locklane.engine.pty.PtySession;
 import dev.locklane.engine.pty.SessionRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +20,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -67,20 +67,26 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     private final SessionRegistry sessionRegistry;
     private final ProjectConsoleService projectConsoleService;
+    private final WorktreeSessionAuthorization authorization;
     private final TerminalHeartbeat heartbeat;
     private final Map<String, AutoCloseable> subscriptions = new ConcurrentHashMap<>();
 
     @Autowired
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService,
-            Clock clock, @Value("${locklane.terminal.heartbeat-interval-ms}") long heartbeatIntervalMs) {
+            WorktreeSessionAuthorization authorization, Clock clock,
+            @Value("${locklane.terminal.heartbeat-interval-ms}") long heartbeatIntervalMs) {
         this.sessionRegistry = sessionRegistry;
         this.projectConsoleService = projectConsoleService;
+        this.authorization = authorization;
         this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
     }
 
-    /** Test-only: these tests never call {@link #afterConnectionEstablished}, so the heartbeat is never exercised. */
+    /**
+     * Test-only: these tests never call {@link #afterConnectionEstablished}, so the
+     * heartbeat and authorization (#242) are never exercised.
+     */
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService) {
-        this(sessionRegistry, projectConsoleService, Clock.systemUTC(), 20_000L);
+        this(sessionRegistry, projectConsoleService, null, Clock.systemUTC(), 20_000L);
     }
 
     @Override
@@ -95,12 +101,22 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
         // Authentication itself is enforced upstream (SecurityConfig, #50) — a
         // handshake reaches here only once Spring Security has already accepted a
-        // session cookie, so getPrincipal() is never null in practice. The null
-        // check is defensive, not load-bearing: this is ownership (#48), not auth.
+        // session cookie, so getPrincipal() is never null in practice. A null
+        // principal is still treated as unauthorized below rather than passed into
+        // the authorization check (which reads a null username as "no caller to
+        // check" and would let it through) — this defensive branch must fail
+        // closed, not open.
+        //
+        // The actual decision — may this caller see/attach to this session at all
+        // — is #242's project-owner-derived check (ADR-007 Decision 6), replacing
+        // #48's "first attach claims it": WorktreeSessionAuthorization resolves the
+        // project this session id belongs to and checks the caller against that
+        // project's owner_user_id (or admin status), the exact same check the REST
+        // listings (IssueWorktreeService, ProjectConsoleService) apply — one
+        // implementation, so the two paths can never disagree about the same id.
         String username = wsSession.getPrincipal() != null ? wsSession.getPrincipal().getName() : null;
-        Optional<String> owner = sessionRegistry.ownerUsername(sessionId);
-        if (owner.isPresent() && !owner.get().equals(username)) {
-            wsSession.close(CloseStatus.POLICY_VIOLATION.withReason("This session belongs to another user"));
+        if (username == null || !authorization.isVisibleTo(sessionId, username)) {
+            wsSession.close(CloseStatus.POLICY_VIOLATION.withReason("You do not have access to this session"));
             return;
         }
 

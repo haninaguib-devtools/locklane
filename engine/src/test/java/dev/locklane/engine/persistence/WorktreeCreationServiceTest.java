@@ -272,7 +272,8 @@ class WorktreeCreationServiceTest {
 
     private static WorktreeCreationService service(WorktreeSessionRepository repository,
             ProjectRepository projectRepository, List<GhIssue> issues) {
-        IssueWorktreeService worktreeService = new IssueWorktreeService(repository);
+        IssueWorktreeService worktreeService =
+                new IssueWorktreeService(repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources ghResources =
                 new ProjectGhResources(projectRepository, tokenCipher(), (path, token) -> new FixedGhClient(issues));
         return new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository);

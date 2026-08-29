@@ -194,7 +194,8 @@ class ProjectWorktreesServiceTest {
 
     private static WorktreeAndId createWorktree(Fixture fx, int issueNumber, String title) throws IOException, InterruptedException {
         GhIssue issue = new GhIssue(issueNumber, title, "OPEN", List.of(), "", "", "");
-        IssueWorktreeService worktreeService = new IssueWorktreeService(fx.repository);
+        IssueWorktreeService worktreeService =
+                new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources creationGhResources = new ProjectGhResources(fx.projectRepository, tokenCipher(),
                 (path, token) -> new FixedGhClient(List.of(issue)));
         WorktreeCreationService creationService =
@@ -209,7 +210,8 @@ class ProjectWorktreesServiceTest {
     }
 
     private static ProjectWorktreesService service(Fixture fx, SessionRegistry sessionRegistry, List<GhIssue> issues) {
-        IssueWorktreeService worktreeService = new IssueWorktreeService(fx.repository);
+        IssueWorktreeService worktreeService =
+                new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources ghResources =
                 new ProjectGhResources(fx.projectRepository, tokenCipher(), (path, token) -> new FixedGhClient(issues));
         WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, fx.projectRepository, ghResources, sessionRegistry);
