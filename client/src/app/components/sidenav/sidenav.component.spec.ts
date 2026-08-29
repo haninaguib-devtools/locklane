@@ -806,6 +806,40 @@ describe('SidenavComponent', () => {
     localStorage.removeItem('locklane.sessionAgents');
   });
 
+  it('a project-level console with no issue attached lights the project dot too (#330)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console-a1b2c3d4']);
+
+    expect(fixture.componentInstance.hasOpenConsoleForProject(1)).toBeTrue();
+  });
+
+  it('the legacy project-level console session id shape also lights the project dot (#330)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console']);
+
+    expect(fixture.componentInstance.hasOpenConsoleForProject(1)).toBeTrue();
+  });
+
+  it('a project with no open console of either shape has no project dot (#330)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    expect(fixture.componentInstance.hasOpenConsoleForProject(1)).toBeFalse();
+  });
+
+  it('a project-level console in one project does not light another project\'s dot (#330)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console-a1b2c3d4']);
+    httpMock.expectOne((req) => /\/api\/projects\/2\/consoles$/.test(req.url)).flush([]);
+
+    expect(fixture.componentInstance.hasOpenConsoleForProject(1)).toBeTrue();
+    expect(fixture.componentInstance.hasOpenConsoleForProject(2)).toBeFalse();
+  });
+
   it('a project that is not READY has no "+" (#180)', () => {
     const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
     const fixture = init([cloning]);
