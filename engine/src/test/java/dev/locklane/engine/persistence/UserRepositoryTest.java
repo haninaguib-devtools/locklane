@@ -103,6 +103,28 @@ class UserRepositoryTest {
     }
 
     @Test
+    void aNewUserDefaultsToRoleUserAndDoesNotRequireAPasswordChange(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        UserRecord created = repository.create("hani", "hash", Instant.parse("2026-08-25T12:00:00Z"));
+
+        assertThat(created.role()).isEqualTo(UserRecord.Role.USER);
+        assertThat(created.mustChangePassword()).isFalse();
+    }
+
+    @Test
+    void createWithAnExplicitRoleStoresThatRole(@TempDir Path dbDir) {
+        UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
+
+        UserRecord created = repository.create(
+                "admin", "hash", Instant.parse("2026-08-25T12:00:00Z"), UserRecord.Role.ADMIN);
+
+        assertThat(created.role()).isEqualTo(UserRecord.Role.ADMIN);
+        assertThat(repository.findByUsername("admin").orElseThrow().role())
+                .isEqualTo(UserRecord.Role.ADMIN);
+    }
+
+    @Test
     void anyExistIsFalseUntilAUserIsCreated(@TempDir Path dbDir) {
         UserRepository repository = TestSqliteDatabases.newUserRepository(dbDir);
 

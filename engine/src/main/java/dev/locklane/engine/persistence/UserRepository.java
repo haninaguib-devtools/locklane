@@ -23,17 +23,31 @@ public class UserRepository {
         this.jdbcTemplate = new JdbcTemplate(dataSource);
     }
 
+    /** Creates an ordinary account. See {@link #create(String, String, Instant, UserRecord.Role)}. */
     public UserRecord create(String username, String passwordHash, Instant now) {
+        return create(username, passwordHash, now, UserRecord.Role.USER);
+    }
+
+    /**
+     * Creates an account with an explicit role (#238) —
+     * {@link dev.locklane.engine.security.UserBootstrapper} calls this with
+     * {@code ADMIN} for the account it seeds; every other caller passes
+     * {@code USER}. Always sets the column explicitly rather than omitting it and
+     * relying on the migration's backfill {@code DEFAULT 'ADMIN'}, which exists only to
+     * backfill rows that pre-date the {@code role} column, never to decide the role of
+     * a row created after it.
+     */
+    public UserRecord create(String username, String passwordHash, Instant now, UserRecord.Role role) {
         jdbcTemplate.update(
-                "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
-                username, passwordHash, now.toString());
+                "INSERT INTO users (username, password_hash, created_at, role) VALUES (?, ?, ?, ?)",
+                username, passwordHash, now.toString(), role.name());
         return findByUsername(username).orElseThrow();
     }
 
     public Optional<UserRecord> findByUsername(String username) {
         return jdbcTemplate.query(
-                "SELECT id, username, password_hash, created_at, totp_secret, totp_enabled "
-                        + "FROM users WHERE username = ?",
+                "SELECT id, username, password_hash, created_at, totp_secret, totp_enabled, "
+                        + "role, must_change_password FROM users WHERE username = ?",
                 (rs, rowNum) -> toRecord(rs),
                 username
         ).stream().findFirst();
@@ -88,6 +102,8 @@ public class UserRepository {
                 rs.getString("password_hash"),
                 Instant.parse(rs.getString("created_at")),
                 rs.getString("totp_secret"),
-                rs.getBoolean("totp_enabled"));
+                rs.getBoolean("totp_enabled"),
+                UserRecord.Role.valueOf(rs.getString("role")),
+                rs.getBoolean("must_change_password"));
     }
 }

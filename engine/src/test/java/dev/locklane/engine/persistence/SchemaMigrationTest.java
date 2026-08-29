@@ -91,6 +91,23 @@ class SchemaMigrationTest {
     }
 
     @Test
+    void anExistingUsersTableBackfillsToAdminRoleWithoutLosingRows(@TempDir Path dbDir) {
+        // V2 created users without role/must_change_password; V9 adds them, backfilling
+        // any pre-existing row (an existing single-user install) to ADMIN so that
+        // account keeps full access rather than being silently demoted.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "2");
+        new JdbcTemplate(oldShape).update(
+                "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+                "dana", "bcrypt-hash", "2026-01-01T00:00:00Z");
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+        UserRecord found = new UserRepository(oldShape).findByUsername("dana").orElseThrow();
+
+        assertThat(found.role()).isEqualTo(UserRecord.Role.ADMIN);
+        assertThat(found.mustChangePassword()).isFalse();
+    }
+
+    @Test
     void anExistingDatabaseGainsTheBackupCodesTableWithoutLosingUsers(@TempDir Path dbDir) {
         // V2 created users; the backup_codes table (#93) is V7, added long after.
         DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "6");
