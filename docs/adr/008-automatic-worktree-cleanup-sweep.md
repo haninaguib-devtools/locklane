@@ -1,4 +1,4 @@
-# ADR-006: Automatically remove a console-created worktree once its issue closes, clean and unattached — a narrow ADR-005 carve-out
+# ADR-008: Automatically remove a console-created worktree once its issue closes, clean and unattached — a narrow ADR-005 carve-out
 
 **Status:** Accepted · 2026-08-29
 **Deciders:** project owner *(solo phase; queued for review alongside ADR-001–005 if a
