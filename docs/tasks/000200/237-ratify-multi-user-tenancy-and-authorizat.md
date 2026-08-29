@@ -78,11 +78,27 @@ with rationale and alternatives considered:
   "Decisions made along the way" above for the full reasoning. No scope was widened:
   `.t-workflow/scripts/protected-paths.sh` was read to understand the failure but never
   edited.
-- Per the plan's Risks section, flagging again (not acting on it — sequencing is the
-  human's call, not this task's): #192 (template sync via `/t-update`) has the whole of
-  `CONSTITUTION.md` in its Scope with no `Blocked-by` relationship to this task either
-  direction. A template resync of `CONSTITUTION.md` after this PR merges could clobber
-  this task's §3 bullets unless that content is (or becomes) local-slot content the way
-  §4's stack rules already are. Recommend the human decide sequencing, or ask #192's
-  author to check for a `<!-- local -->` wrapper need, before both land.
+- Per the plan's Risks section, flagging again — now with mechanized confirmation, not
+  just a hypothetical: `.t-workflow/scripts/check-manifest.sh` **fails** on this diff
+  (`DRIFT: CONSTITUTION.md`), because this repo carries a real `.template-manifest.json`
+  (it is a pinned consumer of `haninaguib-devtools/t-workflow`) and §3's reserved
+  application-surfaces line is *not* one of the two places
+  `docs/architecture/local-slots.md` documents as per-repo (`CONSTITUTION.md` §4 and
+  `AGENTS.md` §Checks item 1) — every other line in `CONSTITUTION.md` is template-owned
+  and expected to stay byte-identical to the pinned release. Filling in that reserved
+  line at all — which is exactly what its own placeholder text and this issue's Goal
+  ask for — therefore always registers as manifest drift under the current template,
+  regardless of wording or format. Confirmed the baseline has zero drift before this
+  change (`git stash` + rerun) and that neither `check-manifest.sh` nor
+  `docs/architecture/local-slots.md` nor `.template-manifest.json` was edited by this
+  task — none are in the Plan's Allowed paths, and `docs/architecture/manifest.md`
+  states `/t-update` is the only thing meant to write the manifest. **This is a
+  template gap, not a mistake in this ADR or in the §3 wording**: `local-slots.md`
+  should arguably mark §3's reserved line as a slot the same way it already marks §4,
+  since both exist for a consumer to fill in once its own application/stack decisions
+  are ratified. Left for the human to decide: refresh `.template-manifest.json`'s
+  `CONSTITUTION.md` hash out-of-band (or via `/t-update`) before this PR's CI can go
+  green, and/or raise the local-slots gap with the upstream template
+  (`haninaguib-devtools/t-workflow`). Same underlying tension as the #192 sequencing
+  risk already flagged in the plan — both point at the same fix.
 - No other deviations.
