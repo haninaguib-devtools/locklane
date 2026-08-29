@@ -12,13 +12,15 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Derives the initiative/task hierarchy from cached issue data: an issue whose body
- * carries "Part of: #&lt;n&gt;" nests under issue n, but only when n actually
- * carries the "initiative" label — an issue pointing at a non-initiative (or at
- * nothing that exists) is left standalone rather than silently dropped or nested
- * somewhere misleading (#21). Nesting is one level deep only, matching this
- * project's own two-working-levels pipeline rule (AGENTS.md). One instance per
- * project since #81 — not a Spring-managed singleton itself.
+ * Derives the initiative/task hierarchy from cached issue data: an issue nests under
+ * issue n when GitHub's native parent/sub-issue relationship says so
+ * ({@link GhIssue#parent()}, set via {@code gh issue edit --parent}), falling back to
+ * the pre-#325 "Part of: #&lt;n&gt;" body-text convention for issues never re-parented
+ * natively — but only when n actually carries the "initiative" label — an issue
+ * pointing at a non-initiative (or at nothing that exists) is left standalone rather
+ * than silently dropped or nested somewhere misleading (#21). Nesting is one level deep
+ * only, matching this project's own two-working-levels pipeline rule (AGENTS.md). One
+ * instance per project since #81 — not a Spring-managed singleton itself.
  */
 public class IssueTreeService {
 
@@ -48,7 +50,7 @@ public class IssueTreeService {
                 topLevel.add(issue);
                 continue;
             }
-            Optional<Integer> parent = partOf(issue).filter(initiativeNumbers::contains);
+            Optional<Integer> parent = parentOf(issue).filter(initiativeNumbers::contains);
             if (parent.isPresent()) {
                 childrenByInitiative.computeIfAbsent(parent.get(), k -> new ArrayList<>()).add(issue);
             } else {
@@ -81,7 +83,10 @@ public class IssueTreeService {
         return cache.pullRequestForIssue(issue.number()).isPresent();
     }
 
-    private static Optional<Integer> partOf(GhIssue issue) {
+    private static Optional<Integer> parentOf(GhIssue issue) {
+        if (issue.parent() != null) {
+            return Optional.of(issue.parent());
+        }
         Matcher m = PART_OF.matcher(issue.body());
         return m.find() ? Optional.of(Integer.parseInt(m.group(1))) : Optional.empty();
     }
