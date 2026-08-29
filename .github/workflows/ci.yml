@@ -1,16 +1,25 @@
 # Mechanical enforcement (workflow §9): the checks AGENTS.md §Checks names, run on every
-# PR and on main. The `consistency` job's name is the status-check context
-# `scripts/github-bootstrap.sh` marks required in branch protection — renaming the job
-# means updating that script in the same change.
+# PR and on main, plus the CONSTITUTION.md §3 gates task #30 adds (plan, blockers,
+# record honesty, PR title — the cold-review gate lives in review-gate.yml, since it
+# also needs the pull_request_review trigger). Every job name here is a status-check
+# context `.t-workflow/scripts/github-bootstrap.sh` marks required in branch protection — renaming
+# one means updating that script in the same change.
+#
+# `edited` is added to the default pull_request types so a title-only edit (title-gate)
+# or an issue-body-only edit (plan-gate, which reads the issue, not the PR) gets a fresh
+# run without needing a new commit.
 name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
 permissions:
   contents: read
+  # plan-gate, title-gate, and blockers all read issue state (body, title, blockedBy).
+  issues: read
 
 jobs:
   consistency:
@@ -19,15 +28,22 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Cross-artifact document consistency
-        run: ./scripts/consistency-check.sh
+        run: ./.t-workflow/scripts/consistency-check.sh
+
+  # This repo's own addition, not template content: the template itself carries no
+  # .template-manifest.json (it is not a pinned consumer), so its own copy of this
+  # workflow has no equivalent job — docs/architecture/manifest.md §The CI lock says
+  # each consumer wires this in itself. Task #192.
+  manifest:
+    name: manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Template-owned files match the pinned manifest
+        run: ./.t-workflow/scripts/check-manifest.sh
 
   # CONSTITUTION.md §1.2 makes "a record rides in its PR" non-optional, and workflow §1.4
-  # prefers a rule the build enforces over one the model must remember. A `fix/` branch is
-  # the no-issue path (ADR-001 §D2) and carries no record by design, so it is exempt.
-  # The exemption is keyed on the branch prefix, which is also how /t-fix's own path is
-  # named. That is checkable: a `fix/` branch must look like a meaning-free fix (tiny, and
-  # touching no protected surface), or it is a task branch wearing the wrong prefix to
-  # skip the record requirement.
+  # prefers a rule the build enforces over one the model must remember.
   record:
     name: record
     if: github.event_name == 'pull_request'
@@ -42,6 +58,8 @@ jobs:
           # characters the shell would interpret.
           HEAD_REF: ${{ github.head_ref }}
           BASE_REF: ${{ github.base_ref }}
+          # Only read in the driven-initiative branch below.
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           base="origin/$BASE_REF"
           # Keep the list on disk and feed it with --stdin: `xargs` behaves differently
@@ -56,78 +74,143 @@ jobs:
             exit 1
           fi
 
-          if [[ "$HEAD_REF" == fix/* ]]; then
-            # /t-fix eligibility (ADR-001 §D2): no protected surface, and small.
-            # Exit 0 = protected, 1 = none, 2 = nothing checked. Only 1 may continue.
-            # `&& pp=0 || pp=$?`, never a bare `cmd; pp=$?`: Actions runs this under
-            # `bash -e`, and a bare call exits the step on the *success* case (1 = none
-            # protected) before pp is ever assigned — inverting the check silently.
-            bash scripts/protected-paths.sh --stdin < /tmp/changed && pp=0 || pp=$?
-            if [ "$pp" -eq 0 ]; then
-              echo "FAIL: a fix/ branch touches the protected surface(s) listed above."
-              echo "  The no-issue path forbids that; open it with /t-open instead."
-              exit 1
-            elif [ "$pp" -ne 1 ]; then
-              echo "FAIL: the protected-path check did not run (exit $pp)."
-              exit 1
-            fi
-            if [ "$count" -gt 2 ]; then
-              echo "FAIL: a fix/ branch changes $count files; the no-issue path allows at most 2."
-              echo "  A task branch must be wip/<id>-<slug> and carry a record."
-              exit 1
-            fi
-            # /t-fix's guidance is "~10 changed lines" — a judgment, deliberately fuzzy.
-            # CI enforces a hard outer bound instead: enough headroom that a legitimate
-            # fix never trips it, low enough that a task cannot hide behind the prefix.
-            # --numstat prints "-" for a binary file, which would read as 0 lines and let
-            # a large blob under the bound. A meaning-free fix is never binary.
-            if git -c core.quotePath=false diff --numstat "$base"...HEAD | grep -q '^-'; then
-              echo "FAIL: a fix/ branch changes a binary file."
-              echo "  The no-issue path is for text with no semantic content."
-              exit 1
-            fi
-            lines=$(git -c core.quotePath=false diff --numstat "$base"...HEAD \
-                    | awk '{ added += $1; removed += $2 } END { print added + removed + 0 }')
-            if [ "$lines" -gt 20 ]; then
-              echo "FAIL: a fix/ branch changes $lines lines; the outer bound is 20."
-              echo "  /t-fix's own guidance is ~10; well past it means this is a task."
-              exit 1
-            fi
-            echo "OK: meaning-free fix path ($count files, $lines lines), no record expected."
-            exit 0
+          # ADR-004: a driven initiative's aggregate PR to `main` comes from the fixed
+          # wip/<initiative-id>-integration branch shape. It carries no record of its
+          # own — the initiative issue has none (docs/workflow.md §6.1) — so instead of
+          # one record matching the branch's own numeric id, check one record per
+          # `Task: #<id>` line in the PR body, one per included child.
+          if printf '%s' "$HEAD_REF" | grep -qE '^wip/[0-9]+-integration$'; then
+            printf '%s' "$PR_BODY" > /tmp/pr-body.md
+            cat /tmp/changed | bash .t-workflow/scripts/check-record.sh --multi /tmp/pr-body.md
+            exit $?
           fi
 
-          # Task branches: wip/<id>-<slug>. The id is numeric (GitHub/GitLab) or a
-          # tracker key such as PROJ-142 (Jira) — matching only up to the first hyphen
-          # would truncate a key to "PROJ" and let any PROJ record satisfy the check.
-          # (delimiter is # — the alternation below contains |)
-          id=$(printf '%s' "$HEAD_REF" | sed -n -E 's#^wip/([0-9]+|[A-Za-z]+-[0-9]+)-.+#\1#p')
+          # Task branches: wip/<id>-<slug>. The id is numeric (a GitHub issue number).
+          id=$(printf '%s' "$HEAD_REF" | sed -n -E 's#^wip/([0-9]+)-.+#\1#p')
           if [ -z "$id" ]; then
-            echo "FAIL: branch '$HEAD_REF' is neither wip/<id>-<slug> nor fix/<slug>."
+            echo "FAIL: branch '$HEAD_REF' is not wip/<id>-<slug>."
             exit 1
           fi
-          # Record filenames lowercase the key (ADR-001 §D4); branch names do too, but
-          # compare case-insensitively so a stray uppercase branch fails loudly elsewhere
-          # rather than silently here.
-          id_lc=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
-          # The bucket is computable from the id (ADR-001 §D4): the numeric part rounded
-          # down to the nearest 100, zero-padded to 6 digits. Checking the exact bucket
-          # is what makes that claim true — any-bucket matching would let 999900/142-x.md
-          # satisfy task 142.
-          num=$(printf '%s' "$id_lc" | sed -n -E 's#^[a-z]*-?([0-9]+)$#\1#p')
-          if [ -z "$num" ]; then
-            echo "FAIL: cannot derive a numeric part from id '$id'."
-            exit 1
-          fi
-          bucket=$(printf '%06d' $(( (10#$num / 100) * 100 )))
-          if grep -qE "^docs/tasks/${bucket}/${id_lc}-[^/]+\.md$" /tmp/changed; then
-            echo "OK: the diff carries the record for task $id at docs/tasks/${bucket}/."
-          else
-            echo "FAIL: no docs/tasks/${bucket}/${id_lc}-<slug>.md in this diff."
+          # The bucket is computable from the id (ADR-001 §D4): rounded down to the
+          # nearest 100, zero-padded to 6 digits. Checking the exact bucket is what makes
+          # that claim true — any-bucket matching would let 999900/142-x.md satisfy task 142.
+          bucket=$(printf '%06d' $(( (10#$id / 100) * 100 )))
+          recfile=$(grep -E "^docs/tasks/${bucket}/${id}-[^/]+\.md$" /tmp/changed | head -1)
+          if [ -z "$recfile" ]; then
+            echo "FAIL: no docs/tasks/${bucket}/${id}-<slug>.md in this diff."
             echo "  Every task PR carries its own record (CONSTITUTION.md §1.2);"
             echo "  a record for another task, or in another bucket, does not satisfy this."
             exit 1
           fi
+          echo "Found the record for task $id at $recfile — checking it is real:"
+          # A record present but doctored (wrong heading/id line, missing template
+          # sections) is not honest — goal item 4 of #30.
+          bash .t-workflow/scripts/check-record.sh "$id" "$recfile"
+
+  # CONSTITUTION.md §3's plan-before-protected-work rule, mechanized (goal item 1 of
+  # #30): a PR whose diff touches a protected surface fails unless its issue carries
+  # exactly one `## Plan` section.
+  plan-gate:
+    name: plan-gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: A protected diff carries exactly one Plan section
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # ADR-004: a driven initiative's aggregate PR (wip/<id>-integration) carries no
+          # `## Plan` of its own — the initiative issue never has one. Every child that
+          # touched a protected surface was already plan-gated individually, on its own
+          # PR against this same branch, before /t-drive merged it in (ADR-004 Decision
+          # 1) — this job's check already ran, successfully, once per included child.
+          if printf '%s' "$HEAD_REF" | grep -qE '^wip/[0-9]+-integration$'; then
+            echo "OK: $HEAD_REF is a driven-initiative integration branch — each included child was already plan-gated individually."
+            exit 0
+          fi
+
+          id=$(printf '%s' "$HEAD_REF" | sed -n -E 's#^wip/([0-9]+)-.+#\1#p')
+          if [ -z "$id" ]; then
+            echo "FAIL: branch '$HEAD_REF' is not wip/<id>-<slug>."
+            exit 1
+          fi
+          gh issue view "$id" --json body -q .body > /tmp/issue-body.md
+          git -c core.quotePath=false diff --name-only "origin/$BASE_REF"...HEAD |
+            bash .t-workflow/scripts/check-plan-gate.sh /tmp/issue-body.md
+
+  # /t-work Phase 3's PR title convention, mechanized (goal item 5 of #30).
+  title-gate:
+    name: title-gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: The PR title starts with [<id>], matching the branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          id=$(printf '%s' "$HEAD_REF" | sed -n -E 's#^wip/([0-9]+)-.+#\1#p')
+          if [ -z "$id" ]; then
+            echo "FAIL: branch '$HEAD_REF' is not wip/<id>-<slug>."
+            exit 1
+          fi
+          bash .t-workflow/scripts/check-title-gate.sh "$id" "$PR_TITLE"
+
+  # ADR-001 §D3.2 over the native blockedBy field (ADR-003), mechanized (goal item 3 of
+  # #30): every blocker of the PR's issue must be closed as completed. Re-evaluated on
+  # every pull_request sync/reopen/edit — the closest approximation to "at merge time"
+  # available without a merge queue (see the Plan's human_checks on this issue); a
+  # human who wants a fresher read before clicking merge can re-run this job.
+  blockers:
+    name: blockers
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Every blocker of this task's issue is closed as completed
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(printf '%s' "$HEAD_REF" | sed -n -E 's#^wip/([0-9]+)-.+#\1#p')
+          if [ -z "$id" ]; then
+            echo "FAIL: branch '$HEAD_REF' is not wip/<id>-<slug>."
+            exit 1
+          fi
+          # `gh api graphql`, not `gh issue view --json blockedBy`: the runner's gh
+          # version is not pinned by this workflow, and stateReason — needed to tell a
+          # cancelled blocker from a completed one (ADR-001 §D3.2) — is promised by the
+          # underlying GraphQL field but not (yet) by docs/adapters/TRACKER.md's
+          # tracker:list-blockers contract table, which names only `state`.
+          gh api graphql -f query='
+            query($owner: String!, $name: String!, $num: Int!) {
+              repository(owner: $owner, name: $name) {
+                issue(number: $num) {
+                  blockedBy(first: 100) { nodes { number state stateReason } }
+                }
+              }
+            }' -F owner="$OWNER" -F name="$REPO_NAME" -F num="$id" \
+            --jq '.data.repository.issue.blockedBy.nodes' > /tmp/blockers.json
+          bash .t-workflow/scripts/check-blocker-gate.sh /tmp/blockers.json
+
+  # Regression coverage for the plumbing behind the gates above: protected-paths.sh's
+  # exit codes and quoting, the bucket math, and every check-*.sh script against
+  # fixtures (Done-when 1 and 2 of #30).
+  plumbing-test:
+    name: plumbing-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Gate scripts behave correctly against fixtures
+        run: ./.t-workflow/scripts/plumbing-test.sh
 
   # AGENTS.md §Checks item 1 is the single place that names this command.
   build:

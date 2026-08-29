@@ -58,13 +58,13 @@ confirmed. Everything between those two points is chosen per task.
 |---|---|
 | `/t-open` | Conversation to issue(s). How all work starts. |
 | `/t-plan` | Pins scope, risks, and validation onto the issue. Required before a protected surface changes. |
-| `/t-wtree` | Optional. Gives the task its own checkout. |
 | `/t-work` | Branch, record, implement, check, draft pull request. |
 | `/t-review` | Cold-context review, posted on the pull request. Required before shipping a protected surface. |
+| `/t-drive` | Optional. Walks an initiative's children to completion on an integration branch, then stops once for a human-confirmed pull request to `main`. |
 | `/t-ship` | Human-confirmed squash merge. |
-| `/t-cancel` | Terminal exit: reason recorded, neighbours decided, then teardown. |
+| `/t-cancel` | Terminal exit: reason recorded, neighbours decided, then the pull request closed and its branch deleted. |
+| `/t-update` | For a repo generated from this template. Syncs its template-owned files to a pinned release. |
 | `/t-status` | Read-only pipeline overview. |
-| `/t-fix` | A change with no semantic content, as one pull request. |
 
 `AGENTS.md` is the full contract and the one an agent reads on session start. This table
 is a map, not a substitute for it.

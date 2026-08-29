@@ -8,24 +8,22 @@ the **active backend**. The active backend is declared once, here:
 active-backend: github
 ```
 
-Swapping trackers (GitHub Issues → Jira, GitLab Issues, …) means editing this file only —
-no skill changes. Every backend must satisfy the **contract** for each operation; the
-per-backend command tables are implementations of that contract.
+Swapping trackers means editing this file only — no skill changes. A backend must satisfy
+the **contract** for each operation; the per-backend command table is that contract's
+implementation.
 
 ## Vocabulary
 
-The workflow says **issue** everywhere. Map it mentally per backend: a GitHub/GitLab
-issue, a Jira ticket. The **task ID** is the tracker's native identifier (GitHub/GitLab
-issue number, Jira key such as `PROJ-152`); it appears in branch names
-(`wip/<id>-<slug>`) and record filenames, so it must be filename-safe — lowercase a Jira
-key for those uses.
+The workflow says **issue** everywhere. The **task ID** is the tracker's native identifier
+— the GitHub issue number; it appears in branch names (`wip/<id>-<slug>`) and record
+filenames.
 
 ## Classification labels
 
 `/t-open` tags every task issue (never a tracking issue) with exactly one of these, so
 issues can be grouped/filtered by kind later. Reuses GitHub's own default label set
 already present in this repo rather than inventing a parallel taxonomy; ensured to exist
-via `tracker:ensure-labels` (backed by `scripts/github-bootstrap.sh`).
+via `tracker:ensure-labels` (backed by `.t-workflow/scripts/github-bootstrap.sh`).
 
 | Label | Meaning |
 |---|---|
@@ -34,8 +32,7 @@ via `tracker:ensure-labels` (backed by `scripts/github-bootstrap.sh`).
 | `documentation` | Improvements or additions to documentation |
 | `question` | Further information is requested |
 
-Another backend adopts its own equivalent four (or maps to these names if it supports
-free-form labels, e.g. Jira).
+Another backend adopts its own equivalent four.
 
 ## Workflow-reserved labels
 
@@ -59,33 +56,36 @@ machine-read label belongs here the same day it starts being written by a skill.
 Each operation states its contract, then the command per backend. Where a backend needs
 extra steps, they are listed — a skill treats the whole entry as one operation.
 
-### `tracker:view <id>` — full issue: title, body, state, labels
+**The relation operations below** (`set-parent`, `remove-parent`, `list-children`,
+`add-blocker`, `remove-blocker`, `list-blockers`, `list-blocking`), and the `parent` /
+`blockedBy` / `blocking` / `subIssues` / `subIssuesSummary` fields the read operations
+return, need gh CLI ≥2.94.0 (2026-06-10) — the release that added native sub-issue and
+issue-dependency support to `gh issue`. An older gh rejects these flags and JSON fields
+outright (`Unknown JSON field`) rather than degrading quietly; confirm `gh --version`
+before relying on them (ADR-003).
+
+### `tracker:view <id>` — full issue: number, title, body, state, labels, parent, subIssuesSummary
 
 | Backend | Command |
 |---|---|
-| GitHub | `gh issue view <id>` (state only: `gh issue view <id> --json state,stateReason`) |
-| GitLab | `glab issue view <id>` |
-| Jira | `jira issue view <KEY>` (state: the Status field; "cancelled" is a resolution or label, see `tracker:close`) |
+| GitHub | `gh issue view <id> --json number,title,body,state,labels,parent,subIssuesSummary` |
 
-### `tracker:list-open` — ALL open issues with id, title, labels, and full body
+### `tracker:list-open` — ALL open issues with id, title, labels, body, and blockedBy
 
 Contract: the scan must be **complete** (paginate or raise the page size until it is; a
 truncated list must be reported as an incomplete scan, never as "none found") and each
-row carries its labels, so callers can filter initiatives without extra calls.
+row carries its labels and `blockedBy`, so callers can filter initiatives and check
+blocked state without extra per-issue calls.
 
 | Backend | Command |
 |---|---|
-| GitHub | `gh issue list --state open --limit 1000 --json number,title,body,labels` (default limit is 30 — always pass it) |
-| GitLab | `glab issue list --per-page 100 --page <n>` (loop pages) or `glab api "projects/:id/issues?state=opened&per_page=100"` |
-| Jira | `jira issue list --status "~Done" --plain --columns key,summary` then `jira issue view` per hit, or the search API with `maxResults` paging |
+| GitHub | `gh issue list --state open --limit 1000 --json number,title,body,labels,blockedBy` (default limit is 30 — always pass it) |
 
-### `tracker:list-initiatives` — open issues labeled `initiative`
+### `tracker:list-initiatives` — open issues labeled `initiative`, with `subIssuesSummary`
 
 | Backend | Command |
 |---|---|
-| GitHub | `gh issue list --label initiative --state open` |
-| GitLab | `glab issue list --label initiative` |
-| Jira | `jira issue list --label initiative --status "~Done"` (or model initiatives as Epics and list Epics) |
+| GitHub | `gh issue list --label initiative --state open --json number,title,subIssuesSummary` |
 
 ### `tracker:list-cancelled` — closed issues labeled `cancelled`, id + title
 
@@ -95,8 +95,6 @@ limit is an incomplete scan, never a count (ADR-001 §D6). Raise the limit or pa
 | Backend | Command |
 |---|---|
 | GitHub | `gh issue list --state closed --label cancelled --limit 100 --json number,title` |
-| GitLab | `glab issue list --closed --label cancelled` |
-| Jira | `jira issue list --status Done --label cancelled` (or resolution = "Won't Do") |
 
 ### `tracker:list-labels` — every label the tracker knows, with name and description
 
@@ -107,16 +105,12 @@ the workflow-reserved set (above) before considering any result for auto-apply.
 | Backend | Command |
 |---|---|
 | GitHub | `gh label list --json name,description` |
-| GitLab | `glab api "projects/:id/labels"` (returns `name` and `description` per label) |
-| Jira | Not applicable — labels are free-form strings with no centralized registry or descriptions. Skip the optional auto-apply pass entirely for Jira. |
 
 ### `tracker:create <title> <body>` — create an issue, return its ID
 
 | Backend | Command |
 |---|---|
 | GitHub | `gh issue create --title "<title>" --body "<body>"` |
-| GitLab | `glab issue create --title "<title>" --description "<body>"` |
-| Jira | `jira issue create --type Task --summary "<title>" --body "<body>" --no-input` |
 
 ### `tracker:edit-body <id>` — replace/append the issue body, preserving what is there
 
@@ -125,35 +119,75 @@ Contract: read the current body first; never clobber it.
 | Backend | Command |
 |---|---|
 | GitHub | `gh issue edit <id> --body "<current + appended>"` |
-| GitLab | `glab issue update <id> --description "<current + appended>"` |
-| Jira | `jira issue edit <KEY> --body "<current + appended>" --no-input` |
 
 ### `tracker:ensure-labels <label>…` — idempotently create the workflow's labels
 
-The label set and colors live in `scripts/github-bootstrap.sh` (write the equivalent
+The label set and colors live in `.t-workflow/scripts/github-bootstrap.sh` (write the equivalent
 bootstrap script when adopting another backend).
 
 | Backend | Command |
 |---|---|
 | GitHub | `gh label list`; `gh label create <name> --color <hex> --description "…" --force` |
-| GitLab | `glab label create --name <name> --color "#<hex>" --description "…"` (already-exists errors are fine) |
-| Jira | Labels are free-form — nothing to create. Skip. |
 
 ### `tracker:label <id> <label>` — add a label to an issue
 
 | Backend | Command |
 |---|---|
 | GitHub | `gh issue edit <id> --add-label <label>` |
-| GitLab | `glab issue update <id> --label <label>` |
-| Jira | `jira issue edit <KEY> --label <label> --no-input` |
+
+### `tracker:set-parent <child-id> <parent-id>` — link an issue as another's sub-issue
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh issue edit <child-id> --parent <parent-id>` |
+
+### `tracker:remove-parent <id>` — drop an issue's parent link, promoting it to standalone
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh issue edit <id> --remove-parent` |
+
+### `tracker:list-children <id>` — an issue's sub-issues, each with number, title, state
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh issue view <id> --json subIssues` |
+
+### `tracker:add-blocker <id> <blocker-id>` — mark `<id>` as blocked by `<blocker-id>`
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh issue edit <id> --add-blocked-by <blocker-id>` |
+
+### `tracker:remove-blocker <id> <blocker-id>` — drop one blocked-by edge from `<id>`
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh issue edit <id> --remove-blocked-by <blocker-id>` |
+
+### `tracker:list-blockers <id>` — issues blocking `<id>`, each with number, title, state
+
+Contract: state is required per blocker — the blocker gate (`/t-work`) must tell a
+closed-as-completed blocker from one closed-as-cancelled (abandoned, not satisfied).
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh issue view <id> --json blockedBy` |
+
+### `tracker:list-blocking <id>` — issues `<id>` blocks (its dependents), same fields
+
+Contract: this is the whole of `/t-cancel`'s dependent sweep for one issue — no
+open-issue body scan needed, unlike the retired `Blocked-by:` marker convention.
+
+| Backend | Command |
+|---|---|
+| GitHub | `gh issue view <id> --json blocking` |
 
 ### `tracker:comment <id> <text>` — comment on an issue
 
 | Backend | Command |
 |---|---|
 | GitHub | `gh issue comment <id> --body "<text>"` |
-| GitLab | `glab issue note <id> --message "<text>"` |
-| Jira | `jira issue comment add <KEY> "<text>"` |
 
 ### `tracker:close <id> <reason> <comment>` — close as not-planned, with the reason
 
@@ -164,8 +198,6 @@ shipped (that is `tracker:close-done`).
 | Backend | Command |
 |---|---|
 | GitHub | `gh issue close <id> --reason "not planned" --comment "<comment>"` |
-| GitLab | `glab issue note <id> --message "<comment>"` then `glab issue close <id>` (the `cancelled` label carries the distinction) |
-| Jira | `jira issue comment add <KEY> "<comment>"` then transition with resolution "Won't Do": `jira issue move <KEY> Done` (configure the resolution in the workflow) |
 
 ### `tracker:close-done <id>` — close as completed
 
@@ -175,22 +207,17 @@ blocker gate treats a not-planned close as an abandoned blocker.
 | Backend | Command |
 |---|---|
 | GitHub | `gh issue close <id> --reason completed` |
-| GitLab | `glab issue close <id>` |
-| Jira | `jira issue move <KEY> Done` (resolution "Done") |
 
 ### `tracker:auto-close-on-merge <id>` — does merging a linked PR close the issue?
 
 | Backend | Behavior |
 |---|---|
 | GitHub | Yes — `Closes #<id>` in the PR body closes the issue on merge. |
-| GitLab | Yes — `Closes #<id>` in the MR description (same-project issues). |
-| Jira | **No.** Smart-commit automation may exist but is not assumed: after `forge:pr-merge`, `/t-ship` must transition the ticket to Done explicitly. |
 
 ## Bootstrap
 
-`scripts/github-bootstrap.sh` is the GitHub implementation of tracker + forge bootstrap
+`.t-workflow/scripts/github-bootstrap.sh` is the GitHub implementation of tracker + forge bootstrap
 (labels, merge mechanics, branch protection). Issue templates are part of the tracker
 surface too: GitHub's live in `.github/ISSUE_TEMPLATE/` (spec:
-`docs/architecture/issue-templates.md`); another backend supplies its own equivalent. Adopting another backend means writing its
-sibling (`scripts/gitlab-bootstrap.sh`, a Jira project-config note) and switching
-`active-backend` above.
+`docs/architecture/issue-templates.md`). Adopting another backend means writing its own
+bootstrap script and issue-template equivalent, and switching `active-backend` above.

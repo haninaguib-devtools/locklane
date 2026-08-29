@@ -11,9 +11,9 @@
 # form. They change together, in the same task — the constitution says so.
 #
 # Usage:
-#   scripts/protected-paths.sh <path>...     exit 0 if ANY path is protected, 1 if none
-#   scripts/protected-paths.sh --stdin       read paths from stdin, one per line
-#   scripts/protected-paths.sh --list        print the patterns, one per line
+#   .t-workflow/scripts/protected-paths.sh <path>...     exit 0 if ANY path is protected, 1 if none
+#   .t-workflow/scripts/protected-paths.sh --stdin       read paths from stdin, one per line
+#   .t-workflow/scripts/protected-paths.sh --list        print the patterns, one per line
 #
 # Exit codes — callers MUST distinguish 1 from 2:
 #   0  at least one path is protected (they are echoed to stdout)
@@ -22,7 +22,7 @@
 # Exit 2 exists because "asked about nothing" and "asked, found nothing" are the same
 # value in a naive script, and every caller reads that value as "skip the plan and the
 # review". An empty pipe is a broken caller, not a clean diff.
-#   git diff --name-only main...HEAD | scripts/protected-paths.sh --stdin
+#   git diff --name-only main...HEAD | .t-workflow/scripts/protected-paths.sh --stdin
 # Protected paths are echoed to stdout, so callers can report which ones matched.
 #
 # Prefer --stdin over `xargs`: on empty input GNU and BSD xargs behave differently (BSD
@@ -50,7 +50,7 @@ patterns=(
   '.mcp.json'
   '.cursor/*'
   '.github/*'
-  'scripts/*'
+  '.t-workflow/scripts/*'
   # The installer stamps out every new repository from this template: a defect here is
   # inherited by every project it generates, and none of them are reviewed by anyone here.
   'installer/*'
@@ -59,9 +59,6 @@ patterns=(
   '.gitignore'
   'README.md'
   'LICENSE'
-  # Forge-config equivalents for non-GitHub backends (docs/adapters/FORGE.md):
-  '.gitlab-ci.yml'
-  '.gitlab/*'
 )
 
 if [ "${1:-}" = "--list" ]; then

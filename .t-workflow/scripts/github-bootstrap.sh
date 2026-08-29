@@ -41,17 +41,21 @@ echo "Merge mechanics set: squash-only, delete branch on merge."
 #
 # The jobs from .github/workflows/ci.yml become required checks once CI has run at least
 # once on the default branch; a context GitHub has never seen can be rejected here, so
-# this script sets them only after seeing `consistency` land on main. (`record` is
-# pull-request-only by design — it needs a base branch to diff against — so it is
-# required alongside `consistency` rather than detected on its own.)
+# this script sets them only after seeing `consistency` land on main. (`record`,
+# `plan-gate`, `title-gate`, `blockers`, and `cold-review` are pull-request-only by
+# design — record/plan-gate need a base branch to diff against, title-gate and blockers
+# read PR/issue state that only exists on a PR, and cold-review also needs the
+# pull_request_review trigger (review-gate.yml) — so they are required alongside
+# `consistency` rather than detected on their own.)
 #
 # NOTE: on a PRIVATE repo, branch protection (and rulesets, and CODEOWNERS enforcement)
 # requires a paid plan — GitHub Pro (personal) or Team (org). On free plans it works
 # only on PUBLIC repos. The call below degrades to a warning instead of failing.
 if gh api "repos/$repo/commits/main/check-runs" -q '.check_runs[].name' 2>/dev/null \
    | grep -qx consistency; then
-  checks='{"strict": false, "contexts": ["consistency", "record"]}'
-  echo "CI has run on main: marking 'consistency' and 'record' required checks."
+  checks='{"strict": false, "contexts": ["consistency", "record", "plan-gate", "title-gate", "blockers", "cold-review", "plumbing-test"]}'
+  echo "CI has run on main: marking consistency, record, plan-gate, title-gate,"
+  echo "  blockers, cold-review, and plumbing-test required checks."
 else
   checks='null'
   echo "CI has not run on main yet: leaving required checks unset."

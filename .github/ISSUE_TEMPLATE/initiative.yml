@@ -15,6 +15,6 @@ body:
     id: tasks
     attributes:
       label: Tasks
-      description: 'Task list of children, one per line: "- [ ] #151 ..." — list only children that are already clear. If the decomposition is unknown, the only child is a design task whose merged output determines the rest.'
+      description: 'Notes only — children are linked as native sub-issues, not tracked here. One per line, e.g. "#151 ..." — list only children that are already clear. If the decomposition is unknown, the only child is a design task whose merged output determines the rest.'
     validations:
       required: true

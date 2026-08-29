@@ -70,17 +70,24 @@ decomposition deferred if unclear.
    ## Non-goals
    <explicit exclusions; each deferred item gets its own issue, opened now>
 
-   Part of: #<tracking>        (children only)
-   Blocked-by: #<id>           (one line per blocker)
    Split from: #<id>           (issues opened from another task's Non-goals)
    ```
 
-   Those three markers are **machine-read** — `/t-work`'s blocker gate, `/t-status`'s
-   blocked state, and `/t-cancel`'s dependent, parent, and spun-off sweeps all grep for
-   them literally. Write them exactly as shown, one per line, at the end of the body.
+   `Split from:` is the one relationship left as body text — GitHub has no native
+   equivalent for "carved out of" (ADR-003). Write it exactly as shown, at the end of
+   the body; `/t-cancel`'s spun-off sweep greps for it literally.
 
-   Tracking issues additionally get the `initiative` label and a task-list body
-   (`- [ ] #151 …`) instead of Scope.
+   **Parent and blocker are native links, set right after the issue exists** (ADR-003)
+   — there is nothing to write in the body for them. A child of a tracking issue gets
+   `tracker:set-parent <child-id> <tracking-id>`; each blocker named in the
+   conversation gets its own `tracker:add-blocker <id> <blocker-id>` call. Do both
+   immediately after `tracker:create` returns the new issue's id, same as the labelling
+   step above.
+
+   Tracking issues additionally get the `initiative` label; no Scope, and no
+   hand-written task list. Each child is linked to it with `tracker:set-parent` the
+   moment it is created — GitHub's own sub-issues panel and `subIssuesSummary` are the
+   list and its progress from then on, so nothing here needs to stay in sync by hand.
 5. **Deferred** work named in Non-goals is opened as its own issue *now*, holding the
    exclusion rationale and carrying `Split from: #<id>` — the marker that lets
    `/t-cancel` find it if the excluding task is ever abandoned. Without it that sweep has

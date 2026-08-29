@@ -32,15 +32,16 @@ Submitted forms render each field as a `### <label>` heading followed by the val
 This differs from t-open's `## <heading>` levels; for the **prose** sections the section
 *names and order* are the contract, not the heading depth.
 
-**The two machine-read fields are the exception.** `Part of` and `Blocked by` are not
-prose: `/t-work`'s blocker gate, `/t-status`'s blocked state, and `/t-cancel`'s dependent
-sweep all read the literal tokens `Part of: #n` and `Blocked-by: #n`. A form cannot put a
-token in its heading, so it is handled from both ends: the fields' descriptions and
-placeholders instruct the person to type the whole token as the value, **and** the three
-consuming skills also accept a bare `#n` sitting under the `### Blocked by` / `### Part
-of` heading. Either shape counts as blocked. Neither end may be removed without the
-other: a bare number that no consumer recognises silently disarms the blocker gate, which
-is the one failure ADR-001 §D3 exists to prevent.
+**Parent and blocked-by are not form fields.** They were body-text markers
+(`Part of: #n`, `Blocked-by: #n`) before ADR-003; the tracker now models both natively —
+a sub-issue's `parent` link, an issue's `blockedBy`/`blocking` dependencies — and a
+static issue form has no way to write to that relation graph at submission time, only to
+the body. A hand-opened issue therefore gets these set afterward, in the tracker's own
+UI (GitHub's sidebar: "Parent issue", "Blocked by"/"Blocking" under linked issues),
+exactly as an issue opened by `/t-open` gets them via `tracker:set-parent` /
+`tracker:add-blocker` right after creation. `/t-work`'s blocker gate, `/t-status`'s
+blocked state, and `/t-cancel`'s dependent, parent, and children sweeps all read the
+native fields — there is no body text for any of them to parse any more.
 
 ## Files
 
@@ -80,17 +81,14 @@ Fields, in order:
    Description: `One line: the paths or area this may touch.`
 4. **Non-goals** — `textarea`, id `non-goals`, optional.
    Description: `Explicit exclusions. Each deferred item gets its own issue — open it now.`
-5. **Part of** — `input`, id `part-of`, optional. **Machine-read.**
-   Description: "Its tracking issue. Write the whole token, `Part of: #150`. Leave empty for standalone tasks."
-   Placeholder: `Part of: #150`
-6. **Blocked by** — `textarea`, id `blocked-by`, optional. **Machine-read.**
-   Description: "One per line. Write the whole token, `Blocked-by: #151`, so the reference stays readable wherever it is quoted."
-   Placeholder: `Blocked-by: #151`
+
+No Part-of or Blocked-by field — set both afterward as native relations in the
+tracker's sidebar (see above).
 
 The form applies no label. The workflow has no lanes (ADR-001), so there is no
 per-issue routing choice for the form to carry; `initiative` and `cancelled` are
-applied by the skills that own them. Blocked state is derived from `Blocked-by:` lines
-in the body, not from a label.
+applied by the skills that own them. Blocked state is derived from the native
+`blockedBy` field, not from a label.
 
 ## Initiative form — `initiative.yml`
 
@@ -99,18 +97,21 @@ in the body, not from a label.
 | `name` | `Initiative` |
 | `description` | `Tracking issue: overall intent plus ordered child tasks. Several PRs.` |
 | `title` | (none) |
-| `labels` | `["initiative"]` — GitHub silently drops a label that does not exist, so an initiative opened before `scripts/github-bootstrap.sh` has run carries none. `/t-status` says so rather than reporting no initiatives. |
+| `labels` | `["initiative"]` — GitHub silently drops a label that does not exist, so an initiative opened before `.t-workflow/scripts/github-bootstrap.sh` has run carries none. `/t-status` says so rather than reporting no initiatives. |
 
 Fields, in order:
 
 1. **Goal** — `textarea`, id `goal`, **required**.
    Description: `The overall intent and constraints settled so far. Self-sufficient.`
-2. **Tasks** — `textarea`, id `tasks`, **required**.
-   Description: `Task list of children, one per line: "- [ ] #151 ..." — list only children that are already clear. If the decomposition is unknown, the only child is a design task whose merged output determines the rest.`
+2. **Tasks** — `textarea`, id `tasks`, **required**. Free-text planning notes only —
+   children are linked as native sub-issues (set in the tracker's sidebar for a
+   hand-opened initiative), not tracked in this field; `subIssuesSummary` is the
+   progress source, matching t-open (ADR-003).
+   Description: `Notes only — children are linked as native sub-issues, not tracked here. One per line, e.g. "#151 ..." — list only children that are already clear. If the decomposition is unknown, the only child is a design task whose merged output determines the rest.`
 
-No Scope or Blocked-by: tracking issues have none, matching t-open. An
+No Scope or Blocked-by: tracking issues have neither, matching t-open. An
 initiative opened by hand with unclear decomposition still needs its design child
-opened as a separate (task-form) issue.
+opened as a separate (task-form) issue, linked to it as a sub-issue.
 
 ## Revisit triggers
 

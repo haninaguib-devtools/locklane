@@ -1,0 +1,39 @@
+# /t-ship precondition 2, mechanized (goal item 2 of #30): a protected PR requires a
+# current cold review — `readiness: ready`, `isolation:` not `same session`, newer than
+# the head commit. Split from ci.yml because it needs a second trigger: a push
+# invalidates the previous verdict (the timestamp check), and a submitted review is
+# what produces one to check in the first place. Both events carry the same
+# `pull_request` payload shape, so the one job below handles either uniformly. The job
+# name `cold-review` is the status-check context `.t-workflow/scripts/github-bootstrap.sh` marks
+# required — renaming it means updating that script in the same change.
+name: review-gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  cold-review:
+    name: cold-review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: A protected PR carries a current, cold, ready review
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr view "$PR_NUMBER" --json reviews -q '[.reviews[] | {submittedAt, body}]' \
+            > /tmp/reviews.json
+          head_time=$(gh pr view "$PR_NUMBER" --json commits -q '.commits[-1].committedDate')
+          git -c core.quotePath=false diff --name-only "origin/$BASE_REF"...HEAD |
+            bash .t-workflow/scripts/check-review-gate.sh "$head_time" /tmp/reviews.json

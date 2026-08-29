@@ -15,15 +15,15 @@ by ADRs as decisions are ratified.
    tracker issue, carries a record riding in its PR, and reaches `main` only by PR with a
    human confirming the merge. Planning, an isolated worktree, and an independent review
    are chosen per task (ADR-001) — except on a protected surface (§3), where a plan and an
-   independent review are required. Changes with no semantic content use the no-issue
-   path (ADR-001), still merged by PR on a human's confirmation.
+   independent review are required.
 3. Git is the system of record for outcomes; the tracker and the forge are the venue for
    process. Which products fill those roles is a mechanical choice made in
    `docs/adapters/` (GitHub for both by default), not a constitutional one. Nothing
    binding exists only in an issue or PR thread — if it isn't merged, it isn't decided.
-4. Squash commits are self-contained: goal, non-goals, outcome, and a `Task: #<id>` line
-   written from the task record. A no-issue fix (§1.2) has no task or record; its commit
-   instead carries the one-line no-semantic-content eligibility statement.
+4. Squash commits are self-contained: goal, non-goals, outcome, and one or more
+   `Task: #<id>` lines, each written from the task record it names — an ordinary merge
+   carries exactly one; only `/t-drive`'s single PR closing an initiative's included
+   children carries more than one, one line per included child (ADR-004).
 5. Guardrails are never weakened to make work pass. A failing check is fixed by fixing
    the work. Loosening any gate is a protected change (workflow §11.3) with an ADR.
 
@@ -48,7 +48,7 @@ approvals on the forge stay at zero because a sole author cannot approve their o
 When a second maintainer joins, the bar rises to their approval on the forge as well, and
 workflow §13 Q9 decides which surfaces need more than one.
 
-This list has an executable twin: `scripts/protected-paths.sh` decides the same question
+This list has an executable twin: `.t-workflow/scripts/protected-paths.sh` decides the same question
 for the skills and for CI. The two are one rule in two forms and change in the same task;
 where they disagree, that is a defect to fix, not a judgment call to make.
 
@@ -67,9 +67,8 @@ where they disagree, that is a defect to fix, not a judgment call to make.
 - `.mcp.json` and `.cursor/` (the same argument, for other agents' executable config)
 - `docs/adapters/` (the tracker/forge backend maps the skills execute through)
 - `docs/architecture/` (binding conventions the skills execute against)
-- `.github/` (CI, CODEOWNERS, rulesets — or the active forge's equivalent config paths,
-  `.gitlab-ci.yml` and `.gitlab/`)
-- `scripts/` (the mechanical checks and settings-as-code)
+- `.github/` (CI, CODEOWNERS, rulesets)
+- `.t-workflow/scripts/` (the mechanical checks and settings-as-code)
 - `installer/` (the one-command bootstrap that generates every new project from this
   template — a defect here is inherited by repositories nobody in this one will review)
 - `docs/tasks/TEMPLATE.md` and `docs/tasks/README.md` (the shape of every future record —
@@ -91,7 +90,7 @@ exactly those placeholder fills and that first commit, and nothing else. **The e
 ends when that first commit is pushed** — one end-point, stated the same way in
 `README.md` §Bootstrapping. Every *edit to the tree* after that push goes through the
 pipeline, including further edits to those same files. Running
-`scripts/github-bootstrap.sh` is not such an edit — it changes settings on the forge and
+`.t-workflow/scripts/github-bootstrap.sh` is not such an edit — it changes settings on the forge and
 produces no diff — so it needs no task, before or after the push. The exception never
 covers a second round of "just this once".
 
@@ -102,9 +101,11 @@ any other change to this list.
 
 ## 4. Stack & architecture
 
+<!-- local -->
 1. Spring Boot engine + Angular PWA client + SQLite for durable non-binding state, with
    one persistent PTY (pseudo-terminal) session per git worktree, reattachable from any
    browser, from anywhere — never a job queue (ADR-002).
+<!-- /local -->
 
 ## Amendment
 

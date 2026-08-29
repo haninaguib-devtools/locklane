@@ -21,14 +21,16 @@ Knowledge lives in the repository, in every clone: `CONSTITUTION.md`, `AGENTS.md
 `docs/architecture/`, `docs/tasks/`, `.claude/skills/`, `.github/`. Process lives in
 the tracker and the forge — issues, PRs, reviews, CI runs — which is reconstructable, not
 load-bearing. The skills reach both only through named operations that
-`docs/adapters/TRACKER.md` and `docs/adapters/FORGE.md` map to the active backends
-(GitHub for both by default; Jira, GitLab, etc. by editing those two files).
+`docs/adapters/TRACKER.md` and `docs/adapters/FORGE.md` map to the active backend
+(GitHub for both today; a future backend adopts by editing those two files). How that
+knowledge reaches a repo generated from this one is its own convention
+(`docs/architecture/manifest.md`): a pinned release tag, and `/t-update` to move it
+forward.
 
 ## 3. Task identity
 
-A task's ID is its **tracker issue identifier** (on GitHub, the issue number — issues and
-PRs share one atomically minted sequence, so a bare `#142` is never ambiguous; on other
-backends, the native key, e.g. a Jira `PROJ-142`). Everything inherits it: branch `wip/142-<slug>`,
+A task's ID is its **tracker issue number** — issues and PRs share one atomically minted
+sequence, so a bare `#142` is never ambiguous. Everything inherits it: branch `wip/142-<slug>`,
 record `docs/tasks/000100/142-<slug>.md`, squash-commit line `Task: #142`. Records shard into
 **ID buckets of 100** (ADR-001 §D4): the directory is the ID rounded down to the nearest 100,
 zero-padded to 6 digits, so a bucket never exceeds 100 files however fast tasks open, and the
@@ -54,10 +56,12 @@ stages. One stage-level note with no better home: `/t-status` derives everything
 tracker/forge queries and git — status is never a maintained file.
 
 **Never optional:** an issue before the work, a record riding in the PR, a human-confirmed PR
-into `main`. **Chosen per task (ADR-001):** plan, worktree, cold review — except on a protected
-surface (`CONSTITUTION.md` §3), where plan and review are both required, decided from the paths
-the diff touches, not from a label. **Nothing chains:** each stage names the next command and
-stops, and a `not-ready` review blocks shipping either way.
+into `main`. **Chosen per task (ADR-001, trimmed by ADR-002):** plan, cold review — except on a
+protected surface (`CONSTITUTION.md` §3), where plan and review are both required, decided from
+the paths the diff touches, not from a label. A worktree stays available to any task that wants
+one (`git worktree add`, or one a launching engine creates); it is no longer a pipeline stage
+with a skill of its own. **Nothing chains:** each stage names the next command and stops, and a
+`not-ready` review blocks shipping either way.
 
 **Only blocker and high findings hold a review open**; the rest are posted for the human to
 fix, defer, or accept, and judgments no command can settle travel to the merge question, where
@@ -68,13 +72,21 @@ neighbour's disposition land on the issue before anything is destroyed (ADR-001 
 
 The unit is the **reviewable merge**; the answer to bigger work is never a bigger PR.
 **6.1** Work spanning several PRs gets a tracking issue holding the intent and its children; it
-has no branch or record of its own, and a child that must wait is opened anyway with
-`Blocked-by: #n`. **6.2 "Releasable":** every merge leaves `main` green and deployable as a
+has no branch or record of its own, and a child that must wait is opened anyway with a
+native blocked-by dependency set on it. **6.2 "Releasable":** every merge leaves `main` green and deployable as a
 set at the next release cut — code unwired, endpoints behind permissions nobody holds, handlers
 before emitters — but need **not** satisfy runtime backwards compatibility, since window deploys
 mean old code never runs against the new schema. **6.3** Migrations are separate PRs from
 feature logic; a destructive one fails CI on its own branch until the code stops using what it
 drops, so the build dictates the order. **6.4** Cross-cutting work splits one task per module.
+**6.5 Driving an initiative** ([ADR-004](adr/004-autonomous-initiative-driving.md)) is the
+opt-in alternative to 6.1's one-PR-per-child default: `/t-drive <initiative-id>` chains
+`/t-plan`+`/t-work`+`/t-review` across an initiative's children on one integration branch,
+merging each child into it once that child's own review authorizes the merge, excluding —
+never auto-cancelling — a child that still fails after one bounded retry, then stopping once
+for the human's single confirmation on the initiative's combined PR to `main`. It is the one
+explicitly-invoked exception to §5's "nothing chains" rule (ADR-001 D1), narrowed to exactly
+this case; every other stage still stops and names the next command.
 
 ## 7. Design work
 
@@ -95,21 +107,28 @@ anything durable settled in a PR thread lands in the record, an ADR, or the docs
 ## 9. Mechanical enforcement
 
 In force today, *mechanically*: branch protection on `main` (PRs only, squash merges, no
-force pushes); CI running `scripts/consistency-check.sh` and the record-present guard on
-every PR (`.github/workflows/ci.yml`). Held by convention, not by machinery:
+force pushes); CI running `.t-workflow/scripts/consistency-check.sh` and the record-present guard on
+every PR (`.github/workflows/ci.yml`); the repo's `delete_branch_on_merge` setting
+(`.t-workflow/scripts/github-bootstrap.sh`) deleting a merged branch's remote copy without any
+skill-side step. A stale local worktree or branch left behind by `/t-ship`/`/t-cancel`
+(ADR-002) is left alone permanently (ADR-005) — nothing cleans it up, and a human removes
+one by hand only if it is ever actually in the way. Held by convention, not by machinery:
 self-contained squash commit bodies written from the record — the forge enforces squash
 *merging*, nothing checks what the message says. Still to come: CODEOWNERS approval on protected paths, with
 `CONSTITUTION.md` and `docs/adr/` at a heightened bar (§13 Q9), and required approvals
 above zero, which needs a second maintainer. **Platform constraint:** on a private
 repository these need a paid GitHub plan, so until then PR-only `main` runs on convention;
-`scripts/github-bootstrap.sh` applies what the plan permits.
+`.t-workflow/scripts/github-bootstrap.sh` applies what the plan permits.
 
 ## 10. Resilience: losing the GitHub account
 
 Losing GitHub loses verification evidence and conversational texture, **never knowledge**: code,
 constitution, ADRs, architecture docs, and every record live in git. Mitigations, in order: (1)
 self-contained squash commits; (2) settings as code; (3) the promotion rule; (4) a periodic
-export of issues and threads; (5) bumping a new account's issue counter past the old maximum if
+export of issues and threads, including sub-issue and dependency relations — parent/child and
+blocked-by/blocking live only in the tracker's structured fields since ADR-003 moved them out
+of issue bodies, so an export that reads body text alone would silently lose every relation it
+covers; (5) bumping a new account's issue counter past the old maximum if
 numbering ever restarts. One exception to the guarantee: a cancelled task's reason lives only in
 its close comment (ADR-001).
 
@@ -126,10 +145,9 @@ page carries shape only. **11.5** A deviation is approved in the moment and land
 record, and **the same deviation twice is a bug in the process**. **11.6 Batch, don't tweak**,
 except mid-incident: workflow changes accumulate and land together at a periodic
 **retro** — an ordinary task, titled `Workflow retro: <date>`, that reviews friction since
-the last one, samples the `/t-fix` merges `/t-status` counts, and records that count in
-its own task record under `## Decisions made along the way`. That title is the convention
-a cold session searches on to find the previous retro and its count; without it the creep
-signal has no baseline to compare against. **11.7 In-flight tasks** meet new rules at their next gate.
+the last one and records what it decided in its own task record under
+`## Decisions made along the way`. That title is the convention a cold session searches
+on to find the previous retro. **11.7 In-flight tasks** meet new rules at their next gate.
 
 ## 12. The flow in practice
 
