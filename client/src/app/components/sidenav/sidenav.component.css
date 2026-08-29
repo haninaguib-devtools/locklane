@@ -163,6 +163,25 @@
   color: var(--muted);
 }
 
+/* The section header's per-project consoles button (#312): jumps to this
+   project's console page, and is only rendered while it has an open console. */
+.project-consoles {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.project-consoles:hover {
+  background: var(--panel);
+}
+
 /* The header's one-click new-console entry (#180). */
 .new-console {
   flex: none;
