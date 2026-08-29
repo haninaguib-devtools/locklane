@@ -99,3 +99,34 @@ template-owned file fails CI.
   future `/t-update`, same as this task did** — recommend proposing upstream that
   `check-manifest.sh`/`t-update` support a YAML-comment-compatible marker form (e.g.
   `# <!-- local -->`) so non-Markdown template-owned files can carry a slot too.
+- **Re-plan (2026-08-29), resuming in fix mode after `/t-review 192`'s first pass
+  (`readiness: not-ready`).** The review's blocker: deleting `.claude/skills/t-fix/`
+  and `.claude/skills/t-wtree/` was outside the first plan's Allowed paths — that plan
+  listed `.claude/skills/t-fix/SKILL.md` only for "a one-line path fix," never full
+  deletion, did not list `.claude/skills/t-wtree/**` at all, and its own Risks section
+  said the opposite of what happened ("the sync leaves their skill directories
+  untouched"). The review's medium finding: `README.md`'s own separate pipeline table
+  still listed `/t-wtree` and `/t-fix` after their deletion, uncaught by
+  `consistency-check.sh`/`plumbing-test.sh`.
+
+  **Previous Allowed paths** (quoted verbatim from the superseded plan): `.claude/skills/t-fix/SKILL.md`
+  (one-line path fix only — not a template file, riding along because the `scripts/`
+  rename breaks its one reference) — with no entry at all for `.claude/skills/t-wtree/**`
+  or `README.md`.
+
+  **New Allowed paths** (`/t-plan 192`, 2026-08-29): `.claude/skills/t-fix/**`,
+  `.claude/skills/t-wtree/**` (deleted), and `README.md` (light edit only — the
+  pipeline table's rows, to match `AGENTS.md`'s post-sync table exactly).
+
+  **Why it changed:** `/t-work`'s first pass found `.t-workflow/scripts/consistency-check.sh`
+  hard-fails when a `.claude/skills/` directory has no matching row in `AGENTS.md`'s
+  pipeline table — true for both `t-fix` and `t-wtree` once synced, since the template
+  carries neither. Reading the template's own `docs/adr/002-trim-the-phase-0-workflow.md`
+  showed both were deliberately retired upstream ("machinery nobody exercises is not
+  neutral — it is a standing cost"): a worktree is now created with plain
+  `git worktree add` by hand, and the no-issue `fix/` path has no replacement — the
+  newly-synced `ci.yml`'s `record` job no longer recognizes `fix/*` branches at all, so
+  keeping `t-fix` would have left it silently broken. The human decided live,
+  mid-session, to delete both rather than keep them as undocumented local extensions.
+  `/t-review`'s independent read confirmed the scope gap this caused and additionally
+  caught the `README.md` table drift, both now folded into the re-plan.
