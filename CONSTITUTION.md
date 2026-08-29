@@ -78,8 +78,18 @@ where they disagree, that is a defect to fix, not a judgment call to make.
   that file carries binding content)
 - `LICENSE` (the terms everything else in the repository is offered under)
 
-*(reserved: application surfaces — data-privacy paths, contracts, migrations, grants,
-audit — to be added when the application exists.)*
+*(reserved, per ADR-007: application surfaces the ratified multi-user tenancy and
+authorization model makes protected once implemented — the Flyway migrations under
+engine/src/main/resources/db/migration/ and
+engine/src/main/java/dev/locklane/engine/persistence/migration/, the owner_user_id
+ownership/authorization checks in ProjectController and ProjectRepository, the account
+and authentication code in EngineUserDetailsService and SecurityConfig, and the future
+admin user-management controller. Not yet backticked into the bullet list above or
+into .t-workflow/scripts/protected-paths.sh — check 9 of
+.t-workflow/scripts/consistency-check.sh requires every backticked §3 path to already
+be enforced there, and this code does not carry the ratified checks yet. The task that
+lands each surface (#238-#242) adds its bullet and its protected-paths.sh pattern
+together, per CONSTITUTION.md §3's own "one rule in two forms" invariant.)*
 
 **Genesis exception.** A repository started from this template is bootstrapped outside
 the pipeline: the placeholder fills named in `README.md` §Bootstrapping and the first
