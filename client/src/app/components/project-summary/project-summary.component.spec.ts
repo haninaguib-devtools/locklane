@@ -64,8 +64,9 @@ describe('ProjectSummaryComponent', () => {
 
   /**
    * Creates the component for a project id and flushes its requests: the project
-   * list and issue tree always, plus the open-consoles list whenever the target
-   * project is READY (#221) -- a cloning or failed project never fetches it.
+   * list and issue tree always, plus the open-consoles list and the worktree list
+   * (#320) whenever the target project is READY (#221) -- a cloning or failed
+   * project never fetches either.
    */
   function init(
     projects: Project[] = [PROJECT],
@@ -77,11 +78,16 @@ describe('ProjectSummaryComponent', () => {
     fixture.componentRef.setInput('projectId', projectId);
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').flush(projects);
-    if (projects.find((p) => p.id === projectId)?.status === 'READY') {
+    const ready = projects.find((p) => p.id === projectId)?.status === 'READY';
+    if (ready) {
       httpMock.expectOne(`/api/projects/${projectId}/console/sessions`).flush(consoles);
     }
     httpMock.expectOne(`/api/projects/${projectId}/issues/tree`).flush(nodes);
     fixture.detectChanges();
+    if (ready) {
+      httpMock.expectOne(`/api/projects/${projectId}/worktrees`).flush([]);
+      fixture.detectChanges();
+    }
     return fixture;
   }
 
@@ -134,6 +140,8 @@ describe('ProjectSummaryComponent', () => {
     httpMock
       .expectOne('/api/projects/1/issues/tree')
       .flush('boom', { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects/1/worktrees').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.error).toBe(false);
@@ -242,6 +250,8 @@ describe('ProjectSummaryComponent', () => {
     httpMock.expectOne('/api/projects').flush([PROJECT, { ...PROJECT, id: 2, name: 'proj-b' }]);
     httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
     httpMock.expectOne('/api/projects/2/issues/tree').flush([]);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects/2/worktrees').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.project?.name).toBe('proj-b');
