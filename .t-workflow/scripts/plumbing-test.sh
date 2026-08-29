@@ -273,5 +273,20 @@ expect_rc "an unexpected argument is a usage error, no gh call reached" \
   2 .t-workflow/scripts/status-snapshot.sh unexpected-argument
 echo
 
+# --- 10. .t-workflow/scripts/review-snapshot.sh: usage only ---------------------------------
+# Same limitation as status-snapshot.sh above: only argument handling is fixture-able.
+echo "review-snapshot.sh"
+expect_rc "no arguments is a usage error, no gh call reached" \
+  2 .t-workflow/scripts/review-snapshot.sh
+expect_rc "one argument is a usage error, no gh call reached" \
+  2 .t-workflow/scripts/review-snapshot.sh 73
+expect_rc "three arguments is a usage error, no gh call reached" \
+  2 .t-workflow/scripts/review-snapshot.sh 73 5 extra
+expect_rc "a non-numeric task-id is a usage error, no gh call reached" \
+  2 .t-workflow/scripts/review-snapshot.sh abc 5
+expect_rc "a non-numeric pr is a usage error, no gh call reached" \
+  2 .t-workflow/scripts/review-snapshot.sh 73 abc
+echo
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

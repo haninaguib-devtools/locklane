@@ -42,13 +42,17 @@ holding only the id, so this matters more here than anywhere else.
    fresh session — reviewing here anyway produces a verdict `/t-ship` will reject.
    Otherwise continue and record `isolation: same session (<why the change was small
    enough>)`.
-2. Read `AGENTS.md`, `CONSTITUTION.md`, the issue (Goal, Done when, Scope, any Plan),
-   the task record in the diff, and any design doc the issue names.
-3. Inspect the complete diff: `forge:pr-diff <pr>` (or `git diff main...HEAD` on the
-   branch). Also `git status` — an uncommitted change on the branch is itself a
-   finding, the PR carries only commits. Same for a **committed but unpushed** one:
-   compare `git rev-parse HEAD` with the PR's head (`forge:pr-view <pr>`) — a local
-   diff the PR does not contain will not merge.
+2. Read `AGENTS.md` and `CONSTITUTION.md`, then fetch everything else in one call:
+   `.t-workflow/scripts/review-snapshot.sh <id> <pr>` — it returns the issue (body,
+   labels, parent), the complete PR diff, the PR's view (head sha, changed files),
+   and local git state (`git status`, `git rev-parse HEAD`) in a single JSON blob,
+   replacing what steps 2-3 used to fetch one call at a time. Read the issue's Goal,
+   Done when, Scope, and any Plan section from its `.issue.body`; read the task record
+   in `.diff`; read any design doc the issue names.
+3. Inspect the complete diff (`.diff`). `.local.clean == false` — an uncommitted
+   change on the branch — is itself a finding, the PR carries only commits. Same for a
+   **committed but unpushed** one: `.local.head != .pr.headRefOid` means a local diff
+   the PR does not contain, which will not merge.
 4. Check, for **code and documents alike**: **scope** (every changed path inside
    Allowed paths or the issue's Scope line — drift is a finding; an issue carries
    exactly one `## Plan` section and it governs, so two is itself a finding);
@@ -71,7 +75,8 @@ holding only the id, so this matters more here than anywhere else.
    behavior or content removed without the issue authorizing it, a changed path outside
    the task's declared scope, and a changed path on a protected surface whose issue
    carries no `## Plan` section — decide protection with `bash
-   .t-workflow/scripts/protected-paths.sh --stdin` over the changed paths, not by eye (exit 0 =
+   .t-workflow/scripts/protected-paths.sh --stdin` over the changed paths (`.pr.files`
+   from the snapshot), not by eye (exit 0 =
    protected, 1 = none, 2 = nothing checked, itself a finding). Grading one of these
    down to let it through weakens a guardrail to make work pass, which
    `CONSTITUTION.md` §1.5 forbids.

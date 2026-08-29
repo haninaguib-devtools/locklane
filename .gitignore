@@ -27,6 +27,3 @@ Desktop.ini
 *.log
 tmp/
 scratch/
-
-# Maven build output
-target/
