@@ -24,18 +24,6 @@
       <input type="checkbox" [(ngModel)]="hideShipped" />
       Open
     </label>
-    <div class="tag-chips">
-      @for (tag of classificationTags; track tag) {
-        <button
-          type="button"
-          class="tag-chip"
-          [class.selected]="isTagSelected(tag)"
-          (click)="toggleTag(tag)"
-        >
-          {{ tag }}
-        </button>
-      }
-    </div>
   </div>
 
   @if (pendingDeleteProjectId !== null) {

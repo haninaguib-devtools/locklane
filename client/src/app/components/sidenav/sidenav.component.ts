@@ -32,13 +32,6 @@ function isIssuesChangedEvent(event: AppEvent): event is IssuesChangedEvent {
 /** How often a project still cloning is re-checked, until it settles (#45). */
 const CLONE_POLL_MS = 3000;
 
-/**
- * The tag chip selector's fixed option set (#111) — /t-open's classification labels
- * (docs/adapters/TRACKER.md), not every label a loaded issue happens to carry (e.g.
- * "initiative" is a coordination label, not a classification tag).
- */
-const CLASSIFICATION_TAGS = ['bug', 'enhancement', 'documentation', 'question'];
-
 /** One issue, resolved to the project id it's selected/pinned/collapsed within (#44). */
 export interface ProjectIssue {
   projectId: number;
@@ -100,10 +93,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // Neither persists across reloads, matching the old app (#22's Goal).
   filterText = '';
   hideShipped = true;
-  // Empty means no tag filter (#111); non-empty ORs within itself, same as the
-  // rest combine ANDed -- see tree-filter.ts.
-  selectedTags: string[] = [];
-  readonly classificationTags = CLASSIFICATION_TAGS;
 
   // The failed project awaiting delete confirmation in the app-styled dialog (#231),
   // replacing the synchronous native `confirm()` this used to block on.
@@ -398,12 +387,8 @@ export class SidenavComponent implements OnInit, OnDestroy {
             : n,
         );
       // hideShipped never removes a pin, only the text filter can -- see tree-filter.ts.
-      const nodes = filterPinnedTree(
-        ordered,
-        this.filterText,
-        this.hideShipped,
-        this.selectedTags,
-        (n) => this.hasOpenConsole(section.project.id, n.number),
+      const nodes = filterPinnedTree(ordered, this.filterText, this.hideShipped, [], (n) =>
+        this.hasOpenConsole(section.project.id, n.number),
       );
       if (nodes.length > 0) {
         groups.push({ project: section.project, nodes });
@@ -429,23 +414,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
           ? { ...n, children: n.children.filter((c) => !pinnedNumbers.has(c.number)) }
           : n,
       );
-    return filterTree(
-      topLevel,
-      this.filterText,
-      this.hideShipped,
-      this.selectedTags,
-      (n) => this.hasOpenConsole(section.project.id, n.number),
+    return filterTree(topLevel, this.filterText, this.hideShipped, [], (n) =>
+      this.hasOpenConsole(section.project.id, n.number),
     );
-  }
-
-  isTagSelected(tag: string): boolean {
-    return this.selectedTags.includes(tag);
-  }
-
-  toggleTag(tag: string): void {
-    this.selectedTags = this.isTagSelected(tag)
-      ? this.selectedTags.filter((t) => t !== tag)
-      : [...this.selectedTags, tag];
   }
 
   // Counted off the raw tree, before the text filter and hideShipped run (#186):
@@ -524,7 +495,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   private hasActiveFilter(): boolean {
-    return this.filterText.trim().length > 0 || this.selectedTags.length > 0;
+    return this.filterText.trim().length > 0;
   }
 
   private flatten(nodes: TreeNode[]): TreeNode[] {
