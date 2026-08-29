@@ -218,11 +218,34 @@ describe('ProjectConsoleComponent', () => {
     fixture.componentInstance.openFromTabs({ worktree: false, agent: 'claude' });
     const req = httpMock.expectOne('/api/projects/1/console');
     expect(req.request.method).toBe('POST');
-    req.flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
+    req.flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo-console-e5f6a7b8' });
     fixture.detectChanges();
 
     expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
-    expect((fixture.nativeElement as HTMLElement).querySelectorAll('app-terminal').length).toBe(2);
+    const terminals = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('app-terminal'),
+    );
+    expect(terminals.length).toBe(2);
+  });
+
+  it('gives each console its own working directory from the engine — never a shared checkout (#314)', () => {
+    const fixture = init();
+    httpMock
+      .expectOne('/api/projects/1/console/sessions')
+      .flush([{ ...row('1-console-a1b2c3d4'), workingDirectory: '/repo-console-a1b2c3d4' }]);
+    fixture.detectChanges();
+
+    fixture.componentInstance.openFromTabs({ worktree: false, agent: 'claude' });
+    httpMock
+      .expectOne('/api/projects/1/console')
+      .flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo-console-e5f6a7b8' });
+    fixture.detectChanges();
+
+    const terminals = fixture.debugElement.queryAll(By.directive(TerminalComponent));
+    expect(terminals.map((t) => t.componentInstance.dir)).toEqual([
+      '/repo-console-a1b2c3d4',
+      '/repo-console-e5f6a7b8',
+    ]);
   });
 
   it('closes a console from its tab and falls back to the first remaining one', () => {

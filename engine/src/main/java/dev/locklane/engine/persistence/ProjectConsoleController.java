@@ -1,7 +1,9 @@
 package dev.locklane.engine.persistence;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,12 +15,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Project-level console sessions (#139, part of #138): persistent agent sessions
- * running in the project's own checkout rather than an issue worktree, so a user can
- * start a conversation (and have the agent open an issue via {@code gh}/`/t-open`)
- * before any issue exists. Since #177 a project can have several open at once: POST
- * mints a brand-new session every call, {@code /sessions} lists the open ones, and a
- * specific one is closed by id. Same response shape as {@link WorktreeController}
+ * Project-level console sessions (#139, part of #138): persistent agent sessions with
+ * no issue of their own, so a user can start a conversation (and have the agent open
+ * an issue via {@code gh}/`/t-open`) before any issue exists. Since #314 each session
+ * gets its own fresh git worktree rather than sharing the project's checkout. Since
+ * #177 a project can have several open at once: POST mints a brand-new session every
+ * call, {@code /sessions} lists the open ones, and a specific one is closed by id.
+ * Same response shape as {@link WorktreeController}
  * (`sessionId`/`workingDirectory` in place of `worktreeId`/`workingDirectory`) and
  * the same "actual ownership gate is the WebSocket attach, not this endpoint" split.
  */
@@ -44,7 +47,10 @@ public class ProjectConsoleController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    /** Mints a brand-new console session id (#177) and reports its working directory. */
+    /**
+     * Mints a brand-new console session id (#177) backed by its own fresh git
+     * worktree (#314) and reports that worktree's directory.
+     */
     @PostMapping
     public ResponseEntity<Map<String, String>> start(@PathVariable long projectId) {
         return service.start(projectId)
@@ -89,6 +95,12 @@ public class ProjectConsoleController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.noContent().build();
+    }
+
+    /** Same failure mode {@link WorktreeController} handles: {@code git worktree add} itself failed (#314). */
+    @ExceptionHandler(WorktreeCreationService.WorktreeCreationException.class)
+    public ResponseEntity<Map<String, String>> onCreationFailure(WorktreeCreationService.WorktreeCreationException e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
     }
 
     private static Map<String, String> toBody(ProjectConsoleService.ConsoleSession session) {

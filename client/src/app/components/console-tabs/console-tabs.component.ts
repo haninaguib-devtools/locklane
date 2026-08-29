@@ -23,8 +23,8 @@ export class ConsoleTabsComponent {
   @Input() selected: string | null = null;
   @Input() starting = false;
   // The issue page pins an Overview tab first and lets "+" choose main vs
-  // worktree; the project-console page (#178) has neither — no overview, and
-  // every console runs in the project's own checkout.
+  // worktree; the project-console page (#178) has neither — no overview, and no
+  // location choice, since #314 every project console gets its own worktree anyway.
   @Input() overview = true;
   @Input() locationChoice = true;
   // Read from Settings (#219) by the caller: the locationChoice flow (#220) has
