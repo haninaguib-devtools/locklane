@@ -345,14 +345,14 @@ export class SidenavComponent implements OnInit, OnDestroy {
     return this.openConsoleIssues.has(`${projectId}:${issueNumber}`);
   }
 
-  // Backs the section header's per-project consoles button (#312) -- reuses
-  // openConsoleIssues/waitingIssues rather than tracking anything new, so this
-  // only ever reflects the same open/waiting state each row's own dot already
-  // shows, aggregated across the project's rows. Also lights up for a project-level
-  // console with no issue attached (#330), tracked separately in openConsoleProjects
-  // since those session ids carry no issue number to key openConsoleIssues by.
+  // Backs the section header's per-project consoles button (#312). Tracks
+  // project-level console sessions exclusively (#330) -- it does not aggregate
+  // issue-attached consoles under the project; each issue row's own dot already
+  // covers those. A project-level session id ("<projectId>-console[-suffix]") carries
+  // no issue number, so it's tracked separately in openConsoleProjects rather than
+  // openConsoleIssues.
   hasOpenConsoleForProject(projectId: number): boolean {
-    return this.openConsoleProjects.has(projectId) || this.anyKeyForProject(this.openConsoleIssues, projectId);
+    return this.openConsoleProjects.has(projectId);
   }
 
   hasAttentionWaitingForProject(projectId: number): boolean {

@@ -806,7 +806,7 @@ describe('SidenavComponent', () => {
     localStorage.removeItem('locklane.sessionAgents');
   });
 
-  it('a project-level console with no issue attached lights the project dot too (#330)', () => {
+  it('a project-level console with no issue attached lights the project dot (#330)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console-a1b2c3d4']);
@@ -814,7 +814,7 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.hasOpenConsoleForProject(1)).toBeTrue();
   });
 
-  it('the legacy project-level console session id shape also lights the project dot (#330)', () => {
+  it('the legacy project-level console session id shape lights the project dot (#330)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console']);
@@ -838,6 +838,15 @@ describe('SidenavComponent', () => {
 
     expect(fixture.componentInstance.hasOpenConsoleForProject(1)).toBeTrue();
     expect(fixture.componentInstance.hasOpenConsoleForProject(2)).toBeFalse();
+  });
+
+  it('an issue-attached console alone does not light the project dot (#330)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-2-fix-bug']);
+
+    expect(fixture.componentInstance.hasOpenConsole(1, 2)).toBeTrue();
+    expect(fixture.componentInstance.hasOpenConsoleForProject(1)).toBeFalse();
   });
 
   it('a project that is not READY has no "+" (#180)', () => {
