@@ -119,7 +119,7 @@ class IssueControllerTest {
 
     private static long readyProject(Path root) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(root);
-        return repository.createReady("proj", "url", root.resolve("checkout"), "main", Instant.now()).id();
+        return repository.createReady("proj", "url", root.resolve("checkout"), "main", 1L, Instant.now()).id();
     }
 
     private static IssueController controller(Path root, List<GhIssue> issues) throws IOException {

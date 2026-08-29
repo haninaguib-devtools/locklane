@@ -107,7 +107,7 @@ class ProjectWorktreesControllerTest {
         Path projectRoot = initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
-        long projectId = projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", 1L, Instant.now()).id();
         return new Fixture(projectRoot, projectId, repository, projectRepository);
     }
 

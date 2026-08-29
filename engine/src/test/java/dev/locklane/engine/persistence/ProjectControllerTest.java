@@ -7,10 +7,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,100 +21,184 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ProjectControllerTest {
 
     @Test
-    void listReturnsEveryProject(@TempDir Path tmp) throws IOException {
+    void listReturnsOnlyTheCallersOwnProjects(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
-        repository.create("foo", "url", tmp.resolve("foo"), Instant.now());
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller bob = user(tmp, "bob", UserRecord.Role.USER);
+        repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        repository.create("bar", "url", tmp.resolve("bar"), bob.id(), Instant.now());
         ProjectController controller = controller(tmp, repository);
 
-        assertThat(controller.list()).extracting(ProjectController.ProjectView::name).containsExactly("foo");
+        assertThat(controller.list(alice.authentication()))
+                .extracting(ProjectController.ProjectView::name).containsExactly("foo");
+        assertThat(controller.list(bob.authentication()))
+                .extracting(ProjectController.ProjectView::name).containsExactly("bar");
+    }
+
+    @Test
+    void listReturnsEveryProjectForAnAdmin(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller admin = user(tmp, "root", UserRecord.Role.ADMIN);
+        repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        assertThat(controller.list(admin.authentication()))
+                .extracting(ProjectController.ProjectView::name).containsExactly("foo");
+    }
+
+    @Test
+    void createOwnsTheProjectAsTheAuthenticatedCaller(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
+
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("/does/not/exist", "mine"), alice.authentication());
+
+        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
+        assertThat(body.ownerUserId()).isEqualTo(alice.id());
     }
 
     @Test
     void createWithABlankGitUrlIsABadRequest(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
-        ResponseEntity<?> response = controller.create(new ProjectController.CreateProjectRequest("  ", "name"));
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("  ", "name"), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
     void createWithANullGitUrlIsABadRequest(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
-        ResponseEntity<?> response = controller.create(new ProjectController.CreateProjectRequest(null, "name"));
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest(null, "name"), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
     void createWithAnUncloneableUrlStillReturnsCreatedWithAFailedProject(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
-        ResponseEntity<?> response =
-                controller.create(new ProjectController.CreateProjectRequest("/does/not/exist", "broken"));
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("/does/not/exist", "broken"), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
         assertThat(body.name()).isEqualTo("broken");
 
-        assertThat(controller.list()).extracting(ProjectController.ProjectView::status)
+        assertThat(controller.list(alice.authentication())).extracting(ProjectController.ProjectView::status)
                 .containsExactly(ProjectStatus.FAILED.name());
     }
 
     @Test
     void retryOnAnUnknownProjectIsNotFound(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
-        ResponseEntity<ProjectController.ProjectView> response = controller.retry(999);
+        ResponseEntity<ProjectController.ProjectView> response = controller.retry(999, alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test
-    void deleteRemovesAKnownProjectAndIsNoContent(@TempDir Path tmp) throws IOException {
+    void retryOnAnotherUsersProjectIsNotFound(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
-        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), Instant.now());
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller bob = user(tmp, "bob", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        repository.markFailed(created.id());
         ProjectController controller = controller(tmp, repository);
 
-        ResponseEntity<?> response = controller.delete(created.id());
+        ResponseEntity<ProjectController.ProjectView> response = controller.retry(created.id(), bob.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void anAdminCanRetryAnotherUsersFailedProject(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller admin = user(tmp, "root", UserRecord.Role.ADMIN);
+        ProjectRecord created = repository.create("foo", "/does/not/exist", tmp.resolve("foo"), alice.id(), Instant.now());
+        repository.markFailed(created.id());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<ProjectController.ProjectView> response = controller.retry(created.id(), admin.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void deleteRemovesAKnownProjectAndIsNoContent(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.delete(created.id(), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-        assertThat(controller.list()).isEmpty();
+        assertThat(controller.list(alice.authentication())).isEmpty();
     }
 
     @Test
     void deleteOnAnUnknownProjectIsNotFound(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
-        assertThat(controller.delete(999).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.delete(999, alice.authentication()).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void deleteOnAnotherUsersProjectIsNotFoundAndLeavesItIntact(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller bob = user(tmp, "bob", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.delete(created.id(), bob.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.list(alice.authentication()))
+                .extracting(ProjectController.ProjectView::name).containsExactly("foo");
     }
 
     @Test
     void deleteOnAProjectWithAnOpenSessionIsAConflictWithAMessage(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
-        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), Instant.now());
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         sessions.recordAttach(created.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
         ProjectController controller = controller(tmp, repository, new IssueWorktreeService(sessions));
 
-        ResponseEntity<?> response = controller.delete(created.id());
+        ResponseEntity<?> response = controller.delete(created.id(), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         @SuppressWarnings("unchecked")
         Map<String, String> body = (Map<String, String>) response.getBody();
         assertThat(body).containsKey("error");
-        assertThat(controller.list()).extracting(ProjectController.ProjectView::name).containsExactly("foo");
+        assertThat(controller.list(alice.authentication()))
+                .extracting(ProjectController.ProjectView::name).containsExactly("foo");
     }
 
     @Test
     void settingAGithubTokenStoresItEncrypted(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
-        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), Instant.now());
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
         ProjectController controller = controller(tmp, repository);
 
-        ResponseEntity<?> response =
-                controller.setGithubToken(created.id(), new ProjectController.SetGithubTokenRequest("ghp_secret"));
+        ResponseEntity<?> response = controller.setGithubToken(
+                created.id(), new ProjectController.SetGithubTokenRequest("ghp_secret"), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         String stored = repository.findGithubToken(created.id()).orElseThrow();
@@ -122,22 +209,39 @@ class ProjectControllerTest {
 
     @Test
     void settingAGithubTokenOnAnUnknownProjectIsNotFound(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
-        ResponseEntity<?> response =
-                controller.setGithubToken(999, new ProjectController.SetGithubTokenRequest("ghp_secret"));
+        ResponseEntity<?> response = controller.setGithubToken(
+                999, new ProjectController.SetGithubTokenRequest("ghp_secret"), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test
-    void settingABlankGithubTokenIsABadRequest(@TempDir Path tmp) throws IOException {
+    void settingAGithubTokenOnAnotherUsersProjectIsNotFound(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
-        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), Instant.now());
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller bob = user(tmp, "bob", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
         ProjectController controller = controller(tmp, repository);
 
-        ResponseEntity<?> response =
-                controller.setGithubToken(created.id(), new ProjectController.SetGithubTokenRequest("  "));
+        ResponseEntity<?> response = controller.setGithubToken(
+                created.id(), new ProjectController.SetGithubTokenRequest("ghp_secret"), bob.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(repository.findGithubToken(created.id())).isEmpty();
+    }
+
+    @Test
+    void settingABlankGithubTokenIsABadRequest(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setGithubToken(
+                created.id(), new ProjectController.SetGithubTokenRequest("  "), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(repository.findGithubToken(created.id())).isEmpty();
@@ -155,6 +259,17 @@ class ProjectControllerTest {
         ProjectGhResources ghResources = new ProjectGhResources(repository, tokenCipher, (path, token) -> {
             throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
         });
-        return new ProjectController(repository, checkoutService, tokenCipher, ghResources);
+        return new ProjectController(repository, checkoutService, tokenCipher, ghResources,
+                TestSqliteDatabases.newUserRepository(tmp));
+    }
+
+    /** A real {@code users} row (so {@link ProjectController} can resolve it) plus a matching {@link Authentication}. */
+    private static Caller user(Path tmp, String username, UserRecord.Role role) {
+        UserRecord created = TestSqliteDatabases.newUserRepository(tmp).create(username, "bcrypt-hash", Instant.now(), role);
+        Authentication authentication = new UsernamePasswordAuthenticationToken(username, null, List.of());
+        return new Caller(created.id(), authentication);
+    }
+
+    private record Caller(long id, Authentication authentication) {
     }
 }

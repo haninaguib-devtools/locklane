@@ -178,7 +178,7 @@ class ProjectGhResourcesTest {
     }
 
     private static ProjectRecord readyProject(ProjectRepository repository, Path dataDir, String name) {
-        return repository.createReady(name, "url", dataDir.resolve(name), "main", Instant.now());
+        return repository.createReady(name, "url", dataDir.resolve(name), "main", 1L, Instant.now());
     }
 
     private static ProjectGhResources resources(Path dataDir, ProjectRepository repository,

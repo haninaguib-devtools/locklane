@@ -135,7 +135,7 @@ class WorktreeControllerTest {
         ConsoleResumeSessionRepository resumeRepository =
                 new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
-        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("workarea"), "main", Instant.now()).id();
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("workarea"), "main", 1L, Instant.now()).id();
         String originalId = projectId + "-174-rename-toggle";
         repository.recordAttach(originalId, dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "alice");
         resumeRepository.record(originalId, "claude", "aaaaaaaa-0000-0000-0000-000000000000",

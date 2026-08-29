@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -145,6 +146,69 @@ class SchemaMigrationTest {
         repository.record("1-102-console", "claude", "123e4567-e89b-42d3-a456-426614174000",
                 Instant.parse("2026-08-27T10:00:00Z"));
         assertThat(repository.findByWorktree("1-102-console")).hasSize(1);
+    }
+
+    @Test
+    void anExistingProjectGetsBackfilledToTheAdminOwnerAndItsWorkareaIsRelocated(@TempDir Path dbDir) throws Exception {
+        // V9 added role/must_change_password to users but projects still has no
+        // owner_user_id; this is the shape an already-running single-user install
+        // would be in right before this upgrade.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "9");
+        JdbcTemplate jdbc = new JdbcTemplate(oldShape);
+        jdbc.update("INSERT INTO users (username, password_hash, created_at, role) VALUES (?, ?, ?, ?)",
+                "root", "bcrypt-hash", "2026-01-01T00:00:00Z", "ADMIN");
+        long adminId = jdbc.queryForObject("SELECT id FROM users WHERE username = ?", Long.class, "root");
+
+        Path oldWorkarea = dbDir.resolve("workareas").resolve("locklane");
+        Files.createDirectories(oldWorkarea);
+        Files.writeString(oldWorkarea.resolve("marker.txt"), "checked out before the upgrade");
+        jdbc.update("""
+                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                "locklane", "git@example.com:x/locklane.git", oldWorkarea.toString(), "main", "READY",
+                "2026-01-01T00:00:00Z");
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+        ProjectRepository repository = new ProjectRepository(oldShape);
+
+        Path expectedNewWorkarea = dbDir.resolve("workareas").resolve(String.valueOf(adminId)).resolve("locklane");
+        ProjectRecord found = repository.findAll().stream().findFirst().orElseThrow();
+        assertThat(found.ownerUserId()).isEqualTo(adminId);
+        assertThat(found.workareaPath()).isEqualTo(expectedNewWorkarea);
+        assertThat(repository.findByWorkareaPath(expectedNewWorkarea)).isPresent();
+
+        // The actual directory moved, contents intact, and the old one is gone.
+        assertThat(oldWorkarea).doesNotExist();
+        assertThat(expectedNewWorkarea).isDirectory();
+        assertThat(Files.readString(expectedNewWorkarea.resolve("marker.txt")))
+                .isEqualTo("checked out before the upgrade");
+    }
+
+    @Test
+    void aProjectWithNoOnDiskCheckoutYetIsBackfilledWithoutErroring(@TempDir Path dbDir) {
+        // A project still CLONING (or FAILED with its directory already cleaned up)
+        // has no directory to move — the migration must not fail just because the
+        // path it was told about doesn't exist on disk.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "9");
+        JdbcTemplate jdbc = new JdbcTemplate(oldShape);
+        jdbc.update("INSERT INTO users (username, password_hash, created_at, role) VALUES (?, ?, ?, ?)",
+                "root", "bcrypt-hash", "2026-01-01T00:00:00Z", "ADMIN");
+        long adminId = jdbc.queryForObject("SELECT id FROM users WHERE username = ?", Long.class, "root");
+        Path neverCheckedOut = dbDir.resolve("workareas").resolve("still-cloning");
+        jdbc.update("""
+                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at)
+                VALUES (?, ?, ?, NULL, ?, ?)
+                """,
+                "still-cloning", "url", neverCheckedOut.toString(), "CLONING", "2026-01-01T00:00:00Z");
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+        ProjectRecord found = new ProjectRepository(oldShape).findAll().stream().findFirst().orElseThrow();
+
+        assertThat(found.ownerUserId()).isEqualTo(adminId);
+        assertThat(found.workareaPath())
+                .isEqualTo(dbDir.resolve("workareas").resolve(String.valueOf(adminId)).resolve("still-cloning"));
+        assertThat(found.workareaPath()).doesNotExist();
     }
 
     @Test
