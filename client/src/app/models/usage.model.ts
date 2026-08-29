@@ -22,5 +22,6 @@ export interface ProviderUsage {
 export interface UsageSnapshot {
   claude: ProviderUsage;
   codex: ProviderUsage;
+  opencode: ProviderUsage;
   updatedAt: string;
 }

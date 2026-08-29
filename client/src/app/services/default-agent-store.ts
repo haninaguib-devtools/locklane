@@ -2,7 +2,7 @@ import { Injectable, signal } from '@angular/core';
 
 const STORAGE_KEY = 'locklane.defaultAgent';
 
-export type DefaultAgent = 'claude' | 'codex';
+export type DefaultAgent = 'claude' | 'codex' | 'opencode';
 
 /**
  * Which agent the user prefers to launch consoles with (#219), set from the settings
@@ -25,7 +25,8 @@ export class DefaultAgentStore {
 
 function load(): DefaultAgent {
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'codex' ? 'codex' : 'claude';
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored === 'codex' || stored === 'opencode' ? stored : 'claude';
   } catch {
     return 'claude';
   }

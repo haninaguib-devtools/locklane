@@ -25,6 +25,14 @@
           >
             Codex
           </button>
+          <button
+            type="button"
+            class="agent-option"
+            [class.chosen]="defaultAgent() === 'opencode'"
+            (click)="chooseDefaultAgent('opencode')"
+          >
+            OpenCode
+          </button>
         </div>
       </section>
 
