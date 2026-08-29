@@ -64,9 +64,9 @@ optional, and `/t-work` will refuse without it.
    list reports "no overlap" because it never looked, so a result that hits the backend's
    page limit is an incomplete scan: say so and paginate rather than concluding anything
    from it. A non-empty overlap
-   is not automatically a refusal (some overlaps are sequential by `Blocked-by`), but it
-   must be named in the plan so a person decides at plan time rather than at
-   merge-conflict time.
+   is not automatically a refusal (some overlaps are sequential by a blocked-by
+   dependency), but it must be named in the plan so a person decides at plan time
+   rather than at merge-conflict time.
 5. Report — in plain prose per AGENTS.md §Communication, saying what the plan means in
    ordinary language before any internal terminology: validation ownership, open
    questions, and whether the task is ready for `/t-work`.

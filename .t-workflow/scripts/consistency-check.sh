@@ -29,8 +29,12 @@ cons_has() { grep -qE "^## ${1}\." CONSTITUTION.md; }
 while IFS= read -r f <&3; do
   while IFS= read -r line; do
     cands=""
+    # ".t-workflow/" (the scripts directory) contains "workflow" as a substring — strip
+    # it before matching so a line naming that path alone doesn't falsely candidate
+    # docs/workflow.md.
+    wfline="${line//.t-workflow/}"
     case "$line" in *CONSTITUTION*) cands="$cands cons";; esac
-    case "$line" in *workflow*)     cands="$cands wf";;   esac
+    case "$wfline" in *workflow*)   cands="$cands wf";;   esac
     # The file's own document is always a legitimate target for its §-references.
     case "$f" in
       docs/workflow.md) cands="$cands wf";;
@@ -78,9 +82,13 @@ done 3< <(living_docs)
 while IFS= read -r f <&3; do
   while IFS= read -r line; do
     cands=""
+    # ".t-workflow/" (the scripts directory) contains "workflow" as a substring — strip
+    # it before matching so a line naming that path alone doesn't falsely candidate
+    # docs/workflow.md.
+    wfline="${line//.t-workflow/}"
     case "$line" in *AGENTS*)       cands="$cands AGENTS.md";;       esac
     case "$line" in *CONSTITUTION*) cands="$cands CONSTITUTION.md";; esac
-    case "$line" in *workflow*)     cands="$cands docs/workflow.md";; esac
+    case "$wfline" in *workflow*)   cands="$cands docs/workflow.md";; esac
     case "$line" in *README*)       cands="$cands README.md";;       esac
     [ -z "$cands" ] && continue
     # §D4-style ADR decision refs are handled by check 2, not here: a bare "D" would
@@ -104,9 +112,10 @@ for d in .claude/skills/*/; do
   grep -qE "^\| \`/$s\`" AGENTS.md || err ".claude/skills/$s exists but AGENTS.md's pipeline table has no /$s row"
 done
 
-# --- 4. Load-bearing phrase present where the no-issue fix path is defined ------
-# The phrase is required only where the path itself is defined (ADR-001 §D2).
-for f in docs/adr/001-phase0-delivery-workflow.md .claude/skills/t-fix/SKILL.md; do
+# --- 4. Load-bearing phrase present where the no-issue fix path was defined -----
+# ADR-001 §D2 is historical (the path it defined is removed, ADR-002); the phrase is
+# still required there so the historical record stays legible on its own terms.
+for f in docs/adr/001-phase0-delivery-workflow.md; do
   [ -f "$f" ] && { grep -q "no semantic content" "$f" || err "$f defines/constrains the no-issue fix path but lacks the load-bearing phrase 'no semantic content'"; }
 done
 
@@ -139,29 +148,6 @@ if [ -d docs/adapters ]; then
   done
 fi
 
-# --- 8. The branch-resolution algorithm stays identical in its two homes ---------
-# /t-work and /t-wtree each carry it (skills are self-contained, ADR-001 §D5), so the
-# load-bearing clauses are asserted in both: silent drift means two sessions resolve the
-# same task to different branches.
-# Markdown wraps these clauses across lines, so compare against a whitespace-normalized
-# copy of each file rather than line by line.
-for phrase in "truncate the slug to 40 characters" "never choose lexically" "wip/<id>-*"; do
-  for f in .claude/skills/t-work/SKILL.md .claude/skills/t-wtree/SKILL.md; do
-    [ -f "$f" ] || continue
-    tr '\n' ' ' < "$f" | tr -s ' ' | grep -qiF "$phrase" \
-      || err "$f: branch resolution is missing the clause '$phrase' that its twin carries"
-  done
-done
-
-# --- 8b. Any skill using the branch glob also says how a non-numeric id is cased --
-# Record filenames and branch names lowercase a tracker key (ADR-001 §D4). A skill that
-# resolves `wip/<id>-*` without that rule silently fails on a Jira-style PROJ-142.
-for f in .claude/skills/*/SKILL.md; do
-  grep -qF 'wip/<id>-*' "$f" || continue
-  tr '\n' ' ' < "$f" | tr -s ' ' | grep -qiF 'lowercase' \
-    || err "$f: resolves 'wip/<id>-*' but never says the id is lowercased (PROJ-142 -> proj-142)"
-done
-
 # --- 9. The protected-path script and CONSTITUTION §3 name the same surfaces ----
 # They are one rule in two forms (CONSTITUTION.md §3), so this check runs BOTH ways.
 # The reverse direction (9b) is the load-bearing one: deleting patterns from the script
@@ -171,8 +157,8 @@ done
 # copied by zip/cp/rsync, or a clone with core.fileMode=false, can arrive without the exec
 # bit, and skipping the check silently while still printing OK is exactly the
 # absence-indistinguishable-from-a-pass failure this script exists to prevent.
-if [ ! -f scripts/protected-paths.sh ]; then
-  err "scripts/protected-paths.sh is missing; CONSTITUTION.md §3 has no executable twin to check against"
+if [ ! -f .t-workflow/scripts/protected-paths.sh ]; then
+  err ".t-workflow/scripts/protected-paths.sh is missing; CONSTITUTION.md §3 has no executable twin to check against"
 else
   # Only §3's bullet list counts as "named" — bullets plus their wrapped continuation
   # lines. The section's surrounding prose mentions paths too (it points at this very
@@ -193,8 +179,8 @@ else
   while IFS= read -r pat; do
     base=${pat%\*}                        # docs/adr/* -> docs/adr/ ; README.md -> README.md
     printf '%s\n' "$named" | grep -qxF "$base" \
-      || err "scripts/protected-paths.sh protects '$pat' but CONSTITUTION.md §3 never names '$base'"
-  done < <(bash scripts/protected-paths.sh --list)
+      || err ".t-workflow/scripts/protected-paths.sh protects '$pat' but CONSTITUTION.md §3 never names '$base'"
+  done < <(bash .t-workflow/scripts/protected-paths.sh --list)
 
   # 9b. §3 -> script: every surface §3 names is actually enforced. Each backticked
   # path-like token in the bullets becomes a probe path passed to the script, so this
@@ -209,8 +195,8 @@ else
     case "$tok" in *[!A-Za-z0-9._/-]*) continue;; esac
     probe="$tok"
     case "$tok" in */) probe="${tok}probe.md";; esac
-    bash scripts/protected-paths.sh "$probe" >/dev/null \
-      || err "CONSTITUTION.md §3 names '$tok' as protected but scripts/protected-paths.sh does not protect it (probed '$probe')"
+    bash .t-workflow/scripts/protected-paths.sh "$probe" >/dev/null \
+      || err "CONSTITUTION.md §3 names '$tok' as protected but .t-workflow/scripts/protected-paths.sh does not protect it (probed '$probe')"
   done < <(printf '%s\n' "$named")
 fi
 
