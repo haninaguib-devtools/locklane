@@ -371,7 +371,7 @@ class IssueWorktreeServiceTest {
         repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt2"), now, "alice");
         repository.recordAttach("2-174-other-project", dbDir.resolve("wt3"), now, "alice");
 
-        IssueWorktreeService service = new IssueWorktreeService(repository);
+        IssueWorktreeService service = new IssueWorktreeService(repository, TestSqliteDatabases.newNoopAuthorization());
         service.deleteSessionsForProject(1);
 
         assertThat(service.hasAnySessions(1))
@@ -385,7 +385,7 @@ class IssueWorktreeServiceTest {
     @Test
     void deleteSessionsForProjectWithNoSessionsIsANoOp(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        IssueWorktreeService service = new IssueWorktreeService(repository);
+        IssueWorktreeService service = new IssueWorktreeService(repository, TestSqliteDatabases.newNoopAuthorization());
 
         service.deleteSessionsForProject(1);
 

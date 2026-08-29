@@ -151,7 +151,7 @@ class AdminUserControllerTest {
     private static AdminUserController controller(Path tmp, UserRepository userRepository,
             ProjectRepository projectRepository, WorktreeSessionRepository sessions) {
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(projectRepository,
-                tmp.resolve("workarea").toString(), Runnable::run, new IssueWorktreeService(sessions));
+                tmp.resolve("workarea").toString(), Runnable::run, new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()));
         UserCascadeDeleteService cascadeDeleteService = new UserCascadeDeleteService(projectRepository, checkoutService);
         return new AdminUserController(userRepository, cascadeDeleteService, new BCryptPasswordEncoder());
     }

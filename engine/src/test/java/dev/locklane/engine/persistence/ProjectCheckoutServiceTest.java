@@ -175,7 +175,7 @@ class ProjectCheckoutServiceTest {
     void forceDeleteRemovesAnOpenSessionsWorkareaAndDbRowUnlikeDelete(@TempDir Path tmp) throws Exception {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
-        IssueWorktreeService issueWorktreeService = new IssueWorktreeService(sessions);
+        IssueWorktreeService issueWorktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
                 tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService);
         ProjectRecord project = service.createProject(origin.toString(), "force-delete-me", 1L);

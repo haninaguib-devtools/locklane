@@ -21,7 +21,7 @@ class UserCascadeDeleteServiceTest {
     void deletesEveryOwnedProjectItsWorkareaAndItsSessions(@TempDir Path tmp) throws Exception {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
-        IssueWorktreeService issueWorktreeService = new IssueWorktreeService(sessions);
+        IssueWorktreeService issueWorktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(
                 projectRepository, tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService);
         UserCascadeDeleteService cascadeDeleteService =
@@ -44,7 +44,7 @@ class UserCascadeDeleteServiceTest {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(projectRepository,
                 tmp.resolve("workarea").toString(), Runnable::run,
-                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp)));
+                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()));
         UserCascadeDeleteService cascadeDeleteService =
                 new UserCascadeDeleteService(projectRepository, checkoutService);
 
@@ -60,7 +60,7 @@ class UserCascadeDeleteServiceTest {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(projectRepository,
                 tmp.resolve("workarea").toString(), Runnable::run,
-                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp)));
+                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()));
         UserCascadeDeleteService cascadeDeleteService =
                 new UserCascadeDeleteService(projectRepository, checkoutService);
 
