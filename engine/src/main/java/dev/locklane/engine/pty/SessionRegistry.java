@@ -200,6 +200,26 @@ public class SessionRegistry {
     }
 
     /**
+     * Whether any currently-live session's working directory is {@code directory}
+     * itself or a path inside it (#319's cleanup sweep) — checked by directory, not
+     * by session id, because a session's id need not match the worktree's own id: a
+     * reopened conversation ({@code WorktreeCreationService#reopenSession}) mints a
+     * fresh {@code -resume-} id that can point at the very same directory as the
+     * issue's one reusable worktree session. A directory with no live session at all
+     * (nothing in {@link #sessions}, or every live session's recorded directory lies
+     * elsewhere) is {@code false} — never guessed from disk state.
+     */
+    public boolean hasLiveSessionIn(Path directory) {
+        Path normalized = directory.normalize();
+        return sessions.keySet().stream()
+                .map(repository::find)
+                .flatMap(Optional::stream)
+                .map(WorktreeSessionRecord::workingDirectory)
+                .map(Path::normalize)
+                .anyMatch(sessionDirectory -> sessionDirectory.equals(normalized) || sessionDirectory.startsWith(normalized));
+    }
+
+    /**
      * The most recently captured resume id (#102) for this session and tool, or
      * empty when capture is off or nothing was ever captured here for that tool.
      * This is what lets a reattach after an engine restart pick the conversation
