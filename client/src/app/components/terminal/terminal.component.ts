@@ -68,6 +68,10 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       fontSize: 13,
       theme: { background: '#1c1a17' },
       convertEol: true,
+      // xterm defaults this to on for macOS only, which replaces a drag selection
+      // with just the word under the pointer the instant the user right-clicks --
+      // so the context menu's own Copy could never copy more than one word (#350).
+      rightClickSelectsWord: false,
     });
     this.fitAddon = new FitAddon();
     this.term.loadAddon(this.fitAddon);
@@ -81,7 +85,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
         event.type === 'keydown' && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c';
       if (isCopyChord && this.term?.hasSelection()) {
         event.preventDefault();
-        navigator.clipboard.writeText(this.term.getSelection()).catch(() => {});
+        this.copySelection(this.term.getSelection());
         return false;
       }
       return true;
@@ -178,6 +182,46 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     this.resizeSub?.dispose();
     this.session?.close();
     this.term?.dispose();
+  }
+
+  /**
+   * `navigator.clipboard.writeText` alone silently fails the copy chord in two real
+   * cases (#350): Safari does not treat a keydown as a sufficient user gesture for a
+   * clipboard write, and Chrome rejects when the site's clipboard permission is
+   * blocked. Either way, fall back to a synchronous execCommand('copy') rather than
+   * swallowing the rejection.
+   */
+  private copySelection(text: string): void {
+    const clipboard = navigator.clipboard;
+    if (clipboard?.writeText) {
+      clipboard.writeText(text).catch(() => this.copySelectionFallback(text));
+    } else {
+      this.copySelectionFallback(text);
+    }
+  }
+
+  private copySelectionFallback(text: string): void {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    // Off-screen but still focusable/selectable -- execCommand('copy') acts on
+    // whatever is currently selected, so this element has to actually hold focus
+    // and a real selection, not just exist in the DOM.
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+      if (!document.execCommand('copy')) {
+        console.error('Terminal copy failed: execCommand(copy) returned false');
+      }
+    } catch (err) {
+      console.error('Terminal copy failed', err);
+    } finally {
+      document.body.removeChild(textarea);
+    }
   }
 
   private connect(): void {
