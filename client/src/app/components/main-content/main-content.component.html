@@ -20,25 +20,31 @@
   @if (closeError) {
     <div class="action-error">could not close that console — try again</div>
   }
-  <app-overview-tab
-    [class.tab-hidden]="activeTab !== overviewId"
-    [issue]="issue"
-    [detail]="detail"
-    [repoWebUrl]="repoWebUrl"
-    [sessions]="resumeSessions"
-    [busy]="starting"
-    (reopen)="reopenSession($event)"
-  />
-  @for (console of consoles; track console.id) {
-    <app-terminal
-      [class.tab-hidden]="console.id !== activeTab"
-      [sessionId]="console.id"
-      [dir]="console.dir"
-      [cmd]="console.agent"
-      [resume]="console.resume"
-      [active]="console.id === activeTab"
+  <!-- The positioning context every tab body is sized against (#375). A hidden tab is
+       taken out of flow rather than removed, so it still has a layout box to measure --
+       and that box has to be the region the tab bodies occupy, not the whole component
+       (which would include the header, flow strip and tab strip above). -->
+  <div class="tab-bodies">
+    <app-overview-tab
+      [class.tab-hidden]="activeTab !== overviewId"
+      [issue]="issue"
+      [detail]="detail"
+      [repoWebUrl]="repoWebUrl"
+      [sessions]="resumeSessions"
+      [busy]="starting"
+      (reopen)="reopenSession($event)"
     />
-  }
+    @for (console of consoles; track console.id) {
+      <app-terminal
+        [class.tab-hidden]="console.id !== activeTab"
+        [sessionId]="console.id"
+        [dir]="console.dir"
+        [cmd]="console.agent"
+        [resume]="console.resume"
+        [active]="console.id === activeTab"
+      />
+    }
+  </div>
 } @else {
   <div class="loading">loading issue #{{ issueNumber }}…</div>
 }

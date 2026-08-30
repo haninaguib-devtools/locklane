@@ -16,11 +16,33 @@
   background: var(--window);
 }
 
+/* The region the tab bodies share. Positioned, so an inactive tab taken out of
+   flow below is sized against exactly this box -- the same box the active tab
+   fills -- rather than against the component (header, flow strip and tab strip
+   included) or, with nothing positioned anywhere above it, the whole window (#375). */
+.tab-bodies {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 /* The inactive tab stays mounted -- a console holds a live PTY connection
-   that must survive switching to Overview or another console and back. */
+   that must survive switching to Overview or another console and back.
+   It keeps a layout box rather than being removed with `display: none`: an
+   element in a display:none subtree cannot be measured at all, so xterm's
+   FitAddon proposed NaN columns for it and a tab that mounted while hidden
+   connected at the 80x24 constructor default, garbling the replayed
+   scrollback for good (#375). Out of flow so it does not divide the free
+   space with the active tab; invisible and inert so it neither paints nor
+   takes the pointer. */
 app-overview-tab.tab-hidden,
 app-terminal.tab-hidden {
-  display: none;
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .action-error {
