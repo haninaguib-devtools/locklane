@@ -23,4 +23,10 @@ v0.0.6, so the repo stays current with the delivery-pipeline template.
   accepting the regression or expanding `docs/architecture/local-slots.md` mid-sync.
 
 ## Deviations / notes
-- none
+- First `/t-review` pass (PR #369) found one blocker: this diff touches
+  `.github/workflows/ci.yml`, a protected surface, but issue #368 carried no `## Plan`
+  section. Fixed by running `/t-plan 368`, which added the Plan section (Allowed
+  paths: `.github/workflows/ci.yml`, `.template-manifest.json`, this record). No file
+  in the diff changed for this fix — only the issue body. Re-checked locally:
+  `check-manifest.sh`, `check-record.sh`, and `check-plan-gate.sh` (against the issue's
+  now-current body) all pass.
