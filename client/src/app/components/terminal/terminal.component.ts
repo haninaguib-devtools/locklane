@@ -27,7 +27,11 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() cmd: string | null = null;
   /** Past-conversation id (#103): a brand-new claude/codex session resumes it. */
   @Input() resume: string | null = null;
-  /** Whether this tab is the visible one — xterm can only size itself while visible. */
+  /**
+   * Whether this tab is the selected one. Sizing no longer depends on it (#375: a hidden
+   * tab keeps a layout box, so every tab measures itself at mount); it decides only who
+   * takes keyboard focus and which session the engine is told the user is looking at.
+   */
   @Input() active = true;
 
   @ViewChild('container', { static: true }) container!: ElementRef<HTMLDivElement>;
@@ -38,10 +42,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   private resizeSub: IDisposable | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private pendingFit: ReturnType<typeof setTimeout> | null = null;
-  /** The deferred first measure-then-connect for an initially-active tab (#268). */
+  /** The deferred first measure-then-connect, for every tab now (#268, #375). */
   private pendingInit: ReturnType<typeof setTimeout> | null = null;
-  /** Whether term.open() has run yet — deferred for a tab that starts inactive (#211). */
-  private opened = false;
 
   // The browser tab regaining focus after being backgrounded (#279) -- distinct from
   // the `active`/`ngOnChanges` app-level tab switch above, and the only way a session
@@ -90,31 +92,34 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       }
       return true;
     });
-    // A hidden (display:none) container measures as 0x0, and xterm caches whatever
-    // character size it sees at open() time — a later fit() against that cache never
-    // corrects it. Only open a tab that's actually visible; an inactive one is opened
-    // on its first activation instead (ngOnChanges), once it has real dimensions (#211).
-    if (this.active) {
-      this.term.open(this.container.nativeElement);
-      this.opened = true;
-      // The container may not have its final layout size yet at this point in the
-      // change-detection cycle — same reasoning as the tab-switch fit below (#211),
-      // deferred here too so an initially-active tab doesn't lock in a bad cached
-      // size the way #257 did. The connection waits for that measurement rather than
-      // racing it: the size on the connect URL is the size the engine starts the new
-      // PTY at, so connecting first would start the process at xterm's 80x24
-      // constructor defaults and never correct it (#268).
-      this.pendingInit = setTimeout(() => {
-        this.pendingInit = null;
-        this.fitAddon?.fit();
+    // Every tab is opened and fitted here, selected or not (#375). An inactive tab is
+    // hidden out of flow with `visibility: hidden` rather than removed with
+    // `display: none`, so it still has a layout box: xterm can measure its character
+    // size at open() time, and FitAddon can propose real dimensions instead of the NaN
+    // an unmeasurable container produced — which is what left a tab that mounted hidden
+    // stuck at xterm's 80x24 constructor default, parsing replayed output at the wrong
+    // width for the rest of the session.
+    this.term.open(this.container.nativeElement);
+    // The container may not have its final layout size yet at this point in the
+    // change-detection cycle, so the first measurement is deferred a tick rather than
+    // locking in a bad cached size the way #257 did. The connection waits for that
+    // measurement rather than racing it: the size on the connect URL is the size the
+    // engine starts a new PTY at, so connecting first would start the process at the
+    // constructor defaults and never correct it (#268).
+    this.pendingInit = setTimeout(() => {
+      this.pendingInit = null;
+      this.fitAddon?.fit();
+      // Only the selected tab takes the keyboard — focusing a hidden one would pull
+      // focus away from whatever the user is actually looking at (#166).
+      if (this.active) {
         this.term?.focus();
-        this.connect();
-      });
-    }
+      }
+      this.connect();
+    });
     this.term.onData((input) => this.session?.send(input));
-    // Fires for every size xterm settles on — the initial fit above, a later
-    // tab-becomes-active fit, and the ResizeObserver-driven fit below — so the
-    // server's PTY is told every time, not just once at connect.
+    // Fires for every size xterm settles on — the initial fit above and the
+    // ResizeObserver-driven fit below — so the server's PTY is told every time,
+    // not just once at connect.
     this.resizeSub = this.term.onResize(({ cols, rows }) => this.session?.resize(cols, rows));
     // xterm's FitAddon never observes its own container; nothing previously
     // reacted to the browser window (or a split/panel) changing size at all (#62).
@@ -125,41 +130,27 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       }
       this.pendingFit = setTimeout(() => {
         this.pendingFit = null;
-        if (this.active) {
-          this.fitAddon?.fit();
-        }
+        // Not gated on `active` any more: a hidden tab is measurable now, so a window
+        // resize while it is in the background reaches it immediately rather than
+        // waiting for the user to select it (#375).
+        this.fitAddon?.fit();
       }, TerminalComponent.FIT_QUIET_MS);
     });
     this.resizeObserver.observe(this.container.nativeElement);
-    if (!this.active) {
-      // A tab that starts hidden has nothing measurable to wait for, so it connects
-      // straight away at xterm's defaults; the fit on its first activation emits the
-      // real size, which TerminalSession holds until the socket opens if the two
-      // happen to race (#268).
-      this.connect();
-    }
     document.addEventListener('visibilitychange', this.checkConnectionOnForeground);
     window.addEventListener('focus', this.checkConnectionOnForeground);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['active'] && this.active) {
-      if (this.term && !this.opened) {
-        // First time this tab is shown: the container is visible now, so this is
-        // xterm's first real (non-zero) measurement (#211).
-        this.term.open(this.container.nativeElement);
-        this.opened = true;
-      }
-      // A hidden container has no dimensions, so the fit is deferred to the
-      // moment the tab becomes visible again.
-      if (this.fitAddon) {
-        setTimeout(() => {
-          this.fitAddon?.fit();
-          // The container has to be visible (not `display: none` via tab-hidden)
-          // for browser keyboard focus to actually land, hence the same setTimeout.
-          this.term?.focus();
-        });
-      }
+      // The tab was already open, measured and connected at its real size before this
+      // (#375), so there is nothing to size here — this is only about handing the tab
+      // the keyboard. Deferred a tick because the `tab-hidden` class is dropped by the
+      // parent's own change detection: focus has to land after the element is visible,
+      // or the browser drops it.
+      setTimeout(() => {
+        this.term?.focus();
+      });
       // The tab becoming visible is "focus" for attention purposes (#130) -- by now
       // the socket opened long ago (this only fires on a tab *switch*, never on the
       // initial connect), so this reaches the server immediately.
