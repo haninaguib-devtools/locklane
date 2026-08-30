@@ -56,52 +56,40 @@ public class WorktreeCreationService {
      * pass as {@code ?dir=} on the first attach (#7). Empty if the project or the
      * issue itself is not known.
      *
-     * <p>Equivalent to {@code startSession(projectId, issueNumber, true, null)} —
-     * kept for existing callers that only ever want a worktree.
+     * <p>Equivalent to {@code startSession(projectId, issueNumber, null)} — kept for
+     * existing callers that pass no requesting user.
      */
     public Optional<StartedSession> startSession(long projectId, int issueNumber) {
-        return startSession(projectId, issueNumber, true, null);
-    }
-
-    /**
-     * As above, but a console can also be opened directly against the project's
-     * main checkout: when {@code useWorktree} is {@code false}, no
-     * {@code git worktree add} runs and no worktree needs to exist — the working
-     * directory is simply the project's checkout, and a fresh session id is minted
-     * so several such consoles (including several on the main checkout, #29) can
-     * coexist for the same project's issue.
-     */
-    public Optional<StartedSession> startSession(long projectId, int issueNumber, boolean useWorktree) {
-        return startSession(projectId, issueNumber, useWorktree, null);
+        return startSession(projectId, issueNumber, null);
     }
 
     /**
      * As above, but only an existing session {@code requestingUsername} may see
      * (their own, or one with no recorded owner, #48) is reused — a session another
      * user owns is invisible here, same as it is in {@link IssueWorktreeService}.
+     *
+     * <p>Every session this method starts runs in a real {@code git worktree add}
+     * checkout, never the project's own main checkout (#341 retired that option: it
+     * let several sessions share the one checkout every {@code git worktree}
+     * operation and the cleanup sweep themselves run from — exactly what the
+     * workflow forbids, and in the one place it could break worst). A project
+     * console (#314) covers the "a console with no worktree yet" use case this
+     * used to serve, with its own cheap detached scratch worktree instead.
      */
-    public Optional<StartedSession> startSession(long projectId, int issueNumber, boolean useWorktree,
-            String requestingUsername) {
+    public Optional<StartedSession> startSession(long projectId, int issueNumber, String requestingUsername) {
         Optional<ProjectRecord> project = projectRepository.findById(projectId);
         if (project.isEmpty() || project.get().status() != ProjectStatus.READY) {
             return Optional.empty();
         }
         Path projectRoot = project.get().workareaPath();
 
-        if (!useWorktree) {
-            if (issue(projectId, issueNumber).isEmpty()) {
-                return Optional.empty();
-            }
-            String sessionId = projectId + "-" + issueNumber + "-main-" + shortId();
-            return Optional.of(new StartedSession(sessionId, projectRoot.toString()));
-        }
-
         Path worktreePath = projectRoot.resolveSibling(repoName(projectRoot) + "-" + issueNumber);
 
-        // Excludes main-checkout session ids (shaped "<projectId>-<issueNumber>-main-<suffix>",
-        // minted just above) and reopened-conversation ids ("...-resume-<suffix>", minted
-        // by reopenSession): they match the project/issue prefix but are not the issue's
-        // one reusable worktree session.
+        // Excludes any surviving legacy main-checkout session id (shaped
+        // "<projectId>-<issueNumber>-main-<suffix>" — #341 retired minting new ones,
+        // but an old persisted record can still exist) and reopened-conversation ids
+        // ("...-resume-<suffix>", minted by reopenSession): they match the
+        // project/issue prefix but are not the issue's one reusable worktree session.
         String mainSessionPrefix = projectId + "-" + issueNumber + "-main-";
         String resumeSessionPrefix = projectId + "-" + issueNumber + "-resume-";
         List<String> existing = issueWorktreeService.worktreeIdsForIssue(projectId, issueNumber, requestingUsername)
@@ -134,13 +122,18 @@ public class WorktreeCreationService {
      * resuming the same conversation. The new session runs in the original
      * console's working directory, because Claude keys stored conversations by
      * directory: the original session's recorded directory when that record still
-     * exists, otherwise re-derived from the id's shape — the project's main
-     * checkout for a "...-main-..." console, the issue's worktree path (recreated
-     * if it is gone) for anything else. The minted id keeps the original's shape
-     * ("-main-" stays "-main-", a worktree console becomes "-resume-") so it lists
-     * under the issue like any other console without ever being mistaken for the
-     * issue's one reusable worktree session. Empty when the project is not ready
-     * or {@code originalWorktreeId} does not belong to this project's issue.
+     * exists, otherwise the issue's worktree path (recreated if it is gone). The
+     * minted id keeps the "-resume-" shape so it lists under the issue like any
+     * other console without ever being mistaken for the issue's one reusable
+     * worktree session. Empty when the project is not ready, {@code
+     * originalWorktreeId} does not belong to this project's issue, or {@code
+     * originalWorktreeId} is a legacy {@code "...-main-..."} console (#341
+     * retired opening a console against the project's main checkout, and a
+     * conversation captured there can only ever be resumed there — there is no
+     * worktree that would actually contain it, so this is refused deliberately
+     * rather than silently resumed in the wrong directory; the controller's
+     * {@code /resume-sessions} listing excludes these for the same reason, so this
+     * only guards a caller reaching the id some other way).
      */
     public Optional<StartedSession> reopenSession(long projectId, int issueNumber, String originalWorktreeId) {
         Optional<ProjectRecord> project = projectRepository.findById(projectId);
@@ -150,17 +143,16 @@ public class WorktreeCreationService {
         if (!originalWorktreeId.startsWith(projectId + "-" + issueNumber + "-")) {
             return Optional.empty();
         }
+        if (originalWorktreeId.startsWith(projectId + "-" + issueNumber + "-main-")) {
+            return Optional.empty();
+        }
         Path projectRoot = project.get().workareaPath();
-        boolean mainShaped = originalWorktreeId.startsWith(projectId + "-" + issueNumber + "-main-");
-        String sessionId = projectId + "-" + issueNumber + (mainShaped ? "-main-" : "-resume-") + shortId();
+        String sessionId = projectId + "-" + issueNumber + "-resume-" + shortId();
 
         Optional<Path> recordedDirectory = sessionRepository.find(originalWorktreeId)
                 .map(WorktreeSessionRecord::workingDirectory);
         if (recordedDirectory.isPresent()) {
             return Optional.of(new StartedSession(sessionId, recordedDirectory.get().toString()));
-        }
-        if (mainShaped) {
-            return Optional.of(new StartedSession(sessionId, projectRoot.toString()));
         }
         Path worktreePath = projectRoot.resolveSibling(repoName(projectRoot) + "-" + issueNumber);
         if (!Files.exists(worktreePath)) {

@@ -141,10 +141,10 @@ export class MainContentComponent implements OnChanges {
   openConsole(request: OpenConsoleRequest): void {
     this.starting = true;
     this.startError = false;
-    this.issuesService.startSession(this.projectId, this.issueNumber, request.worktree).subscribe({
+    this.issuesService.startSession(this.projectId, this.issueNumber).subscribe({
       next: ({ worktreeId, workingDirectory }) => {
-        // A worktree request reuses the issue's existing worktree session when
-        // one exists (#29) — then there is no new tab to add, just select it.
+        // Reuses the issue's existing worktree session when one exists (#29) —
+        // then there is no new tab to add, just select it.
         if (!this.consoles.some((c) => c.id === worktreeId)) {
           this.agentStore.set(worktreeId, request.agent);
           this.consoles = [

@@ -15,56 +15,15 @@ describe('ConsoleTabsComponent', () => {
     expect(emitted).toBe('7-rename-toggle');
   });
 
-  it('the "+" starts a console with the default agent directly when there is no location to choose', () => {
+  it('the "+" starts a console with the default agent directly (#341: no location left to choose)', () => {
     const c = new ConsoleTabsComponent();
-    c.locationChoice = false;
     c.defaultAgent = 'codex';
-    let emitted: { worktree: boolean; agent: string } | undefined;
+    let emitted: { agent: string } | undefined;
     c.open.subscribe((request) => (emitted = request));
 
     c.plusClicked();
 
-    expect(emitted).toEqual({ worktree: false, agent: 'codex' });
-    expect(c.pickerOpen).toBeFalse();
-  });
-
-  it('the "+" opens the where picker instead of launching, when there is a location to choose', () => {
-    const c = new ConsoleTabsComponent();
-    c.locationChoice = true;
-    let emitted: { worktree: boolean; agent: string } | undefined;
-    c.open.subscribe((request) => (emitted = request));
-
-    c.plusClicked();
-
-    expect(emitted).toBeUndefined();
-    expect(c.pickerOpen).toBeTrue();
-  });
-
-  it('launches immediately on the chosen location, using the default agent', () => {
-    const c = new ConsoleTabsComponent();
-    c.pickerOpen = true;
-    c.defaultAgent = 'codex';
-    let emitted: { worktree: boolean; agent: string } | undefined;
-    c.open.subscribe((request) => (emitted = request));
-
-    c.chooseLocation('main');
-
-    expect(emitted).toEqual({ worktree: false, agent: 'codex' });
-    expect(c.pickerOpen).toBeFalse();
-  });
-
-  it('the "+" launches a worktree console directly when directWorktree is set (#318)', () => {
-    const c = new ConsoleTabsComponent();
-    c.locationChoice = false;
-    c.directWorktree = true;
-    c.defaultAgent = 'claude';
-    let emitted: { worktree: boolean; agent: string } | undefined;
-    c.open.subscribe((request) => (emitted = request));
-
-    c.plusClicked();
-
-    expect(emitted).toEqual({ worktree: true, agent: 'claude' });
-    expect(c.pickerOpen).toBeFalse();
+    expect(emitted).toEqual({ agent: 'codex' });
   });
 
   it('shows the open button when there are no open tabs, even with hideOpenWhenActive set (#318)', () => {
@@ -88,36 +47,6 @@ describe('ConsoleTabsComponent', () => {
     c.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
 
     expect(c.showOpenButton).toBeTrue();
-  });
-
-  it('closes the picker on a click outside it', () => {
-    const c = new ConsoleTabsComponent();
-    c.pickerOpen = true;
-
-    c.onDocumentClick({ target: document.createElement('div') } as unknown as MouseEvent);
-
-    expect(c.pickerOpen).toBeFalse();
-  });
-
-  it('leaves the picker open on a click inside the component', () => {
-    const c = new ConsoleTabsComponent();
-    c.pickerOpen = true;
-    const host = document.createElement('app-console-tabs');
-    const insideButton = document.createElement('button');
-    host.appendChild(insideButton);
-
-    c.onDocumentClick({ target: insideButton } as unknown as MouseEvent);
-
-    expect(c.pickerOpen).toBeTrue();
-  });
-
-  it('closes the picker on Escape', () => {
-    const c = new ConsoleTabsComponent();
-    c.pickerOpen = true;
-
-    c.onEscape();
-
-    expect(c.pickerOpen).toBeFalse();
   });
 
   it('closeTab stops propagation and awaits confirmation before emitting', () => {

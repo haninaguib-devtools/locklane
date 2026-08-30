@@ -105,16 +105,29 @@ public class IssueWorktreeService {
      * everyone since there is no project to resolve and check against.
      * The same conversation sighted in several consoles is listed once, at its
      * newest sighting.
+     *
+     * <p>A conversation captured in a legacy {@code "...-main-..."} console (#341
+     * retired opening one) is excluded here rather than listed and then refused on
+     * reopen: it can only ever be resumed in the project's main checkout it was
+     * captured in — Claude/Codex key a stored conversation by directory, and that
+     * checkout is no longer a console location — so there is nothing a reopen could
+     * ever do with it, and listing it would just be a dead end in the Overview tab.
      */
     public List<ConsoleResumeSessionRecord> resumeSessionsForIssue(long projectId, int issueNumber,
             String requestingUsername) {
         Map<String, ConsoleResumeSessionRecord> byConversation = new LinkedHashMap<>();
         resumeRepository.findAll().stream()
                 .filter(record -> matches(record.worktreeId(), projectId, issueNumber))
+                .filter(record -> !isMainShaped(record.worktreeId()))
                 .filter(record -> isConsoleVisibleTo(record.worktreeId(), requestingUsername))
                 .sorted(Comparator.comparing(ConsoleResumeSessionRecord::capturedAt).reversed())
                 .forEach(record -> byConversation.putIfAbsent(record.tool() + ":" + record.resumeId(), record));
         return List.copyOf(byConversation.values());
+    }
+
+    private static boolean isMainShaped(String worktreeId) {
+        Matcher m = PROJECT_AND_ISSUE_PREFIXED.matcher(worktreeId);
+        return m.find() && worktreeId.substring(m.end()).startsWith("main-");
     }
 
     private boolean isConsoleVisibleTo(String worktreeId, String requestingUsername) {

@@ -150,29 +150,29 @@ describe('MainContentComponent', () => {
     const fixture = init(8);
     respond(8, []);
 
-    fixture.componentInstance.openConsole({ worktree: false, agent: 'codex' });
+    fixture.componentInstance.openConsole({ agent: 'codex' });
     expect(fixture.componentInstance.starting).toBeTrue();
 
     httpMock
       .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
-      .flush({ worktreeId: '1-8-main-a1b2c3d4', workingDirectory: '/tmp/repo' });
+      .flush({ worktreeId: '1-8-slug', workingDirectory: '/tmp/repo' });
 
     expect(fixture.componentInstance.starting).toBeFalse();
     expect(fixture.componentInstance.consoles).toEqual([
-      { id: '1-8-main-a1b2c3d4', dir: '/tmp/repo', agent: 'codex', resume: null },
+      { id: '1-8-slug', dir: '/tmp/repo', agent: 'codex', resume: null },
     ]);
-    expect(fixture.componentInstance.tabs[0].label).toBe('main · codex');
-    expect(fixture.componentInstance.selectedConsole).toBe('1-8-main-a1b2c3d4');
-    expect(TestBed.inject(AgentStore).get('1-8-main-a1b2c3d4')).toBe('codex');
-    expect(TestBed.inject(ActiveConsoleStore).get(8)).toBe('1-8-main-a1b2c3d4');
+    expect(fixture.componentInstance.tabs[0].label).toBe('wtree · codex');
+    expect(fixture.componentInstance.selectedConsole).toBe('1-8-slug');
+    expect(TestBed.inject(AgentStore).get('1-8-slug')).toBe('codex');
+    expect(TestBed.inject(ActiveConsoleStore).get(8)).toBe('1-8-slug');
   });
 
-  it('a worktree request that reuses the existing session only re-selects its tab', () => {
+  it('opening a console that reuses the existing session only re-selects its tab (#29)', () => {
     const fixture = init(8);
     respond(8, ['1-8-main-a1b2c3d4', '1-8-slug']);
     fixture.componentInstance.selectConsole('1-8-main-a1b2c3d4');
 
-    fixture.componentInstance.openConsole({ worktree: true, agent: 'claude' });
+    fixture.componentInstance.openConsole({ agent: 'claude' });
     httpMock
       .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
       .flush({ worktreeId: '1-8-slug', workingDirectory: '/tmp/repo-8' });
@@ -185,7 +185,7 @@ describe('MainContentComponent', () => {
     const fixture = init(8);
     respond(8, []);
 
-    fixture.componentInstance.openConsole({ worktree: true, agent: 'claude' });
+    fixture.componentInstance.openConsole({ agent: 'claude' });
     httpMock
       .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
       .error(new ProgressEvent('network error'));
@@ -320,12 +320,12 @@ describe('MainContentComponent', () => {
     const fixture = init(8);
     respond(8, []);
 
-    fixture.componentInstance.openConsole({ worktree: false, agent: 'codex' });
+    fixture.componentInstance.openConsole({ agent: 'codex' });
     httpMock
       .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
-      .flush({ worktreeId: '1-8-main-a1b2c3d4', workingDirectory: '/tmp/repo' });
+      .flush({ worktreeId: '1-8-slug', workingDirectory: '/tmp/repo' });
 
-    expect(fixture.componentInstance.activeTab).toBe('1-8-main-a1b2c3d4');
+    expect(fixture.componentInstance.activeTab).toBe('1-8-slug');
   });
 
   it('closing the active console falls back to the next remaining tab', () => {
