@@ -212,7 +212,14 @@ class WorktreeCleanupSweeperTest {
                 new WorktreeCreationService(creationGhResources, worktreeService, fx.projectRepository, fx.repository);
 
         WorktreeCreationService.StartedSession started = creationService.startSession(fx.projectId, issueNumber).orElseThrow();
-        return new WorktreeAndId(started.worktreeId(), Path.of(started.workingDirectory()));
+        Path worktreePath = Path.of(started.workingDirectory());
+        // #340: opening a console no longer mints a branch itself -- startSession now
+        // leaves the worktree detached at origin/main. These tests are specifically
+        // about the fate of a worktree's *branch* on cleanup (#342), so simulate the
+        // /t-work step that would normally follow: check out the real
+        // wip/<id>-<slug> branch a worktree carries once implementation has started.
+        run(worktreePath, "git", "checkout", "-b", "wip/" + issueNumber + "-" + WorktreeCreationService.slug(title));
+        return new WorktreeAndId(started.worktreeId(), worktreePath);
     }
 
     private static WorktreeCleanupSweeper sweeper(Fixture fx, List<GhIssue> issues) {
