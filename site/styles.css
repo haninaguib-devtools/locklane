@@ -310,26 +310,8 @@ h3 {
 }
 
 .note code,
-.run-command code,
 .prose code,
 .capabilities code { color: var(--ink); }
-
-.run-command {
-  margin-top: 24px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 18px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.run-command code { user-select: all; }
-
-.run-command code {
-  padding-inline: 5px;
-  background: var(--accent-soft);
-  color: var(--accent);
-}
 
 .prose {
   margin-top: 36px;
