@@ -54,7 +54,8 @@ fall back to today's display whenever a title isn't available.
 - OpenCode is asked through its documented CLI (`opencode session list --format json`),
   never its SQLite store, as the issue specifies — with a 10-second bound, so a hung or
   very slow CLI degrades to "no title" instead of holding the HTTP response open
-  (haninaguib, 2026-08-30).
+  (haninaguib, 2026-08-30). **Corrected in the fix pass below: the first version claimed
+  that bound but did not implement it.**
 - In the list, a title takes the timestamp's place in the row rather than sitting
   alongside it — the rail is narrow, and two lines of metadata per row read worse than
   one. The captured time is not lost: it moves onto the title's own tooltip. The tool
@@ -81,6 +82,31 @@ fall back to today's display whenever a title isn't available.
   returns empty. Both readers are written to the shapes the issue documents and covered
   by tests against those shapes, but their real-world output is unconfirmed here — which
   is exactly what the issue's manual check exists to settle.
+- Fix pass, answering the cold review's one high finding (PR #381): the OpenCode
+  subprocess could hang forever, and the 10-second bound the decision above advertised
+  did not actually govern. Three separate ways, all now closed in
+  `ConsoleSessionTitles.runBounded`:
+  - Standard output was read to completion *before* the timed wait, so the wait could
+    only ever fire on a process that had already finished writing — the one case that
+    never needed a bound. Output is now drained on a daemon thread of its own, which is
+    what makes the wait the thing that actually governs.
+  - Standard error was neither redirected nor read. An unread pipe fills at around
+    64 KB and blocks the child mid-write, forever. It is now discarded.
+  - The child's standard input was left open and unwritten, so a CLI that waits for
+    input would have waited for input that was never coming. It is closed immediately.
+  The consequence was worse than the degradation the class promises: not "no title", but
+  a resume-sessions request that never completes and holds a servlet thread.
+  The runner is now package-visible and takes its command, rather than hardcoding
+  `opencode`, purely so a test can run a process that genuinely misbehaves in each of
+  those ways — the reviewer's point that no test exercised this method at all, since
+  every other test substitutes the lookup seam. Five now do, including ~200 KB of
+  stderr and a command that never exits.
+- The review's medium and low findings were left alone: a fix pass addresses only
+  blocker and high findings (`/t-work` Fix mode). They are named in the PR thread for
+  the human to decide on. The one worth repeating here is that `Files.lines` reports a
+  decoding failure during *iteration*, which `readLines`' catch around the open does not
+  cover — latent today (all 332 real transcripts on this machine decode cleanly) but a
+  500 on the listing endpoint if a transcript is read mid-multi-byte-character.
 - Not verified in this session: the manual check in the issue's Done-when (a real
   conversation with each installed CLI, long enough to be titled, then confirming the
   list shows that title). It needs a human at a running app, with a Codex ≥ v0.150.0 for

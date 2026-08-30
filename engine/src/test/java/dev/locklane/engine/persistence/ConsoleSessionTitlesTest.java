@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -188,6 +189,60 @@ class ConsoleSessionTitlesTest {
                         entry("claude:" + CLAUDE_ID, "A Claude conversation"),
                         entry("codex:" + CODEX_ID, "A Codex thread"),
                         entry("opencode:" + OPENCODE_ID, "An OpenCode session"));
+    }
+
+    // ---- the bounded process runner itself (#373) ----
+    //
+    // Every test above substitutes the OpencodeLister seam, so none of them runs a real
+    // process. These do: each one is a way a child process hangs its caller forever if
+    // the runner gets it wrong, and the point of the bound is that none of them can.
+
+    @Test
+    void returnsWhatACommandActuallyPrinted(@TempDir Path tmp) {
+        assertThat(ConsoleSessionTitles.runBounded(tmp, 10, "sh", "-c", "printf '[{\"id\":\"x\"}]'"))
+                .isEqualTo("[{\"id\":\"x\"}]");
+    }
+
+    @Test
+    void hasNoAnswerFromACommandThatFailsOrDoesNotExist(@TempDir Path tmp) {
+        assertThat(ConsoleSessionTitles.runBounded(tmp, 10, "sh", "-c", "echo nope; exit 3")).isNull();
+        assertThat(ConsoleSessionTitles.runBounded(tmp, 10, "definitely-not-an-installed-cli")).isNull();
+    }
+
+    @Test
+    void killsACommandThatNeverExitsInsteadOfWaitingForever(@TempDir Path tmp) {
+        long startedAt = System.nanoTime();
+
+        assertThat(ConsoleSessionTitles.runBounded(tmp, 1, "sh", "-c", "sleep 60")).isNull();
+
+        // The bound is what returned, not the command finishing.
+        assertThat(Duration.ofNanos(System.nanoTime() - startedAt)).isLessThan(Duration.ofSeconds(30));
+    }
+
+    @Test
+    void isNotDeadlockedByACommandThatWritesFarMoreThanAPipeHolds(@TempDir Path tmp) {
+        // An unread stderr pipe fills at around 64 KB and blocks the child mid-write,
+        // forever, with the parent still waiting for stdout that will never come.
+        long startedAt = System.nanoTime();
+
+        // ~200 KB of stderr, comfortably past the ~64 KB a pipe holds, then a normal
+        // exit: with stderr left unread this never reaches the printf at all.
+        String output = ConsoleSessionTitles.runBounded(tmp, 20, "sh", "-c",
+                "yes error-line-padding | head -c 200000 >&2; printf ok");
+
+        assertThat(output).isEqualTo("ok");
+        assertThat(Duration.ofNanos(System.nanoTime() - startedAt)).isLessThan(Duration.ofSeconds(30));
+    }
+
+    @Test
+    void doesNotLeaveACommandWaitingOnInputThatWillNeverArrive(@TempDir Path tmp) {
+        // The child's stdin is closed straight away, so `cat` reaches end-of-input
+        // rather than blocking until the timeout kills it.
+        long startedAt = System.nanoTime();
+
+        assertThat(ConsoleSessionTitles.runBounded(tmp, 20, "sh", "-c", "cat; printf done")).isEqualTo("done");
+
+        assertThat(Duration.ofNanos(System.nanoTime() - startedAt)).isLessThan(Duration.ofSeconds(10));
     }
 
     /** A lookup with both CLI homes under {@code tmp} and no OpenCode process at all. */

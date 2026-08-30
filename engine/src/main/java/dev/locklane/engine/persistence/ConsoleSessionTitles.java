@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,7 +18,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -69,8 +74,10 @@ public class ConsoleSessionTitles {
     // one '-', and existing '-' survive unchanged).
     private static final Pattern NOT_ALNUM = Pattern.compile("[^a-zA-Z0-9]");
 
-    // OpenCode is a real process, unlike the two file reads: bound it so a hung or
-    // very slow CLI degrades to "no title" instead of holding the HTTP response open.
+    // OpenCode is a real process, unlike the two file reads. See runBounded for what
+    // it actually takes for this number to mean anything: a hung, very slow, or
+    // chattering CLI has to degrade to "no title" rather than hold the HTTP response
+    // open forever.
     private static final long OPENCODE_TIMEOUT_SECONDS = 10;
 
     private final ObjectMapper json = new ObjectMapper();
@@ -254,29 +261,85 @@ public class ConsoleSessionTitles {
     }
 
     private static String runOpencodeSessionList(Path workingDirectory) {
+        return runBounded(workingDirectory, OPENCODE_TIMEOUT_SECONDS,
+                "opencode", "session", "list", "--format", "json");
+    }
+
+    /**
+     * {@code command}'s standard output, or null for anything else at all — it could
+     * not be started (the CLI is not installed), it exited non-zero, or it outstayed
+     * {@code timeoutSeconds} and was killed. Never throws, and never waits longer than
+     * that bound.
+     *
+     * <p>Three things here are the difference between a real bound and an apparent one,
+     * and each of them is a way a child process hangs a caller forever:
+     * <ul>
+     *   <li>Output is drained on its own thread, so the timed wait below is what
+     *       actually governs. Reading the stream to completion first and waiting
+     *       afterwards can only ever time out a process that has already finished
+     *       writing — the case that never needed a bound.</li>
+     *   <li>Standard error is discarded rather than left unread: an unread pipe fills
+     *       (typically at 64 KB) and blocks the child forever, mid-write.</li>
+     *   <li>The child's standard input is closed immediately, so a CLI that would
+     *       otherwise wait for input it is never going to get sees end-of-input.</li>
+     * </ul>
+     *
+     * <p>Package-visible, and taking its command rather than hardcoding one, so a test
+     * can actually run a process that misbehaves in each of those ways.
+     */
+    static String runBounded(Path workingDirectory, long timeoutSeconds, String... command) {
         Process process = null;
         try {
-            process = new ProcessBuilder("opencode", "session", "list", "--format", "json")
+            process = new ProcessBuilder(command)
                     .directory(workingDirectory.toFile())
-                    .redirectErrorStream(false)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
                     .start();
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!process.waitFor(OPENCODE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            process.getOutputStream().close();
+            Future<String> output = drain(process.getInputStream());
+            if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
-                log.debug("opencode session list timed out in {}", workingDirectory);
+                log.debug("'{}' timed out in {}", String.join(" ", command), workingDirectory);
                 return null;
             }
-            return process.exitValue() == 0 ? output : null;
-        } catch (IOException e) {
-            // Not installed, or not runnable here. Ordinary, not a fault.
-            log.debug("Could not run opencode session list in {}: {}", workingDirectory, e.toString());
+            if (process.exitValue() != 0) {
+                return null;
+            }
+            // The process has exited, so its output is complete and the reader is
+            // finishing; this wait is for the handover, not for the process.
+            return output.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (IOException | ExecutionException | TimeoutException | RuntimeException e) {
+            // Not installed, not runnable here, or it produced nothing usable.
+            // Ordinary, not a fault.
+            log.debug("Could not run '{}' in {}: {}", String.join(" ", command), workingDirectory, e.toString());
+            destroyQuietly(process);
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            if (process != null) {
-                process.destroyForcibly();
-            }
+            destroyQuietly(process);
             return null;
+        }
+    }
+
+    /**
+     * Reads {@code stream} to the end on a daemon thread of its own. Daemon so a reader
+     * still blocked on a process that outstayed its welcome can never hold the JVM
+     * open; killing the process closes the stream and ends the thread.
+     */
+    private static Future<String> drain(InputStream stream) {
+        FutureTask<String> task = new FutureTask<>(() -> {
+            try (InputStream in = stream) {
+                return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            }
+        });
+        Thread thread = new Thread(task, "cli-title-lookup");
+        thread.setDaemon(true);
+        thread.start();
+        return task;
+    }
+
+    private static void destroyQuietly(Process process) {
+        if (process != null && process.isAlive()) {
+            process.destroyForcibly();
         }
     }
 
