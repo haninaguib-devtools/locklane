@@ -217,7 +217,7 @@ class ProjectConsoleControllerTest {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
         long projectId =
                 projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
-        TestSqliteDatabases.newResumeRepository(dbDir).record(projectId + "-console-aaaaaaaa", "claude",
+        new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)).record(projectId + "-console-aaaaaaaa", "claude",
                 "11111111-1111-1111-1111-111111111111", LATER);
         ProjectConsoleController controller =
                 controller(dbDir, projectRepository, TestSqliteDatabases.newRepository(dbDir));
@@ -245,7 +245,7 @@ class ProjectConsoleControllerTest {
         String originalId = original.get("sessionId");
         String originalDirectory = original.get("workingDirectory");
         sessionRepository.recordAttach(originalId, Path.of(originalDirectory), EARLIER, "alice");
-        TestSqliteDatabases.newResumeRepository(tmp).record(originalId, "claude",
+        new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(tmp)).record(originalId, "claude",
                 "11111111-1111-1111-1111-111111111111", LATER);
 
         var response = controller.reopenSession(projectId, originalId, ALICE);
@@ -265,7 +265,7 @@ class ProjectConsoleControllerTest {
         long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
         ProjectConsoleController controller =
                 controller(tmp, projectRepository, TestSqliteDatabases.newRepository(tmp));
-        TestSqliteDatabases.newResumeRepository(tmp).record(projectId + "-console-aaaaaaaa", "claude",
+        new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(tmp)).record(projectId + "-console-aaaaaaaa", "claude",
                 "11111111-1111-1111-1111-111111111111", LATER);
 
         // Not this project's owner.
@@ -292,7 +292,7 @@ class ProjectConsoleControllerTest {
                 new SessionRegistry(sessionRepository));
         return new ProjectConsoleController(new ProjectConsoleService(projectRepository, tokenCipher(dbDir),
                 new SessionRegistry(sessionRepository), sessionRepository,
-                TestSqliteDatabases.newResumeRepository(dbDir), authorization, sweeper));
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization, sweeper));
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {

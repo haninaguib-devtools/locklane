@@ -93,10 +93,6 @@ public final class TestSqliteDatabases {
         return new ProjectRepository(newDataSource(dbDirectory));
     }
 
-    public static ConsoleResumeSessionRepository newResumeRepository(Path dbDirectory) {
-        return new ConsoleResumeSessionRepository(newDataSource(dbDirectory));
-    }
-
     public static BackupCodeRepository newBackupCodeRepository(Path dbDirectory) {
         return new BackupCodeRepository(newDataSource(dbDirectory));
     }

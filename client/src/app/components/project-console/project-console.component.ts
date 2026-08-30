@@ -34,7 +34,10 @@ interface OpenConsole {
 // Since #372 it also lists the conversations that ran in this project's consoles
 // and can reopen one -- the capability an issue's Overview tab has had since #103
 // -- behind a disclosure under the header, since #256 means this page almost always
-// opens straight into a live console, with no empty state to put the list in.
+// opens straight into a live console, with no empty state to put the list in. The
+// list is read when that disclosure is first opened rather than on mount, so simply
+// landing on a console costs no extra request; the trade-off is that the collapsed
+// label cannot carry a count.
 @Component({
   selector: 'app-project-console',
   standalone: true,
@@ -64,6 +67,9 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   /** Past conversations captured in this project's consoles (#372), newest first. */
   pastSessions: ResumeSession[] = [];
   pastOpen = false;
+  pastLoading = false;
+  /** Whether the list below is a real answer yet -- false until the first read returns. */
+  pastLoaded = false;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId']) {
@@ -90,7 +96,8 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
     this.closeError = false;
     this.pastSessions = [];
     this.pastOpen = false;
-    this.loadPastSessions(projectId);
+    this.pastLoading = false;
+    this.pastLoaded = false;
     this.service.listOpen(projectId).subscribe({
       next: (sessions) => {
         this.loading = false;
@@ -134,18 +141,29 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   // independently of the open-console list; a failure leaves it simply empty rather
   // than blocking the page.
   private loadPastSessions(projectId: number): void {
+    this.pastLoading = true;
     this.service.resumeSessions(projectId).subscribe({
       next: (sessions) => {
         this.pastSessions = sessions;
+        this.pastLoading = false;
+        this.pastLoaded = true;
       },
       error: () => {
         this.pastSessions = [];
+        this.pastLoading = false;
+        this.pastLoaded = true;
       },
     });
   }
 
+  // Opening the disclosure is what asks for the list, and asks again every time:
+  // the set grows whenever a console is closed, so a cached answer would go stale
+  // exactly when the user is most likely to want it.
   togglePast(): void {
     this.pastOpen = !this.pastOpen;
+    if (this.pastOpen) {
+      this.loadPastSessions(this.projectId);
+    }
   }
 
   /**
@@ -244,9 +262,6 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
           this.selectConsole(this.consoles[0]?.id ?? null);
         }
         this.consolesService.notifyClosed();
-        // Closing a console is exactly when its conversation becomes a past one, so
-        // the list is re-read rather than left stale until the next visit.
-        this.loadPastSessions(this.projectId);
         if (this.consoles.length === 0) {
           // #265: closing the last console leaves the console view rather than
           // auto-starting a new one -- back to the project page, where the "+"

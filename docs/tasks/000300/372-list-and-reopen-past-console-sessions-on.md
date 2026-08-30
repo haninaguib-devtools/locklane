@@ -74,10 +74,25 @@ and there is no project-scoped equivalent of `WorktreeCreationService.reopenSess
   `client/src/app/models/` is inside this task's scope, and the engine has captured
   OpenCode resume ids since #295 — the project list surfaces them, so the old union
   was wrong about data this task puts on screen.
-- `app.component.spec.ts` and `project-console.component.spec.ts` drain the new
-  `/console/resume-sessions` request in `afterEach` rather than asserting it in each
-  of the ~20 tests that merely mount the page. This mirrors the `/api/usage` drain
-  `app.component.spec.ts` already does for the same reason.
+- Fix pass, answering the cold review's one high finding (PR #379): two changed files
+  sat outside the issue's Scope line, and both are now back at their base state.
+  - `TestSqliteDatabases.newResumeRepository` (a shared engine test helper) is gone;
+    the two in-scope test classes construct `ConsoleResumeSessionRepository` inline.
+  - `app.component.spec.ts` needed a drain only because the page issued a
+    past-conversations request on mount, which those app-level routing tests then had
+    outstanding. The read is now made when the disclosure is first opened instead, so
+    the page issues no extra request on mount at all and that spec is untouched. The
+    reviewer's own remedy was to amend the issue's Scope; amending it is a tracker
+    write nobody asked for (AGENTS.md §Conventions), so the diff was brought inside
+    the declared scope instead.
+  - Cost of going on-demand, accepted deliberately: the collapsed label reads
+    "past sessions" with no count, since a count would need the list fetched up
+    front. Opening it re-reads every time, which is also more correct — the set grows
+    whenever a console is closed, so a cached answer would go stale exactly when it
+    matters. An empty result now says so in words rather than hiding the control.
+  - The medium and low findings in that review were left alone: a fix pass addresses
+    only blocker and high findings (`/t-work` Fix mode). They are named in the PR
+    thread for the human to decide on.
 - Known limitation, not fixable from the id alone: a conversation captured in a
   project console created between #177 and #314 ran in the project's *shared*
   checkout, and once its session record is gone nothing distinguishes it by id shape

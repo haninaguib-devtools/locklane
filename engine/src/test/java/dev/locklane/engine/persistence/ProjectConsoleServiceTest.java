@@ -401,7 +401,7 @@ class ProjectConsoleServiceTest {
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         ProjectConsoleService service = new ProjectConsoleService(projectRepository, tokenCipher,
                 new SessionRegistry(sessionRepository), sessionRepository,
-                TestSqliteDatabases.newResumeRepository(dbDir), authorization(dbDir, projectRepository),
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization(dbDir, projectRepository),
                 sweeper(dbDir, sessionRepository, projectRepository));
 
         // Both the #177 family and the legacy pre-#177 id resolve the token.
@@ -418,7 +418,7 @@ class ProjectConsoleServiceTest {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
         long projectId =
                 projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
-        ConsoleResumeSessionRepository resumeRepository = TestSqliteDatabases.newResumeRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository = new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         resumeRepository.record(projectId + "-console-aaaaaaaa", "claude", "11111111-1111-1111-1111-111111111111",
                 EARLIER);
         resumeRepository.record(projectId + "-console-bbbbbbbb", "opencode", "ses_01ABCDEFGHIJKLMNOPQRSTUVWX", LATER);
@@ -438,7 +438,7 @@ class ProjectConsoleServiceTest {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
         long projectId =
                 projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
-        ConsoleResumeSessionRepository resumeRepository = TestSqliteDatabases.newResumeRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository = new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         String conversation = "11111111-1111-1111-1111-111111111111";
         resumeRepository.record(projectId + "-console-aaaaaaaa", "claude", conversation, EARLIER);
         resumeRepository.record(projectId + "-console-aaaaaaaa-resume-bbbbbbbb", "claude", conversation, LATER);
@@ -459,7 +459,7 @@ class ProjectConsoleServiceTest {
         long otherProjectId =
                 projectRepository.createReady("other", "url", dbDir.resolve("other"), "main", aliceId, Instant.now())
                         .id();
-        ConsoleResumeSessionRepository resumeRepository = TestSqliteDatabases.newResumeRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository = new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         resumeRepository.record(otherProjectId + "-console-aaaaaaaa", "claude",
                 "11111111-1111-1111-1111-111111111111", LATER);
         // An issue's own console, in this same project -- the issue page lists it.
@@ -482,7 +482,7 @@ class ProjectConsoleServiceTest {
                 projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", bobId, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         sessionRepository.recordAttach(bobsProjectId + "-console-aaaaaaaa", dbDir, EARLIER, "alice");
-        ConsoleResumeSessionRepository resumeRepository = TestSqliteDatabases.newResumeRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository = new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         resumeRepository.record(bobsProjectId + "-console-aaaaaaaa", "claude",
                 "11111111-1111-1111-1111-111111111111", LATER);
         ProjectConsoleService service = service(dbDir, projectRepository, sessionRepository, resumeRepository);
@@ -582,7 +582,7 @@ class ProjectConsoleServiceTest {
 
     private static ProjectConsoleService service(Path dbDir, ProjectRepository projectRepository,
             WorktreeSessionRepository sessionRepository) {
-        return service(dbDir, projectRepository, sessionRepository, TestSqliteDatabases.newResumeRepository(dbDir));
+        return service(dbDir, projectRepository, sessionRepository, new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)));
     }
 
     private static ProjectConsoleService service(Path dbDir, ProjectRepository projectRepository,

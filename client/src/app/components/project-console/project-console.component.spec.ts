@@ -32,12 +32,6 @@ describe('ProjectConsoleComponent', () => {
   });
 
   afterEach(() => {
-    // #372's past-conversation read fires on every load (and again after a close);
-    // a test that doesn't care about the list simply has it answered empty here,
-    // so it stays out of every other expectation.
-    httpMock
-      .match((request) => request.url.endsWith('/console/resume-sessions'))
-      .forEach((request) => request.flush([]));
     httpMock.verify();
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.lastConsole');
@@ -377,9 +371,17 @@ describe('ProjectConsoleComponent', () => {
     expect(fixture.componentInstance.selected).toBe('2-console-a1b2c3d4');
   });
 
-  it('lists the past conversations captured in this project\u2019s consoles and reopens one (#372)', () => {
+  it('reads and lists this project\u2019s past conversations only once the disclosure is opened (#372)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    // Landing on a live console costs no extra request -- the list is read on demand.
+    httpMock.expectNone('/api/projects/1/console/resume-sessions');
+    expect(compiled.querySelector('app-session-list')).toBeFalsy();
+
+    compiled.querySelector<HTMLButtonElement>('.past-toggle')!.click();
     httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([
       {
         worktreeId: '1-console-a1b2c3d4',
@@ -388,15 +390,6 @@ describe('ProjectConsoleComponent', () => {
         capturedAt: '2026-08-27T09:30:00Z',
       },
     ]);
-    fixture.detectChanges();
-
-    const compiled = fixture.nativeElement as HTMLElement;
-    const toggle = compiled.querySelector<HTMLButtonElement>('.past-toggle')!;
-    expect(toggle.textContent).toContain('past sessions (1)');
-    // Collapsed until asked for -- the page opens straight into a live console.
-    expect(compiled.querySelector('app-session-list')).toBeFalsy();
-
-    toggle.click();
     fixture.detectChanges();
     compiled.querySelector<HTMLButtonElement>('app-session-list .reopen')!.click();
 
@@ -418,12 +411,35 @@ describe('ProjectConsoleComponent', () => {
     expect(reopened.componentInstance.dir).toBe('/repo-console-a1b2c3d4');
   });
 
-  it('shows no past-sessions disclosure when the project has none (#372)', () => {
+  it('says so plainly when the project has no past conversations (#372)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    compiled.querySelector<HTMLButtonElement>('.past-toggle')!.click();
     httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([]);
     fixture.detectChanges();
 
-    expect((fixture.nativeElement as HTMLElement).querySelector('.past-toggle')).toBeFalsy();
+    expect(compiled.querySelector('app-session-list')).toBeFalsy();
+    expect(compiled.querySelector('.past-empty')!.textContent).toContain('no past conversations');
+  });
+
+  it('re-reads the list on every open, so a console closed meanwhile shows up (#372)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const toggle = compiled.querySelector<HTMLButtonElement>('.past-toggle')!;
+    toggle.click();
+    httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([]);
+    fixture.detectChanges();
+
+    toggle.click();
+    fixture.detectChanges();
+    toggle.click();
+    httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([]);
+    fixture.detectChanges();
   });
 });
