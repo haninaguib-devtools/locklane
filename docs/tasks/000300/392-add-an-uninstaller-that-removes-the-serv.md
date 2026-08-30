@@ -102,6 +102,34 @@ login, and the repository to still exist is unavailable exactly when it is most 
   paths cover three files and this record, and adding a test script to the repository is
   not in them. The commands are written out in the plan's Validation section so a reviewer
   can rerun them.
+- Fix pass after the cold review on PR #398, answering its **high finding 1**: the
+  `rm -rf` guards compared raw strings, so they refused `$HOME` but not `$HOME/`. One
+  trailing slash was not string-equal to `$HOME`, walked past the check, and would have
+  emptied the home directory; the reviewer reproduced it against a throwaway `HOME`. The
+  same hole existed for `/` via `//` and `/.`. The guards now resolve both the target and
+  `$HOME` with `cd … && pwd -P` before comparing, so the refusal is about the directory
+  rather than about how it was spelled, and the resolved path is the only one used from
+  that point on. `write_uninstall_script` also resolves the path it bakes in, so a
+  spelling never reaches the generated script in the first place.
+
+  My own earlier behavioural tests could not have caught this: they passed the guards the
+  exact strings the guards test for. The review's fuzzing of alternative spellings is what
+  found it.
+- The review's **medium finding 2** (a relative `LOCKLANE_HOME` deleting whatever that
+  name means in the caller's working directory) has the same root cause and is closed by
+  the same generation-time `pwd -P`, not by a separate decision to take a medium finding.
+  Verified: generating with a relative `inst` now bakes the absolute path.
+- Rewording during the fix: a comment containing the word "through" made the issue's own
+  acceptance check, `grep -Eq 'gh |curl|wget' uninstall.sh`, match on the letters `gh `
+  inside `throuGH And`. Reworded. This is the second time that check has matched on prose
+  rather than on a dependency, which is worth knowing about the check itself.
+- Left unaddressed, as medium/low findings the human has not asked for by number: the
+  review's finding 3 (a pid file containing `0` makes `kill "$old_pid"` signal the whole
+  process group — a pattern inherited from `update.sh`, #385, which the reviewer
+  recommended as its own issue), finding 4 (the no-tty probe leaks a raw `/dev/tty` error
+  line before its friendly message), and finding 5 (the sweep deletes the systemd unit in
+  non-systemd modes without `disable`/`daemon-reload`, leaving a dangling
+  `default.target.wants` symlink).
 - Not verified here, and left to the human check the issue asks for: the behaviour against
   a real systemd unit or launchd agent. The `systemctl`/`launchctl` branches were checked
   for generation, interpolation, and syntax only — nothing in this session stopped a real

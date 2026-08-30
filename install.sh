@@ -55,6 +55,10 @@ chmod +x "$INSTALL_DIR/update.sh"
 # stale copy. Change one, change the other; the task's checks diff the two copies.
 write_uninstall_script() {
   local dir="$1" kind="$2" reg="$3"
+  # Bake in a resolved absolute path, never whatever spelling the caller happened to
+  # use: LOCKLANE_HOME could be relative, or carry a trailing slash, and the generated
+  # script's own guards can only be as good as the string they are given.
+  dir="$(cd "$dir" && pwd -P)"
   local out="$dir/uninstall.sh"
   {
     # Expanded heredoc: only the three baked-in values. printf %q keeps a path with
@@ -211,18 +215,31 @@ fi
 # --- Delete the install directory ---------------------------------------------
 # Guarded: an empty INSTALL_DIR, / or $HOME would each turn the line below into a
 # catastrophe rather than an uninstall.
+#
+# The guards compare RESOLVED paths, never the raw string. One directory has endlessly
+# many spellings -- "$HOME/", "$HOME/.", "//home/you", a relative name, a symlink -- and
+# a string comparison refuses only the exact spelling it was shown, while "$HOME/" walks
+# straight past it and empties the home directory. Resolving first is what makes the
+# refusal about the directory rather than about how it was typed.
 case "$INSTALL_DIR" in
   "") echo "error: refusing to delete an empty path." >&2; exit 1 ;;
-  "/") echo "error: refusing to delete /." >&2; exit 1 ;;
 esac
-if [ "$INSTALL_DIR" = "$HOME" ]; then
-  echo "error: refusing to delete your home directory." >&2
-  exit 1
-fi
 if [ ! -d "$INSTALL_DIR" ]; then
   echo "$INSTALL_DIR is already gone."
   exit 0
 fi
+target="$(cd "$INSTALL_DIR" 2>/dev/null && pwd -P)" || target=""
+home_real="$(cd "$HOME" 2>/dev/null && pwd -P)" || home_real="$HOME"
+case "$target" in
+  "") echo "error: could not resolve $INSTALL_DIR -- refusing to delete anything." >&2; exit 1 ;;
+  "/") echo "error: refusing to delete /." >&2; exit 1 ;;
+esac
+if [ "$target" = "$home_real" ]; then
+  echo "error: refusing to delete your home directory." >&2
+  exit 1
+fi
+# From here on the resolved path is the only one used.
+INSTALL_DIR="$target"
 
 cat <<DONE
 Deleting $INSTALL_DIR...
