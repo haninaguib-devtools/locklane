@@ -33,3 +33,16 @@ branch, a record, and a reviewed path to `main` rather than an untracked edit.
 - Gates at the start of the work: no blockers on #400; the scope (`site/` only) is not a
   protected surface, so no `## Plan` was required. Branch created from a current
   `origin/main` at 0da243e.
+- The maintainer's edit went beyond a pure restyle, and they approved that in the moment
+  by making it (maintainer, 2026-08-30). The issue's non-goals excluded new page content,
+  copy rewrites, and new sections; the landing page as edited has rewritten headline,
+  deck, and section copy, replaces the hero workspace mockup, the three-card feature grid,
+  and the architecture diagram with a four-item capabilities list, a stack section, and a
+  project-status section, and drops the inline SVG icon library in favour of typographic
+  marks. `site/favicon.svg` was redrawn to match. Everything stayed inside the declared
+  path scope (`site/` only), so this is a widening of the change's nature, not of its
+  reach — noted here rather than treated as a scope breach.
+- The install command's copy button was rewritten along with the markup: it now targets
+  `[data-copy]` instead of `[data-copy-command]` and falls back to selecting the command
+  text rather than the retired `document.execCommand('copy')` path. Worth an eye at review
+  since it is behaviour, not styling.
