@@ -152,7 +152,12 @@ describe('TerminalSession', () => {
     expect(socket.sent).toEqual(['1133x42']);
   });
 
-  it('holds no further size once a pending resize has been delivered (#268)', () => {
+  /* Replaces the #268 spec 'holds no further size once a pending resize has been
+     delivered', which asserted the opposite: that the held size was consumed on the
+     first open and never sent again. That one-shot rule is what #376 removes -- it is
+     precisely why a reattached PTY kept a stale size -- so the expectation is inverted
+     rather than the coverage dropped. */
+  it('re-sends the size it currently holds on every open, not only the first (#376)', () => {
     const { session, socket } = connect();
     socket.readyState = 0;
     session.resize(133, 42);
@@ -161,7 +166,7 @@ describe('TerminalSession', () => {
 
     socket.onopen?.();
 
-    expect(socket.sent).toEqual(['1133x42']);
+    expect(socket.sent).toEqual(['1133x42', '1133x42']);
   });
 
   it('delivers a pending resize alongside the opening focus notification (#268)', () => {
@@ -192,12 +197,18 @@ describe('TerminalSession', () => {
     expect(socket.sent).toEqual(['2', '180x24']);
   });
 
-  it('does not invent a resize at connect for a tab that started inactive (#271)', () => {
+  /* Replaces the #271 spec 'does not invent a resize at connect for a tab that started
+     inactive'. Under #271 an inactive tab could not be measured, so its 80x24 was
+     xterm's unfitted default and asserting it would have been a lie -- staying quiet
+     was right. Since #375 every tab is fitted before it connects, so an inactive tab's
+     size is a real measurement and withholding it is what leaves a reattached PTY
+     wrong. Same scenario, opposite expectation, for a reason that changed underneath. */
+  it('sends the connect-time size even for a tab that started inactive (#376)', () => {
     const { socket } = connect(80, 24, false);
 
     socket.onopen?.();
 
-    expect(socket.sent).toEqual([]);
+    expect(socket.sent).toEqual(['180x24']);
   });
 
   it('does not invent a resize at connect when no size was given, even if the tab started active (#271)', () => {
@@ -206,6 +217,47 @@ describe('TerminalSession', () => {
     socket.onopen?.();
 
     expect(socket.sent).toEqual(['2']);
+  });
+
+  it("puts the terminal's current size on a reconnect URL, not the size it was constructed with (#376)", () => {
+    // The engine creates a fresh PTY at the URL's size when it finds no live session --
+    // which is what happens after an engine restart. Advertising the construction-time
+    // size there is how a tab ended up stuck at a size nothing ever corrected.
+    const { session } = connect(80, 24);
+    session.resize(200, 50);
+
+    latestSocket().triggerUnexpectedClose();
+    jasmine.clock().tick(1000);
+
+    expect(latestSocket().url).toContain('cols=200');
+    expect(latestSocket().url).toContain('rows=50');
+    expect(latestSocket().url).not.toContain('cols=80');
+  });
+
+  it('asserts the current size again on the reconnect itself, not just in its URL (#376)', () => {
+    // A live session ignores the connect URL's size on reattach, so the URL alone does
+    // not reach an already-running PTY -- only the '1'-tagged message does.
+    const { session } = connect(80, 24);
+    session.resize(200, 50);
+    latestSocket().triggerUnexpectedClose();
+    jasmine.clock().tick(1000);
+
+    latestSocket().onopen?.();
+
+    expect(latestSocket().sent).toEqual(['1200x50']);
+  });
+
+  it('honours a resize that lands while a reconnect is still in flight (#376)', () => {
+    const { session } = connect(80, 24);
+    latestSocket().triggerUnexpectedClose();
+    jasmine.clock().tick(1000);
+    latestSocket().readyState = FakeWebSocket.CONNECTING;
+
+    session.resize(200, 50);
+    latestSocket().readyState = FakeWebSocket.OPEN;
+    latestSocket().onopen?.();
+
+    expect(latestSocket().sent).toEqual(['1200x50']);
   });
 
   it('tags a focus notification with the focus type and no body (#130)', () => {
