@@ -23,6 +23,25 @@
       </section>
 
       <section class="section">
+        <h2>Appearance</h2>
+        <p class="muted">Pick the accent color used for buttons, selections, and highlights.</p>
+        <div class="accent-swatches" role="group" aria-label="Accent color">
+          @for (preset of accentPresets; track preset.id) {
+            <button
+              type="button"
+              class="accent-swatch"
+              [class.chosen]="accentPreset().id === preset.id"
+              [style.background]="preset.accent"
+              [attr.aria-pressed]="accentPreset().id === preset.id"
+              [attr.aria-label]="preset.label"
+              [title]="preset.label"
+              (click)="chooseAccent(preset)"
+            ></button>
+          }
+        </div>
+      </section>
+
+      <section class="section">
         <h2>Password</h2>
         <p class="muted">Change the password used to sign in.</p>
 

@@ -15,6 +15,7 @@ import { AdminUsersComponent } from './components/admin-users/admin-users.compon
 import { AddProjectPopupComponent } from './components/add-project-popup/add-project-popup.component';
 import { UpdateBannerComponent } from './components/update-banner/update-banner.component';
 import { ReleaseBannerComponent } from './components/release-banner/release-banner.component';
+import { AccentThemeStore } from './services/accent-theme-store';
 import { AuthService } from './services/auth.service';
 import { CurrentProjectService } from './services/current-project.service';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
@@ -47,6 +48,11 @@ export class AppComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  // Unused beyond construction: injecting it here (rather than only where the settings
+  // dialog reads it) is what makes the stored accent choice (#387) apply to `:root`
+  // before the dialog is ever opened, since an Angular `providedIn: 'root'` service is
+  // otherwise constructed lazily on first injection.
+  private readonly accentTheme = inject(AccentThemeStore);
   private readonly injector = inject(Injector);
 
   // Injected lazily, on first read rather than as an eager field: this
