@@ -11,11 +11,16 @@ import java.time.Instant;
  * informational: who may view or attach to the session is decided from its owning
  * project's {@code owner_user_id} instead — see {@link WorktreeSessionAuthorization}
  * — never from this column.
+ *
+ * <p>{@code displayName} is the name a user gave this console's tab (#393), or
+ * {@code null} when they have given it none — in which case the client falls back to
+ * the label it generates itself from the session's id and agent.
  */
 public record WorktreeSessionRecord(
         String worktreeId,
         Path workingDirectory,
         Instant createdAt,
         Instant lastAttachedAt,
-        String ownerUsername) {
+        String ownerUsername,
+        String displayName) {
 }

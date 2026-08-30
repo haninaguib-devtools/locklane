@@ -73,3 +73,21 @@
   color: var(--faint);
   cursor: default;
 }
+
+/* The inline rename field (#393): sized and styled to sit in the strip exactly
+   where the label it replaces did, so renaming does not make the tabs jump. */
+.tab-name {
+  width: 12ch;
+  margin: 0 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}
+
+.tab-name:focus {
+  outline: none;
+}

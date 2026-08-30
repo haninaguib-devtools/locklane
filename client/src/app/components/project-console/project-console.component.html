@@ -24,16 +24,21 @@
     [selected]="selected"
     [starting]="starting"
     [overview]="false"
+    [renamable]="true"
     [defaultAgent]="defaultAgentStore.agent()"
     (selectedChange)="selectTab($event)"
     (open)="openFromTabs($event)"
     (close)="closeConsole($event)"
+    (rename)="renameConsole($event)"
   />
   @if (startError) {
     <div class="action-error strip-error">could not start a console — try again</div>
   }
   @if (closeError) {
     <div class="action-error strip-error">could not close that console — try again</div>
+  }
+  @if (renameError) {
+    <div class="action-error strip-error">could not rename that console — try again</div>
   }
   <!-- The positioning context every tab body is sized against (#375) -- see the same
        wrapper in main-content.component.html. -->

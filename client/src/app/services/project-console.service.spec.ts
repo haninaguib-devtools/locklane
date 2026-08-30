@@ -83,4 +83,16 @@ describe('ProjectConsoleService', () => {
     expect(req.request.method).toBe('POST');
     req.flush(reopened);
   });
+  it('names a console tab via PUT .../console/<id>/name, and clears it with an empty name (#393)', () => {
+    service.rename(1, '1-console-aaaa1111', 'release notes').subscribe();
+    const named = httpMock.expectOne('/api/projects/1/console/1-console-aaaa1111/name');
+    expect(named.request.method).toBe('PUT');
+    expect(named.request.body).toEqual({ name: 'release notes' });
+    named.flush(null);
+
+    service.rename(1, '1-console-aaaa1111', '').subscribe();
+    const cleared = httpMock.expectOne('/api/projects/1/console/1-console-aaaa1111/name');
+    expect(cleared.request.body).toEqual({ name: '' });
+    cleared.flush(null);
+  });
 });

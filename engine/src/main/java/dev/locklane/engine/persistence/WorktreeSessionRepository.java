@@ -41,7 +41,7 @@ public class WorktreeSessionRepository {
     public Optional<WorktreeSessionRecord> find(String worktreeId) {
         return jdbcTemplate.query(
                 """
-                SELECT worktree_id, working_directory, created_at, last_attached_at, owner_username
+                SELECT worktree_id, working_directory, created_at, last_attached_at, owner_username, display_name
                 FROM worktree_sessions WHERE worktree_id = ?
                 """,
                 (rs, rowNum) -> toRecord(rs),
@@ -51,8 +51,22 @@ public class WorktreeSessionRepository {
 
     public List<WorktreeSessionRecord> findAll() {
         return jdbcTemplate.query(
-                "SELECT worktree_id, working_directory, created_at, last_attached_at, owner_username FROM worktree_sessions",
+                """
+                SELECT worktree_id, working_directory, created_at, last_attached_at, owner_username, display_name
+                FROM worktree_sessions
+                """,
                 (rs, rowNum) -> toRecord(rs));
+    }
+
+    /**
+     * Sets or clears the name a user gave this session's tab (#393). {@code null}
+     * clears it, restoring the client's auto-generated label. A no-op for a session
+     * with no record — naming something that was never attached to has nothing to
+     * write against, and callers gate on the record's existence first anyway.
+     */
+    public void setDisplayName(String worktreeId, String displayName) {
+        jdbcTemplate.update("UPDATE worktree_sessions SET display_name = ? WHERE worktree_id = ?",
+                displayName, worktreeId);
     }
 
     /** Forgets a worktree session entirely — it was explicitly closed (#75), not just detached. */
@@ -66,6 +80,7 @@ public class WorktreeSessionRepository {
                 Path.of(rs.getString("working_directory")),
                 Instant.parse(rs.getString("created_at")),
                 Instant.parse(rs.getString("last_attached_at")),
-                rs.getString("owner_username"));
+                rs.getString("owner_username"),
+                rs.getString("display_name"));
     }
 }

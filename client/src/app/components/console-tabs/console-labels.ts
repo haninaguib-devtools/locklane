@@ -14,7 +14,21 @@ export interface ConsoleInfo {
 }
 
 export interface ConsoleTab extends ConsoleInfo {
+  /** The auto-generated label, from {@link labelConsoles} or the caller's own rule. */
   label: string;
+  /**
+   * The name the user gave this tab (#393), or null/absent when they gave it none.
+   * The strip shows this in place of `label` when it is set; clearing it brings the
+   * auto label straight back, which is why both are carried rather than one
+   * overwriting the other.
+   */
+  name?: string | null;
+}
+
+/** What the tab strip actually shows: the user's own name when there is one (#393). */
+export function tabText(tab: ConsoleTab): string {
+  const name = tab.name?.trim();
+  return name ? name : tab.label;
 }
 
 // Main-checkout session ids are minted as "<projectId>-<issue>-main-<random8>"

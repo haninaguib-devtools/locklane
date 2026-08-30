@@ -7,7 +7,11 @@ import { ConsolesService } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
 import { LastConsoleStore } from '../../services/last-console-store';
-import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
+import {
+  ConsoleTabsComponent,
+  OpenConsoleRequest,
+  RenameConsoleRequest,
+} from '../console-tabs/console-tabs.component';
 import { ConsoleTab } from '../console-tabs/console-labels';
 import { SessionListComponent } from '../session-list/session-list.component';
 import { TerminalComponent } from '../terminal/terminal.component';
@@ -22,6 +26,8 @@ interface OpenConsole {
   dir: string;
   agent: Agent | null;
   resume: string | null;
+  /** The name the user gave this tab (#393), or null for the auto-generated label. */
+  name: string | null;
 }
 
 // The project-level console page (#140, part of #138): lets a user start a
@@ -65,6 +71,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   starting = false;
   startError = false;
   closeError = false;
+  renameError = false;
   /** Past conversations captured in this project's consoles (#372), newest first. */
   pastSessions: ResumeSession[] = [];
   pastOpen = false;
@@ -139,6 +146,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     this.starting = false;
     this.startError = false;
     this.closeError = false;
+    this.renameError = false;
     this.pastSessions = [];
     this.pastOpen = false;
     this.pastLoading = false;
@@ -154,6 +162,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
           dir: s.workingDirectory,
           agent: this.agentStore.get(s.sessionId),
           resume: null,
+          name: s.displayName ?? null,
         }));
         this.relabel();
         if (this.takePendingNewConsole()) {
@@ -252,6 +261,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
             dir: started.workingDirectory,
             agent: session.tool,
             resume: session.resumeId,
+            name: null,
           },
         ];
         this.relabel();
@@ -305,7 +315,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
         this.agentStore.set(session.sessionId, agent);
         this.consoles = [
           ...this.consoles,
-          { id: session.sessionId, dir: session.workingDirectory, agent, resume: null },
+          { id: session.sessionId, dir: session.workingDirectory, agent, resume: null, name: null },
         ];
         this.relabel();
         this.selectConsole(session.sessionId);
@@ -315,6 +325,33 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
       error: () => {
         this.starting = false;
         this.startError = true;
+      },
+    });
+  }
+
+  /**
+   * Renames a tab (#393). The new name is shown immediately and then written to the
+   * engine; a failed write puts the previous name back, so the strip never keeps
+   * showing a name the server does not have.
+   */
+  renameConsole(request: RenameConsoleRequest): void {
+    const target = this.consoles.find((c) => c.id === request.id);
+    if (!target) {
+      return;
+    }
+    const name = request.name.trim();
+    const previous = target.name;
+    if ((previous ?? '') === name) {
+      return;
+    }
+    this.renameError = false;
+    this.consoles = this.consoles.map((c) => (c.id === request.id ? { ...c, name: name || null } : c));
+    this.relabel();
+    this.service.rename(this.projectId, request.id, name).subscribe({
+      error: () => {
+        this.consoles = this.consoles.map((c) => (c.id === request.id ? { ...c, name: previous } : c));
+        this.relabel();
+        this.renameError = true;
       },
     });
   }
@@ -355,6 +392,9 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
       id: c.id,
       agent: c.agent,
       label: `console${i > 0 ? ` ${i + 1}` : ''}${c.agent ? ` · ${c.agent}` : ''}`,
+      // #393: a user's own name for the tab wins over the label above, and clearing
+      // it brings that label straight back -- which is why both are carried.
+      name: c.name,
     }));
   }
 }

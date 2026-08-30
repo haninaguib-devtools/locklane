@@ -1,10 +1,16 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 import { Agent } from '../../services/agent-store';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
-import { ConsoleTab, OVERVIEW_TAB_ID } from './console-labels';
+import { ConsoleTab, OVERVIEW_TAB_ID, tabText } from './console-labels';
 
 export interface OpenConsoleRequest {
   agent: Agent;
+}
+
+/** A tab renamed in place (#393): an empty `name` means "clear it". */
+export interface RenameConsoleRequest {
+  id: string;
+  name: string;
 }
 
 @Component({
@@ -17,6 +23,8 @@ export interface OpenConsoleRequest {
 export class ConsoleTabsComponent {
   // Exposed for the template's Overview tab, pinned first in the same strip (#96).
   readonly overviewId = OVERVIEW_TAB_ID;
+  // Exposed for the template: the user's own name for a tab, or its auto label (#393).
+  readonly tabText = tabText;
 
   @Input() tabs: ConsoleTab[] = [];
   @Input() selected: string | null = null;
@@ -36,9 +44,36 @@ export class ConsoleTabsComponent {
   // strip itself, so the button hides rather than sitting there doing nothing
   // useful. The project-console strip keeps "+" visible to start more consoles.
   @Input() hideOpenWhenActive = false;
+  // #393: only the project console page lets a user name its tabs; the issue page
+  // keeps the auto labels, so renaming is opt-in per call site rather than on
+  // everywhere the shared strip is used.
+  @Input() renamable = false;
   @Output() selectedChange = new EventEmitter<string>();
   @Output() open = new EventEmitter<OpenConsoleRequest>();
   @Output() close = new EventEmitter<string>();
+  @Output() rename = new EventEmitter<RenameConsoleRequest>();
+
+  // The longest name accepted, mirroring the engine's own bound (#393) so an
+  // over-long name is prevented here rather than rejected after a round trip.
+  readonly maxNameLength = 60;
+
+  // The tab currently being renamed, and the text in its field. Only one tab is
+  // ever editable at a time -- starting a rename elsewhere commits nothing and
+  // simply moves the field.
+  renamingId: string | null = null;
+  draftName = '';
+
+  // The rename field only exists while a tab is being renamed, so this setter runs
+  // exactly when it appears -- the moment to put the cursor in it. `autofocus` does
+  // nothing here: the attribute is only honoured when the document itself loads, not
+  // when an element is added to a page that is already showing.
+  @ViewChild('nameInput')
+  set nameInput(input: ElementRef<HTMLInputElement> | undefined) {
+    if (input) {
+      input.nativeElement.focus();
+      input.nativeElement.select();
+    }
+  }
 
   // The tab whose close is awaiting confirmation in the app-styled dialog (#231),
   // replacing the synchronous native `confirm()` this used to block on.
@@ -46,6 +81,40 @@ export class ConsoleTabsComponent {
 
   select(id: string): void {
     this.selectedChange.emit(id);
+  }
+
+  /**
+   * Double-clicking a tab turns its label into a field (#393), seeded with the name
+   * the user already gave it -- never with the auto-generated label, so committing
+   * an untouched field on a never-named tab is not a rename to the label's text.
+   */
+  startRename(tab: ConsoleTab, event: Event): void {
+    if (!this.renamable) {
+      return;
+    }
+    event.stopPropagation();
+    this.renamingId = tab.id;
+    this.draftName = tab.name ?? '';
+  }
+
+  /** Commits the field, trimmed; an empty result clears the name (#393). */
+  commitRename(): void {
+    const id = this.renamingId;
+    if (id === null) {
+      return;
+    }
+    this.renamingId = null;
+    this.rename.emit({ id, name: this.draftName.trim() });
+  }
+
+  /** Abandons the field, changing nothing. */
+  cancelRename(): void {
+    this.renamingId = null;
+    this.draftName = '';
+  }
+
+  onRenameInput(value: string): void {
+    this.draftName = value;
   }
 
   closeTab(id: string, event: Event): void {
