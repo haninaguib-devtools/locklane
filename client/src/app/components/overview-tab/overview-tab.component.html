@@ -20,29 +20,35 @@
         </dd>
         <dt>checks</dt>
         <dd>
-          @if (checkRuns(detail).length) {
-            <ul class="checks">
-              @for (run of checkRuns(detail); track $index) {
-                <li class="check">
-                  <span class="marker" [class.marker-passing]="run.state === 'passing'"
-                    [class.marker-failing]="run.state === 'failing'"
-                    [class.marker-pending]="run.state === 'pending'"
-                    [attr.title]="run.state" aria-hidden="true">{{ checkMarker(run) }}</span>
-                  <span class="visually-hidden">{{ run.state }}</span>
-                  @if (run.url) {
-                    <a [href]="run.url" target="_blank" rel="noopener">{{ run.name }}</a>
-                  } @else {
-                    <span>{{ run.name }}</span>
-                  }
-                </li>
-              }
-            </ul>
-          }
-          @if (checksUrl) {
-            <a [href]="checksUrl" target="_blank" rel="noopener">{{ checksLabel(detail) }}</a>
-          } @else {
-            {{ checksLabel(detail) }}
-          }
+          <button type="button" class="checks-toggle" id="checks-toggle"
+            aria-controls="checks-panel" [attr.aria-expanded]="checksExpanded"
+            (click)="toggleChecks()">
+            <span class="caret" aria-hidden="true">{{ checksExpanded ? '\u25be' : '\u25b8' }}</span>
+            <span class="checks-summary">{{ checksLabel(detail) }}</span>
+          </button>
+          <div class="checks-panel" id="checks-panel" [hidden]="!checksExpanded">
+            @if (checkRuns(detail).length) {
+              <ul class="checks">
+                @for (run of checkRuns(detail); track $index) {
+                  <li class="check">
+                    <span class="marker" [class.marker-passing]="run.state === 'passing'"
+                      [class.marker-failing]="run.state === 'failing'"
+                      [class.marker-pending]="run.state === 'pending'"
+                      [attr.title]="run.state" aria-hidden="true">{{ checkMarker(run) }}</span>
+                    <span class="visually-hidden">{{ run.state }}</span>
+                    @if (run.url) {
+                      <a [href]="run.url" target="_blank" rel="noopener">{{ run.name }}</a>
+                    } @else {
+                      <span>{{ run.name }}</span>
+                    }
+                  </li>
+                }
+              </ul>
+            }
+            @if (checksUrl) {
+              <a class="checks-tab-link" [href]="checksUrl" target="_blank" rel="noopener">all checks on GitHub</a>
+            }
+          </div>
         </dd>
       </dl>
     } @else {

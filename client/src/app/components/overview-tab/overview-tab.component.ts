@@ -22,6 +22,16 @@ export class OverviewTabComponent {
   @Input() busy = false;
   @Output() reopen = new EventEmitter<ResumeSession>();
 
+  /**
+   * Whether the checks row shows its per-check detail. Collapsed on every render --
+   * deliberately not remembered across page loads or between issues (#414).
+   */
+  checksExpanded = false;
+
+  toggleChecks(): void {
+    this.checksExpanded = !this.checksExpanded;
+  }
+
   constructor(private readonly sanitizer: DomSanitizer) {}
 
   get bodyHtml(): SafeHtml | null {
@@ -53,7 +63,7 @@ export class OverviewTabComponent {
     return `${this.repoWebUrl}/blob/${ref}/${this.detail.recordPath}`;
   }
 
-  /** The PR's own Checks tab -- where the summary line points (#397). */
+  /** The PR's own Checks tab -- a trailing link inside the expanded panel (#414). */
   get checksUrl(): string | null {
     return this.prUrl ? `${this.prUrl}/checks` : null;
   }
@@ -78,17 +88,10 @@ export class OverviewTabComponent {
     if (passing + failing + pending === 0) {
       return 'no CI runs';
     }
-    const parts: string[] = [];
     if (failing > 0) {
-      parts.push(`${failing} failing`);
+      return `${failing} failing / ${passing} passing`;
     }
-    if (passing > 0) {
-      parts.push(`${passing} passing`);
-    }
-    if (pending > 0) {
-      parts.push(`${pending} running`);
-    }
-    return parts.join(', ');
+    return pending > 0 ? `${passing} passing, ${pending} pending` : `${passing} checks green`;
   }
 
   branchLabel(detail: IssueDetail): string {
