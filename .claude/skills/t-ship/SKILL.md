@@ -10,6 +10,11 @@ Resolve every `tracker:*` / `forge:*` operation named below via
 stage: the human's confirmation is the strategic read, and, when no cold review ran,
 the only read the change gets before `main`.
 
+Read `AGENTS.md` and `CONSTITUTION.md` first — unless this ship is `/t-drive` chaining
+this stage in the same session whose Phase 0 already read them for the whole run, in
+which case that read already covers this one. A standalone invocation, with no driving
+session, always reads both itself.
+
 ## Preconditions
 
 Every step below names `<pr>`. **Resolve it from the task id first** with
