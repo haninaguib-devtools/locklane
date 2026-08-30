@@ -36,7 +36,7 @@ chmod +x "$INSTALL_DIR/update.sh"
 
 port=""
 while true; do
-  read -r -p "Port to run on [8080]: " port
+  read -r -p "Port to run on [8080]: " port < /dev/tty
   port="${port:-8080}"
   case "$port" in
     ''|*[!0-9]*) echo "Enter a port number." >&2; continue ;;
@@ -45,24 +45,24 @@ while true; do
   echo "Port must be between 1 and 65535." >&2
 done
 
-read -r -p "Extra allowed origins, comma-separated (localhost:$port is always allowed) []: " extra_origins
+read -r -p "Extra allowed origins, comma-separated (localhost:$port is always allowed) []: " extra_origins < /dev/tty
 origins="http://localhost:$port"
 if [ -n "$extra_origins" ]; then
   origins="$origins,$extra_origins"
 fi
 
-read -r -p "Bootstrap username [admin]: " username
+read -r -p "Bootstrap username [admin]: " username < /dev/tty
 username="${username:-admin}"
 
 password=""
 while true; do
-  read -r -s -p "Bootstrap password: " password
+  read -r -s -p "Bootstrap password: " password < /dev/tty
   echo
   if [ -z "$password" ]; then
     echo "Password cannot be empty." >&2
     continue
   fi
-  read -r -s -p "Confirm password: " password_confirm
+  read -r -s -p "Confirm password: " password_confirm < /dev/tty
   echo
   if [ "$password" != "$password_confirm" ]; then
     echo "Passwords did not match — try again." >&2
