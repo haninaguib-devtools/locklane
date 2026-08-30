@@ -16,12 +16,59 @@
 
   <properties>
     <revision>0.1.0-SNAPSHOT</revision>
+    <!-- Coverage and quality reporting (#399), used only by the manually-triggered
+         Sonar workflow; nothing here changes what `./mvnw -B test` does. -->
+    <jacoco.version>0.8.13</jacoco.version>
+    <sonar.version>5.1.0.4751</sonar.version>
+    <!-- Resolved per module by the Sonar scanner, so one path covers the whole reactor
+         without a dedicated aggregator module. A module with no Java (client) simply has
+         no such file, which the scanner ignores. -->
+    <sonar.coverage.jacoco.xmlReportPaths>target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
   </properties>
 
   <modules>
     <module>client</module>
     <module>engine</module>
   </modules>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <!-- Pinned so `./mvnw -B verify sonar:sonar` resolves a fixed scanner version
+             rather than whatever is newest at the time of the run. -->
+        <plugin>
+          <groupId>org.sonarsource.scanner.maven</groupId>
+          <artifactId>sonar-maven-plugin</artifactId>
+          <version>${sonar.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <!-- Inherited by every module: the agent attaches at test time and the XML report
+           is written during `verify`. `report` skips quietly in a module with no
+           execution data, which is why the Angular `client` module needs no exclusion. -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 
   <dependencyManagement>
     <dependencies>
