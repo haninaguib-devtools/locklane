@@ -45,15 +45,15 @@ public class WorktreeController {
     }
 
     /**
-     * Starts a new session for the project's issue. {@code worktree=false} opens it
-     * directly against the project's main checkout instead — no
-     * {@code git worktree add} required (#29). 404 for an unknown or not-yet-ready
-     * project, same as an unknown issue.
+     * Starts (or reuses) the one worktree session for the project's issue — always a
+     * real {@code git worktree add} checkout, never the project's own main checkout
+     * (#341 retired that option). 404 for an unknown or not-yet-ready project, same
+     * as an unknown issue.
      */
     @PostMapping("/{number}/worktrees")
     public ResponseEntity<Map<String, String>> startSession(@PathVariable long projectId, @PathVariable int number,
-            @RequestParam(defaultValue = "true") boolean worktree, Principal principal) {
-        return creationService.startSession(projectId, number, worktree, principal.getName())
+            Principal principal) {
+        return creationService.startSession(projectId, number, principal.getName())
                 .map(started -> ResponseEntity.ok(
                         Map.of("worktreeId", started.worktreeId(), "workingDirectory", started.workingDirectory())))
                 .orElseGet(() -> ResponseEntity.notFound().build());

@@ -215,7 +215,7 @@ describe('ProjectConsoleComponent', () => {
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
     fixture.detectChanges();
 
-    fixture.componentInstance.openFromTabs({ worktree: false, agent: 'claude' });
+    fixture.componentInstance.openFromTabs({ agent: 'claude' });
     const req = httpMock.expectOne('/api/projects/1/console');
     expect(req.request.method).toBe('POST');
     req.flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo-console-e5f6a7b8' });
@@ -235,7 +235,7 @@ describe('ProjectConsoleComponent', () => {
       .flush([{ ...row('1-console-a1b2c3d4'), workingDirectory: '/repo-console-a1b2c3d4' }]);
     fixture.detectChanges();
 
-    fixture.componentInstance.openFromTabs({ worktree: false, agent: 'claude' });
+    fixture.componentInstance.openFromTabs({ agent: 'claude' });
     httpMock
       .expectOne('/api/projects/1/console')
       .flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo-console-e5f6a7b8' });
