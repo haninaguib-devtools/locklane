@@ -57,6 +57,20 @@ class ProjectConsoleServiceTest {
     }
 
     @Test
+    void startingCreatesTheWorktreeDetachedAtOriginMainWithNoConsoleBranch(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", 1L, Instant.now()).id();
+        ProjectConsoleService service = service(tmp, projectRepository);
+
+        ProjectConsoleService.ConsoleSession session = service.start(projectId).get();
+
+        // Detached HEAD, not a freshly minted console/<suffix> branch (#338).
+        assertThat(GitTestRepos.currentBranch(Path.of(session.workingDirectory()))).isEmpty();
+        assertThat(GitTestRepos.branchList(workarea, "console/*")).isEmpty();
+    }
+
+    @Test
     void startingCreatesAFreshSiblingWorktreePerSessionNeverTheSharedCheckout(@TempDir Path tmp) throws Exception {
         Path workarea = GitTestRepos.initTestRepo(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
