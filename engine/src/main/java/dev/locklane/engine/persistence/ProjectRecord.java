@@ -13,6 +13,11 @@ import java.time.Instant;
  * for a row created after {@code V10__AddOwnerUserIdToProjectsAndRelocateWorkareas} —
  * {@link ProjectRepository#create} and {@link ProjectRepository#createReady} both
  * require it explicitly, and that migration backfills every pre-existing row.
+ *
+ * <p>{@code accentColor} (#427) is {@code null} until the project's owner sets one — a
+ * hex string (e.g. {@code "#c15f3c"}) the client derives a lighter background tint
+ * from. Unrelated to the global, client-only accent {@code AccentThemeStore} keeps
+ * driving the navbar/header outside any project's own pages.
  */
 public record ProjectRecord(
         long id,
@@ -22,5 +27,6 @@ public record ProjectRecord(
         Path workareaPath,
         String defaultBranch,
         ProjectStatus status,
-        Instant createdAt) {
+        Instant createdAt,
+        String accentColor) {
 }

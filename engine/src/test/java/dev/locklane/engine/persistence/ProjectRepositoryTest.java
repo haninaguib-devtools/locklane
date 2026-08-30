@@ -116,4 +116,36 @@ class ProjectRepositoryTest {
 
         repository.delete(999);
     }
+
+    @Test
+    void aCreatedProjectStartsWithNoAccentColor(@TempDir Path dbDir) {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
+
+        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), 1L, Instant.now());
+
+        assertThat(created.accentColor()).isNull();
+    }
+
+    @Test
+    void setAccentColorRoundTripsThroughTheRepository(@TempDir Path dbDir) {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
+        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), 1L, Instant.now());
+
+        repository.setAccentColor(created.id(), "#c15f3c");
+
+        assertThat(repository.findById(created.id())).isPresent().get()
+                .extracting(ProjectRecord::accentColor).isEqualTo("#c15f3c");
+    }
+
+    @Test
+    void setAccentColorCanClearItBackToNull(@TempDir Path dbDir) {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
+        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), 1L, Instant.now());
+        repository.setAccentColor(created.id(), "#c15f3c");
+
+        repository.setAccentColor(created.id(), null);
+
+        assertThat(repository.findById(created.id())).isPresent().get()
+                .extracting(ProjectRecord::accentColor).isNull();
+    }
 }

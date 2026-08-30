@@ -149,8 +149,13 @@ class ProjectControllerTest {
         assertThat(controller.setGithubToken(created.id(),
                 new ProjectController.SetGithubTokenRequest("ghp_secret"), admin.authentication()).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.setAccentColor(created.id(),
+                new ProjectController.SetAccentColorRequest("#c15f3c"), admin.authentication()).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
 
         assertThat(repository.findGithubToken(created.id())).isEmpty();
+        assertThat(repository.findById(created.id())).isPresent().get()
+                .extracting(ProjectRecord::accentColor).isNull();
         assertThat(controller.list(alice.authentication()))
                 .extracting(ProjectController.ProjectView::name).containsExactly("foo");
     }
@@ -266,6 +271,76 @@ class ProjectControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(repository.findGithubToken(created.id())).isEmpty();
+    }
+
+    @Test
+    void settingAnAccentColorStoresIt(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setAccentColor(
+                created.id(), new ProjectController.SetAccentColorRequest("#c15f3c"), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(repository.findById(created.id())).isPresent().get()
+                .extracting(ProjectRecord::accentColor).isEqualTo("#c15f3c");
+    }
+
+    @Test
+    void settingAnAccentColorOnAnUnknownProjectIsNotFound(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
+
+        ResponseEntity<?> response = controller.setAccentColor(
+                999, new ProjectController.SetAccentColorRequest("#c15f3c"), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void settingAnAccentColorOnAnotherUsersProjectIsNotFound(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller bob = user(tmp, "bob", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setAccentColor(
+                created.id(), new ProjectController.SetAccentColorRequest("#c15f3c"), bob.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(repository.findById(created.id())).isPresent().get()
+                .extracting(ProjectRecord::accentColor).isNull();
+    }
+
+    @Test
+    void settingAnInvalidAccentColorIsABadRequest(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setAccentColor(
+                created.id(), new ProjectController.SetAccentColorRequest("terracotta"), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(repository.findById(created.id())).isPresent().get()
+                .extracting(ProjectRecord::accentColor).isNull();
+    }
+
+    @Test
+    void settingAnUnsetAccentColorIsABadRequest(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setAccentColor(
+                created.id(), new ProjectController.SetAccentColorRequest(null), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     private static ProjectController controller(Path tmp, ProjectRepository repository) throws IOException {
