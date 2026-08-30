@@ -1,6 +1,7 @@
 import { Component, EventEmitter, HostListener, OnInit, Output, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AccountService, TwoFactorEnrollment } from '../../services/account.service';
+import { AccentPreset, ACCENT_PRESETS, AccentThemeStore } from '../../services/accent-theme-store';
 import { DEFAULT_AGENT_LABELS, DefaultAgent, DefaultAgentStore } from '../../services/default-agent-store';
 
 type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enabled';
@@ -8,10 +9,11 @@ type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enable
 /**
  * The settings dialog (#90): a title bar and a body holding a default-agent section
  * (#219) -- rendering a button only for a CLI the engine detected as installed at
- * startup (#359, {@link DefaultAgentStore.installed}) -- a password section (#241) for
- * self-service password change, and the two-factor authentication section (#91) --
- * enable (enroll, scan/enter, confirm), disable (password), and the current status in
- * between. Visually it follows
+ * startup (#359, {@link DefaultAgentStore.installed}) -- an appearance section (#387)
+ * of accent-color swatches, a password section (#241) for self-service password
+ * change, and the two-factor authentication section (#91) -- enable (enroll,
+ * scan/enter, confirm), disable (password), and the current status in between.
+ * Visually it follows
  * `add-project-popup`: a full-page backdrop that dismisses on click, holding a bordered
  * panel whose own clicks do not. No approved mockup existed for the three 2FA states, so
  * that section is designed to match `portstow`'s settings-page two-factor section (a
@@ -32,12 +34,16 @@ type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enable
 export class SettingsDialogComponent implements OnInit {
   private readonly accountService = inject(AccountService);
   private readonly defaultAgentStore = inject(DefaultAgentStore);
+  private readonly accentThemeStore = inject(AccentThemeStore);
 
   @Output() closed = new EventEmitter<void>();
 
   readonly defaultAgent = this.defaultAgentStore.agent;
   readonly installedAgents = this.defaultAgentStore.installed;
   readonly agentLabels = DEFAULT_AGENT_LABELS;
+
+  readonly accentPresets = ACCENT_PRESETS;
+  readonly accentPreset = this.accentThemeStore.preset;
 
   currentPasswordForChange = '';
   newPasswordForChange = '';
@@ -70,6 +76,10 @@ export class SettingsDialogComponent implements OnInit {
 
   chooseDefaultAgent(agent: DefaultAgent): void {
     this.defaultAgentStore.set(agent);
+  }
+
+  chooseAccent(preset: AccentPreset): void {
+    this.accentThemeStore.choose(preset);
   }
 
   changePassword(): void {
