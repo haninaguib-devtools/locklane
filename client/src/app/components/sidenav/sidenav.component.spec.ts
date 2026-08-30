@@ -341,6 +341,19 @@ describe('SidenavComponent', () => {
     expect(initiative.children.map((c) => c.number)).toEqual([2, 3]);
   });
 
+  it('while hideShipped is checked, still shows the status label for a CLOSED row kept visible by an open console (#366)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-3-fix-thing']);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.hideShipped).toBeTrue();
+    // #1, #2, #4 are OPEN and stay label-less; #3 is CLOSED but visible only via
+    // its open console (#263), so its label is the one signal telling the user that.
+    const labels = Array.from(fixture.nativeElement.querySelectorAll('.issue-state')) as HTMLElement[];
+    expect(labels.map((el) => el.textContent?.trim())).toEqual(['closed']);
+  });
+
   it('an issue with an open console stays visible regardless of the typed search text (#263)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
