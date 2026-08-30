@@ -14,9 +14,12 @@ optional, and `/t-work` will refuse without it.
 
 ## Procedure
 
-1. Read `AGENTS.md`, `CONSTITUTION.md`, the issue (`tracker:view <id>` — resolve every
-   `tracker:*` operation via `docs/adapters/TRACKER.md`; GitHub Issues by default), and
-   its tracking issue if any.
+1. Read the issue (`tracker:view <id>` — resolve every `tracker:*` operation via
+   `docs/adapters/TRACKER.md`; GitHub Issues by default) and its tracking issue if any.
+   Read `AGENTS.md` and `CONSTITUTION.md` too — unless this plan is `/t-drive` chaining
+   this stage in the same session whose Phase 0 already read them for the whole run, in
+   which case that read already covers this one. A standalone invocation, with no
+   driving session, always reads both itself.
 2. Inspect the repository enough to plan honestly — relevant files, existing structure.
    Do not load everything by default.
 3. **Template-owned-file check.** Check whether `.template-manifest.json` exists at the
