@@ -1,5 +1,10 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.github.GhClient;
+import dev.locklane.engine.github.GhIssue;
+import dev.locklane.engine.github.GhPullRequest;
+import dev.locklane.engine.github.GhPullRequestDetail;
+import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.pty.SessionRegistry;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
@@ -10,6 +15,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -57,6 +63,20 @@ class ProjectConsoleServiceTest {
     }
 
     @Test
+    void startingCreatesTheWorktreeDetachedAtOriginMainWithNoConsoleBranch(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", 1L, Instant.now()).id();
+        ProjectConsoleService service = service(tmp, projectRepository);
+
+        ProjectConsoleService.ConsoleSession session = service.start(projectId).get();
+
+        // Detached HEAD, not a freshly minted console/<suffix> branch (#338).
+        assertThat(GitTestRepos.currentBranch(Path.of(session.workingDirectory()))).isEmpty();
+        assertThat(GitTestRepos.branchList(workarea, "console/*")).isEmpty();
+    }
+
+    @Test
     void startingCreatesAFreshSiblingWorktreePerSessionNeverTheSharedCheckout(@TempDir Path tmp) throws Exception {
         Path workarea = GitTestRepos.initTestRepo(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
@@ -76,7 +96,10 @@ class ProjectConsoleServiceTest {
     }
 
     @Test
-    void closingASessionLeavesItsWorktreeOnDisk(@TempDir Path tmp) throws Exception {
+    void closingACleanDetachedNoCommitsSessionRemovesItsWorktree(@TempDir Path tmp) throws Exception {
+        // #339/ADR-010: a fresh console worktree is detached at origin/main, clean,
+        // and has no commits of its own -- every guard condition clears, so closing
+        // the tab removes it, unlike before this task (#314's deferred cleanup).
         Path workarea = GitTestRepos.initTestRepo(tmp);
         long aliceId = createUser(tmp, "alice"); // id 1
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
@@ -88,7 +111,66 @@ class ProjectConsoleServiceTest {
 
         assertThat(service.close(projectId, "alice")).isTrue();
 
-        // Cleanup is deliberately out of scope for #314 -- the worktree stays put.
+        assertThat(Path.of(session.workingDirectory())).doesNotExist();
+        assertThat(sessionRepository.find(session.sessionId())).isEmpty();
+    }
+
+    @Test
+    void closingADirtySessionKeepsItsWorktree(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(tmp);
+        ProjectConsoleService service = service(tmp, projectRepository, sessionRepository);
+        ProjectConsoleService.ConsoleSession session = service.start(projectId).get();
+        sessionRepository.recordAttach(session.sessionId(), Path.of(session.workingDirectory()), EARLIER, "alice");
+        GitTestRepos.makeDirty(Path.of(session.workingDirectory()));
+
+        assertThat(service.close(projectId, "alice")).isTrue();
+
+        // The session itself still ends -- only the worktree survives.
+        assertThat(sessionRepository.find(session.sessionId())).isEmpty();
+        assertThat(Path.of(session.workingDirectory())).isDirectory();
+    }
+
+    @Test
+    void closingASessionWithABranchCheckedOutKeepsItsWorktree(@TempDir Path tmp) throws Exception {
+        // The branch-checked-out guard: a console that outgrew scratch use (e.g. via
+        // /t-work) is left alone permanently (ADR-005), never swept as scratch.
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(tmp);
+        ProjectConsoleService service = service(tmp, projectRepository, sessionRepository);
+        ProjectConsoleService.ConsoleSession session = service.start(projectId).get();
+        sessionRepository.recordAttach(session.sessionId(), Path.of(session.workingDirectory()), EARLIER, "alice");
+        GitTestRepos.run(Path.of(session.workingDirectory()), "git", "checkout", "-b", "wip/1-do-the-thing");
+
+        assertThat(service.close(projectId, "alice")).isTrue();
+
+        assertThat(sessionRepository.find(session.sessionId())).isEmpty();
+        assertThat(Path.of(session.workingDirectory())).isDirectory();
+    }
+
+    @Test
+    void closingASessionWithCommitsNotOnOriginMainKeepsItsWorktree(@TempDir Path tmp) throws Exception {
+        // A commit made on detached HEAD, never pushed anywhere -- removing the
+        // worktree here would destroy it forever along with its reflog.
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(tmp);
+        ProjectConsoleService service = service(tmp, projectRepository, sessionRepository);
+        ProjectConsoleService.ConsoleSession session = service.start(projectId).get();
+        sessionRepository.recordAttach(session.sessionId(), Path.of(session.workingDirectory()), EARLIER, "alice");
+        GitTestRepos.commitEmpty(Path.of(session.workingDirectory()), "unpushed work on detached HEAD");
+
+        assertThat(service.close(projectId, "alice")).isTrue();
+
+        assertThat(sessionRepository.find(session.sessionId())).isEmpty();
         assertThat(Path.of(session.workingDirectory())).isDirectory();
     }
 
@@ -318,7 +400,8 @@ class ProjectConsoleServiceTest {
         projectRepository.setGithubToken(projectId, tokenCipher.encrypt("ghp_realtoken"));
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         ProjectConsoleService service = new ProjectConsoleService(projectRepository, tokenCipher,
-                new SessionRegistry(sessionRepository), sessionRepository, authorization(dbDir, projectRepository));
+                new SessionRegistry(sessionRepository), sessionRepository, authorization(dbDir, projectRepository),
+                sweeper(dbDir, sessionRepository, projectRepository));
 
         // Both the #177 family and the legacy pre-#177 id resolve the token.
         assertThat(service.environmentFor(projectId + "-console-0a1b2c3d"))
@@ -345,7 +428,24 @@ class ProjectConsoleServiceTest {
     private static ProjectConsoleService service(Path dbDir, ProjectRepository projectRepository,
             WorktreeSessionRepository sessionRepository) {
         return new ProjectConsoleService(projectRepository, tokenCipher(dbDir), new SessionRegistry(sessionRepository),
-                sessionRepository, authorization(dbDir, projectRepository));
+                sessionRepository, authorization(dbDir, projectRepository),
+                sweeper(dbDir, sessionRepository, projectRepository));
+    }
+
+    /**
+     * A {@link WorktreeCleanupSweeper} wired for these tests — no real GitHub issues
+     * are ever involved here, so an empty {@link FixedGhClient} is enough; #339's
+     * project-console guard/removal is what these tests actually exercise via
+     * {@link ProjectConsoleService#close}.
+     */
+    private static WorktreeCleanupSweeper sweeper(Path dbDir, WorktreeSessionRepository sessionRepository,
+            ProjectRepository projectRepository) {
+        IssueWorktreeService worktreeService =
+                new IssueWorktreeService(sessionRepository, TestSqliteDatabases.newNoopAuthorization());
+        ProjectGhResources ghResources =
+                new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient());
+        return new WorktreeCleanupSweeper(worktreeService, projectRepository, ghResources,
+                new SessionRegistry(sessionRepository));
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {
@@ -353,6 +453,23 @@ class ProjectConsoleServiceTest {
             return new TokenCipher(new EncryptionKeyProvider(dataDir.toString()));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    private static final class FixedGhClient implements GhClient {
+        @Override
+        public List<GhIssue> issues() {
+            return List.of();
+        }
+
+        @Override
+        public List<GhPullRequest> pullRequests() {
+            return List.of();
+        }
+
+        @Override
+        public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
+            return Optional.empty();
         }
     }
 }

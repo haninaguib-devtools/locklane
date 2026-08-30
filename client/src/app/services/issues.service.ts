@@ -37,15 +37,11 @@ export class IssuesService {
     return this.http.get<string[]>(`/api/projects/${projectId}/issues/${number}/worktrees`);
   }
 
-  startSession(
-    projectId: number,
-    number: number,
-    worktree = true,
-  ): Observable<{ worktreeId: string; workingDirectory: string }> {
+  /** Starts (or reuses) the one worktree session for the issue -- never the project's main checkout (#341). */
+  startSession(projectId: number, number: number): Observable<{ worktreeId: string; workingDirectory: string }> {
     return this.http.post<{ worktreeId: string; workingDirectory: string }>(
       `/api/projects/${projectId}/issues/${number}/worktrees`,
       {},
-      { params: { worktree } },
     );
   }
 

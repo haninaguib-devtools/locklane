@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * The project page's worktree list (#320): every console-created worktree for one
@@ -23,6 +24,15 @@ import java.util.Optional;
  * at the cost of a project's cleanup button being able to remove another project's
  * eligible worktree too — no less safe, since the guard is unchanged, just wider in
  * scope than the button's own page.
+ *
+ * <p>Since #339, a project-console worktree (no issue of its own) appears in {@link
+ * #listForProject} too, with a {@code null} {@link WorktreeRow#issueNumber()} — {@link
+ * WorktreeCleanupSweeper#allProjectConsoleWorktrees()} discovers those the same
+ * git-native way the sweep itself does, never from a persisted session record. {@link
+ * #remove} dispatches to whichever guard applies (issue-closed vs. detached +
+ * ancestor-of-{@code origin/main}) purely by which of the two collections the id
+ * appears in, so the manual "remove" button and the two automatic removal paths
+ * (tab-close, sweep) all ultimately ask the same question for the same worktree.
  */
 @Service
 public class ProjectWorktreesService {
@@ -38,37 +48,48 @@ public class ProjectWorktreesService {
         this.sessionRegistry = sessionRegistry;
     }
 
-    /** Every worktree belonging to one of this project's issues, in no particular order. */
+    /**
+     * Every worktree belonging to one of this project's issues, plus every one of its
+     * project-console worktrees (#339), in no particular order. A console row's
+     * {@link WorktreeRow#issueNumber()} is {@code null} — it has no issue to report.
+     */
     public List<WorktreeRow> listForProject(long projectId) {
-        return worktreeService.allIssueWorktrees().stream()
+        Stream<WorktreeRow> issueRows = worktreeService.allIssueWorktrees().stream()
                 .filter(worktree -> worktree.projectId() == projectId)
                 .map(worktree -> new WorktreeRow(worktree.worktreeId(), worktree.issueNumber(),
                         worktree.workingDirectory().toString(), sweeper.isClean(worktree.workingDirectory()),
-                        sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())))
-                .toList();
+                        sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())));
+        Stream<WorktreeRow> consoleRows = sweeper.allProjectConsoleWorktrees().stream()
+                .filter(worktree -> worktree.projectId() == projectId)
+                .map(worktree -> new WorktreeRow(worktree.worktreeId(), null,
+                        worktree.workingDirectory().toString(), sweeper.isClean(worktree.workingDirectory()),
+                        sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())));
+        return Stream.concat(issueRows, consoleRows).toList();
     }
 
     /**
      * Removes one worktree by id, scoped to {@code projectId} so a request naming
-     * another project's worktree id is treated the same as an unknown one. Uses the
-     * exact guard {@link WorktreeCleanupSweeper#sweep()} uses ({@link
-     * WorktreeCleanupSweeper#removalRefusalReason}) before removing.
+     * another project's worktree id is treated the same as an unknown one. Looks
+     * among this project's per-issue worktrees first, then its project-console ones
+     * (#339) — the two id shapes never collide — and applies whichever guard matches
+     * ({@link WorktreeCleanupSweeper#removalRefusalReason} or {@link
+     * WorktreeCleanupSweeper#removalRefusalReasonForProjectConsole}) before removing.
      */
     public RemovalResult remove(long projectId, String worktreeId) {
-        Optional<IssueWorktreeService.ConsoleWorktree> worktree = worktreeService.allIssueWorktrees().stream()
+        Optional<IssueWorktreeService.ConsoleWorktree> issueWorktree = worktreeService.allIssueWorktrees().stream()
                 .filter(w -> w.projectId() == projectId && w.worktreeId().equals(worktreeId))
                 .findFirst();
-        if (worktree.isEmpty()) {
-            return RemovalResult.notFound();
+        if (issueWorktree.isPresent()) {
+            return removeIssueWorktree(issueWorktree.get());
         }
-        Optional<String> refusal = sweeper.removalRefusalReason(worktree.get());
-        if (refusal.isPresent()) {
-            return RemovalResult.refused(refusal.get());
+        Optional<WorktreeCleanupSweeper.ProjectConsoleWorktree> consoleWorktree =
+                sweeper.allProjectConsoleWorktrees().stream()
+                        .filter(w -> w.projectId() == projectId && w.worktreeId().equals(worktreeId))
+                        .findFirst();
+        if (consoleWorktree.isPresent()) {
+            return removeProjectConsoleWorktree(consoleWorktree.get());
         }
-        if (!sweeper.removeWorktree(worktree.get())) {
-            return RemovalResult.refused("failed to remove the worktree — see the server log");
-        }
-        return RemovalResult.succeeded();
+        return RemovalResult.notFound();
     }
 
     /** Triggers the same sweep the schedule runs, on demand. Returns the worktree ids it actually removed. */
@@ -76,8 +97,33 @@ public class ProjectWorktreesService {
         return sweeper.sweep();
     }
 
-    /** One row of {@link #listForProject}. */
-    public record WorktreeRow(String worktreeId, int issueNumber, String workingDirectory, boolean clean,
+    private RemovalResult removeIssueWorktree(IssueWorktreeService.ConsoleWorktree worktree) {
+        Optional<String> refusal = sweeper.removalRefusalReason(worktree);
+        if (refusal.isPresent()) {
+            return RemovalResult.refused(refusal.get());
+        }
+        if (!sweeper.removeWorktree(worktree)) {
+            return RemovalResult.refused("failed to remove the worktree — see the server log");
+        }
+        return RemovalResult.succeeded();
+    }
+
+    private RemovalResult removeProjectConsoleWorktree(WorktreeCleanupSweeper.ProjectConsoleWorktree worktree) {
+        Optional<String> refusal = sweeper.removalRefusalReasonForProjectConsole(worktree);
+        if (refusal.isPresent()) {
+            return RemovalResult.refused(refusal.get());
+        }
+        if (!sweeper.removeProjectConsoleWorktree(worktree)) {
+            return RemovalResult.refused("failed to remove the worktree — see the server log");
+        }
+        return RemovalResult.succeeded();
+    }
+
+    /**
+     * One row of {@link #listForProject} — {@code issueNumber} is {@code null} for a
+     * project-console worktree (#339), which has no issue of its own.
+     */
+    public record WorktreeRow(String worktreeId, Integer issueNumber, String workingDirectory, boolean clean,
             boolean sessionAttached) {
     }
 

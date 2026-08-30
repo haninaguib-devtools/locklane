@@ -182,6 +182,26 @@ class IssueWorktreeServiceTest {
     }
 
     @Test
+    void resumeSessionsExcludesALegacyMainConsolesConversation(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository =
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        // #341 retired opening a console against the project's main checkout; a
+        // conversation captured in one of these legacy consoles can never be
+        // resumed (there is no worktree that contains it), so it never appears here.
+        resumeRepository.record("1-174-main-a1b2c3d4", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        resumeRepository.record("1-174-rename-toggle", "claude", "bbbbbbbb-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+
+        IssueWorktreeService service = service(dbDir, repository, resumeRepository);
+
+        assertThat(service.resumeSessionsForIssue(1, 174, "alice"))
+                .extracting(ConsoleResumeSessionRecord::worktreeId)
+                .containsExactly("1-174-rename-toggle");
+    }
+
+    @Test
     void resumeSessionsFollowTheConsolesProjectOwnershipAndTreatAClosedConsoleAsVisibleToAnyone(@TempDir Path dbDir) {
         createProject(dbDir, "alice", "one"); // project 1
         createProject(dbDir, "bob", "bobs"); // project 2, owned by bob -- not alice

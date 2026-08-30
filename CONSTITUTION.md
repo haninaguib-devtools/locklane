@@ -108,7 +108,9 @@ any other change to this list.
 2. A console-created, per-issue worktree is removed automatically once its issue is
    confirmed closed, its git status is clean, and no console session is attached — a
    narrow, guarded exception to the pipeline's own "left alone permanently" default
-   (ADR-008).
+   (ADR-008). Once such a worktree is removed, its local `wip/<id>-<slug>` branch is
+   deleted too, but only via `git branch -d`: a fully merged branch goes, an unmerged
+   one is refused and left alone (ADR-009).
 3. Reserved protected surfaces, per ADR-007: once the ratified multi-user tenancy and
    authorization model is implemented, these application surfaces join §3's list — the
    Flyway migrations under `engine/src/main/resources/db/migration/` and
@@ -123,6 +125,12 @@ any other change to this list.
    The task that lands each surface (#238–#242) adds its §3 bullet and its
    `protected-paths.sh` pattern together, per §3's own "one rule in two forms"
    invariant.
+4. A project-console worktree (no issue of its own) is removed on tab close, and by
+   the same periodic sweep as a backstop, once its session has ended, its HEAD is
+   detached (a checked-out branch means the console outgrew scratch and is left
+   alone), its git status is clean, and its HEAD is an ancestor of `origin/main` — a
+   second, distinct guarded exception to ADR-005, alongside point 2's rather than
+   folded into it (ADR-010).
 <!-- /local -->
 
 ## Amendment

@@ -1,5 +1,10 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.github.GhClient;
+import dev.locklane.engine.github.GhIssue;
+import dev.locklane.engine.github.GhPullRequest;
+import dev.locklane.engine.github.GhPullRequestDetail;
+import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.pty.SessionRegistry;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
@@ -12,6 +17,8 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.security.Principal;
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -210,8 +217,14 @@ class ProjectConsoleControllerTest {
             WorktreeSessionRepository sessionRepository) {
         WorktreeSessionAuthorization authorization =
                 new WorktreeSessionAuthorization(projectRepository, TestSqliteDatabases.newUserRepository(dbDir));
+        IssueWorktreeService worktreeService =
+                new IssueWorktreeService(sessionRepository, TestSqliteDatabases.newNoopAuthorization());
+        ProjectGhResources ghResources =
+                new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient());
+        WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, projectRepository, ghResources,
+                new SessionRegistry(sessionRepository));
         return new ProjectConsoleController(new ProjectConsoleService(projectRepository, tokenCipher(dbDir),
-                new SessionRegistry(sessionRepository), sessionRepository, authorization));
+                new SessionRegistry(sessionRepository), sessionRepository, authorization, sweeper));
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {
@@ -219,6 +232,23 @@ class ProjectConsoleControllerTest {
             return new TokenCipher(new EncryptionKeyProvider(dataDir.toString()));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    private static final class FixedGhClient implements GhClient {
+        @Override
+        public List<GhIssue> issues() {
+            return List.of();
+        }
+
+        @Override
+        public List<GhPullRequest> pullRequests() {
+            return List.of();
+        }
+
+        @Override
+        public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
+            return Optional.empty();
         }
     }
 }
