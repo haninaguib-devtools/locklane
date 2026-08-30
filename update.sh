@@ -35,9 +35,42 @@ if [ -f "$props_file" ] && grep -Eq '^locklane\.security\.bootstrap-password[[:s
   mv "$tmp_props" "$props_file"
 fi
 
+# --- Stop the running instance, if any -----------------------------------------
+# Must happen before the jar is replaced (#385): overwriting locklane.jar with
+# --clobber while the running JVM still holds that file open, then starting a second
+# server on the port the first one still has bound, leaves the old server damaged and
+# the new one not running. A missing pid file, or a pid that is no longer running, is
+# not an error -- there is simply nothing to stop.
+
+pid_file="locklane.pid"
+if [ -f "$pid_file" ]; then
+  old_pid="$(cat "$pid_file")"
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    echo "Stopping the running server (pid $old_pid)..."
+    kill "$old_pid"
+    for _ in $(seq 1 30); do
+      kill -0 "$old_pid" 2>/dev/null || break
+      sleep 1
+    done
+    if kill -0 "$old_pid" 2>/dev/null; then
+      echo "error: server (pid $old_pid) did not stop within 30s." >&2
+      exit 1
+    fi
+  fi
+  rm -f "$pid_file"
+fi
+
 echo "Downloading locklane.jar (latest build of $REPO)..."
 gh release download latest --repo "$REPO" --pattern locklane.jar \
   --dir . --clobber
 
+# --- Start the new build, detached ----------------------------------------------
+# Detached for the same reason as install.sh (#385): nohup ignores the SIGHUP the shell
+# sends its children on exit, and disown drops it from the shell's own job table, the
+# second, independent way a closing terminal can take a background job down with it.
+
+log_file="locklane.log"
 echo "Relaunching..."
-exec java -jar locklane.jar
+nohup java -jar locklane.jar > "$log_file" 2>&1 < /dev/null &
+echo $! > "$pid_file"
+disown
