@@ -142,3 +142,45 @@ dd a {
   border-left: 3px solid var(--border-soft);
   color: var(--faint);
 }
+
+.checks {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.check {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.marker {
+  flex: none;
+  width: 1em;
+  text-align: center;
+}
+
+.marker-passing {
+  color: #1a7f37;
+}
+
+.marker-failing {
+  color: #cf222e;
+}
+
+.marker-pending {
+  color: var(--faint);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

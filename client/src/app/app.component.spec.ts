@@ -165,7 +165,7 @@ describe('AppComponent', () => {
     httpMock.expectOne(`/api/projects/1/issues/${number}/detail`).flush({
       number,
       recordPath: null,
-      checks: { passing: 0, failing: 0, pending: 0 },
+      checks: { passing: 0, failing: 0, pending: 0, runs: [] },
       branch: null,
       prNumber: null,
       prState: null,

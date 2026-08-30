@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
 import { OverviewTabComponent } from './overview-tab.component';
-import { GhIssue, IssueDetail } from '../../models/issue.model';
+import { CheckRun, GhIssue, IssueDetail } from '../../models/issue.model';
 
 describe('OverviewTabComponent', () => {
   const fakeSanitizer = {
@@ -29,7 +29,7 @@ describe('OverviewTabComponent', () => {
     return {
       number: 42,
       recordPath: null,
-      checks: { passing: 0, failing: 0, pending: 0 },
+      checks: { passing: 0, failing: 0, pending: 0, runs: [] },
       branch: null,
       prNumber: null,
       prState: null,
@@ -44,22 +44,28 @@ describe('OverviewTabComponent', () => {
     expect(c.checksLabel(detail({}))).toBe('no CI runs');
   });
 
-  it('leads with failures when any check failed', () => {
+  it('leads with failures, then passes, then what is still running', () => {
     const c = component();
-    const d = detail({ checks: { passing: 2, failing: 1, pending: 0 } });
-    expect(c.checksLabel(d)).toBe('1 failing / 2 passing');
+    const d = detail({ checks: { passing: 8, failing: 1, pending: 1, runs: [] } });
+    expect(c.checksLabel(d)).toBe('1 failing, 8 passing, 1 running');
   });
 
-  it('reports pending checks when nothing failed but some are still running', () => {
+  it('leaves out the kinds with nothing in them', () => {
     const c = component();
-    const d = detail({ checks: { passing: 2, failing: 0, pending: 1 } });
-    expect(c.checksLabel(d)).toBe('2 passing, 1 pending');
+    expect(c.checksLabel(detail({ checks: { passing: 3, failing: 0, pending: 0, runs: [] } })))
+      .toBe('3 passing');
+    expect(c.checksLabel(detail({ checks: { passing: 2, failing: 0, pending: 1, runs: [] } })))
+      .toBe('2 passing, 1 running');
   });
 
-  it('reports all-green when everything passed', () => {
+  it('points the summary line at the PR checks tab, and nowhere without a PR', () => {
     const c = component();
-    const d = detail({ checks: { passing: 3, failing: 0, pending: 0 } });
-    expect(c.checksLabel(d)).toBe('3 checks green');
+    c.issue = issue();
+    c.repoWebUrl = 'https://github.com/o/r';
+    c.detail = detail({ prNumber: 7 });
+    expect(c.checksUrl).toBe('https://github.com/o/r/pull/7/checks');
+    c.detail = detail({});
+    expect(c.checksUrl).toBeNull();
   });
 
   it('reports no branch when there is no PR', () => {
@@ -177,7 +183,11 @@ describe('OverviewTabComponent', () => {
 describe('OverviewTabComponent details list', () => {
   beforeEach(() => TestBed.configureTestingModule({ imports: [OverviewTabComponent] }));
 
-  function render(labels: string[]): HTMLElement {
+  function render(
+    labels: string[],
+    checks: IssueDetail['checks'] = { passing: 0, failing: 0, pending: 0, runs: [] },
+    prNumber: number | null = null
+  ): HTMLElement {
     const fixture = TestBed.createComponent(OverviewTabComponent);
     fixture.componentRef.setInput('issue', {
       number: 42,
@@ -191,13 +201,14 @@ describe('OverviewTabComponent details list', () => {
     fixture.componentRef.setInput('detail', {
       number: 42,
       recordPath: null,
-      checks: { passing: 0, failing: 0, pending: 0 },
+      checks,
       branch: null,
-      prNumber: null,
+      prNumber,
       prState: null,
       prDraft: false,
       flowSteps: [],
     } as IssueDetail);
+    fixture.componentRef.setInput('repoWebUrl', 'https://github.com/o/r');
     fixture.detectChanges();
     return fixture.nativeElement as HTMLElement;
   }
@@ -207,6 +218,29 @@ describe('OverviewTabComponent details list', () => {
       dt.textContent!.trim()
     );
     expect(terms).toEqual(['branch & PR', 'record', 'checks']);
+  });
+
+  it('renders one row per check, each linked to its own run', () => {
+    const runs: CheckRun[] = [
+      { name: 'build', state: 'failing', url: 'https://ci/1' },
+      { name: 'record', state: 'passing', url: 'https://ci/2' },
+      { name: 'lint', state: 'pending', url: null },
+    ];
+    const el = render([], { passing: 1, failing: 1, pending: 1, runs }, 7);
+
+    const rows = Array.from(el.querySelectorAll('.checks .check'));
+    expect(rows.map((r) => r.querySelector('a, span:not(.marker):not(.visually-hidden)')!.textContent!.trim()))
+      .toEqual(['build', 'record', 'lint']);
+    expect(rows.map((r) => r.querySelector('a')?.getAttribute('href') ?? null))
+      .toEqual(['https://ci/1', 'https://ci/2', null]);
+    expect(rows[0].querySelector('.marker')!.classList).toContain('marker-failing');
+    expect(rows[2].querySelector('a')).toBeNull();
+  });
+
+  it('says no CI runs and lists nothing when the PR has no checks', () => {
+    const el = render([]);
+    expect(el.querySelector('.checks')).toBeNull();
+    expect(el.querySelectorAll('.details dd')[2].textContent!.trim()).toBe('no CI runs');
   });
 
   it('no longer carries a tags row, even when the issue has labels', () => {
