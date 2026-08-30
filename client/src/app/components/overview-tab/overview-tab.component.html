@@ -19,7 +19,31 @@
           }
         </dd>
         <dt>checks</dt>
-        <dd>{{ checksLabel(detail) }}</dd>
+        <dd>
+          @if (checkRuns(detail).length) {
+            <ul class="checks">
+              @for (run of checkRuns(detail); track $index) {
+                <li class="check">
+                  <span class="marker" [class.marker-passing]="run.state === 'passing'"
+                    [class.marker-failing]="run.state === 'failing'"
+                    [class.marker-pending]="run.state === 'pending'"
+                    [attr.title]="run.state" aria-hidden="true">{{ checkMarker(run) }}</span>
+                  <span class="visually-hidden">{{ run.state }}</span>
+                  @if (run.url) {
+                    <a [href]="run.url" target="_blank" rel="noopener">{{ run.name }}</a>
+                  } @else {
+                    <span>{{ run.name }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+          @if (checksUrl) {
+            <a [href]="checksUrl" target="_blank" rel="noopener">{{ checksLabel(detail) }}</a>
+          } @else {
+            {{ checksLabel(detail) }}
+          }
+        </dd>
       </dl>
     } @else {
       <p class="loading">loading…</p>

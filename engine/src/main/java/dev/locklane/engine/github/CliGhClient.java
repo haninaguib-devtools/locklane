@@ -104,20 +104,42 @@ public class CliGhClient implements GhClient {
                 pr.path("headRefName").asText(""));
     }
 
-    private static GhPullRequestDetail toPullRequestDetail(JsonNode pr) {
+    static GhPullRequestDetail toPullRequestDetail(JsonNode pr) {
         int reviewCount = pr.path("reviews").size();
         int pass = 0;
         int fail = 0;
         int pending = 0;
+        List<CheckRun> runs = new ArrayList<>();
         for (JsonNode check : pr.path("statusCheckRollup")) {
-            switch (check.path("conclusion").asText("")) {
-                case "SUCCESS" -> pass++;
-                case "" -> pending++;
+            String state = switch (check.path("conclusion").asText("")) {
+                case "SUCCESS" -> CheckRun.PASSING;
+                case "" -> CheckRun.PENDING;
+                default -> CheckRun.FAILING;
+            };
+            switch (state) {
+                case CheckRun.PASSING -> pass++;
+                case CheckRun.PENDING -> pending++;
                 default -> fail++;
             }
+            runs.add(new CheckRun(checkName(check), state, checkUrl(check)));
         }
         return new GhPullRequestDetail(pr.path("number").asInt(), reviewCount,
-                new ChecksSummary(pass, fail, pending));
+                new ChecksSummary(pass, fail, pending, List.copyOf(runs)));
+    }
+
+    /** A check run calls it "name"; a status context (an older-style check) calls it "context". */
+    private static String checkName(JsonNode check) {
+        String name = check.path("name").asText("");
+        return name.isBlank() ? check.path("context").asText("") : name;
+    }
+
+    /** Same split for the link: "detailsUrl" on a check run, "targetUrl" on a status context. */
+    private static String checkUrl(JsonNode check) {
+        String url = check.path("detailsUrl").asText("");
+        if (url.isBlank()) {
+            url = check.path("targetUrl").asText("");
+        }
+        return url.isBlank() ? null : url;
     }
 
     private String run(String... command) {

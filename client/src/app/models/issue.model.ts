@@ -15,11 +15,20 @@ export interface FlowStep {
   done: boolean;
 }
 
+// Mirrors dev.locklane.engine.github.CheckRun: one CI check, its outcome, and the
+// link to its run (#397). `url` is null when the rollup carried no link.
+export interface CheckRun {
+  name: string;
+  state: 'passing' | 'failing' | 'pending';
+  url: string | null;
+}
+
 // Mirrors dev.locklane.engine.github.ChecksSummary.
 export interface ChecksSummary {
   passing: number;
   failing: number;
   pending: number;
+  runs: CheckRun[];
 }
 
 // Mirrors dev.locklane.engine.github.IssueDetail.

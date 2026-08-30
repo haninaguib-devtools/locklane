@@ -52,7 +52,7 @@ describe('MainContentComponent', () => {
     const detail: IssueDetail = {
       number,
       recordPath: null,
-      checks: { passing: 0, failing: 0, pending: 0 },
+      checks: { passing: 0, failing: 0, pending: 0, runs: [] },
       branch: null,
       prNumber: null,
       prState: null,

@@ -61,7 +61,7 @@ class IssueDetailServiceTest {
     void anOpenPrWithNoReviewsMarksWorkDoneButNotReview(@TempDir Path root) {
         GhPullRequest pr = new GhPullRequest(50, "PR", "OPEN", true, "wip/1-slug");
         IssueDetailService service = service(root, List.of(issue(1, "OPEN", "")), List.of(pr),
-                Optional.of(new GhPullRequestDetail(50, 0, new ChecksSummary(2, 0, 1))));
+                Optional.of(new GhPullRequestDetail(50, 0, new ChecksSummary(2, 0, 1, List.of()))));
 
         IssueDetail detail = service.detail(1).orElseThrow();
 
@@ -69,7 +69,7 @@ class IssueDetailServiceTest {
         assertThat(detail.prNumber()).isEqualTo(50);
         assertThat(detail.prState()).isEqualTo("OPEN");
         assertThat(detail.prDraft()).isTrue();
-        assertThat(detail.checks()).isEqualTo(new ChecksSummary(2, 0, 1));
+        assertThat(detail.checks()).isEqualTo(new ChecksSummary(2, 0, 1, List.of()));
         assertThat(step(service, 1, "work")).isTrue();
         assertThat(step(service, 1, "review")).isFalse();
     }

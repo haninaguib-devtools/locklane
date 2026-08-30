@@ -50,7 +50,7 @@ describe('IssuesService', () => {
     const detail: IssueDetail = {
       number: 5,
       recordPath: null,
-      checks: { passing: 0, failing: 0, pending: 0 },
+      checks: { passing: 0, failing: 0, pending: 0, runs: [] },
       branch: null,
       prNumber: null,
       prState: null,
