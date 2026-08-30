@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject } from '@angular/core';
+import { Component, EventEmitter, Injector, Input, OnChanges, Output, SimpleChanges, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Project, TreeNode } from '../../models/issue.model';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
@@ -11,6 +11,8 @@ import { ConsolesService } from '../../services/consoles.service';
 import { AgentStore } from '../../services/agent-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
 import { LastConsoleStore } from '../../services/last-console-store';
+import { AccentPreset, ACCENT_PRESETS } from '../../services/accent-theme-store';
+import { CurrentProjectService } from '../../services/current-project.service';
 
 /** The issue counts shown on a project's summary, all derived from its tree (#85). */
 export interface IssueCounts {
@@ -42,6 +44,34 @@ export class ProjectSummaryComponent implements OnChanges {
   private readonly defaultAgentStore = inject(DefaultAgentStore);
   private readonly lastConsoleStore = inject(LastConsoleStore);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
+
+  // Lazy, like AppComponent's own `currentProject` getter: CurrentProjectService
+  // fetches the project list as soon as it exists, and an eager field here would
+  // construct it -- firing that extra fetch -- on every load of this page, not
+  // only the rare one where the accent-color picker below actually needs it.
+  private currentProjectServiceRef: CurrentProjectService | null = null;
+
+  // Refreshes CurrentProjectService's cached project list after this page changes
+  // one (#428). *Constructing* it already fires its own one-shot fetch (see the
+  // comment on its own constructor) -- calling `.refresh()` again immediately
+  // after would fire a second, redundant one, so that explicit call only happens
+  // once the service already existed before this call.
+  private refreshCurrentProject(): void {
+    if (this.currentProjectServiceRef) {
+      this.currentProjectServiceRef.refresh();
+    } else {
+      this.currentProjectServiceRef = this.injector.get(CurrentProjectService);
+    }
+  }
+
+  // The project's own accent-color picker (#428) reuses the global setting's four
+  // presets (accent-theme-store.ts) as swatches, submitting each preset's raw
+  // `accent` hex to the backend (#427) rather than its preset id -- unlike the
+  // global setting, this is per-project state with no client-only representation.
+  readonly accentPresets = ACCENT_PRESETS;
+  savingAccentColor = false;
+  accentColorError: string | null = null;
 
   @Input({ required: true }) projectId!: number;
 
@@ -103,6 +133,30 @@ export class ProjectSummaryComponent implements OnChanges {
     });
   }
 
+  /** Sets this project's accent color (#428) to the clicked preset's raw hex value. */
+  chooseAccentColor(preset: AccentPreset): void {
+    if (!this.project || this.savingAccentColor) {
+      return;
+    }
+    this.savingAccentColor = true;
+    this.accentColorError = null;
+    this.projectsService.setAccentColor(this.project.id, preset.accent).subscribe({
+      next: () => {
+        this.savingAccentColor = false;
+        this.project = { ...this.project!, accentColor: preset.accent };
+        // The tint AppComponent shows behind every page of this project (#428)
+        // reads from CurrentProjectService's own cached list, which this page
+        // never otherwise refreshes -- without this, the new color wouldn't
+        // show until some unrelated navigation happened to re-fetch it.
+        this.refreshCurrentProject();
+      },
+      error: () => {
+        this.savingAccentColor = false;
+        this.accentColorError = 'could not set the accent color';
+      },
+    });
+  }
+
   private load(projectId: number): void {
     this.project = null;
     this.counts = null;
@@ -111,6 +165,8 @@ export class ProjectSummaryComponent implements OnChanges {
     this.openConsoles = [];
     this.startingConsole = false;
     this.consoleError = false;
+    this.savingAccentColor = false;
+    this.accentColorError = null;
 
     this.projectsService.list().subscribe({
       next: (projects) => {

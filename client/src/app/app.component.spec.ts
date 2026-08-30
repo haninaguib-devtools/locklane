@@ -22,6 +22,7 @@ describe('AppComponent', () => {
     gitUrl: 'url',
     workareaPath: '/tmp/proj',
     defaultBranch: 'main',
+    accentColor: null,
     status: 'READY',
     createdAt: '',
   };
@@ -313,6 +314,38 @@ describe('AppComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.brand')?.textContent?.trim()).toBe('LockLane - proj');
+  }));
+
+  it('leaves .project-pages at its default background when the project has no accent color (#428)', fakeAsync(() => {
+    const fixture = openedApp();
+
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
+    expect(el.style.background).toBe('');
+  }));
+
+  it('tints .project-pages with a background derived from the accent color once one is set (#428)', fakeAsync(() => {
+    const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
+    logIn();
+    navigateToProjectSummary();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(3);
+    lists.forEach((request) => request.flush([TINTED_PROJECT]));
+    const trees = httpMock.match('/api/projects/1/issues/tree');
+    expect(trees.length).toBe(2);
+    trees.forEach((request) => request.flush([]));
+    flushUsageWidget();
+    flushProjectConsoleSessions();
+    flushConsoleIndicator();
+    fixture.detectChanges();
+    flushProjectWorktrees();
+
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
+    // terracotta (#c15f3c) blended toward white at the same ~13% ratio
+    // AccentThemeStore's own presets use for their `accentSoft` companion.
+    expect(el.style.background).toBe('rgb(247, 234, 230)');
   }));
 
   it('deleting a project from its summary page refreshes the sidenav in place (#249)', fakeAsync(() => {

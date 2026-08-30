@@ -13,6 +13,7 @@ describe('AddProjectPopupComponent', () => {
     gitUrl: 'https://github.com/foo/bar.git',
     workareaPath: '/tmp/bar',
     defaultBranch: null,
+    accentColor: null,
     status: 'CLONING',
     createdAt: '',
   };

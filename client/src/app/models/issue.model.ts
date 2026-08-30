@@ -84,4 +84,5 @@ export interface Project {
   defaultBranch: string | null;
   status: 'CLONING' | 'READY' | 'FAILED';
   createdAt: string;
+  accentColor: string | null;
 }

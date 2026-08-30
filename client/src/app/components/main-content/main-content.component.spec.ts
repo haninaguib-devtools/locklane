@@ -66,6 +66,7 @@ describe('MainContentComponent', () => {
         gitUrl: 'https://github.com/org/repo.git',
         workareaPath: '/tmp/repo',
         defaultBranch: 'main',
+        accentColor: null,
         status: 'READY',
         createdAt: '',
       },
