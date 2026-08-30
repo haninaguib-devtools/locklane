@@ -15,12 +15,18 @@ import java.util.regex.Pattern;
 /**
  * Starts a new agent session for an issue that has none yet, so the client (#20)
  * never has to guess a working directory itself. Mirrors what {@code /t-wtree}
- * already does for the human-facing pipeline — a real {@code git worktree add} on a
- * {@code wip/<id>-<slug>} branch, in a sibling {@code ../<repo-name>-<id>} checkout
- * — chosen over a lighter-weight non-git convention because per-worktree isolation
- * is the whole point of this app's agent model (ADR-002); a session that silently
- * reused the main checkout would undermine that. See the task record for the full
- * reasoning.
+ * already does for the human-facing pipeline — a real {@code git worktree add}, in a
+ * sibling {@code ../<repo-name>-<id>} checkout — chosen over a lighter-weight non-git
+ * convention because per-worktree isolation is the whole point of this app's agent
+ * model (ADR-002); a session that silently reused the main checkout would undermine
+ * that. See the task record for the full reasoning.
+ *
+ * <p>Since #340, opening a console never mints a {@code wip/<id>-<slug>} branch itself:
+ * if one already exists for the issue (locally or on origin) it is checked out — work
+ * is already in flight there — otherwise the worktree is created detached at the
+ * current {@code origin/main}, leaving branch creation to {@code /t-work} once
+ * implementation actually starts (see {@link #openIssueWorktree}). A console opened
+ * only to discuss or plan an issue therefore leaves no branch behind.
  *
  * <p>Since #43, the checkout a session is created against is resolved per project
  * (each project's own workarea, from {@link ProjectRepository}) rather than a
@@ -119,11 +125,8 @@ public class WorktreeCreationService {
 
         String slug = slug(issue.get().title());
         String worktreeId = projectId + "-" + issueNumber + "-" + slug;
-        String branch = "wip/" + issueNumber + "-" + slug;
 
-        if (!Files.exists(worktreePath)) {
-            createWorktree(branch, worktreePath, projectRoot);
-        }
+        openIssueWorktree(issueNumber, worktreePath, projectRoot);
         return Optional.of(new StartedSession(worktreeId, worktreePath.toString()));
     }
 
@@ -163,13 +166,10 @@ public class WorktreeCreationService {
             return Optional.of(new StartedSession(sessionId, projectRoot.toString()));
         }
         Path worktreePath = projectRoot.resolveSibling(repoName(projectRoot) + "-" + issueNumber);
-        if (!Files.exists(worktreePath)) {
-            Optional<GhIssue> issue = issue(projectId, issueNumber);
-            if (issue.isEmpty()) {
-                return Optional.empty();
-            }
-            createWorktree("wip/" + issueNumber + "-" + slug(issue.get().title()), worktreePath, projectRoot);
+        if (!Files.exists(worktreePath) && issue(projectId, issueNumber).isEmpty()) {
+            return Optional.empty();
         }
+        openIssueWorktree(issueNumber, worktreePath, projectRoot);
         return Optional.of(new StartedSession(sessionId, worktreePath.toString()));
     }
 
@@ -208,6 +208,86 @@ public class WorktreeCreationService {
             throw new WorktreeCreationException(
                     "git worktree add failed for branch '" + branch + "': " + result.stderr().strip());
         }
+    }
+
+    /**
+     * Opens the one worktree an issue console runs in, git-wise (#340): if a
+     * {@code wip/<issueNumber>-*} branch already exists — locally or on origin, work is
+     * already in flight there — check it out, so naming/branch-creation authority stays
+     * with {@code /t-work} rather than being split between it and console-open.
+     * Otherwise no branch is minted here at all: the worktree is created detached at
+     * the current {@code origin/main}, so a console opened only to discuss or plan
+     * leaves no machine-made branch behind. When the worktree already exists on disk —
+     * a still-standing checkout from an earlier console — and it is idle (detached,
+     * clean, its {@code HEAD} entirely contained in {@code origin/main}'s history, i.e.
+     * no commits of its own), it is refreshed to the current {@code origin/main} rather
+     * than handed back as stale as the day it was created; a worktree carrying a
+     * branch, dirty state, or its own commits is left untouched.
+     */
+    static void openIssueWorktree(int issueNumber, Path worktreePath, Path projectRoot) {
+        run("git", "-C", projectRoot.toString(), "fetch", "--prune", "origin");
+
+        if (Files.exists(worktreePath)) {
+            refreshIfIdle(worktreePath);
+            return;
+        }
+
+        Optional<String> branch = existingBranch(issueNumber, projectRoot);
+        ProcessResult result = branch.isPresent()
+                ? run("git", "-C", projectRoot.toString(), "worktree", "add", worktreePath.toString(), branch.get())
+                : run("git", "-C", projectRoot.toString(), "worktree", "add", "--detach", worktreePath.toString(),
+                        "origin/main");
+
+        if (result.exitCode() != 0) {
+            throw new WorktreeCreationException(
+                    "git worktree add failed for issue #" + issueNumber + ": " + result.stderr().strip());
+        }
+    }
+
+    /**
+     * The name of an already-existing {@code wip/<issueNumber>-*} branch — checked
+     * locally first, then among origin's remote-tracking refs (with the {@code origin/}
+     * prefix stripped, since {@code git worktree add} takes a branch name, not a
+     * remote-tracking ref) — or empty when neither has one. Assumes the caller already
+     * fetched, so origin's remote-tracking refs are current.
+     */
+    private static Optional<String> existingBranch(int issueNumber, Path projectRoot) {
+        String prefix = "wip/" + issueNumber + "-";
+        Optional<String> local = firstMatchingRef(projectRoot, "refs/heads/" + prefix + "*");
+        if (local.isPresent()) {
+            return local;
+        }
+        return firstMatchingRef(projectRoot, "refs/remotes/origin/" + prefix + "*")
+                .map(ref -> ref.substring("origin/".length()));
+    }
+
+    private static Optional<String> firstMatchingRef(Path projectRoot, String pattern) {
+        ProcessResult result =
+                run("git", "-C", projectRoot.toString(), "for-each-ref", "--format=%(refname:short)", pattern);
+        return result.stdout().lines().map(String::strip).filter(line -> !line.isEmpty()).findFirst();
+    }
+
+    /**
+     * Fast-forwards {@code worktreePath} to the current {@code origin/main} when it is
+     * idle — detached, clean, and carrying no commits of its own — leaving it alone
+     * otherwise (#340). Best-effort: a failure here never stops the worktree from being
+     * handed back, since the checkout itself is already usable as it stands.
+     */
+    private static void refreshIfIdle(Path worktreePath) {
+        boolean detached = run("git", "-C", worktreePath.toString(), "symbolic-ref", "-q", "HEAD").exitCode() != 0;
+        if (!detached) {
+            return;
+        }
+        boolean clean = run("git", "-C", worktreePath.toString(), "status", "--porcelain").stdout().isBlank();
+        if (!clean) {
+            return;
+        }
+        boolean noOwnCommits = run("git", "-C", worktreePath.toString(), "merge-base", "--is-ancestor", "HEAD",
+                "origin/main").exitCode() == 0;
+        if (!noOwnCommits) {
+            return;
+        }
+        run("git", "-C", worktreePath.toString(), "checkout", "--detach", "origin/main");
     }
 
     /** Package-visible for the same reason as {@link #createWorktree}: shared with {@link ProjectConsoleService}. */

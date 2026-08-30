@@ -128,7 +128,7 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void createsARealWorktreeOnANewBranch(@TempDir Path tmp) throws Exception {
+    void createsARealWorktreeDetachedAtOriginMainWithNoBranchWhenNoneExistsYet(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
@@ -142,10 +142,143 @@ class WorktreeCreationServiceTest {
                 .contains(projectId + "-42-add-the-frobnicator");
         Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-42");
         assertThat(worktreePath).isDirectory();
-        // The git branch itself carries no project prefix -- each project is its own repo.
-        assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/42-add-the-frobnicator");
+        // No branch is minted at console-open (#340) -- the worktree sits on a detached
+        // HEAD, pointed at the same commit as origin/main, and no wip/42-* branch exists.
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEmpty();
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(GitTestRepos.headCommit(projectRoot));
+        assertThat(GitTestRepos.localBranches(projectRoot)).noneMatch(b -> b.startsWith("wip/42-"));
         assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
                 .contains(worktreePath.toString());
+    }
+
+    @Test
+    void checksOutAnAlreadyExistingLocalWipBranchInsteadOfMintingOne(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        GitTestRepos.createLocalBranch(projectRoot, "wip/43-already-in-flight");
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(43, "Renamed since the branch was made", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> result = service.startSession(projectId, 43);
+
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-43");
+        assertThat(worktreePath).isDirectory();
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/43-already-in-flight");
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .contains(worktreePath.toString());
+    }
+
+    @Test
+    void checksOutAWipBranchThatOnlyExistsOnOrigin(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        GitTestRepos.pushNewRemoteBranch(projectRoot, "wip/44-only-on-origin");
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(44, "Only on origin", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> result = service.startSession(projectId, 44);
+
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-44");
+        assertThat(worktreePath).isDirectory();
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/44-only-on-origin");
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .contains(worktreePath.toString());
+    }
+
+    @Test
+    void reopeningAnIdleDetachedWorktreeFastForwardsItToCurrentOriginMain(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(45, "Idle worktree", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        // First open: no branch yet, so the worktree lands detached at origin/main.
+        service.startSession(projectId, 45);
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-45");
+        String staleCommit = GitTestRepos.headCommit(worktreePath);
+
+        // origin/main moves on without the worktree.
+        GitTestRepos.commitAndPush(projectRoot, "second commit");
+        String freshCommit = GitTestRepos.headCommit(projectRoot);
+        assertThat(freshCommit).isNotEqualTo(staleCommit);
+
+        // Reopening the console (no live session recorded) refreshes the idle worktree.
+        service.startSession(projectId, 45);
+
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(freshCommit);
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEmpty();
+    }
+
+    @Test
+    void aWorktreeOnABranchIsLeftUntouchedOnReopen(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(46, "Branch in flight", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        service.startSession(projectId, 46);
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-46");
+        String startCommit = GitTestRepos.headCommit(worktreePath);
+        // /t-work has since started implementation: the worktree now carries its own branch.
+        GitTestRepos.checkoutNewBranch(worktreePath, "wip/46-branch-in-flight");
+
+        GitTestRepos.commitAndPush(projectRoot, "origin moves on");
+
+        service.startSession(projectId, 46);
+
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/46-branch-in-flight");
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(startCommit);
+    }
+
+    @Test
+    void aDirtyDetachedWorktreeIsLeftUntouchedOnReopen(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(47, "Dirty worktree", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        service.startSession(projectId, 47);
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-47");
+        String startCommit = GitTestRepos.headCommit(worktreePath);
+        Files.writeString(worktreePath.resolve("scratch.txt"), "uncommitted work");
+
+        GitTestRepos.commitAndPush(projectRoot, "origin moves on");
+
+        service.startSession(projectId, 47);
+
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(startCommit);
+        assertThat(worktreePath.resolve("scratch.txt")).exists();
+    }
+
+    @Test
+    void aDetachedWorktreeWithItsOwnCommitIsLeftUntouchedOnReopen(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(48, "Detached with a commit", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        service.startSession(projectId, 48);
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-48");
+        GitTestRepos.commitOnDetachedHead(worktreePath, "an experiment nobody pushed");
+        String ownCommit = GitTestRepos.headCommit(worktreePath);
+
+        GitTestRepos.commitAndPush(projectRoot, "origin moves on too");
+
+        service.startSession(projectId, 48);
+
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(ownCommit);
     }
 
     @Test
