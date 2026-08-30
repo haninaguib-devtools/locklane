@@ -9,6 +9,12 @@ import { GhIssue } from '../../models/issue.model';
 })
 export class IssueHeaderComponent {
   @Input({ required: true }) issue!: GhIssue;
+  /** The project's repository on the web, when known -- the title links into it. */
+  @Input() repoWebUrl: string | null = null;
+
+  get issueUrl(): string | null {
+    return this.repoWebUrl ? `${this.repoWebUrl}/issues/${this.issue.number}` : null;
+  }
 
   // One line, truncated: the body's first paragraph, headings stripped, collapsed
   // to a single line.
