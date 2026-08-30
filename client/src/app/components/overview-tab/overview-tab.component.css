@@ -143,9 +143,43 @@ dd a {
   color: var(--faint);
 }
 
+.checks-toggle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.checks-toggle:hover .checks-summary,
+.checks-toggle:focus-visible .checks-summary {
+  text-decoration: underline;
+}
+
+.caret {
+  flex: none;
+  width: 1em;
+  color: var(--faint);
+}
+
+.checks-panel {
+  margin-top: 6px;
+}
+
+.checks-tab-link {
+  display: inline-block;
+  margin-top: 6px;
+}
+
 .checks {
   list-style: none;
-  margin: 0 0 6px;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
