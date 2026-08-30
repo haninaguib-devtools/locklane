@@ -1,3 +1,4 @@
+import { TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
 import { OverviewTabComponent } from './overview-tab.component';
 import { GhIssue, IssueDetail } from '../../models/issue.model';
@@ -170,5 +171,48 @@ describe('OverviewTabComponent', () => {
     const html = c.bodyHtml as unknown as string;
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('alert(1)');
+  });
+});
+
+describe('OverviewTabComponent details list', () => {
+  beforeEach(() => TestBed.configureTestingModule({ imports: [OverviewTabComponent] }));
+
+  function render(labels: string[]): HTMLElement {
+    const fixture = TestBed.createComponent(OverviewTabComponent);
+    fixture.componentRef.setInput('issue', {
+      number: 42,
+      title: 'T',
+      state: 'OPEN',
+      labels,
+      body: '',
+      createdAt: '',
+      updatedAt: '',
+    } as GhIssue);
+    fixture.componentRef.setInput('detail', {
+      number: 42,
+      recordPath: null,
+      checks: { passing: 0, failing: 0, pending: 0 },
+      branch: null,
+      prNumber: null,
+      prState: null,
+      prDraft: false,
+      flowSteps: [],
+    } as IssueDetail);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('lists where the work lives first, then the record, then the checks', () => {
+    const terms = Array.from(render([]).querySelectorAll('.details dt')).map((dt) =>
+      dt.textContent!.trim()
+    );
+    expect(terms).toEqual(['branch & PR', 'record', 'checks']);
+  });
+
+  it('no longer carries a tags row, even when the issue has labels', () => {
+    const terms = Array.from(render(['client']).querySelectorAll('.details dt')).map((dt) =>
+      dt.textContent!.trim()
+    );
+    expect(terms).not.toContain('tags');
   });
 });

@@ -2,20 +2,6 @@
   <div class="main-col">
     @if (detail) {
       <dl class="details">
-        <dt>record</dt>
-        <dd>
-          @if (detail.recordPath && recordUrl) {
-            <a [href]="recordUrl" target="_blank" rel="noopener">{{ detail.recordPath }}</a>
-          } @else {
-            {{ detail.recordPath ?? 'no record yet' }}
-          }
-        </dd>
-        @if (issue.labels.length) {
-          <dt>tags</dt>
-          <dd>{{ issue.labels.join(', ') }}</dd>
-        }
-        <dt>checks</dt>
-        <dd>{{ checksLabel(detail) }}</dd>
         <dt>branch &amp; PR</dt>
         <dd>
           @if (prUrl) {
@@ -24,6 +10,16 @@
             {{ branchLabel(detail) }}
           }
         </dd>
+        <dt>record</dt>
+        <dd>
+          @if (detail.recordPath && recordUrl) {
+            <a [href]="recordUrl" target="_blank" rel="noopener">{{ detail.recordPath }}</a>
+          } @else {
+            {{ detail.recordPath ?? 'no record yet' }}
+          }
+        </dd>
+        <dt>checks</dt>
+        <dd>{{ checksLabel(detail) }}</dd>
       </dl>
     } @else {
       <p class="loading">loading…</p>
