@@ -196,7 +196,9 @@
             [title]="hasAttentionWaiting(projectId, node.number) ? 'Waiting for you' : 'Has an open console'"
           ></span>
         }
-        <span class="issue-state">{{ node.state.toLowerCase() }}</span>
+        @if (!hideShipped) {
+          <span class="issue-state">{{ node.state.toLowerCase() }}</span>
+        }
 
         <div class="menu-wrap">
           <button
