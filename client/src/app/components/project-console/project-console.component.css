@@ -80,10 +80,25 @@ h1 {
   background: var(--accent-soft);
 }
 
+/* The region the tab bodies share -- see main-content.component.css for why it is
+   positioned (#375). */
+.tab-bodies {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 /* The inactive tab stays mounted -- a console holds a live PTY connection
-   that must survive switching to another console and back. */
+   that must survive switching to another console and back. It keeps a layout
+   box rather than being removed with `display: none`, so a tab that mounts
+   while hidden can still be measured and connects at its real size (#375). */
 app-terminal.tab-hidden {
-  display: none;
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* The past-conversations disclosure (#372). Collapsed by default and out of the

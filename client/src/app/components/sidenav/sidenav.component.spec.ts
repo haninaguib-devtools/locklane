@@ -6,10 +6,8 @@ import { SidenavComponent } from './sidenav.component';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
-import { ConsolesService } from '../../services/consoles.service';
 import { EventsService } from '../../services/events.service';
 import { IssuesService } from '../../services/issues.service';
-import { AgentStore } from '../../services/agent-store';
 import { Project, TreeNode } from '../../models/issue.model';
 import { UsageSnapshot } from '../../models/usage.model';
 
@@ -749,93 +747,51 @@ describe('SidenavComponent', () => {
     expect(pinnedName.textContent!.trim()).toBe('proj-a');
   });
 
-  it('the header "+" mints a new console and lands on it, without selecting the project (#180)', () => {
-    localStorage.removeItem('locklane.sessionAgents');
+  it('the header "+" asks the console page for a new console, without selecting the project (#180, #370)', () => {
     const fixture = init();
     flushTree(1, tree());
     fixture.detectChanges();
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
     const emitted: number[] = [];
     fixture.componentInstance.projectSelected.subscribe((id) => emitted.push(id));
-    const opened = jasmine.createSpy('onOpened');
-    TestBed.inject(ConsolesService).onOpened.subscribe(opened);
 
     (fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement).click();
-    httpMock
-      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
-      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
-    flushConsoles();
 
-    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
-      queryParams: { session: 'proj-1-console-abc' },
-    });
+    // #370: the click mints nothing here -- a session the engine has never attached
+    // to is missing from the console page's open list, so handing one over by id
+    // landed the user in some other console and stranded the new one's worktree.
+    // The request rides in `?new` and the page mints it.
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+    httpMock.expectNone({ method: 'POST', url: '/api/projects/1/console' });
     expect(emitted).toEqual([]);
-    // The one-click entry has no agent picker: the new console gets the Settings
-    // default agent (#219), 'claude' when nothing else was chosen there.
-    expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('claude');
-    // #194: the header consoles widget must learn about it, the same way any other
-    // newly opened console is announced.
-    expect(opened).toHaveBeenCalled();
-    localStorage.removeItem('locklane.sessionAgents');
   });
 
-  it('the header "+" uses the Settings default agent instead of hardcoding claude (#221)', () => {
-    localStorage.removeItem('locklane.sessionAgents');
-    localStorage.setItem('locklane.defaultAgent', 'codex');
+  it('the header "+" asks for a new console even when the project already has some open (#370)', () => {
     const fixture = init();
-    flushTree(1, tree());
-    fixture.detectChanges();
-    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
-
-    (fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement).click();
-    httpMock
-      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
-      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
-    flushConsoles();
-
-    expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('codex');
-    localStorage.removeItem('locklane.sessionAgents');
-    localStorage.removeItem('locklane.defaultAgent');
-  });
-
-  it('the "+" ignores further clicks while a console is still being minted (#180)', () => {
-    const fixture = init();
-    flushTree(1, tree());
-    fixture.detectChanges();
-    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
-
-    const plus = fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement;
-    plus.click();
-    plus.click();
-
-    // Only one mint in flight: the second click was a no-op.
-    httpMock
-      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
-      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
-    flushConsoles();
-    localStorage.removeItem('locklane.sessionAgents');
-  });
-
-  it('a failed mint re-arms the "+" instead of leaving it stuck (#180)', () => {
-    const fixture = init();
-    flushTree(1, tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    // This project already has an open project-level console -- the case that used
+    // to hand the user back into that existing console instead of a new one.
+    httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console-a1b2c3d4']);
     fixture.detectChanges();
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
-    const plus = fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement;
-    plus.click();
-    httpMock
-      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
-      .error(new ProgressEvent('network error'));
-    expect(navigate).not.toHaveBeenCalled();
+    (fixture.nativeElement.querySelector('.section-header .new-console') as HTMLElement).click();
 
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+    httpMock.expectNone({ method: 'POST', url: '/api/projects/1/console' });
+  });
+
+  it('the "+" stays enabled -- opening is the console page\'s job now (#370)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    const plus = fixture.nativeElement.querySelector('.section-header .new-console') as HTMLButtonElement;
     plus.click();
-    httpMock
-      .expectOne({ method: 'POST', url: '/api/projects/1/console' })
-      .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
-    flushConsoles();
-    expect(navigate).toHaveBeenCalled();
-    localStorage.removeItem('locklane.sessionAgents');
+    fixture.detectChanges();
+
+    expect(plus.disabled).toBeFalse();
   });
 
   it('a project-level console with no issue attached lights the project dot (#330)', () => {

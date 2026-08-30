@@ -35,16 +35,20 @@
   @if (closeError) {
     <div class="action-error strip-error">could not close that console — try again</div>
   }
-  @for (console of consoles; track console.id) {
-    <app-terminal
-      [class.tab-hidden]="console.id !== selected"
-      [sessionId]="console.id"
-      [dir]="console.dir"
-      [cmd]="console.agent"
-      [resume]="console.resume"
-      [active]="console.id === selected"
-    />
-  }
+  <!-- The positioning context every tab body is sized against (#375) -- see the same
+       wrapper in main-content.component.html. -->
+  <div class="tab-bodies">
+    @for (console of consoles; track console.id) {
+      <app-terminal
+        [class.tab-hidden]="console.id !== selected"
+        [sessionId]="console.id"
+        [dir]="console.dir"
+        [cmd]="console.agent"
+        [resume]="console.resume"
+        [active]="console.id === selected"
+      />
+    }
+  </div>
 } @else {
   <div class="starter">
     <p class="hint">

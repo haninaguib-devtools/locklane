@@ -354,6 +354,147 @@ describe('ProjectConsoleComponent', () => {
     expect(notified).toBe(1);
   }));
 
+  // #370: the sidenav's "+" used to mint the session itself and hand it over as
+  // ?session=<id>. The engine only lists a console as open once something has
+  // attached to it, so that id was never in the list, the page discarded it, and
+  // the user landed in an existing console while the new one's worktree was left
+  // behind. The "+" now asks with ?new and this page does the minting.
+  it('starts a brand-new console for a ?new request, alongside the consoles already open (#370)', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/projects/1/console?new=1');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([
+      row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
+      row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
+    ]);
+    fixture.detectChanges();
+    tick();
+
+    const req = httpMock.expectOne('/api/projects/1/console');
+    expect(req.request.method).toBe('POST');
+    req.flush({ sessionId: '1-console-c9d0e1f2', workingDirectory: '/repo-console-c9d0e1f2' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-c9d0e1f2');
+    // The two that were already open are still here, with the new one alongside.
+    const tabs = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.tab'),
+    ).map((b) => b.textContent!.trim());
+    // The new one carries its agent; the two reattached ones were not launched by
+    // this browser, so AgentStore knows nothing about them.
+    expect(tabs).toEqual(['console', 'console 2', 'console 3 · claude']);
+  }));
+
+  it('gives a ?new console the Settings default agent, with no picker (#219, #370)', fakeAsync(() => {
+    TestBed.inject(DefaultAgentStore).set('codex');
+    TestBed.inject(Router).navigateByUrl('/projects/1/console?new=1');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+    tick();
+    httpMock
+      .expectOne('/api/projects/1/console')
+      .flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
+    fixture.detectChanges();
+
+    expect(TestBed.inject(AgentStore).get('1-console-e5f6a7b8')).toBe('codex');
+    expect((fixture.nativeElement as HTMLElement).querySelector('app-agent-picker')).toBeFalsy();
+  }));
+
+  it('drops ?new once it has been acted on, so a reload does not mint another (#370)', fakeAsync(() => {
+    const router = TestBed.inject(Router);
+    router.navigateByUrl('/projects/1/console?new=1&focus=1');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+    tick();
+    httpMock
+      .expectOne('/api/projects/1/console')
+      .flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
+    fixture.detectChanges();
+    tick();
+
+    expect(router.url).not.toContain('new=1');
+    // Every other param the URL was carrying survives (#286's focused window).
+    expect(router.url).toContain('focus=1');
+  }));
+
+  it('starts another console when ?new arrives while this page is already showing (#370)', fakeAsync(() => {
+    const router = TestBed.inject(Router);
+    router.navigateByUrl('/projects/1/console');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    // The project id never changes, so nothing but the query param tells the page
+    // the sidenav's "+" was clicked again.
+    router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+    tick();
+    httpMock
+      .expectOne('/api/projects/1/console')
+      .flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
+    fixture.detectChanges();
+    tick();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
+    expect((fixture.nativeElement as HTMLElement).querySelectorAll('app-terminal').length).toBe(2);
+  }));
+
+  it('ignores a further ?new while one console is still being started (#180, #370)', fakeAsync(() => {
+    const router = TestBed.inject(Router);
+    router.navigateByUrl('/projects/1/console');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+    tick();
+    router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+    tick();
+
+    // Only one mint in flight: the second "+" click was a no-op.
+    const requests = httpMock.match('/api/projects/1/console');
+    expect(requests.length).toBe(1);
+    requests[0].flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
+    fixture.detectChanges();
+    tick();
+  }));
+
+  it('re-arms after a failed ?new start instead of staying stuck (#180, #370)', fakeAsync(() => {
+    const router = TestBed.inject(Router);
+    router.navigateByUrl('/projects/1/console');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+    tick();
+    httpMock.expectOne('/api/projects/1/console').flush(null, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.startError).toBeTrue();
+
+    router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+    tick();
+    httpMock
+      .expectOne('/api/projects/1/console')
+      .flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
+    fixture.detectChanges();
+    tick();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
+  }));
+
   it('reloads when the project id changes', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
