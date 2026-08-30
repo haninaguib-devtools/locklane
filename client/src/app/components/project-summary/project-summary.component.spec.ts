@@ -348,10 +348,14 @@ describe('ProjectSummaryComponent', () => {
 
     expect(fixture.componentInstance.project?.accentColor).toBe('#5c8a4e');
     // CurrentProjectService is only ever constructed lazily, on first actual use
-    // (its own constructor immediately fetches the project list) -- this is that
-    // first use, triggered by chooseAccentColor's own refresh() call, not by this
-    // page's normal load.
-    httpMock.expectOne('/api/projects').flush([{ ...PROJECT, accentColor: '#5c8a4e' }]);
+    // -- this is that first use. In the real app it's already alive by the time
+    // this page exists (AppComponent's topbar reads it unconditionally), so its
+    // own constructor fetch and this explicit refresh() never coincide there;
+    // here, with no AppComponent in the tree, both fire: one from construction,
+    // one from the explicit call refreshCurrentProject() always makes.
+    const requests = httpMock.match('/api/projects');
+    expect(requests.length).toBe(2);
+    requests.forEach((request) => request.flush([{ ...PROJECT, accentColor: '#5c8a4e' }]));
   });
 
   it('shows an error and re-arms the swatches when setting the accent color fails (#428)', () => {

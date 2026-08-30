@@ -46,23 +46,16 @@ export class ProjectSummaryComponent implements OnChanges {
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
 
-  // Lazy, like AppComponent's own `currentProject` getter: CurrentProjectService
-  // fetches the project list as soon as it exists, and an eager field here would
-  // construct it -- firing that extra fetch -- on every load of this page, not
-  // only the rare one where the accent-color picker below actually needs it.
-  private currentProjectServiceRef: CurrentProjectService | null = null;
-
-  // Refreshes CurrentProjectService's cached project list after this page changes
-  // one (#428). *Constructing* it already fires its own one-shot fetch (see the
-  // comment on its own constructor) -- calling `.refresh()` again immediately
-  // after would fire a second, redundant one, so that explicit call only happens
-  // once the service already existed before this call.
+  // Lazy, like AppComponent's own `currentProject` getter: an eager field would
+  // construct CurrentProjectService on every load of this page, not only the
+  // rare one where the accent-color picker below actually needs it. In the
+  // running app it is always already constructed by the time this component
+  // exists (AppComponent's topbar reads its own `currentProject` unconditionally),
+  // so `.refresh()` is always called explicitly here -- never skipped on the
+  // assumption that obtaining the reference just now means it was *just*
+  // constructed and so already fetched fresh on its own.
   private refreshCurrentProject(): void {
-    if (this.currentProjectServiceRef) {
-      this.currentProjectServiceRef.refresh();
-    } else {
-      this.currentProjectServiceRef = this.injector.get(CurrentProjectService);
-    }
+    this.injector.get(CurrentProjectService).refresh();
   }
 
   // The project's own accent-color picker (#428) reuses the global setting's four

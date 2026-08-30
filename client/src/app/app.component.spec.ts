@@ -316,6 +316,42 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('.brand')?.textContent?.trim()).toBe('LockLane - proj');
   }));
 
+  it('picking an accent color from the project summary tints .project-pages immediately, the first time in the session (#428)', fakeAsync(() => {
+    logIn();
+    navigateToProjectSummary();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    flushSidenavAndSummary();
+    flushProjectConsoleSessions();
+    flushConsoleIndicator();
+    fixture.detectChanges();
+    flushProjectWorktrees();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
+
+    // Sage is the second preset (accent-theme-store.ts).
+    compiled.querySelectorAll<HTMLButtonElement>('.accent-swatch')[1].click();
+    httpMock.expectOne('/api/projects/1/accent-color').flush(null);
+    fixture.detectChanges();
+
+    // CurrentProjectService was already constructed by the header's own
+    // `headerTitle` read, well before this click -- this must still be an
+    // explicit re-fetch, not a no-op left over from that earlier construction
+    // (the bug this test guards against).
+    httpMock.expectOne('/api/projects').flush([{ ...PROJECT, accentColor: '#5c8a4e' }]);
+    // The console indicator re-derives from CurrentProjectService's own
+    // `projects$` (console-indicator.component.ts), so this refresh also
+    // re-fires its consoles/issues fetch -- a real, expected ripple, not
+    // specific to this bug fix.
+    flushConsoleIndicator();
+    fixture.detectChanges();
+
+    // sage (#5c8a4e) blended toward white at the same ~13% ratio.
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('rgb(234, 240, 232)');
+  }));
+
   it('leaves .project-pages at its default background when the project has no accent color (#428)', fakeAsync(() => {
     const fixture = openedApp();
 

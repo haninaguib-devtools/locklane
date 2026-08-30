@@ -60,9 +60,26 @@ navbar, header, and anything shown outside a project's own pages.
 
 ## Deviations / notes
 - Adding a required field to `Project` means every existing fixture literal typed as
-  `Project` needed it too, or the build fails to compile — six otherwise-unrelated spec
-  files (`app.component.spec.ts`, `add-project-popup.component.spec.ts`,
-  `console-indicator.component.spec.ts`, `main-content.component.spec.ts`,
-  `overview.component.spec.ts`, `sidenav.component.spec.ts`) each gained one
-  `accentColor: null,` line in their existing `Project` fixtures — no behavior in any
-  of those components' own tests changed.
+  `Project` needed it too, or the build fails to compile — five otherwise-unrelated spec
+  files (`add-project-popup.component.spec.ts`, `console-indicator.component.spec.ts`,
+  `main-content.component.spec.ts`, `overview.component.spec.ts`,
+  `sidenav.component.spec.ts`) each gained one `accentColor: null,` line in their
+  existing `Project` fixtures — no behavior in any of those components' own tests
+  changed. (`app.component.spec.ts` is separately in-scope, as the layout/shell test
+  file, and also gained real new tests below.)
+- **Fix pass (2026-08-30), addressing `/t-review`'s high finding on PR #430:**
+  `chooseAccentColor`'s original `refreshCurrentProject()` assumed obtaining
+  `CurrentProjectService` for the first time from this component meant it was being
+  *constructed* for the first time (and so had already fetched fresh via its own
+  constructor) — true only when this component is tested in isolation, never in the
+  real app, where `AppComponent`'s topbar already constructs it unconditionally before
+  any project page exists. That made the very first accent-color change in a session a
+  silent no-op: the picker updated, but `.project-pages`' tint never did until some
+  unrelated change happened to call `refresh()` again. Fixed by always calling
+  `.refresh()` explicitly, unconditionally, dropping the "first access" special case
+  entirely (`project-summary.component.ts`). Added
+  `app.component.spec.ts`'s `'picking an accent color from the project summary tints
+  .project-pages immediately, the first time in the session'` test, which mounts the
+  full `AppComponent` tree (so `CurrentProjectService` is already alive beforehand,
+  reproducing the exact condition the bug needed) and asserts the tint actually updates
+  on the very first pick — this is the test that would have caught the original bug.
