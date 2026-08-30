@@ -70,12 +70,11 @@
           </div>
         </div>
 
-        <p class="note">Requires Java 21+ and the authenticated GitHub CLI while the repository is private. The installer places the jar, updater, and local configuration in <code>~/.locklane</code>.</p>
+        <p class="note">Requires Java 21+ and the authenticated GitHub CLI while the repository is private. The installer places the jar, updater, uninstaller, and local configuration in <code>~/.locklane</code>.</p>
 
-        <div class="run-command">
-          <span>Then start it:</span>
-          <code>cd ~/.locklane &amp;&amp; java -jar locklane.jar</code>
-        </div>
+        <p class="note">There is no second step: the installer starts the server for you and registers it to keep running &mdash; as a per-user background service, a systemd user service on Linux or a launchd agent on macOS, so it comes back after a reboot and restarts itself if it crashes. On a host with neither, it starts the server detached instead; that copy runs until the machine restarts, and you start it again yourself afterwards.</p>
+
+        <p class="note">To remove LockLane, run <code>~/.locklane/uninstall.sh</code>. It stops the server and de-registers the service, then asks separately whether to delete <code>~/.locklane</code> along with the accounts, projects, and database inside it &mdash; keeping your data unless you say otherwise.</p>
       </section>
 
       <section class="about wrap" id="about" aria-labelledby="about-title">
