@@ -241,6 +241,28 @@ class SchemaMigrationTest {
     }
 
     @Test
+    void anExistingProjectsTableGainsAccentColorWithoutLosingRows(@TempDir Path dbDir) {
+        // V11 predates accent_color (#427); V12 adds it.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "11");
+        new JdbcTemplate(oldShape).update("""
+                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at, owner_user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                "locklane", "git@example.com:x/locklane.git", "/work/locklane", "main", "READY",
+                "2026-01-01T00:00:00Z", 1L);
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+        ProjectRepository repository = new ProjectRepository(oldShape);
+
+        ProjectRecord found = repository.findByWorkareaPath(Path.of("/work/locklane")).orElseThrow();
+        assertThat(found.accentColor()).isNull();
+
+        repository.setAccentColor(found.id(), "#c15f3c");
+        assertThat(repository.findById(found.id())).isPresent().get()
+                .extracting(ProjectRecord::accentColor).isEqualTo("#c15f3c");
+    }
+
+    @Test
     void aDatabaseLeftAtAnOlderVersionByAPreviousTestRunMigratesCleanlyOnTheNextOne(@TempDir Path dbDir) {
         // Stands in for a leftover locklane-engine-test directory from a run made
         // before a migration existed: the directory is there, but the schema in it

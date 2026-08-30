@@ -54,8 +54,8 @@ public class ProjectRepository {
 
     public Optional<ProjectRecord> findById(long id) {
         return jdbcTemplate.query(
-                "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id "
-                        + "FROM projects WHERE id = ?",
+                "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
+                        + "accent_color FROM projects WHERE id = ?",
                 (rs, rowNum) -> toRecord(rs),
                 id
         ).stream().findFirst();
@@ -63,8 +63,8 @@ public class ProjectRepository {
 
     public Optional<ProjectRecord> findByWorkareaPath(Path workareaPath) {
         return jdbcTemplate.query(
-                "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id "
-                        + "FROM projects WHERE workarea_path = ?",
+                "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
+                        + "accent_color FROM projects WHERE workarea_path = ?",
                 (rs, rowNum) -> toRecord(rs),
                 workareaPath.toString()
         ).stream().findFirst();
@@ -73,16 +73,16 @@ public class ProjectRepository {
     /** Every project, regardless of owner — for an admin caller only (#239). */
     public List<ProjectRecord> findAll() {
         return jdbcTemplate.query(
-                "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id "
-                        + "FROM projects",
+                "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
+                        + "accent_color FROM projects",
                 (rs, rowNum) -> toRecord(rs));
     }
 
     /** Only the projects owned by {@code ownerUserId} (#239) — an ordinary caller's view. */
     public List<ProjectRecord> findAllOwnedBy(long ownerUserId) {
         return jdbcTemplate.query(
-                "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id "
-                        + "FROM projects WHERE owner_user_id = ?",
+                "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
+                        + "accent_color FROM projects WHERE owner_user_id = ?",
                 (rs, rowNum) -> toRecord(rs),
                 ownerUserId);
     }
@@ -126,6 +126,11 @@ public class ProjectRepository {
         return (token == null || token.isBlank()) ? Optional.empty() : Optional.of(token);
     }
 
+    /** Sets or clears (#427) the project's accent color — {@code accentColor} may be {@code null}. */
+    public void setAccentColor(long id, String accentColor) {
+        jdbcTemplate.update("UPDATE projects SET accent_color = ? WHERE id = ?", accentColor, id);
+    }
+
     private static ProjectRecord toRecord(ResultSet rs) throws SQLException {
         return new ProjectRecord(
                 rs.getLong("id"),
@@ -135,6 +140,7 @@ public class ProjectRepository {
                 Path.of(rs.getString("workarea_path")),
                 rs.getString("default_branch"),
                 ProjectStatus.valueOf(rs.getString("status")),
-                Instant.parse(rs.getString("created_at")));
+                Instant.parse(rs.getString("created_at")),
+                rs.getString("accent_color"));
     }
 }
