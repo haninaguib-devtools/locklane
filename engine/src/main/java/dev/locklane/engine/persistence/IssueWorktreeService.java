@@ -66,8 +66,8 @@ public class IssueWorktreeService {
      * Worktree ids known for this project's issue that {@code requestingUsername}
      * may see, empty if none — visibility is derived from the session's owning
      * project (#242, ADR-007 Decision 6, via {@link WorktreeSessionAuthorization}):
-     * the project's owner, or an admin, sees every session in it; anyone else sees
-     * none of them, regardless of who last attached.
+     * the project's owner sees every session in it; anyone else sees none of them,
+     * regardless of who last attached and regardless of role (#394, ADR-011).
      */
     public List<String> worktreeIdsForIssue(long projectId, int issueNumber, String requestingUsername) {
         return repository.findAll().stream()

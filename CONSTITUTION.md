@@ -131,6 +131,10 @@ any other change to this list.
    alone), its git status is clean, and its HEAD is an ancestor of `origin/main` — a
    second, distinct guarded exception to ADR-005, alongside point 2's rather than
    folded into it (ADR-010).
+5. A project is visible and operable only to the account that owns it, and a
+   worktree/console session only to the owner of its project — no role, administrator
+   included, is exempt; administrators manage accounts and nothing more (ADR-011,
+   superseding the administrator exemption in ADR-007 Decisions 1 and 6).
 <!-- /local -->
 
 ## Amendment

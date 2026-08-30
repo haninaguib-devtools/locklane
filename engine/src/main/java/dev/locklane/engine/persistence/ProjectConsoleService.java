@@ -118,8 +118,8 @@ public class ProjectConsoleService {
 
     /**
      * The project's current console session — the most recently attached open one
-     * visible to {@code requestingUsername} (this project's owner, or an admin —
-     * #242, same visibility rule as {@link IssueWorktreeService}). "Open" means it
+     * visible to {@code requestingUsername} (this project's owner, and nobody else
+     * — #242, #394, same visibility rule as {@link IssueWorktreeService}). "Open" means it
      * has a persisted record: attached to at least once and not explicitly closed.
      * Empty when the project has none. With a single open console this is exactly
      * the pre-#177 "the project's one console" answer.
@@ -153,7 +153,7 @@ public class ProjectConsoleService {
      * already writes to for every console regardless of scope. Conversations whose
      * console has since been closed are the point: the row outlives the console
      * (#101). Visibility follows the console the conversation was captured in, under
-     * the same project-owner/admin rule as {@link #listOpen} (#242) — decided
+     * the same project-owner rule as {@link #listOpen} (#242, #394) — decided
      * straight from the console id, which carries the project it belongs to, so a
      * closed console with no session record left is still filtered rather than shown
      * to everyone. The same conversation sighted in several of this project's

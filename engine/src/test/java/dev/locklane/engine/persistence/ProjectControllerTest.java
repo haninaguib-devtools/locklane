@@ -35,16 +35,22 @@ class ProjectControllerTest {
                 .extracting(ProjectController.ProjectView::name).containsExactly("bar");
     }
 
+    /**
+     * #394 (ADR-011) withdrew the administrator exemption ADR-007 Decision 1 granted:
+     * an administrator's project list is their own projects, exactly like anyone
+     * else's, and another account's project is simply absent from it.
+     */
     @Test
-    void listReturnsEveryProjectForAnAdmin(@TempDir Path tmp) throws IOException {
+    void listExcludesAnotherUsersProjectFromAnAdmin(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         Caller admin = user(tmp, "root", UserRecord.Role.ADMIN);
         repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        repository.create("roots-own", "url", tmp.resolve("roots-own"), admin.id(), Instant.now());
         ProjectController controller = controller(tmp, repository);
 
         assertThat(controller.list(admin.authentication()))
-                .extracting(ProjectController.ProjectView::name).containsExactly("foo");
+                .extracting(ProjectController.ProjectView::name).containsExactly("roots-own");
     }
 
     @Test
@@ -121,8 +127,14 @@ class ProjectControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    /**
+     * The by-id half of #394 (ADR-011): every operation that funnels through
+     * {@code findAuthorized} refuses an administrator on another account's project,
+     * as a 404 indistinguishable from the project not existing — and leaves the
+     * project itself untouched.
+     */
     @Test
-    void anAdminCanRetryAnotherUsersFailedProject(@TempDir Path tmp) throws IOException {
+    void anAdminIsDeniedEveryOperationOnAnotherUsersProject(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         Caller admin = user(tmp, "root", UserRecord.Role.ADMIN);
@@ -130,9 +142,17 @@ class ProjectControllerTest {
         repository.markFailed(created.id());
         ProjectController controller = controller(tmp, repository);
 
-        ResponseEntity<ProjectController.ProjectView> response = controller.retry(created.id(), admin.authentication());
+        assertThat(controller.retry(created.id(), admin.authentication()).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.delete(created.id(), admin.authentication()).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.setGithubToken(created.id(),
+                new ProjectController.SetGithubTokenRequest("ghp_secret"), admin.authentication()).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(repository.findGithubToken(created.id())).isEmpty();
+        assertThat(controller.list(alice.authentication()))
+                .extracting(ProjectController.ProjectView::name).containsExactly("foo");
     }
 
     @Test

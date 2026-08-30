@@ -1,6 +1,6 @@
 package dev.locklane.engine.ws;
 
-import dev.locklane.engine.persistence.UserRecord;
+import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.persistence.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -24,11 +24,13 @@ import java.util.function.Supplier;
  * a client attaches, exchanges terminal I/O, disconnects without killing the
  * session, and a new connection sees output produced while it was gone. Since #50,
  * the endpoint requires an authenticated session, so every connection here logs in
- * first via {@link AuthenticatedWebSocketClients} rather than connecting anonymously
- * — as an admin, since these worktree ids are arbitrary test strings with no real
- * project behind them, and #242's project-owner-derived authorization (covered by
- * {@code WebSocketSessionOwnershipIntegrationTest}, not here) would otherwise reject
- * every attach in this class as unowned.
+ * first via {@link AuthenticatedWebSocketClients} rather than connecting anonymously.
+ * Each test gives its user a real project of its own and prefixes its worktree id
+ * with that project's id, so #242's project-owner-derived authorization (covered by
+ * {@code WebSocketSessionOwnershipIntegrationTest}, not here) is satisfied by actual
+ * ownership. Before #394 these logged in as an admin instead and leaned on the role
+ * exemption ADR-011 withdrew; that is no longer available, and the point of this
+ * class is terminal I/O, not authorization.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class TerminalWebSocketHandlerIntegrationTest {
@@ -42,11 +44,14 @@ class TerminalWebSocketHandlerIntegrationTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private ProjectRepository projectRepository;
+
     @Test
     void aClientCanAttachAndExchangeLiveTerminalIoOverTheNetwork(@TempDir Path workDir) throws Exception {
-        String worktreeId = "ws-worktree-a";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-a", "password-a", UserRecord.Role.ADMIN);
+                "ws-handler-a", "password-a");
+        String worktreeId = ownedWorktreeId("ws-handler-a", "ws-worktree-a");
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri(worktreeId, workDir));
 
@@ -58,9 +63,9 @@ class TerminalWebSocketHandlerIntegrationTest {
 
     @Test
     void closingAConnectionDoesNotKillTheSessionAndAReattachSeesWhatWasMissed(@TempDir Path workDir) throws Exception {
-        String worktreeId = "ws-worktree-b";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-b", "password-b", UserRecord.Role.ADMIN);
+                "ws-handler-b", "password-b");
+        String worktreeId = ownedWorktreeId("ws-handler-b", "ws-worktree-b");
 
         RecordingHandler first = new RecordingHandler();
         WebSocketSession firstSession = AuthenticatedWebSocketClients.connect(first, cookie, uri(worktreeId, workDir));
@@ -86,9 +91,9 @@ class TerminalWebSocketHandlerIntegrationTest {
 
     @Test
     void aNewSessionsPtyStartsAtTheRequestedSize(@TempDir Path workDir) throws Exception {
-        String worktreeId = "ws-worktree-initial-size";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-initial-size", "password-initial-size", UserRecord.Role.ADMIN);
+                "ws-handler-initial-size", "password-initial-size");
+        String worktreeId = ownedWorktreeId("ws-handler-initial-size", "ws-worktree-initial-size");
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session =
                 AuthenticatedWebSocketClients.connect(client, cookie, uriWithSize(worktreeId, workDir, 150, 45));
@@ -101,9 +106,9 @@ class TerminalWebSocketHandlerIntegrationTest {
 
     @Test
     void aClientCanResizeTheSessionsPtyAfterAttaching(@TempDir Path workDir) throws Exception {
-        String worktreeId = "ws-worktree-resize";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-resize", "password-resize", UserRecord.Role.ADMIN);
+                "ws-handler-resize", "password-resize");
+        String worktreeId = ownedWorktreeId("ws-handler-resize", "ws-worktree-resize");
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri(worktreeId, workDir));
 
@@ -116,9 +121,9 @@ class TerminalWebSocketHandlerIntegrationTest {
 
     @Test
     void aMalformedResizeMessageIsIgnoredRatherThanBreakingTheConnection(@TempDir Path workDir) throws Exception {
-        String worktreeId = "ws-worktree-bad-resize";
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "ws-handler-bad-resize", "password-bad-resize", UserRecord.Role.ADMIN);
+                "ws-handler-bad-resize", "password-bad-resize");
+        String worktreeId = ownedWorktreeId("ws-handler-bad-resize", "ws-worktree-bad-resize");
         RecordingHandler client = new RecordingHandler();
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, uri(worktreeId, workDir));
 
@@ -127,6 +132,15 @@ class TerminalWebSocketHandlerIntegrationTest {
         waitUntil(() -> client.combined().contains("still-alive-after-bad-resize"), Duration.ofSeconds(5));
 
         session.close();
+    }
+
+    /**
+     * A worktree id under a project the given user really owns — the prefix
+     * {@code WorktreeSessionAuthorization} reads to decide the attach (#394).
+     */
+    private String ownedWorktreeId(String username, String suffix) {
+        return AuthenticatedWebSocketClients.projectOwnedBy(userRepository, projectRepository, username).id()
+                + "-" + suffix;
     }
 
     private String uri(String worktreeId, Path workDir) {

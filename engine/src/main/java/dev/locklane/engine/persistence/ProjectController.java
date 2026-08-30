@@ -23,15 +23,16 @@ import java.util.Optional;
  * CRUD over projects (#42) — creating one kicks off an async clone via
  * {@link ProjectCheckoutService}.
  *
- * <p>Every project belongs to exactly one account (#239, ADR-007 Decision 1):
- * {@code list} returns only the caller's own projects (every project for an admin
- * caller), and every by-id operation below is scoped through
+ * <p>Every project belongs to exactly one account (#239, ADR-007 Decision 1) and is
+ * private to it (#394, ADR-011, which withdrew the administrator exemption ADR-007
+ * Decisions 1 and 6 had granted): {@code list} returns only the caller's own
+ * projects, whatever their role, and every by-id operation below is scoped through
  * {@link #findAuthorized(long, Authentication)}, which resolves to empty — reported
  * as 404, indistinguishable from the project simply not existing, so a non-owner
  * can't tell someone else's project id apart from an unused one — for a project that
- * exists but isn't the caller's and the caller isn't admin. {@link SecurityConfig}
- * gates every path here as {@code authenticated()}, so {@code authentication} is
- * never null by the time a request arrives.
+ * exists but isn't the caller's. No role, administrator included, is exempt.
+ * {@link SecurityConfig} gates every path here as {@code authenticated()}, so
+ * {@code authentication} is never null by the time a request arrives.
  */
 @RestController
 @RequestMapping("/api/projects")
@@ -55,10 +56,7 @@ public class ProjectController {
     @GetMapping
     public List<ProjectView> list(Authentication authentication) {
         UserRecord caller = currentUser(authentication);
-        List<ProjectRecord> projects = caller.role() == UserRecord.Role.ADMIN
-                ? repository.findAll()
-                : repository.findAllOwnedBy(caller.id());
-        return projects.stream().map(ProjectView::from).toList();
+        return repository.findAllOwnedBy(caller.id()).stream().map(ProjectView::from).toList();
     }
 
     @PostMapping
@@ -121,9 +119,10 @@ public class ProjectController {
     }
 
     /**
-     * The project, if it exists and the caller is allowed to see it — its owner, or
-     * an admin (#239). Empty either when the project doesn't exist or when it
-     * belongs to someone else, deliberately indistinguishable to the caller.
+     * The project, if it exists and the caller owns it (#239, #394). Ownership is the
+     * whole of the check — no role is exempt (ADR-011). Empty either when the project
+     * doesn't exist or when it belongs to someone else, deliberately
+     * indistinguishable to the caller.
      */
     private Optional<ProjectRecord> findAuthorized(long id, Authentication authentication) {
         Optional<ProjectRecord> project = repository.findById(id);
@@ -131,10 +130,7 @@ public class ProjectController {
             return Optional.empty();
         }
         UserRecord caller = currentUser(authentication);
-        if (caller.role() == UserRecord.Role.ADMIN || project.get().ownerUserId() == caller.id()) {
-            return project;
-        }
-        return Optional.empty();
+        return project.filter(p -> p.ownerUserId() == caller.id());
     }
 
     private UserRecord currentUser(Authentication authentication) {
