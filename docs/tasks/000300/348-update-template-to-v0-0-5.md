@@ -46,5 +46,13 @@ migrations, and rewrite `.template-manifest.json` to pin v0.0.5.
 - The systemic collision risk remains: local ADR-002 (rewrite stack) and ADR-007
   (multi-user tenancy) still sit in the template's future numbering path — a
   numbering convention (e.g. local ADRs from 100) is worth a follow-up issue.
+- Approved deviation (haninaguib, 2026-08-29): the v0.0.5 `.gitignore` drops
+  `target/` — that line was a local edit task #10 made to the template-owned file
+  before the manifest existed, so no dirt check ever saw it. Restoring upstream's
+  file verbatim left `engine/target/` and `client/target/` untracked. Fixed outside
+  the plan's Allowed paths by adding `engine/.gitignore` and appending to
+  `client/.gitignore` (`/target/`) — module-level files this repo owns, immune to
+  future syncs. The durable alternative (template stops owning consumer ignores or
+  restores `target/`) belongs upstream.
 - Plan gate also unsatisfied: the diff touches protected surfaces and issue #348 has
   no `## Plan` yet — `/t-plan 348` required before the draft PR can pass CI.
