@@ -9,6 +9,7 @@ describe('SessionListComponent', () => {
       tool: 'claude',
       resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
       capturedAt: '2026-08-27T10:00:00Z',
+      title: null,
       ...overrides,
     };
   }
@@ -36,6 +37,28 @@ describe('SessionListComponent', () => {
     expect(rows[0].querySelector('.tool').textContent).toBe('claude');
     expect(rows[1].querySelector('.tool').textContent).toBe('codex');
     expect(rows[0].querySelector('.time').textContent).toContain('Aug 27');
+  });
+
+  it('shows the generated title in place of the captured time when there is one (#373)', () => {
+    const fixture = render([session({ title: 'Fix the sidenav filter' })]);
+
+    const row = fixture.nativeElement.querySelector('.session');
+    expect(row.querySelector('.title').textContent).toBe('Fix the sidenav filter');
+    // The time is not lost -- it moves onto the title's own tooltip.
+    expect(row.querySelector('.title').getAttribute('title')).toContain('Aug 27');
+    expect(row.querySelector('.time')).toBeNull();
+    // The tool still shows: it is what the reopened console will be launched with.
+    expect(row.querySelector('.tool').textContent).toBe('claude');
+  });
+
+  it('falls back to exactly the pre-#373 display for a session with no title', () => {
+    const fixture = render([session({ title: null }), session({ title: 'A titled one' })]);
+
+    const rows = fixture.nativeElement.querySelectorAll('.session');
+    expect(rows[0].querySelector('.time').textContent).toContain('Aug 27');
+    expect(rows[0].querySelector('.title')).toBeNull();
+    // A titled and an untitled row sit side by side in the same list.
+    expect(rows[1].querySelector('.title')).not.toBeNull();
   });
 
   it('emits the clicked session for reopening', () => {

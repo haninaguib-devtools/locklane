@@ -34,6 +34,21 @@
   color: var(--faint);
 }
 
+/* Sits exactly where the timestamp does (#373), so a titled and an untitled row line
+   up in the same list. Long titles are clipped rather than wrapped -- the rail is
+   narrow, and the full text is on the element's own tooltip along with the time the
+   row would otherwise have shown. */
+.title {
+  order: 3;
+  width: 100%;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .reopen {
   order: 2;
   margin-left: auto;

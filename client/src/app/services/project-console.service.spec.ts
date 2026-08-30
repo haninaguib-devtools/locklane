@@ -61,6 +61,7 @@ describe('ProjectConsoleService', () => {
         tool: 'claude' as const,
         resumeId: '11111111-1111-1111-1111-111111111111',
         capturedAt: '2026-08-27T10:00:00Z',
+        title: null,
       },
     ];
     service.resumeSessions(1).subscribe((result) => expect(result).toEqual(sessions));

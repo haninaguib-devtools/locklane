@@ -226,9 +226,10 @@ class ProjectConsoleControllerTest {
                 .extracting(WorktreeController.ResumeSessionView::worktreeId,
                         WorktreeController.ResumeSessionView::tool,
                         WorktreeController.ResumeSessionView::resumeId,
-                        WorktreeController.ResumeSessionView::capturedAt)
+                        WorktreeController.ResumeSessionView::capturedAt,
+                        WorktreeController.ResumeSessionView::title)
                 .containsExactly(tuple(projectId + "-console-aaaaaaaa", "claude",
-                        "11111111-1111-1111-1111-111111111111", LATER.toString()));
+                        "11111111-1111-1111-1111-111111111111", LATER.toString(), null));
         // Someone who is not the project's owner sees none of them (#242).
         assertThat(controller.resumeSessions(projectId, BOB)).isEmpty();
     }
@@ -290,9 +291,12 @@ class ProjectConsoleControllerTest {
                 new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient());
         WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, projectRepository, ghResources,
                 new SessionRegistry(sessionRepository));
+        ConsoleSessionTitles titles = new ConsoleSessionTitles(dbDir.resolve("claude"), dbDir.resolve("codex"),
+                directory -> null);
         return new ProjectConsoleController(new ProjectConsoleService(projectRepository, tokenCipher(dbDir),
                 new SessionRegistry(sessionRepository), sessionRepository,
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization, sweeper));
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization, sweeper),
+                titles);
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {

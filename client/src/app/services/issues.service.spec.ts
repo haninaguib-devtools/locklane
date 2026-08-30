@@ -118,6 +118,7 @@ describe('IssuesService', () => {
         tool: 'claude',
         resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
         capturedAt: '2026-08-27T10:00:00Z',
+        title: null,
       },
     ];
     service.resumeSessions(1, 5).subscribe((result) => expect(result).toEqual(sessions));

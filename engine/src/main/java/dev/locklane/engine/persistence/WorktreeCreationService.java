@@ -165,6 +165,31 @@ public class WorktreeCreationService {
         return Optional.of(new StartedSession(sessionId, worktreePath.toString()));
     }
 
+    /**
+     * Where a conversation captured in {@code worktreeId} actually ran — the console's
+     * recorded working directory while that record exists, and otherwise the issue's
+     * one sibling checkout, whether or not it is still on disk. The project-console
+     * counterpart is {@link ProjectConsoleService#conversationDirectory}.
+     *
+     * <p>#373 needs this to read a conversation's generated title: Claude and OpenCode
+     * both file a stored conversation under the directory it ran in, so the title
+     * cannot be found without knowing that directory. Empty for a project that is not
+     * ready and for a {@code worktreeId} outside this project's issue.
+     */
+    public Optional<Path> conversationDirectory(long projectId, int issueNumber, String worktreeId) {
+        Optional<ProjectRecord> project = projectRepository.findById(projectId);
+        if (project.isEmpty() || project.get().status() != ProjectStatus.READY) {
+            return Optional.empty();
+        }
+        if (!worktreeId.startsWith(projectId + "-" + issueNumber + "-")) {
+            return Optional.empty();
+        }
+        Path projectRoot = project.get().workareaPath();
+        return Optional.of(sessionRepository.find(worktreeId)
+                .map(WorktreeSessionRecord::workingDirectory)
+                .orElseGet(() -> projectRoot.resolveSibling(repoName(projectRoot) + "-" + issueNumber)));
+    }
+
     private Optional<GhIssue> issue(long projectId, int issueNumber) {
         return ghResources.forProject(projectId).flatMap(ctx -> ctx.cache().issue(issueNumber));
     }

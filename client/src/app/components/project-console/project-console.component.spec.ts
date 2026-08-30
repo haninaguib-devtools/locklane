@@ -388,6 +388,7 @@ describe('ProjectConsoleComponent', () => {
         tool: 'claude',
         resumeId: '11111111-1111-1111-1111-111111111111',
         capturedAt: '2026-08-27T09:30:00Z',
+        title: null,
       },
     ]);
     fixture.detectChanges();

@@ -202,6 +202,7 @@ describe('MainContentComponent', () => {
       tool: 'claude',
       resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
       capturedAt: '2026-08-27T10:00:00Z',
+      title: null,
     };
     respond(8, [], [past]);
     expect(fixture.componentInstance.resumeSessions).toEqual([past]);
@@ -238,6 +239,7 @@ describe('MainContentComponent', () => {
       tool: 'codex',
       resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
       capturedAt: '2026-08-27T10:00:00Z',
+      title: null,
     };
     respond(8, [], [past]);
 

@@ -31,9 +31,11 @@ import java.util.Map;
 public class ProjectConsoleController {
 
     private final ProjectConsoleService service;
+    private final ConsoleSessionTitles titles;
 
-    public ProjectConsoleController(ProjectConsoleService service) {
+    public ProjectConsoleController(ProjectConsoleService service, ConsoleSessionTitles titles) {
         this.service = service;
+        this.titles = titles;
     }
 
     /**
@@ -83,9 +85,15 @@ public class ProjectConsoleController {
     @GetMapping("/resume-sessions")
     public List<WorktreeController.ResumeSessionView> resumeSessions(@PathVariable long projectId,
             Principal principal) {
-        return service.resumeSessionsForProject(projectId, principal.getName()).stream()
+        List<ConsoleResumeSessionRecord> records = service.resumeSessionsForProject(projectId, principal.getName());
+        Map<String, String> byConversation = titles.titlesFor(records.stream()
+                .map(record -> new ConsoleSessionTitles.Sighting(record.tool(), record.resumeId(),
+                        service.conversationDirectory(projectId, record.worktreeId()).orElse(null)))
+                .toList());
+        return records.stream()
                 .map(record -> new WorktreeController.ResumeSessionView(record.worktreeId(), record.tool(),
-                        record.resumeId(), record.capturedAt().toString()))
+                        record.resumeId(), record.capturedAt().toString(),
+                        byConversation.get(record.tool() + ":" + record.resumeId())))
                 .toList();
     }
 
