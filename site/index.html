@@ -3,300 +3,214 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Locklane — Keep every coding agent in its lane</title>
-    <meta name="description" content="A self-hosted workspace for issue-aware coding agents, isolated git worktrees, and persistent browser terminals.">
-    <meta property="og:title" content="Locklane — Keep every coding agent in its lane">
-    <meta property="og:description" content="A self-hosted workspace for issue-aware coding agents, isolated git worktrees, and persistent browser terminals.">
+    <title>LockLane — A browser workspace for coding agents</title>
+    <meta name="description" content="LockLane gives every repository and issue an isolated worktree, a persistent browser terminal, and a visible path to review.">
+    <meta property="og:title" content="LockLane — A browser workspace for coding agents">
+    <meta property="og:description" content="Issue-aware workspaces and persistent terminals for coding agents.">
     <meta property="og:type" content="website">
     <meta property="og:image" content="og.png">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Locklane — Keep every coding agent in its lane">
-    <meta name="twitter:description" content="A self-hosted workspace for issue-aware coding agents, isolated git worktrees, and persistent browser terminals.">
+    <meta name="twitter:title" content="LockLane — A browser workspace for coding agents">
+    <meta name="twitter:description" content="Issue-aware workspaces and persistent terminals for coding agents.">
     <meta name="twitter:image" content="og.png">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body id="top">
-    <svg class="icon-library" aria-hidden="true">
-      <defs>
-        <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
-        <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
-        <symbol id="icon-code" viewBox="0 0 24 24"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></symbol>
-        <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
-        <symbol id="icon-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></symbol>
-        <symbol id="icon-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M8 10h5a5 5 0 0 0 5-5"/></symbol>
-        <symbol id="icon-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></symbol>
-        <symbol id="icon-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
-        <symbol id="icon-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
-        <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.7 3.1 7.9 7.5 9.5 4.4-1.6 7.5-4.8 7.5-9.5V6L12 3Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></symbol>
-        <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8a7 7 0 0 1 11.7-2.2L20 8M4 16l2.2 2.2A7 7 0 0 0 17.9 16"/></symbol>
-      </defs>
-    </svg>
-
-    <div class="wip-banner" role="note">
-      <span aria-hidden="true">⚠</span>
-      <p><strong>Work in progress.</strong> LockLane is under active development and expected to churn significantly before it stabilizes. Please wait for a released version before adopting it in your own projects.</p>
-    </div>
-
     <a class="skip-link" href="#content">Skip to content</a>
 
-    <header class="site-header">
-      <a class="brand" href="#top" aria-label="Locklane home">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32"><path d="M9.25 13V9.5a6.75 6.75 0 0 1 13.5 0V13"/><rect x="6" y="12" width="20" height="15" rx="4"/><path d="M11 20h10M16 16v8M11 20l-2.5 2.5M21 20l2.5 2.5"/></svg>
-        </span>
+    <div class="wip" role="note">
+      <div class="wrap wip-inner">
+        <span class="wip-mark" aria-hidden="true">!</span>
+        <p><strong>Work in progress.</strong> LockLane is under active development and expected to churn significantly before it stabilizes. Please wait for a released version before adopting it in your own projects.</p>
+      </div>
+    </div>
+
+    <header class="site-header wrap">
+      <a class="wordmark" href="#top" aria-label="LockLane home">
+        <svg class="logo" viewBox="0 0 28 28" aria-hidden="true">
+          <path d="M5 5h8v8H5zM15 15h8v8h-8z"></path>
+          <path d="M15 5h8M5 15v8"></path>
+        </svg>
         <span>locklane</span>
       </a>
       <nav aria-label="Primary navigation">
-        <a href="#why">Why Locklane</a>
-        <a href="#how">How it works</a>
+        <a href="#about">About</a>
         <a href="#install">Install</a>
+        <a href="https://github.com/haninaguib-devtools/locklane" target="_blank" rel="noreferrer">GitHub</a>
       </nav>
-      <a class="github-link" href="https://github.com/haninaguib-devtools/locklane" target="_blank" rel="noreferrer">
-        <svg><use href="#icon-code"/></svg>
-        <span>GitHub</span>
-      </a>
     </header>
 
     <main id="content">
-      <section class="hero" aria-labelledby="hero-title">
-        <div class="hero-copy">
-          <p class="eyebrow">A workspace for agent-driven development</p>
-          <h1 id="hero-title">Keep every agent<br>in its lane.</h1>
-          <p class="hero-deck">Locklane turns GitHub issues into focused workspaces with persistent terminals, isolated worktrees, and the delivery context your coding agents need to finish safely.</p>
-          <div class="hero-actions">
-            <a class="button button-primary" href="#install">Install Locklane <svg><use href="#icon-arrow"/></svg></a>
-            <a class="button button-secondary" href="https://github.com/haninaguib-devtools/locklane" target="_blank" rel="noreferrer">View on GitHub</a>
-          </div>
-          <div class="hero-proof">
-            <span><svg><use href="#icon-check"/></svg> self-hosted</span>
-            <span><svg><use href="#icon-check"/></svg> browser-based</span>
-            <span><svg><use href="#icon-check"/></svg> open source</span>
-          </div>
-        </div>
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <p class="status"><span></span> prerelease software</p>
+        <h1 id="hero-title">A browser workspace<br>for coding agents.</h1>
+        <p class="lede">LockLane connects GitHub issues, isolated git worktrees, and persistent terminals in one self-hosted workspace. Start an agent on a task, leave it running, and return from any browser without losing the session.</p>
 
-        <div class="workspace-preview" aria-label="Locklane workspace preview">
-          <div class="preview-topbar">
-            <span class="preview-brand">
-              <span class="brand-mark mini" aria-hidden="true">
-                <svg viewBox="0 0 32 32"><path d="M9.25 13V9.5a6.75 6.75 0 0 1 13.5 0V13"/><rect x="6" y="12" width="20" height="15" rx="4"/><path d="M11 20h10M16 16v8M11 20l-2.5 2.5M21 20l2.5 2.5"/></svg>
-              </span>
-              locklane
-            </span>
-            <span class="preview-status"><i></i> 3 agents active</span>
-          </div>
-          <div class="preview-shell">
-            <aside class="preview-sidebar">
-              <span class="preview-label">Projects</span>
-              <strong>locklane <em>12</em></strong>
-              <div class="issue active"><span>#346</span> move tenancy note <i></i></div>
-              <div class="issue"><span>#348</span> update template</div>
-              <div class="issue"><span>#351</span> release checklist</div>
-              <strong>docs <em>4</em></strong>
-            </aside>
-            <div class="preview-console">
-              <div class="console-tabs"><span class="selected">#346 · codex</span><span>shell</span><b>+</b></div>
-              <div class="console-copy">
-                <p><span>›</span> checking task scope and protected paths</p>
-                <p class="muted">Allowed paths: CONSTITUTION.md, docs/architecture/…</p>
-                <p><span>✓</span> worktree ready on <code>wip/346-move-tenancy-note</code></p>
-                <p><span>›</span> running repository checks</p>
-                <p class="success">✓ 424 tests passed <i class="caret"></i></p>
-              </div>
-              <div class="console-footer"><span>main</span><span>review gate required</span></div>
-            </div>
-          </div>
+        <div class="quick-links" aria-label="Project links">
+          <a href="#install">Install <span aria-hidden="true">↘</span></a>
+          <a href="https://github.com/haninaguib-devtools/locklane" target="_blank" rel="noreferrer">View source <span aria-hidden="true">↗</span></a>
         </div>
       </section>
 
-      <section class="install-section" id="install" aria-labelledby="install-title">
-        <div>
-          <p class="eyebrow">Install</p>
-          <h2 id="install-title">From zero to your first lane.</h2>
+      <section class="install wrap" id="install" aria-labelledby="install-title">
+        <div class="section-heading">
+          <p class="kicker">Install</p>
+          <h2 id="install-title">Run LockLane locally</h2>
         </div>
-        <div class="install-details">
-          <p>One command downloads the latest Locklane build and walks you through the local port, allowed origins, and first admin login.</p>
-          <div class="terminal-card">
-            <div class="terminal-head">
-              <span><svg><use href="#icon-terminal"/></svg> Terminal</span>
-              <span>macOS · Linux</span>
-            </div>
-            <div class="command-row">
-              <span class="prompt">$</span>
-              <code id="install-command">curl -fsSL https://raw.githubusercontent.com/haninaguib-devtools/locklane/main/install.sh | bash</code>
-              <button class="copy-button" type="button" data-copy-command aria-label="Copy installer command">
-                <svg><use href="#icon-copy"/></svg>
-                <span>Copy</span>
-              </button>
-            </div>
+
+        <div class="command-block">
+          <div class="command-tabs" aria-hidden="true">
+            <span class="active">curl</span>
           </div>
-          <p class="install-note">Requires Java 21+ and the authenticated GitHub CLI while the repository is private. The installer writes only to <code>~/.locklane</code>.</p>
+          <div class="command-row">
+            <span class="prompt" aria-hidden="true">$</span>
+            <code id="install-command">curl -fsSL https://raw.githubusercontent.com/haninaguib-devtools/locklane/main/install.sh | bash</code>
+            <button type="button" class="copy" data-copy aria-label="Copy install command">copy</button>
+          </div>
+        </div>
+
+        <p class="note">Requires Java 21+ and the authenticated GitHub CLI while the repository is private. The installer places the jar, updater, and local configuration in <code>~/.locklane</code>.</p>
+
+        <div class="run-command">
+          <span>Then start it:</span>
+          <code>cd ~/.locklane &amp;&amp; java -jar locklane.jar</code>
         </div>
       </section>
 
-      <section class="thesis-section" id="why" aria-labelledby="thesis-title">
-        <div>
-          <p class="eyebrow">Why Locklane</p>
-          <h2 id="thesis-title">The browser becomes the cockpit.<br>Your repository stays the truth.</h2>
+      <section class="about wrap" id="about" aria-labelledby="about-title">
+        <div class="section-heading">
+          <p class="kicker">What is LockLane?</p>
+          <h2 id="about-title">Agent work that stays visible.</h2>
         </div>
-        <div class="thesis-copy">
-          <p>Agent sessions are easy to start and surprisingly hard to keep oriented. Locklane gives every task a visible home: its issue, branch, worktree, consoles, and the checks that decide what happens next.</p>
-          <p class="thesis-callout">Nothing hides in a queue. You can see the work, enter the terminal, and take over at any point.</p>
+        <div class="prose">
+          <p>Coding agents are easy to start and difficult to keep oriented. LockLane gives each piece of work a durable place: the issue that describes it, the worktree that isolates it, and the live terminal where the agent is running.</p>
+          <p>It is not a job queue and it does not replace git, GitHub, or your agent. It is the workspace connecting them.</p>
         </div>
       </section>
 
-      <section class="feature-grid" aria-label="Locklane capabilities">
-        <article class="feature-card feature-wide">
-          <div class="feature-icon"><svg><use href="#icon-layers"/></svg></div>
+      <section class="capabilities wrap" aria-label="LockLane capabilities">
+        <article>
+          <span class="symbol" aria-hidden="true">[*]</span>
           <div>
-            <span class="feature-number">01</span>
-            <h3>Issues are the map.</h3>
-            <p>Navigate initiatives, tasks, pull-request checks, and dependencies as one live project tree—then open the exact workspace behind any issue.</p>
-          </div>
-          <div class="issue-map" aria-hidden="true">
-            <div class="map-row map-root"><i></i><span>#221</span> Remote agent access <em>initiative</em></div>
-            <div class="map-branch">
-              <div class="map-row active"><i></i><span>#238</span> Add user roles <b>merged</b></div>
-              <div class="map-row"><i></i><span>#240</span> Admin panel <b>review</b></div>
-              <div class="map-row"><i></i><span>#242</span> Console ownership <b>open</b></div>
-            </div>
+            <h3>Issue-aware</h3>
+            <p>Projects, initiatives, tasks, pull requests, and dependencies remain attached to the workspace doing the work.</p>
           </div>
         </article>
-
-        <article class="feature-card">
-          <div class="feature-icon"><svg><use href="#icon-branch"/></svg></div>
-          <span class="feature-number">02</span>
-          <h3>Isolation without ceremony.</h3>
-          <p>Each issue gets its own git worktree, so agents can work in parallel without colliding with your checkout—or each other.</p>
-          <div class="branch-stack" aria-hidden="true">
-            <span><i></i>main</span>
-            <span><i></i>wip/240-admin-panel</span>
-            <span><i></i>wip/242-console-ownership</span>
+        <article>
+          <span class="symbol" aria-hidden="true">[*]</span>
+          <div>
+            <h3>Persistent sessions</h3>
+            <p>Terminal processes keep running when the tab closes. Reattach later from another browser and continue where you left off.</p>
           </div>
         </article>
-
-        <article class="feature-card feature-dark">
-          <div class="feature-icon"><svg><use href="#icon-radio"/></svg></div>
-          <span class="feature-number">03</span>
-          <h3>Terminals that wait for you.</h3>
-          <p>Every worktree has a persistent terminal session. Leave the tab, close the browser, or switch machines—then reattach without losing the thread.</p>
-          <div class="live-strip"><i></i><span>codex · waiting for input</span><b>12m</b></div>
+        <article>
+          <span class="symbol" aria-hidden="true">[*]</span>
+          <div>
+            <h3>Isolated by git</h3>
+            <p>Issue consoles run in separate git worktrees, so multiple agents can work in parallel without sharing a checkout.</p>
+          </div>
+        </article>
+        <article>
+          <span class="symbol" aria-hidden="true">[*]</span>
+          <div>
+            <h3>Human-controlled</h3>
+            <p>Agents can plan, implement, and review. Moving work into <code>main</code> still waits for an explicit human confirmation.</p>
+          </div>
         </article>
       </section>
 
-      <section class="flow-section" id="how" aria-labelledby="flow-title">
-        <div class="flow-header">
-          <p class="eyebrow">How it works</p>
-          <h2 id="flow-title">One lane from issue to merge.</h2>
-          <p>Locklane keeps the working environment and the delivery record close together. Your existing tools keep doing their jobs.</p>
+      <section class="flow wrap" aria-labelledby="flow-title">
+        <div class="section-heading">
+          <p class="kicker">The working model</p>
+          <h2 id="flow-title">One visible path from issue to merge.</h2>
         </div>
-        <ol class="flow-steps">
+
+        <ol class="flow-list">
           <li>
-            <span class="step-index">1</span>
-            <div class="step-icon"><svg><use href="#icon-monitor"/></svg></div>
-            <h3>Add a repository</h3>
-            <p>Connect a GitHub project. Locklane checks it out into a managed work area and reads its issue tree.</p>
-            <code>git clone → workarea</code>
+            <span class="step">01</span>
+            <div>
+              <h3>Import a repository</h3>
+              <p>LockLane checks out the project and reads its GitHub issue structure.</p>
+            </div>
+            <code>repository → project</code>
           </li>
           <li>
-            <span class="step-index">2</span>
-            <div class="step-icon"><svg><use href="#icon-branch"/></svg></div>
-            <h3>Open an issue lane</h3>
-            <p>Create an isolated worktree from the task, then start Codex, Claude, or a plain shell inside it.</p>
+            <span class="step">02</span>
+            <div>
+              <h3>Open a console</h3>
+              <p>Start a plain shell or a coding agent in a worktree created for that task.</p>
+            </div>
             <code>issue → worktree → PTY</code>
           </li>
           <li>
-            <span class="step-index">3</span>
-            <div class="step-icon"><svg><use href="#icon-shield"/></svg></div>
-            <h3>Stay through the gate</h3>
-            <p>Watch checks, review state, and agent attention in one place. The human still decides when work moves.</p>
-            <code>checks → review → merge</code>
+            <span class="step">03</span>
+            <div>
+              <h3>Stay through delivery</h3>
+              <p>Follow the session, checks, review, and pull request without losing the task context.</p>
+            </div>
+            <code>work → review → human gate</code>
           </li>
         </ol>
       </section>
 
-      <section class="architecture-section" aria-labelledby="architecture-title">
-        <div class="architecture-copy">
-          <p class="eyebrow">Local by design</p>
-          <h2 id="architecture-title">Your code stays where the tools are.</h2>
-          <p>Locklane is a self-hosted Spring Boot engine with an Angular PWA and SQLite state. It orchestrates normal git worktrees and real terminal processes on your machine—then makes them reachable from the browser.</p>
-          <div class="architecture-badges"><span>Spring Boot</span><span>Angular PWA</span><span>SQLite</span><span>xterm.js</span></div>
+      <section class="stack wrap" aria-labelledby="stack-title">
+        <div class="section-heading">
+          <p class="kicker">Under the hood</p>
+          <h2 id="stack-title">Built from ordinary tools.</h2>
         </div>
-        <div class="architecture-diagram" aria-label="Browser connects to the Locklane engine, which manages repositories and terminal sessions">
-          <div class="arch-node"><svg><use href="#icon-monitor"/></svg><span>Browser</span><small>projects · issues · consoles</small></div>
-          <div class="arch-link"><i></i><i></i><i></i></div>
-          <div class="arch-node engine">
-            <span class="brand-mark mini" aria-hidden="true">
-              <svg viewBox="0 0 32 32"><path d="M9.25 13V9.5a6.75 6.75 0 0 1 13.5 0V13"/><rect x="6" y="12" width="20" height="15" rx="4"/><path d="M11 20h10M16 16v8M11 20l-2.5 2.5M21 20l2.5 2.5"/></svg>
-            </span>
-            <span>Locklane engine</span>
-            <small>auth · state · events</small>
-          </div>
-          <div class="arch-link"><i></i><i></i><i></i></div>
-          <div class="arch-split">
-            <div class="arch-node"><svg><use href="#icon-branch"/></svg><span>Git worktrees</span></div>
-            <div class="arch-node"><svg><use href="#icon-terminal"/></svg><span>Persistent PTYs</span></div>
-          </div>
+        <p class="stack-copy">A Spring Boot engine serves an Angular PWA, keeps non-binding state in SQLite, manages normal git worktrees, and exposes live terminal processes through the browser.</p>
+        <div class="stack-list" aria-label="Technology stack">
+          <span>Spring Boot</span>
+          <span>Angular</span>
+          <span>SQLite</span>
+          <span>xterm.js</span>
+          <span>git worktrees</span>
+          <span>PTY sessions</span>
         </div>
       </section>
 
-      <section class="closing-section" aria-labelledby="closing-title">
+      <section class="project-state wrap" aria-labelledby="state-title">
         <div>
-          <p class="eyebrow">Open a lane</p>
-          <h2 id="closing-title">Give agent work<br>a place to land.</h2>
+          <p class="kicker">Project status</p>
+          <h2 id="state-title">Early, open, and changing.</h2>
         </div>
-        <div class="closing-action">
-          <p>Install the latest build, connect a repository, and start your first issue-aware console.</p>
-          <a class="button button-primary" href="#install">Get Locklane <svg><use href="#icon-arrow"/></svg></a>
-          <a class="update-note" href="https://github.com/haninaguib-devtools/locklane/blob/main/update.sh" target="_blank" rel="noreferrer"><svg><use href="#icon-refresh"/></svg> Updates stay one command away</a>
+        <div>
+          <p>LockLane is being developed in public as an open-source project. Interfaces and installation details may change before the first stable release.</p>
+          <a class="text-link" href="https://github.com/haninaguib-devtools/locklane" target="_blank" rel="noreferrer">Follow development on GitHub <span aria-hidden="true">↗</span></a>
         </div>
       </section>
     </main>
 
-    <footer>
-      <a class="brand" href="#top">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32"><path d="M9.25 13V9.5a6.75 6.75 0 0 1 13.5 0V13"/><rect x="6" y="12" width="20" height="15" rx="4"/><path d="M11 20h10M16 16v8M11 20l-2.5 2.5M21 20l2.5 2.5"/></svg>
-        </span>
+    <footer class="wrap">
+      <a class="wordmark" href="#top">
+        <svg class="logo" viewBox="0 0 28 28" aria-hidden="true">
+          <path d="M5 5h8v8H5zM15 15h8v8h-8z"></path>
+          <path d="M15 5h8M5 15v8"></path>
+        </svg>
         <span>locklane</span>
       </a>
-      <p>A focused workspace for agent-driven software.</p>
+      <p>Self-hosted workspace for agent-driven development.</p>
       <nav aria-label="Footer navigation">
-        <a href="#why">Why</a>
-        <a href="#how">How it works</a>
-        <a href="#install">Install</a>
         <a href="https://github.com/haninaguib-devtools/locklane" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="#top">Top ↑</a>
       </nav>
     </footer>
 
     <script>
-      const copyButton = document.querySelector('[data-copy-command]');
-      const command = document.querySelector('#install-command').textContent;
+      const copyButton = document.querySelector('[data-copy]');
+      const command = document.querySelector('#install-command');
 
-      copyButton.addEventListener('click', async () => {
-        let copied = false;
+      copyButton?.addEventListener('click', async () => {
         try {
-          await navigator.clipboard.writeText(command);
-          copied = true;
+          await navigator.clipboard.writeText(command.textContent.trim());
+          copyButton.textContent = 'copied';
+          window.setTimeout(() => { copyButton.textContent = 'copy'; }, 1600);
         } catch {
-          const fallback = document.createElement('textarea');
-          fallback.value = command;
-          fallback.setAttribute('readonly', '');
-          fallback.style.position = 'fixed';
-          fallback.style.opacity = '0';
-          document.body.appendChild(fallback);
-          fallback.select();
-          copied = document.execCommand('copy');
-          fallback.remove();
-        }
-
-        if (copied) {
-          copyButton.classList.add('copied');
-          copyButton.querySelector('span').textContent = 'Copied';
-          setTimeout(() => {
-            copyButton.classList.remove('copied');
-            copyButton.querySelector('span').textContent = 'Copy';
-          }, 1800);
+          const range = document.createRange();
+          range.selectNodeContents(command);
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(range);
         }
       });
     </script>
