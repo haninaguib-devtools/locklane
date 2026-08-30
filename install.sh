@@ -4,6 +4,11 @@
 # ~/.locklane/application-locklane.properties. Fetches update.sh alongside it for
 # pulling a newer jar later without repeating any of this.
 #
+# The login account is created here and now, by running the jar once in its seed-only
+# mode with the credentials in the environment (#384). The password is therefore never
+# written to disk and never appears in `ps` output -- the properties file ends up
+# holding only the port and the allowed origins.
+#
 # Usage: curl -fsSL <url-to-this-file> | bash
 set -euo pipefail
 
@@ -18,6 +23,11 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 if ! gh auth status >/dev/null 2>&1; then
   echo "error: gh is not logged in — run 'gh auth login' first." >&2
+  exit 1
+fi
+# Needed by the installer itself, not just later: the seeding run below is this jar.
+if ! command -v java >/dev/null 2>&1; then
+  echo "error: java 21 or newer is required — install a JDK, then re-run this installer." >&2
   exit 1
 fi
 
@@ -71,7 +81,10 @@ while true; do
   break
 done
 
-# --- Write the properties file, mode 600 since it holds a password ------------
+# --- Write the properties file ------------------------------------------------
+# The credentials deliberately do not go in here (#384) — they are used once, by the
+# seeding run below, and then forgotten. Mode 600 anyway: nothing is gained by making
+# a config file wider than the account that owns it.
 
 props_file="$INSTALL_DIR/application-locklane.properties"
 : > "$props_file"
@@ -79,16 +92,58 @@ chmod 600 "$props_file"
 {
   echo "server.port=$port"
   echo "locklane.security.allowed-origins=$origins"
-  echo "locklane.security.bootstrap-username=$username"
-  echo "locklane.security.bootstrap-password=$password"
 } > "$props_file"
+
+# --- Create the login account -------------------------------------------------
+# One run of the jar that seeds the account and stops. The credentials go through the
+# environment, never the command line, so they stay out of `ps`. Run from
+# $INSTALL_DIR, exactly as the server itself will be, so both use the same database.
+# Port 0 keeps this run off whatever port an already-running instance may hold.
+# Exit 3 is UserBootstrapper.EXIT_ALREADY_SEEDED: the database already had an account,
+# so what was typed above was not applied and saying otherwise would be a lie.
+
+echo "Creating the login account..."
+seed_log="$INSTALL_DIR/install-seed.log"
+: > "$seed_log"
+chmod 600 "$seed_log"
+# stdin comes from /dev/null, not the terminal and not the pipe this script may itself
+# be being read from under `curl | bash` (#354's lesson) -- java has no business
+# reading either.
+seed_status=0
+(
+  cd "$INSTALL_DIR"
+  LOCKLANE_SECURITY_BOOTSTRAP_USERNAME="$username" \
+  LOCKLANE_SECURITY_BOOTSTRAP_PASSWORD="$password" \
+    java -jar locklane.jar \
+      --locklane.security.seed-only=true \
+      --server.port=0 \
+      --spring.main.banner-mode=off
+) < /dev/null > "$seed_log" 2>&1 || seed_status=$?
+unset password password_confirm
+
+case "$seed_status" in
+  0)
+    account_note="The account '$username' is ready — no password was stored anywhere on disk."
+    ;;
+  3)
+    account_note="An account already existed here, so the username and password you just
+entered were NOT applied — sign in with the account you already have."
+    ;;
+  *)
+    echo "error: could not create the login account — the log is at $seed_log" >&2
+    exit 1
+    ;;
+esac
+rm -f "$seed_log"
 
 cat <<EOF
 
 Installed to $INSTALL_DIR:
   locklane.jar
   update.sh
-  application-locklane.properties (mode 600)
+  application-locklane.properties (mode 600; port and origins only)
+
+$account_note
 
 Start it with:
   cd $INSTALL_DIR && java -jar locklane.jar
