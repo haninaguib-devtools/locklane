@@ -213,20 +213,46 @@ public class ProjectConsoleService {
         if (!belongsToProject(originalSessionId, projectId)) {
             return Optional.empty();
         }
-        String suffix = originalConsoleSuffix(originalSessionId);
+        Optional<Path> resolved = conversationDirectory(projectId, originalSessionId);
+        if (resolved.isEmpty()) {
+            return Optional.empty();
+        }
+        Path projectRoot = project.get().workareaPath();
+        Path directory = resolved.get();
+        if (!Files.exists(directory)) {
+            WorktreeCreationService.createDetachedWorktree(directory, projectRoot);
+        }
+        return Optional.of(new ConsoleSession(
+                projectId + "-console-" + originalConsoleSuffix(originalSessionId) + "-resume-" + shortId(),
+                directory.toString()));
+    }
+
+    /**
+     * Where a conversation captured in {@code sessionId} actually ran — its console's
+     * recorded working directory while that record exists, and otherwise the sibling
+     * checkout its id names ({@link #startWorktreeSession}), whether or not that
+     * directory is still on disk. Empty for a session outside this project's console
+     * family and for the legacy bare {@code "<projectId>-console"}, which ran in the
+     * project's own shared checkout rather than a console worktree of its own.
+     *
+     * <p>Both {@link #reopenSession} and #373's title lookup need this same answer:
+     * one to run a resumed conversation where the CLI will find it, the other to read
+     * the title the CLI filed under that same directory.
+     */
+    public Optional<Path> conversationDirectory(long projectId, String sessionId) {
+        Optional<ProjectRecord> project = projectRepository.findById(projectId);
+        if (project.isEmpty() || !belongsToProject(sessionId, projectId)) {
+            return Optional.empty();
+        }
+        String suffix = originalConsoleSuffix(sessionId);
         if (suffix.isEmpty()) {
             return Optional.empty();
         }
         Path projectRoot = project.get().workareaPath();
-        Path directory = sessionRepository.find(originalSessionId)
+        return Optional.of(sessionRepository.find(sessionId)
                 .map(WorktreeSessionRecord::workingDirectory)
                 .orElseGet(() -> projectRoot.resolveSibling(
-                        WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix));
-        if (!Files.exists(directory)) {
-            WorktreeCreationService.createDetachedWorktree(directory, projectRoot);
-        }
-        return Optional.of(new ConsoleSession(projectId + "-console-" + suffix + "-resume-" + shortId(),
-                directory.toString()));
+                        WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix)));
     }
 
     /**

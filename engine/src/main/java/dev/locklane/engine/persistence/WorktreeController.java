@@ -31,12 +31,14 @@ public class WorktreeController {
     private final IssueWorktreeService service;
     private final WorktreeCreationService creationService;
     private final SessionRegistry sessionRegistry;
+    private final ConsoleSessionTitles titles;
 
     public WorktreeController(IssueWorktreeService service, WorktreeCreationService creationService,
-            SessionRegistry sessionRegistry) {
+            SessionRegistry sessionRegistry, ConsoleSessionTitles titles) {
         this.service = service;
         this.creationService = creationService;
         this.sessionRegistry = sessionRegistry;
+        this.titles = titles;
     }
 
     @GetMapping("/{number}/worktrees")
@@ -68,9 +70,16 @@ public class WorktreeController {
     @GetMapping("/{number}/resume-sessions")
     public List<ResumeSessionView> resumeSessions(@PathVariable long projectId, @PathVariable int number,
             Principal principal) {
-        return service.resumeSessionsForIssue(projectId, number, principal.getName()).stream()
+        List<ConsoleResumeSessionRecord> records =
+                service.resumeSessionsForIssue(projectId, number, principal.getName());
+        Map<String, String> byConversation = titles.titlesFor(records.stream()
+                .map(record -> new ConsoleSessionTitles.Sighting(record.tool(), record.resumeId(),
+                        creationService.conversationDirectory(projectId, number, record.worktreeId()).orElse(null)))
+                .toList());
+        return records.stream()
                 .map(record -> new ResumeSessionView(record.worktreeId(), record.tool(), record.resumeId(),
-                        record.capturedAt().toString()))
+                        record.capturedAt().toString(),
+                        byConversation.get(record.tool() + ":" + record.resumeId())))
                 .toList();
     }
 
@@ -96,8 +105,16 @@ public class WorktreeController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    /** One row of {@link #resumeSessions} — mirrored client-side as {@code ResumeSession}. */
-    public record ResumeSessionView(String worktreeId, String tool, String resumeId, String capturedAt) {
+    /**
+     * One row of {@link #resumeSessions} — mirrored client-side as {@code
+     * ResumeSession}, and shared with {@link ProjectConsoleController}'s own listing so
+     * both pages render through one component. {@code title} is the short name the CLI
+     * generated for the conversation (#373), or null: a conversation too short to have
+     * been titled yet, a Codex older than v0.150.0, or an uninstalled tool all leave it
+     * null, and the client falls back to the tool and captured time.
+     */
+    public record ResumeSessionView(String worktreeId, String tool, String resumeId, String capturedAt,
+            String title) {
     }
 
     /**

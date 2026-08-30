@@ -112,7 +112,7 @@ class WorktreeControllerTest {
 
         assertThat(controller.resumeSessions(1, 174, ALICE)).containsExactly(
                 new WorktreeController.ResumeSessionView("1-174-rename-toggle", "claude",
-                        "aaaaaaaa-0000-0000-0000-000000000000", "2026-08-25T12:00:00Z"));
+                        "aaaaaaaa-0000-0000-0000-000000000000", "2026-08-25T12:00:00Z", null));
         assertThat(controller.resumeSessions(1, 175, ALICE)).isEmpty();
     }
 
@@ -222,7 +222,11 @@ class WorktreeControllerTest {
                 new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient(issues));
         WorktreeCreationService creationService =
                 new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository);
-        return new WorktreeController(worktreeService, creationService, sessionRegistry);
+        // No CLI title storage in these temp homes and no opencode process: every
+        // lookup resolves to "no title", the fallback #373 defines as ordinary.
+        ConsoleSessionTitles titles = new ConsoleSessionTitles(dbDir.resolve("claude"), dbDir.resolve("codex"),
+                directory -> null);
+        return new WorktreeController(worktreeService, creationService, sessionRegistry, titles);
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {

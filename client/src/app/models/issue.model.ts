@@ -59,6 +59,11 @@ export interface ResumeSession {
   tool: 'claude' | 'codex' | 'opencode';
   resumeId: string;
   capturedAt: string;
+  // The short name the CLI generated for the conversation (#373), or null when it has
+  // none: too short a conversation to have been titled, a Codex older than v0.150.0,
+  // or a tool that isn't installed. Null is ordinary, and falls back to the captured
+  // time in the list.
+  title: string | null;
 }
 
 // Mirrors dev.locklane.engine.persistence.ProjectController.ProjectView.

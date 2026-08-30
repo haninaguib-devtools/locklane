@@ -564,6 +564,43 @@ class ProjectConsoleServiceTest {
         assertThat(service.reopenSession(999, "999-console-aaaaaaaa")).isEmpty();
     }
 
+    @Test
+    void resolvesAConversationsDirectoryFromItsRecordAndThenFromItsIdAlone(@TempDir Path tmp) throws Exception {
+        // #373's title lookup needs the same answer #372's reopen does: Claude and
+        // OpenCode file a stored conversation under the directory it ran in.
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(tmp);
+        ProjectConsoleService service = service(tmp, projectRepository, sessionRepository);
+        ProjectConsoleService.ConsoleSession session = service.start(projectId).get();
+
+        // Before any attach there is no record: the id alone names the directory.
+        assertThat(service.conversationDirectory(projectId, session.sessionId()))
+                .contains(Path.of(session.workingDirectory()));
+
+        sessionRepository.recordAttach(session.sessionId(), Path.of(session.workingDirectory()), EARLIER, "alice");
+        assertThat(service.conversationDirectory(projectId, session.sessionId()))
+                .contains(Path.of(session.workingDirectory()));
+        // A reopened console runs in the original's directory, so it resolves there too.
+        assertThat(service.conversationDirectory(projectId, session.sessionId() + "-resume-99887766"))
+                .contains(Path.of(session.workingDirectory()));
+    }
+
+    @Test
+    void hasNoConversationDirectoryOutsideTheProjectOrForTheLegacySharedCheckoutId(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        ProjectConsoleService service = service(dbDir, projectRepository);
+
+        assertThat(service.conversationDirectory(projectId, projectId + "-console")).isEmpty();
+        assertThat(service.conversationDirectory(projectId, projectId + "-174-some-slug")).isEmpty();
+        assertThat(service.conversationDirectory(projectId, (projectId + 1) + "-console-aaaaaaaa")).isEmpty();
+    }
+
     private static long createUser(Path dbDir, String username) {
         return TestSqliteDatabases.newUserRepository(dbDir).create(username, "bcrypt-hash", Instant.now()).id();
     }
