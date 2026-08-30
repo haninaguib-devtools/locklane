@@ -74,49 +74,6 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void withoutAWorktreeTheSessionUsesTheProjectCheckoutAndNoGitWorktreeRuns(@TempDir Path root) throws IOException, InterruptedException {
-        Path projectRoot = GitTestRepos.initTestRepo(root);
-        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
-        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
-        long projectId = readyProject(projectRepository, projectRoot).id();
-        GhIssue issue = new GhIssue(11, "Console on main", "OPEN", List.of(), "", "", "");
-        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
-
-        Optional<WorktreeCreationService.StartedSession> result = service.startSession(projectId, 11, false);
-
-        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
-                .contains(projectRoot.toString());
-        assertThat(projectRoot.resolveSibling(projectRoot.getFileName() + "-11")).doesNotExist();
-    }
-
-    @Test
-    void withoutAWorktreeEachCallStartsAFreshSessionId(@TempDir Path root) throws IOException, InterruptedException {
-        Path projectRoot = GitTestRepos.initTestRepo(root);
-        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
-        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
-        long projectId = readyProject(projectRepository, projectRoot).id();
-        GhIssue issue = new GhIssue(12, "Two consoles on main", "OPEN", List.of(), "", "", "");
-        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
-
-        Optional<WorktreeCreationService.StartedSession> first = service.startSession(projectId, 12, false);
-        Optional<WorktreeCreationService.StartedSession> second = service.startSession(projectId, 12, false);
-
-        assertThat(first).map(WorktreeCreationService.StartedSession::worktreeId).isNotEqualTo(
-                second.map(WorktreeCreationService.StartedSession::worktreeId));
-    }
-
-    @Test
-    void withoutAWorktreeAnUnknownIssueIsEmpty(@TempDir Path root) throws IOException, InterruptedException {
-        Path projectRoot = GitTestRepos.initTestRepo(root);
-        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
-        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
-        long projectId = readyProject(projectRepository, projectRoot).id();
-        WorktreeCreationService service = service(repository, projectRepository, List.of());
-
-        assertThat(service.startSession(projectId, 404, false)).isEmpty();
-    }
-
-    @Test
     void unknownIssueIsEmpty(@TempDir Path root) throws IOException, InterruptedException {
         Path projectRoot = GitTestRepos.initTestRepo(root);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(root);
@@ -220,7 +177,7 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void reopeningAClosedMainConsoleUsesTheProjectCheckoutAndAMainShapedId(@TempDir Path tmp) throws Exception {
+    void reopeningALegacyMainConsoleIsRefused(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
@@ -228,13 +185,26 @@ class WorktreeCreationServiceTest {
         WorktreeCreationService service = service(repository, projectRepository, List.of());
 
         // No session record exists any more — the original console was closed (#75).
-        Optional<WorktreeCreationService.StartedSession> result =
-                service.reopenSession(projectId, 9, projectId + "-9-main-deadbeef");
+        // #341 retired the main-checkout console option: a conversation captured
+        // there can only ever be resumed there, so this is refused rather than
+        // resumed in the wrong directory (a worktree) or against the main checkout
+        // again (no longer allowed at all).
+        assertThat(service.reopenSession(projectId, 9, projectId + "-9-main-deadbeef")).isEmpty();
+    }
 
-        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
-                .contains(projectRoot.toString());
-        assertThat(result).map(WorktreeCreationService.StartedSession::worktreeId).get().asString()
-                .startsWith(projectId + "-9-main-");
+    @Test
+    void reopeningALegacyMainConsoleThatIsStillOpenIsAlsoRefused(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        String originalId = projectId + "-9-main-deadbeef";
+        // The original main console is still recorded/running -- refusal does not
+        // depend on the record being gone.
+        repository.recordAttach(originalId, projectRoot, Instant.now(), null);
+        WorktreeCreationService service = service(repository, projectRepository, List.of());
+
+        assertThat(service.reopenSession(projectId, 9, originalId)).isEmpty();
     }
 
     @Test

@@ -96,7 +96,7 @@ class WorktreeControllerTest {
         GhIssue issue = new GhIssue(174, "Rename toggle", "OPEN", List.of(), "", "", "");
         WorktreeController controller = controller(dbDir, TestSqliteDatabases.newRepository(dbDir), List.of(issue));
 
-        var response = controller.startSession(999, 174, false, ALICE);
+        var response = controller.startSession(999, 174, ALICE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
@@ -114,6 +114,38 @@ class WorktreeControllerTest {
                 new WorktreeController.ResumeSessionView("1-174-rename-toggle", "claude",
                         "aaaaaaaa-0000-0000-0000-000000000000", "2026-08-25T12:00:00Z"));
         assertThat(controller.resumeSessions(1, 175, ALICE)).isEmpty();
+    }
+
+    @Test
+    void resumeSessionsExcludesALegacyMainConsolesConversation(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository =
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        resumeRepository.record("1-174-main-a1b2c3d4", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        resumeRepository.record("1-174-rename-toggle", "claude", "bbbbbbbb-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        WorktreeController controller = controller(dbDir, repository, resumeRepository, List.of());
+
+        // #341: a legacy main-checkout console's conversation can never be
+        // resumed (there is no worktree that contains it), so it is left off the
+        // list rather than shown as a dead end.
+        assertThat(controller.resumeSessions(1, 174, ALICE)).extracting(WorktreeController.ResumeSessionView::worktreeId)
+                .containsExactly("1-174-rename-toggle");
+    }
+
+    @Test
+    void reopeningALegacyMainConsolesConversationIsNotFound(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        ConsoleResumeSessionRepository resumeRepository =
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        resumeRepository.record("1-174-main-a1b2c3d4", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+                Instant.parse("2026-08-25T12:00:00Z"));
+        WorktreeController controller = controller(dbDir, repository, resumeRepository, List.of());
+
+        var response = controller.reopenSession(1, 174, "1-174-main-a1b2c3d4", ALICE);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test

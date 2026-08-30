@@ -101,23 +101,14 @@ describe('IssuesService', () => {
     req.flush(['1-5-slug']);
   });
 
-  it('starts a worktree session via POST /api/projects/{projectId}/issues/{number}/worktrees by default', () => {
+  it('starts a worktree session via POST /api/projects/{projectId}/issues/{number}/worktrees (#341: always a worktree)', () => {
     service
       .startSession(1, 5)
       .subscribe((result) => expect(result).toEqual({ worktreeId: '1-5-slug', workingDirectory: '/tmp/repo-5' }));
 
     const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/5/worktrees');
     expect(req.request.method).toBe('POST');
-    expect(req.request.params.get('worktree')).toBe('true');
     req.flush({ worktreeId: '1-5-slug', workingDirectory: '/tmp/repo-5' });
-  });
-
-  it('passes worktree=false when the console targets the main checkout', () => {
-    service.startSession(1, 5, false).subscribe();
-
-    const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/5/worktrees');
-    expect(req.request.params.get('worktree')).toBe('false');
-    req.flush({ worktreeId: '1-5-main-a1b2c3d4', workingDirectory: '/tmp/repo' });
   });
 
   it('fetches past sessions from GET /api/projects/{projectId}/issues/{number}/resume-sessions (#103)', () => {
