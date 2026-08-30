@@ -54,5 +54,14 @@ migrations, and rewrite `.template-manifest.json` to pin v0.0.5.
   `client/.gitignore` (`/target/`) — module-level files this repo owns, immune to
   future syncs. The durable alternative (template stops owning consumer ignores or
   restores `target/`) belongs upstream.
+- Fix pass answering review finding High-1 (PR #349): the verbatim sync had silently
+  deleted this repo's own `manifest` and `build` jobs from
+  `.github/workflows/ci.yml` — the same local additions task #328 reapplied after
+  the v0.0.3 sync. Restored `main`'s merged file wholesale (upstream v0.0.5 made no
+  other change to `ci.yml`, so the merge is exact) and re-pinned its manifest hash,
+  which equals the v0.0.3 pin — confirming the standing convention that the manifest
+  hashes the consumer-merged `ci.yml`, local jobs included. The upstream structural
+  fix (a local slot in `ci.yml`, or the template not owning consumer CI additions)
+  is proposed for the human to open, per the review's recommendation.
 - Plan gate also unsatisfied: the diff touches protected surfaces and issue #348 has
   no `## Plan` yet — `/t-plan 348` required before the draft PR can pass CI.
