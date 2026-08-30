@@ -209,6 +209,74 @@ class ProjectConsoleControllerTest {
         assertThat(sessionRepository.findAll()).hasSize(2);
     }
 
+    // ---- #372: past conversations in a project's own consoles ----
+
+    @Test
+    void listsThisProjectsPastConversationsForItsOwner(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)).record(projectId + "-console-aaaaaaaa", "claude",
+                "11111111-1111-1111-1111-111111111111", LATER);
+        ProjectConsoleController controller =
+                controller(dbDir, projectRepository, TestSqliteDatabases.newRepository(dbDir));
+
+        assertThat(controller.resumeSessions(projectId, ALICE))
+                .extracting(WorktreeController.ResumeSessionView::worktreeId,
+                        WorktreeController.ResumeSessionView::tool,
+                        WorktreeController.ResumeSessionView::resumeId,
+                        WorktreeController.ResumeSessionView::capturedAt,
+                        WorktreeController.ResumeSessionView::title)
+                .containsExactly(tuple(projectId + "-console-aaaaaaaa", "claude",
+                        "11111111-1111-1111-1111-111111111111", LATER.toString(), null));
+        // Someone who is not the project's owner sees none of them (#242).
+        assertThat(controller.resumeSessions(projectId, BOB)).isEmpty();
+    }
+
+    @Test
+    void reopeningAConversationMintsASessionInItsOriginalDirectory(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(tmp);
+        ProjectConsoleController controller = controller(tmp, projectRepository, sessionRepository);
+        var original = controller.start(projectId).getBody();
+        String originalId = original.get("sessionId");
+        String originalDirectory = original.get("workingDirectory");
+        sessionRepository.recordAttach(originalId, Path.of(originalDirectory), EARLIER, "alice");
+        new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(tmp)).record(originalId, "claude",
+                "11111111-1111-1111-1111-111111111111", LATER);
+
+        var response = controller.reopenSession(projectId, originalId, ALICE);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("workingDirectory")).isEqualTo(originalDirectory);
+        assertThat(response.getBody().get("sessionId"))
+                .matches("^" + projectId + "-console-[0-9a-f]{8}-resume-[0-9a-f]{8}$");
+    }
+
+    @Test
+    void reopeningAConversationTheCallerCannotSeeIsNotFound(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        createUser(tmp, "bob");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        ProjectConsoleController controller =
+                controller(tmp, projectRepository, TestSqliteDatabases.newRepository(tmp));
+        new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(tmp)).record(projectId + "-console-aaaaaaaa", "claude",
+                "11111111-1111-1111-1111-111111111111", LATER);
+
+        // Not this project's owner.
+        assertThat(controller.reopenSession(projectId, projectId + "-console-aaaaaaaa", BOB).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        // A console with no captured conversation at all.
+        assertThat(controller.reopenSession(projectId, projectId + "-console-bbbbbbbb", ALICE).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
     private static long createUser(Path dbDir, String username) {
         return TestSqliteDatabases.newUserRepository(dbDir).create(username, "bcrypt-hash", Instant.now()).id();
     }
@@ -223,8 +291,12 @@ class ProjectConsoleControllerTest {
                 new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient());
         WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, projectRepository, ghResources,
                 new SessionRegistry(sessionRepository));
+        ConsoleSessionTitles titles = new ConsoleSessionTitles(dbDir.resolve("claude"), dbDir.resolve("codex"),
+                directory -> null);
         return new ProjectConsoleController(new ProjectConsoleService(projectRepository, tokenCipher(dbDir),
-                new SessionRegistry(sessionRepository), sessionRepository, authorization, sweeper));
+                new SessionRegistry(sessionRepository), sessionRepository,
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization, sweeper),
+                titles);
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {

@@ -2,6 +2,20 @@
   <button type="button" class="back" (click)="back()">← back to issues</button>
   <h1>Project console</h1>
 </div>
+<div class="past">
+  <button type="button" class="past-toggle" [attr.aria-expanded]="pastOpen" (click)="togglePast()">
+    {{ pastOpen ? '▾' : '▸' }} past sessions
+  </button>
+  @if (pastOpen) {
+    @if (pastLoading) {
+      <div class="past-empty">loading…</div>
+    } @else if (pastSessions.length) {
+      <app-session-list [sessions]="pastSessions" [busy]="starting" (reopen)="reopenSession($event)" />
+    } @else if (pastLoaded) {
+      <div class="past-empty">no past conversations in this project's consoles yet</div>
+    }
+  }
+</div>
 @if (loading) {
   <div class="loading">loading…</div>
 } @else if (consoles.length) {
@@ -30,6 +44,7 @@
         [sessionId]="console.id"
         [dir]="console.dir"
         [cmd]="console.agent"
+        [resume]="console.resume"
         [active]="console.id === selected"
       />
     }

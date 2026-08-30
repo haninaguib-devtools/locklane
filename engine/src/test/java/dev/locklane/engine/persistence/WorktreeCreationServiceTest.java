@@ -401,6 +401,32 @@ class WorktreeCreationServiceTest {
         assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/42-do-the-thing");
     }
 
+    @Test
+    void resolvesAConversationsDirectoryFromItsRecordAndThenFromTheIssuesOwnCheckout(@TempDir Path tmp)
+            throws Exception {
+        // #373's title lookup needs to know where a conversation ran: Claude and
+        // OpenCode file a stored conversation under its working directory.
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        WorktreeCreationService service = service(repository, projectRepository, List.of());
+        Path issueWorktree = projectRoot.resolveSibling(WorktreeCreationService.repoName(projectRoot) + "-174");
+
+        // No session record yet: the issue's one checkout is the answer, whether or
+        // not it currently exists on disk.
+        assertThat(service.conversationDirectory(projectId, 174, projectId + "-174-rename-toggle"))
+                .contains(issueWorktree);
+
+        repository.recordAttach(projectId + "-174-rename-toggle", issueWorktree,
+                Instant.parse("2026-08-25T12:00:00Z"), "alice");
+        assertThat(service.conversationDirectory(projectId, 174, projectId + "-174-rename-toggle"))
+                .contains(issueWorktree);
+        // Another issue's console, and an unknown project, resolve to nothing.
+        assertThat(service.conversationDirectory(projectId, 174, projectId + "-175-something")).isEmpty();
+        assertThat(service.conversationDirectory(999, 174, "999-174-rename-toggle")).isEmpty();
+    }
+
     private static ProjectRecord readyProject(ProjectRepository projectRepository, Path projectRoot) {
         return projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", 1L, Instant.now());
     }

@@ -4,9 +4,11 @@ import dev.locklane.engine.pty.SessionRegistry;
 import dev.locklane.engine.security.TokenCipher;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,7 +53,9 @@ import java.util.regex.Pattern;
  * IssueWorktreeService#resumeSessionsForIssue} — both scoped to one issue, which a
  * project console has none of. It does appear in {@link
  * IssueWorktreeService#allWorktreeIds} (#194), the project-wide list the header
- * indicator/picker reads.
+ * indicator/picker reads, and since #372 the same conversations an issue's Overview
+ * tab lists are listed for a project's own consoles here — see
+ * {@link #resumeSessionsForProject} and {@link #reopenSession}.
  */
 @Service
 public class ProjectConsoleService {
@@ -59,21 +63,29 @@ public class ProjectConsoleService {
     // The whole family: the legacy bare "<projectId>-console" plus every
     // "<projectId>-console-<suffix>" minted since #177.
     private static final Pattern CONSOLE_SESSION_ID = Pattern.compile("^(\\d+)-console(-.+)?$");
+    // The tail {@link #reopenSession} appends to a console's own suffix (#372).
+    // Stripped back off when the conversation's directory is derived from the id, so
+    // reopening a reopened console still lands in the one directory the conversation
+    // was ever captured in, instead of a chain of never-created ones.
+    private static final Pattern REOPENED_SUFFIX = Pattern.compile("-resume-[0-9a-f]{8}$");
 
     private final ProjectRepository projectRepository;
     private final TokenCipher tokenCipher;
     private final SessionRegistry sessionRegistry;
     private final WorktreeSessionRepository sessionRepository;
+    private final ConsoleResumeSessionRepository resumeRepository;
     private final WorktreeSessionAuthorization authorization;
     private final WorktreeCleanupSweeper sweeper;
 
     public ProjectConsoleService(ProjectRepository projectRepository, TokenCipher tokenCipher,
             SessionRegistry sessionRegistry, WorktreeSessionRepository sessionRepository,
-            WorktreeSessionAuthorization authorization, WorktreeCleanupSweeper sweeper) {
+            ConsoleResumeSessionRepository resumeRepository, WorktreeSessionAuthorization authorization,
+            WorktreeCleanupSweeper sweeper) {
         this.projectRepository = projectRepository;
         this.tokenCipher = tokenCipher;
         this.sessionRegistry = sessionRegistry;
         this.sessionRepository = sessionRepository;
+        this.resumeRepository = resumeRepository;
         this.authorization = authorization;
         this.sweeper = sweeper;
     }
@@ -130,6 +142,117 @@ public class ProjectConsoleService {
                 .map(record -> new OpenConsole(record.worktreeId(), record.workingDirectory().toString(),
                         record.createdAt(), record.lastAttachedAt()))
                 .toList();
+    }
+
+    /**
+     * The past Claude/Codex/OpenCode conversations captured (#102) in this project's
+     * own consoles that {@code requestingUsername} may see, newest sighting first
+     * (#372) — the project-level counterpart of {@link
+     * IssueWorktreeService#resumeSessionsForIssue}, reading the same
+     * {@link ConsoleResumeSessionRepository} table, which {@code ResumeIdScanner}
+     * already writes to for every console regardless of scope. Conversations whose
+     * console has since been closed are the point: the row outlives the console
+     * (#101). Visibility follows the console the conversation was captured in, under
+     * the same project-owner/admin rule as {@link #listOpen} (#242) — decided
+     * straight from the console id, which carries the project it belongs to, so a
+     * closed console with no session record left is still filtered rather than shown
+     * to everyone. The same conversation sighted in several of this project's
+     * consoles is listed once, at its newest sighting.
+     *
+     * <p>The legacy bare {@code "<projectId>-console"} id is excluded — the
+     * project-family counterpart of the {@code "...-main-..."} exclusion the
+     * issue-scoped listing already makes. That id was only ever minted before #177,
+     * and so only ever ran in the project's own shared checkout (#314 gave consoles
+     * their own worktrees later); a conversation captured there can only be resumed
+     * there, and #341 retired the project checkout as a console location — so listing
+     * it would offer a reopen that could never work.
+     */
+    public List<ConsoleResumeSessionRecord> resumeSessionsForProject(long projectId, String requestingUsername) {
+        Map<String, ConsoleResumeSessionRecord> byConversation = new LinkedHashMap<>();
+        resumeRepository.findAll().stream()
+                .filter(record -> belongsToProject(record.worktreeId(), projectId))
+                .filter(record -> !consoleSuffix(record.worktreeId()).isEmpty())
+                .filter(record -> authorization.isVisibleTo(record.worktreeId(), requestingUsername))
+                .sorted(Comparator.comparing(ConsoleResumeSessionRecord::capturedAt).reversed())
+                .forEach(record -> byConversation.putIfAbsent(record.tool() + ":" + record.resumeId(), record));
+        return List.copyOf(byConversation.values());
+    }
+
+    /**
+     * Mints a brand-new console session for reopening one of this project's past
+     * conversations (#372), in the directory that conversation was captured in —
+     * never a reattach, exactly like {@link WorktreeCreationService#reopenSession}
+     * does for an issue: the original console may still be running, and the point is
+     * a second console resuming the same conversation. The directory matters because
+     * Claude/OpenCode key a stored conversation by working directory, so resuming
+     * anywhere else finds nothing.
+     *
+     * <p>Where the issue-side reopen can always fall back to the issue's one stable
+     * worktree path, a project console's directory belongs to that console alone —
+     * and closing its tab deletes both its session record and (#339/ADR-010) its
+     * worktree. So the directory is resolved from the record while one exists, and
+     * otherwise rebuilt from the session id itself: {@code
+     * "<projectId>-console-<suffix>"} always named the sibling checkout {@code
+     * "<repoName>-console-<suffix>"} ({@link #startWorktreeSession}). A directory
+     * that is gone is recreated as a fresh detached worktree at that same path, which
+     * is all the CLI needs to find the conversation again.
+     *
+     * <p>The minted id carries the original console's suffix ahead of its own
+     * {@code "-resume-<8-hex>"} tail, so it stays inside the project's console family
+     * (reattaching, environment resolution and closing all work unchanged) while
+     * still naming the directory it runs in. Empty when the project is not ready,
+     * when {@code originalSessionId} is not one of this project's consoles, or when
+     * it is the legacy bare {@code "<projectId>-console"} — refused for the same
+     * reason {@link #resumeSessionsForProject} never lists it.
+     */
+    public Optional<ConsoleSession> reopenSession(long projectId, String originalSessionId) {
+        Optional<ProjectRecord> project = projectRepository.findById(projectId);
+        if (project.isEmpty() || project.get().status() != ProjectStatus.READY) {
+            return Optional.empty();
+        }
+        if (!belongsToProject(originalSessionId, projectId)) {
+            return Optional.empty();
+        }
+        Optional<Path> resolved = conversationDirectory(projectId, originalSessionId);
+        if (resolved.isEmpty()) {
+            return Optional.empty();
+        }
+        Path projectRoot = project.get().workareaPath();
+        Path directory = resolved.get();
+        if (!Files.exists(directory)) {
+            WorktreeCreationService.createDetachedWorktree(directory, projectRoot);
+        }
+        return Optional.of(new ConsoleSession(
+                projectId + "-console-" + originalConsoleSuffix(originalSessionId) + "-resume-" + shortId(),
+                directory.toString()));
+    }
+
+    /**
+     * Where a conversation captured in {@code sessionId} actually ran — its console's
+     * recorded working directory while that record exists, and otherwise the sibling
+     * checkout its id names ({@link #startWorktreeSession}), whether or not that
+     * directory is still on disk. Empty for a session outside this project's console
+     * family and for the legacy bare {@code "<projectId>-console"}, which ran in the
+     * project's own shared checkout rather than a console worktree of its own.
+     *
+     * <p>Both {@link #reopenSession} and #373's title lookup need this same answer:
+     * one to run a resumed conversation where the CLI will find it, the other to read
+     * the title the CLI filed under that same directory.
+     */
+    public Optional<Path> conversationDirectory(long projectId, String sessionId) {
+        Optional<ProjectRecord> project = projectRepository.findById(projectId);
+        if (project.isEmpty() || !belongsToProject(sessionId, projectId)) {
+            return Optional.empty();
+        }
+        String suffix = originalConsoleSuffix(sessionId);
+        if (suffix.isEmpty()) {
+            return Optional.empty();
+        }
+        Path projectRoot = project.get().workareaPath();
+        return Optional.of(sessionRepository.find(sessionId)
+                .map(WorktreeSessionRecord::workingDirectory)
+                .orElseGet(() -> projectRoot.resolveSibling(
+                        WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix)));
     }
 
     /**
@@ -207,6 +330,37 @@ public class ProjectConsoleService {
     private static boolean belongsToProject(String sessionId, long projectId) {
         Matcher matcher = CONSOLE_SESSION_ID.matcher(sessionId);
         return matcher.matches() && Long.parseLong(matcher.group(1)) == projectId;
+    }
+
+    /**
+     * What follows {@code "<projectId>-console-"} in a console session id, or the
+     * empty string for the legacy bare {@code "<projectId>-console"} (and for any id
+     * outside the family). This is exactly the sibling-directory suffix
+     * {@link #startWorktreeSession} named the console's worktree with.
+     */
+    private static String consoleSuffix(String sessionId) {
+        Matcher matcher = CONSOLE_SESSION_ID.matcher(sessionId);
+        if (!matcher.matches() || matcher.group(2) == null) {
+            return "";
+        }
+        return matcher.group(2).substring(1);
+    }
+
+    /**
+     * The suffix of the console a conversation was actually captured in, with any
+     * {@code "-resume-<8-hex>"} tails {@link #reopenSession} appended stripped back
+     * off — a reopened console runs in the original's directory, not one of its own,
+     * so reopening from it must resolve to that same directory rather than to a path
+     * nothing ever created.
+     */
+    private static String originalConsoleSuffix(String sessionId) {
+        String suffix = consoleSuffix(sessionId);
+        Matcher tail = REOPENED_SUFFIX.matcher(suffix);
+        while (tail.find()) {
+            suffix = suffix.substring(0, tail.start());
+            tail = REOPENED_SUFFIX.matcher(suffix);
+        }
+        return suffix;
     }
 
     private boolean isVisibleTo(WorktreeSessionRecord record, String requestingUsername) {

@@ -54,4 +54,33 @@ describe('ProjectConsoleService', () => {
     expect(req.request.method).toBe('GET');
     req.flush(consoles);
   });
+  it('lists past conversations via GET /api/projects/{projectId}/console/resume-sessions', () => {
+    const sessions = [
+      {
+        worktreeId: '1-console-aaaa1111',
+        tool: 'claude' as const,
+        resumeId: '11111111-1111-1111-1111-111111111111',
+        capturedAt: '2026-08-27T10:00:00Z',
+        title: null,
+      },
+    ];
+    service.resumeSessions(1).subscribe((result) => expect(result).toEqual(sessions));
+
+    const req = httpMock.expectOne('/api/projects/1/console/resume-sessions');
+    expect(req.request.method).toBe('GET');
+    req.flush(sessions);
+  });
+
+  it('reopens a past conversation via POST .../console/resume-sessions/reopen?from=', () => {
+    const reopened = { sessionId: '1-console-aaaa1111-resume-99887766', workingDirectory: '/repo-console-aaaa1111' };
+    service.reopenSession(1, '1-console-aaaa1111').subscribe((result) => expect(result).toEqual(reopened));
+
+    const req = httpMock.expectOne(
+      (request) =>
+        request.url === '/api/projects/1/console/resume-sessions/reopen' &&
+        request.params.get('from') === '1-console-aaaa1111',
+    );
+    expect(req.request.method).toBe('POST');
+    req.flush(reopened);
+  });
 });
