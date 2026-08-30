@@ -246,6 +246,29 @@ class ProjectConsoleServiceTest {
         assertThat(service.find(bobsProjectId, "alice")).isEmpty();
     }
 
+    /**
+     * #394 (ADR-011): an administrator reaches another account's console no more than
+     * any other non-owner does — it is neither findable, nor listed, nor closable.
+     */
+    @Test
+    void doesNotFindOrListOrCloseAnotherUsersConsoleForAnAdmin(@TempDir Path dbDir) {
+        long bobId = createUser(dbDir, "bob");
+        createAdminUser(dbDir, "root");
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long bobsProjectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", bobId, Instant.now()).id();
+        sessionRepository.recordAttach(bobsProjectId + "-console-0a1b2c3d", dbDir, EARLIER, "bob");
+        ProjectConsoleService service = service(dbDir, projectRepository, sessionRepository);
+
+        assertThat(service.find(bobsProjectId, "root")).isEmpty();
+        assertThat(service.listOpen(bobsProjectId, "root")).isEmpty();
+        assertThat(service.close(bobsProjectId, bobsProjectId + "-console-0a1b2c3d", "root")).isFalse();
+        assertThat(service.listOpen(bobsProjectId, "bob"))
+                .extracting(ProjectConsoleService.OpenConsole::sessionId)
+                .containsExactly(bobsProjectId + "-console-0a1b2c3d");
+    }
+
     @Test
     void listsOpenConsolesOldestFirstWithTheirTimes(@TempDir Path dbDir) {
         long aliceId = createUser(dbDir, "alice");
@@ -599,6 +622,12 @@ class ProjectConsoleServiceTest {
         assertThat(service.conversationDirectory(projectId, projectId + "-console")).isEmpty();
         assertThat(service.conversationDirectory(projectId, projectId + "-174-some-slug")).isEmpty();
         assertThat(service.conversationDirectory(projectId, (projectId + 1) + "-console-aaaaaaaa")).isEmpty();
+    }
+
+    /** An administrator account — the role #394 deliberately gives no extra reach. */
+    private static long createAdminUser(Path dbDir, String username) {
+        return TestSqliteDatabases.newUserRepository(dbDir)
+                .create(username, "bcrypt-hash", Instant.now(), UserRecord.Role.ADMIN).id();
     }
 
     private static long createUser(Path dbDir, String username) {

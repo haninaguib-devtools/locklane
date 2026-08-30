@@ -1,5 +1,7 @@
 package dev.locklane.engine.ws;
 
+import dev.locklane.engine.persistence.ProjectRecord;
+import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -12,6 +14,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Path;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,10 +40,11 @@ final class AuthenticatedWebSocketClients {
     }
 
     /**
-     * As above, with an explicit role (#242's admin-sees-everything case, and for
-     * tests that only exercise terminal I/O and have no project of their own to be
-     * authorized against — they log in as an admin, who may attach to any session,
-     * rather than fabricate one).
+     * As above, with an explicit role — only for tests that are actually about a
+     * role. It is no longer a way past session authorization: since #394 (ADR-011) an
+     * administrator may attach to nothing an ordinary account could not, so a test
+     * that needs an attach to succeed gives its user a real project via
+     * {@link #projectOwnedBy} and uses that project's id as the session id's prefix.
      */
     static String loginAs(int port, UserRepository userRepository, PasswordEncoder passwordEncoder,
             String username, String password, UserRecord.Role role) throws Exception {
@@ -60,6 +64,19 @@ final class AuthenticatedWebSocketClients {
         return response.headers().firstValue("Set-Cookie")
                 .map(cookie -> cookie.split(";", 2)[0])
                 .orElseThrow(() -> new AssertionError("Login did not set a session cookie"));
+    }
+
+    /**
+     * A project genuinely owned by {@code username}, so a session id prefixed with
+     * its id passes {@code WorktreeSessionAuthorization} for that account (#394):
+     * ownership is the whole of the check, with no role exemption to lean on instead.
+     * A fresh row per call, named for the caller, keeps two tests' sessions apart.
+     */
+    static ProjectRecord projectOwnedBy(UserRepository userRepository, ProjectRepository projectRepository,
+            String username) {
+        long ownerId = userRepository.findByUsername(username).orElseThrow().id();
+        return projectRepository.create("proj-" + username, "url",
+                Path.of("/tmp/proj-" + username + "-" + Instant.now().toEpochMilli()), ownerId, Instant.now());
     }
 
     /** Connects with the given session cookie (from {@link #loginAs}) as a Cookie header. */

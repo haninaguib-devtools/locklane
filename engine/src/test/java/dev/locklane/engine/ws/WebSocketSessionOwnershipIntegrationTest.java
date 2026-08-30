@@ -31,9 +31,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Covers #242's done-when over a real network connection: a worktree session's
  * visibility and attach authorization derive from its owning project's
  * {@code owner_user_id} (ADR-007 Decision 6), not from whoever attaches first
- * (#48's old model, replaced here) — the project's owner may always (re)attach, an
- * unrelated authenticated user is rejected, and an admin may attach to anyone's
- * session. Since #50, an unauthenticated connection cannot reach this logic at all —
+ * (#48's old model, replaced here) — the project's owner may always (re)attach, and
+ * an unrelated authenticated user is rejected whatever their role, an administrator
+ * included (#394, ADR-011, which withdrew the exemption ADR-007 Decision 6 had
+ * granted). Since #50, an unauthenticated connection cannot reach this logic at all —
  * that failure mode is covered here too, since it is the other half of the same
  * "who may attach" story.
  */
@@ -109,8 +110,15 @@ class WebSocketSessionOwnershipIntegrationTest {
         secondSession.close();
     }
 
+    /**
+     * The inverse of what #242 originally asserted here. Attaching is a live shell in
+     * the project's checkout with its decrypted GitHub token in the environment, so
+     * #394 (ADR-011) gives an administrator no more access to it than any other
+     * unrelated account has: the handshake is refused with the same policy violation
+     * bob gets above, and alice's own session is unaffected.
+     */
     @Test
-    void anAdminCanAttachToAnotherUsersProjectSession(@TempDir Path workDir) throws Exception {
+    void anAdminCannotAttachToAnotherUsersProjectSession(@TempDir Path workDir) throws Exception {
         String alice = "ws-owner-alice-3-" + RUN_ID;
         String admin = "ws-owner-admin-" + RUN_ID;
         String aliceCookie = login(alice, "alice-password");
@@ -127,9 +135,11 @@ class WebSocketSessionOwnershipIntegrationTest {
         RecordingHandler adminHandler = new RecordingHandler();
         WebSocketSession adminSession =
                 AuthenticatedWebSocketClients.connect(adminHandler, adminCookie, uriWithoutDir(worktreeId));
-        waitUntil(adminSession::isOpen, Duration.ofSeconds(5));
 
-        adminSession.close();
+        waitUntil(() -> !adminSession.isOpen(), Duration.ofSeconds(5));
+        assertThat(adminHandler.closeStatus).isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
+        assertThat(adminHandler.combined()).doesNotContain("alices-output");
+
         aliceSession.close();
     }
 

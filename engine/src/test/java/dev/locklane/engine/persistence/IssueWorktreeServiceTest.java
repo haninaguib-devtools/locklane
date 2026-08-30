@@ -14,7 +14,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * excluded (#43). Visibility itself is #242's project-owner-derived model (ADR-007
  * Decision 6, via {@link WorktreeSessionAuthorization}): a session's owning project
  * is resolved from the leading numeric segment of its id, and only that project's
- * owner (or an admin) sees it — who last attached to the session no longer matters.
+ * owner sees it — who last attached to the session no longer matters, and since #394
+ * (ADR-011) neither does the caller's role.
  */
 class IssueWorktreeServiceTest {
 
@@ -158,6 +159,28 @@ class IssueWorktreeServiceTest {
 
         assertThat(service.worktreeIdsForIssue(1, 174, "alice")).isEmpty();
         assertThat(service.worktreeIdsForIssue(1, 174, "bob")).containsExactly("1-174-bobs-session");
+    }
+
+    /**
+     * #394 (ADR-011) withdrew the administrator exemption ADR-007 Decision 6 granted:
+     * an administrator sees another account's worktree and console sessions exactly
+     * as any other non-owner does — not at all.
+     */
+    @Test
+    void excludesASessionInAProjectAnAdminDoesNotOwn(@TempDir Path dbDir) {
+        createProject(dbDir, "bob", "bobs"); // project 1, owned by bob
+        adminUserId(dbDir, "root");
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Instant now = Instant.parse("2026-08-25T12:00:00Z");
+        repository.recordAttach("1-174-bobs-session", dbDir.resolve("wt1"), now, "bob");
+        repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt2"), now, "bob");
+
+        IssueWorktreeService service = service(dbDir, repository);
+
+        assertThat(service.worktreeIdsForIssue(1, 174, "root")).isEmpty();
+        assertThat(service.allWorktreeIds(1, "root")).isEmpty();
+        assertThat(service.allWorktreeIds(1, "bob"))
+                .containsExactlyInAnyOrder("1-174-bobs-session", "1-console-0a1b2c3d");
     }
 
     @Test
@@ -362,6 +385,15 @@ class IssueWorktreeServiceTest {
     }
 
     /** {@code username}'s account id, creating the account (with a fresh id) the first time it's asked for. */
+    /** An administrator account — the role #394 deliberately gives no extra reach. */
+    private static long adminUserId(Path dbDir, String username) {
+        UserRepository userRepository = TestSqliteDatabases.newUserRepository(dbDir);
+        return userRepository.findByUsername(username)
+                .map(UserRecord::id)
+                .orElseGet(() -> userRepository
+                        .create(username, "bcrypt-hash", Instant.now(), UserRecord.Role.ADMIN).id());
+    }
+
     private static long userId(Path dbDir, String username) {
         UserRepository userRepository = TestSqliteDatabases.newUserRepository(dbDir);
         return userRepository.findByUsername(username)

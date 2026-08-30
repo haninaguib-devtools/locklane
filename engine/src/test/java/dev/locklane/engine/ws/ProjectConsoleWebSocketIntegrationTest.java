@@ -1,7 +1,6 @@
 package dev.locklane.engine.ws;
 
 import dev.locklane.engine.persistence.ProjectRepository;
-import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.UserRepository;
 import dev.locklane.engine.security.TokenCipher;
 import org.junit.jupiter.api.Test;
@@ -26,9 +25,10 @@ import java.util.function.Supplier;
  * console's session id (`"<projectId>-console"`) gets the project's own decrypted
  * GitHub token as {@code GH_TOKEN} in the PTY's environment, and a project with no
  * stored token gets none — over a real network connection, same style as
- * {@link TerminalWebSocketHandlerIntegrationTest}. Each connects as an admin, since
- * the project isn't created as anyone's own account and #242's authorization would
- * otherwise reject the attach on ownership grounds unrelated to what this covers.
+ * {@link TerminalWebSocketHandlerIntegrationTest}. Each project is created as the
+ * connecting account's own, so #242's authorization is satisfied by real ownership —
+ * #394 (ADR-011) withdrew the administrator exemption these previously leaned on, and
+ * ownership is what a console attach has always been meant to turn on.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ProjectConsoleWebSocketIntegrationTest {
@@ -50,10 +50,11 @@ class ProjectConsoleWebSocketIntegrationTest {
 
     @Test
     void aProjectConsoleSessionSeesTheProjectsDecryptedGithubToken(@TempDir Path workDir) throws Exception {
-        long projectId = projectRepository.createReady("token-project", "url", workDir, "main", 1L, Instant.now()).id();
-        projectRepository.setGithubToken(projectId, tokenCipher.encrypt("ghp_project139secret"));
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "console-token-user", "password-console-token", UserRecord.Role.ADMIN);
+                "console-token-user", "password-console-token");
+        long projectId = projectRepository.createReady("token-project", "url", workDir, "main",
+                ownerId("console-token-user"), Instant.now()).id();
+        projectRepository.setGithubToken(projectId, tokenCipher.encrypt("ghp_project139secret"));
         RecordingHandler client = new RecordingHandler();
 
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, consoleUri(projectId, workDir));
@@ -65,9 +66,10 @@ class ProjectConsoleWebSocketIntegrationTest {
 
     @Test
     void aProjectConsoleSessionWithNoStoredTokenGetsNoGhToken(@TempDir Path workDir) throws Exception {
-        long projectId = projectRepository.createReady("no-token-project", "url", workDir, "main", 1L, Instant.now()).id();
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
-                "console-no-token-user", "password-console-no-token", UserRecord.Role.ADMIN);
+                "console-no-token-user", "password-console-no-token");
+        long projectId = projectRepository.createReady("no-token-project", "url", workDir, "main",
+                ownerId("console-no-token-user"), Instant.now()).id();
         RecordingHandler client = new RecordingHandler();
 
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, consoleUri(projectId, workDir));
@@ -75,6 +77,10 @@ class ProjectConsoleWebSocketIntegrationTest {
         waitUntil(() -> client.combined().contains("token-is-[]"), Duration.ofSeconds(5));
 
         session.close();
+    }
+
+    private long ownerId(String username) {
+        return userRepository.findByUsername(username).orElseThrow().id();
     }
 
     private String consoleUri(long projectId, Path workDir) {
