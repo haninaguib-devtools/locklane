@@ -19,11 +19,17 @@ import java.util.regex.Pattern;
  * no issue of their own. Since #314 each session gets its own freshly created git
  * worktree — a sibling checkout next to the project's own
  * ({@link ProjectCheckoutService}'s workarea), following the same
- * {@code ../<repo-name>-<suffix>} pattern and reusing the exact same
- * {@code git worktree add} plumbing ({@link WorktreeCreationService#createWorktree})
- * as the per-issue flow — rather than every console sharing that one checkout, as
- * before #314. Closing a console never removes its worktree (that cleanup is
- * deliberately deferred, per #314's task record). A project can have several open at
+ * {@code ../<repo-name>-<suffix>} pattern. Since #338 that worktree's HEAD is
+ * detached at current {@code origin/main} ({@link
+ * WorktreeCreationService#createDetachedWorktree}) rather than sitting on a freshly
+ * minted {@code console/<suffix>} branch: a console exists for pre-issue discussion
+ * and almost never commits, so every one opened left a branch behind permanently. A
+ * session that legitimately transitions to task work gets its proper
+ * {@code wip/<id>-<slug>} branch from {@code /t-work} at that point instead — the
+ * detached worktree still gives full file isolation in the meantime, rather than
+ * every console sharing that one checkout, as before #314. Closing a console never
+ * removes its worktree (that cleanup is deliberately deferred, per #314's task
+ * record). A project can have several open at
  * once (#177): each {@link #start} mints a fresh id
  * {@code "<projectId>-console-<8-hex>"} — the same short-suffix convention
  * {@code WorktreeCreationService} uses for its {@code -main-}/{@code -resume-} ids —
@@ -84,9 +90,8 @@ public class ProjectConsoleService {
     private ConsoleSession startWorktreeSession(long projectId, Path projectRoot) {
         String suffix = shortId();
         String sessionId = projectId + "-console-" + suffix;
-        String branch = "console/" + suffix;
         Path worktreePath = projectRoot.resolveSibling(WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix);
-        WorktreeCreationService.createWorktree(branch, worktreePath, projectRoot);
+        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot);
         return new ConsoleSession(sessionId, worktreePath.toString());
     }
 

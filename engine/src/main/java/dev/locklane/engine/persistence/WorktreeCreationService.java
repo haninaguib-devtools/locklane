@@ -290,6 +290,29 @@ public class WorktreeCreationService {
         run("git", "-C", worktreePath.toString(), "checkout", "--detach", "origin/main");
     }
 
+    /**
+     * Runs a real {@code git worktree add --detach} for {@code worktreePath} inside
+     * {@code projectRoot}, at current {@code origin/main} — no branch is created or
+     * checked out (#338). Package-visible (and static, like {@link #createWorktree})
+     * so {@link ProjectConsoleService} can reuse it for a project console's sibling
+     * worktree: a console exists for pre-issue discussion and almost never commits,
+     * so minting it a branch left one behind on disk permanently for every console
+     * ever opened. The worktree still gives full file isolation between sessions; a
+     * session that legitimately transitions to task work gets its proper
+     * {@code wip/<id>-<slug>} branch from {@code /t-work} at that point instead.
+     */
+    static void createDetachedWorktree(Path worktreePath, Path projectRoot) {
+        run("git", "-C", projectRoot.toString(), "fetch", "--prune", "origin");
+
+        ProcessResult result = run("git", "-C", projectRoot.toString(), "worktree", "add", "--detach",
+                worktreePath.toString(), "origin/main");
+
+        if (result.exitCode() != 0) {
+            throw new WorktreeCreationException(
+                    "git worktree add --detach failed: " + result.stderr().strip());
+        }
+    }
+
     /** Package-visible for the same reason as {@link #createWorktree}: shared with {@link ProjectConsoleService}. */
     static String repoName(Path projectRoot) {
         Path name = projectRoot.getFileName();
