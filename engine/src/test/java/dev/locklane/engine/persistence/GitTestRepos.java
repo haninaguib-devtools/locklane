@@ -95,7 +95,22 @@ final class GitTestRepos {
         return out.lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
     }
 
-    private static void run(Path cwd, String... command) throws IOException, InterruptedException {
+    /**
+     * Makes an empty commit in {@code worktree} — a quick way to give a detached
+     * worktree a commit of its own, reachable from nowhere else (#339): worktrees
+     * share their repository's config (author identity included), so no extra setup
+     * is needed beyond what {@link #initTestRepo} already configured.
+     */
+    static void commitEmpty(Path worktree, String message) throws IOException, InterruptedException {
+        run(worktree, "git", "commit", "--allow-empty", "-m", message);
+    }
+
+    /** Writes an untracked file into {@code worktree} — the simplest way to make its git status dirty. */
+    static void makeDirty(Path worktree) throws IOException {
+        Files.writeString(worktree.resolve("untracked.txt"), "dirty");
+    }
+
+    static void run(Path cwd, String... command) throws IOException, InterruptedException {
         Process process = new ProcessBuilder(command).directory(cwd.toFile()).redirectErrorStream(true).start();
         String output = new String(process.getInputStream().readAllBytes());
         int exit = process.waitFor();

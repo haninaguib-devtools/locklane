@@ -48,6 +48,26 @@ import java.util.Optional;
  * #removeWorktree} attempts {@code git branch -d} (never {@code -D}, never retried)
  * on that branch immediately after the worktree is gone: git's own merge check is the
  * only judgment made, so a shipped branch goes and an unmerged one silently survives.
+ *
+ * <p>#339/ADR-010 adds a second, distinct carve-out alongside this one, for a
+ * worktree-creation path this class's original guard was never written for: a
+ * project console (no issue of its own, {@link ProjectConsoleService}). {@link
+ * #allProjectConsoleWorktrees()}/{@link #removalRefusalReasonForProjectConsole}/
+ * {@link #removeProjectConsoleWorktree} are that second guard's whole shape — session
+ * ended, HEAD detached, clean, and HEAD an ancestor of {@code origin/main} (a
+ * detached worktree has no branch to preserve a commit once its reflog is deleted
+ * with it, unlike the per-issue case above) — checked and removed the same
+ * all-or-nothing way, by {@link #sweep()} as the periodic backstop and by {@link
+ * ProjectConsoleService#close(long, String, String)} synchronously on tab close.
+ * Discovery ({@link #allProjectConsoleWorktrees()}) is deliberately git-native
+ * ({@code git worktree list --porcelain}, cross-referenced against the
+ * sibling-directory naming convention {@link
+ * ProjectConsoleService#startWorktreeSession} already uses), never from {@link
+ * WorktreeSessionRepository}: a project console's tab-close already deletes its
+ * persisted record unconditionally as part of ending the session, so a worktree this
+ * guard refuses to remove would otherwise have no record left to find it by — and
+ * asking git itself, rather than trusting directory names alone, means a same-named
+ * but unrelated directory is never mistaken for a real project-console worktree.
  */
 @Service
 public class WorktreeCleanupSweeper {
@@ -76,15 +96,21 @@ public class WorktreeCleanupSweeper {
     }
 
     /**
-     * Evaluates every console-created worktree once and removes each one the guard
-     * above clears — returns the worktree ids actually removed, so a caller (a test,
-     * or #320's on-demand trigger) can report what happened rather than only that the
+     * Evaluates every console-created worktree once — per-issue and project-console
+     * alike, each against its own guard — and removes each one the applicable guard
+     * clears. Returns the worktree ids actually removed, so a caller (a test, or
+     * #320's on-demand trigger) can report what happened rather than only that the
      * method ran.
      */
     public List<String> sweep() {
         List<String> removed = new ArrayList<>();
         for (IssueWorktreeService.ConsoleWorktree worktree : issueWorktreeService.allIssueWorktrees()) {
             if (isSafeToRemove(worktree) && removeWorktree(worktree)) {
+                removed.add(worktree.worktreeId());
+            }
+        }
+        for (ProjectConsoleWorktree worktree : allProjectConsoleWorktrees()) {
+            if (removalRefusalReasonForProjectConsole(worktree).isEmpty() && removeProjectConsoleWorktree(worktree)) {
                 removed.add(worktree.worktreeId());
             }
         }
@@ -176,6 +202,136 @@ public class WorktreeCleanupSweeper {
         return run(workingDirectory, "git", "rev-parse", "--abbrev-ref", "HEAD")
                 .map(String::strip)
                 .filter(name -> !name.isEmpty() && !"HEAD".equals(name));
+    }
+
+    /**
+     * Every project-console worktree git itself considers registered to a project's
+     * repository, across every project (#339) — {@code git worktree list --porcelain}
+     * in each project's own checkout, cross-referenced against the sibling-directory
+     * naming convention {@link ProjectConsoleService#startWorktreeSession} already
+     * uses ({@code <repoName>-console-<suffix>}), never from {@link
+     * WorktreeSessionRepository}: see this class's javadoc for why a DB-record-based
+     * discovery would be wrong here. Asking git, rather than only matching directory
+     * names on disk, is deliberate: a same-named but unrelated directory (a manual
+     * backup, a stray clone parked next to the project) is never mistaken for a real
+     * project-console worktree, because it was never actually registered as one of
+     * this repository's linked worktrees. A project not found, or with no matching
+     * registered worktree, simply contributes nothing.
+     */
+    public List<ProjectConsoleWorktree> allProjectConsoleWorktrees() {
+        List<ProjectConsoleWorktree> result = new ArrayList<>();
+        for (ProjectRecord project : projectRepository.findAll()) {
+            Path projectRoot = project.workareaPath();
+            if (!Files.isDirectory(projectRoot)) {
+                continue;
+            }
+            String prefix = WorktreeCreationService.repoName(projectRoot) + "-console-";
+            for (Path worktreePath : registeredWorktreePaths(projectRoot)) {
+                Path fileName = worktreePath.getFileName();
+                if (fileName == null || !fileName.toString().startsWith(prefix)) {
+                    continue;
+                }
+                String suffix = fileName.toString().substring(prefix.length());
+                String worktreeId = project.id() + "-console-" + suffix;
+                result.add(new ProjectConsoleWorktree(project.id(), worktreeId, worktreePath));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Every worktree path {@code git worktree list --porcelain} reports for the
+     * repository rooted at {@code projectRoot} — one {@code worktree <path>} line per
+     * entry (blank-line separated; {@code HEAD}/{@code branch}/{@code detached}/etc.
+     * lines are irrelevant here and skipped). Empty when the command itself fails —
+     * treated the same as "nothing registered," never guessed from disk state.
+     */
+    private List<Path> registeredWorktreePaths(Path projectRoot) {
+        Optional<String> output = run(projectRoot, "git", "worktree", "list", "--porcelain");
+        if (output.isEmpty()) {
+            return List.of();
+        }
+        List<Path> paths = new ArrayList<>();
+        for (String line : output.get().split("\n")) {
+            if (line.startsWith("worktree ")) {
+                paths.add(Path.of(line.substring("worktree ".length()).strip()));
+            }
+        }
+        return paths;
+    }
+
+    /**
+     * Empty when {@code worktree} clears every one of this second guard's four
+     * conditions (#339/ADR-010), checked fresh, in the order stated there; otherwise
+     * the reason the first failing one refuses, worded for a human reading it on the
+     * project page rather than a log line — the same {@link #removalRefusalReason}
+     * pattern the per-issue guard already established, applied to a worktree-creation
+     * path that guard was never written for.
+     */
+    public Optional<String> removalRefusalReasonForProjectConsole(ProjectConsoleWorktree worktree) {
+        if (sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())) {
+            return Optional.of("a console session is still attached to this worktree — close it before removing the worktree");
+        }
+        if (currentBranch(worktree.workingDirectory()).isPresent()) {
+            return Optional.of("a branch is checked out in this worktree — it has outgrown scratch use, so it is left alone");
+        }
+        if (!isClean(worktree.workingDirectory())) {
+            return Optional.of("the worktree has uncommitted changes — commit or discard them before removing it");
+        }
+        if (!isAncestorOfOriginMain(worktree.workingDirectory())) {
+            return Optional.of("this worktree has commits not yet reachable from origin/main — removing it would lose them");
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Removes exactly this project-console worktree's directory (via {@code git
+     * worktree remove}, no {@code --force}) and forgets its persisted session record,
+     * if any is still left — the ordinary case is that it is already gone, tab-close
+     * having deleted it as part of ending the session; {@link SessionRegistry#close}
+     * is a documented no-op for an id with nothing live or recorded, so calling it
+     * unconditionally here is safe. No branch-delete step (contrast {@link
+     * #removeWorktree}): this guard already refuses any worktree with a branch
+     * checked out, so there is never one left to delete. Callers must have already
+     * confirmed {@link #removalRefusalReasonForProjectConsole} is empty; this method
+     * performs no guard check of its own.
+     */
+    public boolean removeProjectConsoleWorktree(ProjectConsoleWorktree worktree) {
+        Optional<ProjectRecord> project = projectRepository.findById(worktree.projectId());
+        if (project.isEmpty()) {
+            return false;
+        }
+        Optional<String> output = run(project.get().workareaPath(), "git", "worktree", "remove",
+                worktree.workingDirectory().toString());
+        if (output.isEmpty()) {
+            return false;
+        }
+        sessionRegistry.close(worktree.worktreeId());
+        return true;
+    }
+
+    /**
+     * Whether {@code workingDirectory}'s HEAD commit is reachable from a freshly
+     * fetched {@code origin/main} — the one guard condition #339/ADR-010 needed that
+     * ADR-008's per-issue guard never did: a detached worktree has no branch to
+     * preserve a commit once the worktree (and its reflog) is removed, unlike a
+     * per-issue worktree's named branch. Fetches first so a stale local
+     * {@code origin/main} never says yes to a commit that has since been judged not
+     * reachable; any failure along the way (no HEAD, fetch or merge-base failing) is
+     * treated as "not an ancestor" — the safe direction, since it only ever keeps a
+     * worktree around longer, never removes one it shouldn't.
+     */
+    private boolean isAncestorOfOriginMain(Path workingDirectory) {
+        run(workingDirectory, "git", "fetch", "--prune", "origin");
+        Optional<String> head = run(workingDirectory, "git", "rev-parse", "HEAD").map(String::strip);
+        if (head.isEmpty()) {
+            return false;
+        }
+        return run(workingDirectory, "git", "merge-base", "--is-ancestor", head.get(), "origin/main").isPresent();
+    }
+
+    /** One project-console worktree (#339) — no issue of its own, unlike {@link IssueWorktreeService.ConsoleWorktree}. */
+    public record ProjectConsoleWorktree(long projectId, String worktreeId, Path workingDirectory) {
     }
 
     private Optional<String> run(Path workingDirectory, String... command) {

@@ -49,6 +49,33 @@ describe('WorktreeListComponent', () => {
     expect(text).toContain('attached');
   });
 
+  it('shows "console" instead of an issue number for a project-console worktree (#339)', () => {
+    const fixture = init([row({ worktreeId: '1-console-abcd1234', issueNumber: null, workingDirectory: '/work/1-console-abcd1234' })]);
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    expect(text).toContain('console');
+    expect(text).not.toContain('#null');
+    expect(text).toContain('/work/1-console-abcd1234');
+  });
+
+  it('shows the guard refusal verbatim when the server refuses to remove a project-console worktree', () => {
+    const fixture = init([row({ worktreeId: '1-console-abcd1234', issueNumber: null })]);
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.remove-button')!.click();
+    httpMock
+      .expectOne('/api/projects/1/worktrees/1-console-abcd1234')
+      .flush(
+        { error: 'a branch is checked out in this worktree — it has outgrown scratch use, so it is left alone' },
+        { status: 409, statusText: 'Conflict' },
+      );
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'a branch is checked out in this worktree — it has outgrown scratch use, so it is left alone',
+    );
+    expect(fixture.componentInstance.rows.length).toBe(1);
+  });
+
   it('shows a placeholder state when the project has no worktrees', () => {
     const fixture = init([]);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('no worktrees for this project');

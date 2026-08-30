@@ -177,6 +177,61 @@ class ProjectWorktreesServiceTest {
         assertThat(service.listForProject(fx.projectId)).isEmpty();
     }
 
+    @Test
+    void listIncludesACleanDetachedProjectConsoleWorktreeWithNoIssueNumber(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        WorktreeAndId console = createProjectConsoleWorktree(fx);
+        ProjectWorktreesService service = service(fx, List.of());
+
+        List<ProjectWorktreesService.WorktreeRow> rows = service.listForProject(fx.projectId);
+
+        assertThat(rows).containsExactly(
+                new ProjectWorktreesService.WorktreeRow(console.worktreeId(), null, console.path().toString(), true, false));
+    }
+
+    @Test
+    void removeSucceedsForACleanDetachedProjectConsoleWorktree(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        WorktreeAndId console = createProjectConsoleWorktree(fx);
+        ProjectWorktreesService service = service(fx, List.of());
+
+        ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, console.worktreeId());
+
+        assertThat(result.found()).isTrue();
+        assertThat(result.removed()).isTrue();
+        assertThat(console.path()).doesNotExist();
+    }
+
+    @Test
+    void removeRefusesAProjectConsoleWorktreeWithABranchCheckedOut(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        WorktreeAndId console = createProjectConsoleWorktree(fx);
+        run(console.path(), "git", "checkout", "-b", "wip/1-do-the-thing");
+        ProjectWorktreesService service = service(fx, List.of());
+
+        ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, console.worktreeId());
+
+        assertThat(result.found()).isTrue();
+        assertThat(result.removed()).isFalse();
+        assertThat(result.refusalReason()).contains("outgrown scratch use");
+        assertThat(console.path()).isDirectory();
+    }
+
+    @Test
+    void removeRefusesAProjectConsoleWorktreeWithCommitsNotOnOriginMain(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        WorktreeAndId console = createProjectConsoleWorktree(fx);
+        run(console.path(), "git", "commit", "--allow-empty", "-m", "unpushed work on detached HEAD");
+        ProjectWorktreesService service = service(fx, List.of());
+
+        ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, console.worktreeId());
+
+        assertThat(result.found()).isTrue();
+        assertThat(result.removed()).isFalse();
+        assertThat(result.refusalReason()).contains("not yet reachable from origin/main");
+        assertThat(console.path()).isDirectory();
+    }
+
     private record WorktreeAndId(String worktreeId, Path path) {
     }
 
@@ -203,6 +258,15 @@ class ProjectWorktreesServiceTest {
 
         WorktreeCreationService.StartedSession started = creationService.startSession(fx.projectId, issueNumber).orElseThrow();
         return new WorktreeAndId(started.worktreeId(), Path.of(started.workingDirectory()));
+    }
+
+    /** A project-console-shaped sibling worktree (#339) — detached at origin/main, matching the naming convention {@link WorktreeCleanupSweeper#allProjectConsoleWorktrees()} discovers. */
+    private static WorktreeAndId createProjectConsoleWorktree(Fixture fx) {
+        String suffix = "abcd1234";
+        Path worktreePath =
+                fx.projectRoot().resolveSibling(WorktreeCreationService.repoName(fx.projectRoot()) + "-console-" + suffix);
+        WorktreeCreationService.createDetachedWorktree(worktreePath, fx.projectRoot());
+        return new WorktreeAndId(fx.projectId() + "-console-" + suffix, worktreePath);
     }
 
     private static ProjectWorktreesService service(Fixture fx, List<GhIssue> issues) {

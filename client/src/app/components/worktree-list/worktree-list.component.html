@@ -33,7 +33,7 @@
       <tbody>
         @for (row of rows; track row.worktreeId) {
           <tr>
-            <td>#{{ row.issueNumber }}</td>
+            <td>{{ row.issueNumber === null ? 'console' : '#' + row.issueNumber }}</td>
             <td class="mono path">{{ row.workingDirectory }}</td>
             <td>
               <span class="badge" [class.dirty]="!row.clean">{{ row.clean ? 'clean' : 'dirty' }}</span>

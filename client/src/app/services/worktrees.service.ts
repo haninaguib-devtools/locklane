@@ -2,10 +2,14 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
-/** One row of the project page's worktree list (#320) — mirrors the engine's `WorktreeRow`. */
+/**
+ * One row of the project page's worktree list (#320) — mirrors the engine's
+ * `WorktreeRow`. `issueNumber` is `null` for a project-console worktree (#339), which
+ * has no issue of its own.
+ */
 export interface ProjectWorktree {
   worktreeId: string;
-  issueNumber: number;
+  issueNumber: number | null;
   workingDirectory: string;
   clean: boolean;
   sessionAttached: boolean;

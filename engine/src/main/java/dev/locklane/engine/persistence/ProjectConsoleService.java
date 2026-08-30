@@ -27,9 +27,16 @@ import java.util.regex.Pattern;
  * session that legitimately transitions to task work gets its proper
  * {@code wip/<id>-<slug>} branch from {@code /t-work} at that point instead — the
  * detached worktree still gives full file isolation in the meantime, rather than
- * every console sharing that one checkout, as before #314. Closing a console never
- * removes its worktree (that cleanup is deliberately deferred, per #314's task
- * record). A project can have several open at
+ * every console sharing that one checkout, as before #314. Since #339/ADR-010,
+ * closing a console tab attempts to remove its worktree too, guarded: the session
+ * has just ended, HEAD is still detached (a checked-out branch means the console
+ * outgrew scratch — left alone permanently, ADR-005), the worktree is clean, and its
+ * HEAD is an ancestor of {@code origin/main} (so a commit made on detached HEAD is
+ * never lost when the worktree's reflog goes with it). A worktree failing any of
+ * those is kept — the same {@link WorktreeCleanupSweeper} guard is what
+ * {@code WorktreeCleanupSweeper#sweep()} later re-checks as the backstop, and what
+ * the project worktree list shows the refusal reason from. A project can have
+ * several open at
  * once (#177): each {@link #start} mints a fresh id
  * {@code "<projectId>-console-<8-hex>"} — the same short-suffix convention
  * {@code WorktreeCreationService} uses for its {@code -main-}/{@code -resume-} ids —
@@ -58,15 +65,17 @@ public class ProjectConsoleService {
     private final SessionRegistry sessionRegistry;
     private final WorktreeSessionRepository sessionRepository;
     private final WorktreeSessionAuthorization authorization;
+    private final WorktreeCleanupSweeper sweeper;
 
     public ProjectConsoleService(ProjectRepository projectRepository, TokenCipher tokenCipher,
             SessionRegistry sessionRegistry, WorktreeSessionRepository sessionRepository,
-            WorktreeSessionAuthorization authorization) {
+            WorktreeSessionAuthorization authorization, WorktreeCleanupSweeper sweeper) {
         this.projectRepository = projectRepository;
         this.tokenCipher = tokenCipher;
         this.sessionRegistry = sessionRegistry;
         this.sessionRepository = sessionRepository;
         this.authorization = authorization;
+        this.sweeper = sweeper;
     }
 
     /**
@@ -125,33 +134,47 @@ public class ProjectConsoleService {
 
     /**
      * Tears down the project's current console session — the one {@link #find}
-     * reports — for good (#75-style close). False — nothing closed — for a project
-     * with no open console visible to {@code requestingUsername}.
+     * reports — for good (#75-style close), and, per {@link #close(long, String,
+     * String)}, attempts to remove its worktree too. False — nothing closed — for a
+     * project with no open console visible to {@code requestingUsername}.
      */
     public boolean close(long projectId, String requestingUsername) {
         return find(projectId, requestingUsername)
-                .map(session -> {
-                    sessionRegistry.close(session.sessionId());
-                    return true;
-                })
+                .map(session -> close(projectId, session.sessionId(), requestingUsername))
                 .orElse(false);
     }
 
     /**
      * Tears down one specific console session of the project's family (#177 — the
-     * per-tab close). False — nothing closed — when {@code sessionId} is not in this
-     * project's family, has no record, or is not visible to
-     * {@code requestingUsername}.
+     * per-tab close) and, once the session has ended, attempts to remove its worktree
+     * (#339/ADR-010): kept, never force-removed, when HEAD is not detached, the
+     * worktree is dirty, or HEAD is not yet an ancestor of {@code origin/main} — the
+     * same guard {@link WorktreeCleanupSweeper#removalRefusalReasonForProjectConsole}
+     * exposes, so a refusal here and the periodic sweep's own backstop check never
+     * quietly drift apart. False — nothing closed — when {@code sessionId} is not in
+     * this project's family, has no record, or is not visible to
+     * {@code requestingUsername}; the worktree-removal attempt is skipped entirely in
+     * that case, same as before this task.
      */
     public boolean close(long projectId, String sessionId, String requestingUsername) {
+        Optional<WorktreeSessionRecord> record = sessionRepository.find(sessionId);
         boolean closeable = belongsToProject(sessionId, projectId)
-                && sessionRepository.find(sessionId)
-                        .map(record -> isVisibleTo(record, requestingUsername))
-                        .orElse(false);
+                && record.map(r -> isVisibleTo(r, requestingUsername)).orElse(false);
         if (!closeable) {
             return false;
         }
+        // Captured before sessionRegistry#close deletes this record as part of ending
+        // the session -- there is nothing left to read the working directory from
+        // once that happens.
+        Path workingDirectory = record.map(WorktreeSessionRecord::workingDirectory).orElse(null);
         sessionRegistry.close(sessionId);
+        if (workingDirectory != null) {
+            WorktreeCleanupSweeper.ProjectConsoleWorktree worktree =
+                    new WorktreeCleanupSweeper.ProjectConsoleWorktree(projectId, sessionId, workingDirectory);
+            if (sweeper.removalRefusalReasonForProjectConsole(worktree).isEmpty()) {
+                sweeper.removeProjectConsoleWorktree(worktree);
+            }
+        }
         return true;
     }
 
