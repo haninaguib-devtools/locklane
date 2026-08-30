@@ -30,6 +30,7 @@ if ! command -v java >/dev/null 2>&1; then
   echo "error: java 21 or newer is required — install a JDK, then re-run this installer." >&2
   exit 1
 fi
+java_bin="$(command -v java)"
 
 mkdir -p "$INSTALL_DIR"
 
@@ -136,22 +137,100 @@ entered were NOT applied — sign in with the account you already have."
 esac
 rm -f "$seed_log"
 
-# --- Start the server, detached ------------------------------------------------
-# Detached so it outlives this terminal (#385): nohup ignores the SIGHUP the shell
-# sends its children on exit, and disown drops it from the shell's own job table, which
-# is the second, independent way a closing terminal can take a background job down with
-# it. Output goes to a log file instead of this terminal; the pid is recorded alongside
-# it so update.sh can find and stop this instance later.
+# --- Install a per-user service, or fall back to a detached start (#385) -------
+# A detached start only outlives the terminal that launched it: it never comes back
+# after a reboot or a crash (#386). A systemd user unit (Linux) or launchd agent
+# (macOS) gives it both, restarting it on its own; on any other platform, or if the
+# service manager can't be set up (e.g. no session bus), it falls back to #385's
+# plain nohup/disown start rather than failing. Output goes to a log file in either
+# case, and for the fallback, the pid is recorded so update.sh can find it later.
 
 log_file="$INSTALL_DIR/locklane.log"
 pid_file="$INSTALL_DIR/locklane.pid"
-echo "Starting the server..."
-(
-  cd "$INSTALL_DIR"
-  nohup java -jar locklane.jar > "$log_file" 2>&1 < /dev/null &
-  echo $! > "$pid_file"
-  disown
-)
+service_kind=""
+
+case "$(uname -s)" in
+  Linux)
+    if command -v systemctl >/dev/null 2>&1; then
+      unit_dir="$HOME/.config/systemd/user"
+      unit_file="$unit_dir/locklane.service"
+      mkdir -p "$unit_dir"
+      cat > "$unit_file" <<EOF
+[Unit]
+Description=locklane
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$java_bin -jar $INSTALL_DIR/locklane.jar
+Restart=always
+RestartSec=5
+StandardOutput=append:$log_file
+StandardError=append:$log_file
+
+[Install]
+WantedBy=default.target
+EOF
+      echo "Installing the systemd user service..."
+      if systemctl --user daemon-reload 2>/dev/null && systemctl --user enable --now locklane 2>/dev/null; then
+        service_kind="systemd"
+        # Best-effort: lets the service start at boot even with nobody logged in.
+        loginctl enable-linger "$USER" 2>/dev/null || true
+      else
+        echo "warning: could not start the systemd user service — falling back to a detached start." >&2
+        rm -f "$unit_file"
+      fi
+    fi
+    ;;
+  Darwin)
+    agent_dir="$HOME/Library/LaunchAgents"
+    agent_label="com.locklane.server"
+    agent_file="$agent_dir/$agent_label.plist"
+    mkdir -p "$agent_dir"
+    cat > "$agent_file" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$agent_label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$java_bin</string>
+    <string>-jar</string>
+    <string>$INSTALL_DIR/locklane.jar</string>
+  </array>
+  <key>WorkingDirectory</key><string>$INSTALL_DIR</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+  </dict>
+  <key>StandardOutPath</key><string>$log_file</string>
+  <key>StandardErrorPath</key><string>$log_file</string>
+</dict>
+</plist>
+EOF
+    echo "Installing the launchd agent..."
+    if launchctl bootstrap "gui/$(id -u)" "$agent_file" 2>/dev/null; then
+      service_kind="launchd"
+    else
+      echo "warning: could not load the launchd agent — falling back to a detached start." >&2
+      rm -f "$agent_file"
+    fi
+    ;;
+esac
+
+if [ -z "$service_kind" ]; then
+  echo "No per-user service manager available here — starting detached instead; it will not survive a reboot or a crash, so you'll need to restart it yourself."
+  echo "Starting the server..."
+  (
+    cd "$INSTALL_DIR"
+    nohup "$java_bin" -jar locklane.jar > "$log_file" 2>&1 < /dev/null &
+    echo $! > "$pid_file"
+    disown
+  )
+fi
 
 cat <<EOF
 
@@ -164,6 +243,32 @@ Installed to $INSTALL_DIR:
 $account_note
 
 The server is running on port $port. Output is logged to $log_file.
+EOF
+
+case "$service_kind" in
+  systemd)
+    cat <<EOF
+
+It's installed as a systemd user service (locklane): it restarts on its own if killed
+or if it crashes, and starts again at login or at boot.
+  Status:  systemctl --user status locklane
+  Stop:    systemctl --user stop locklane
+  Remove:  systemctl --user disable --now locklane && rm -f "$unit_file" && systemctl --user daemon-reload
+EOF
+    ;;
+  launchd)
+    cat <<EOF
+
+It's installed as a launchd agent ($agent_label): it restarts on its own if killed or
+if it crashes, and starts again at login.
+  Status:  launchctl print gui/$(id -u)/$agent_label
+  Stop:    launchctl bootout gui/$(id -u)/$agent_label
+  Remove:  launchctl bootout gui/$(id -u)/$agent_label; rm -f "$agent_file"
+EOF
+    ;;
+esac
+
+cat <<EOF
 
 Later, pull a newer build with:
   $INSTALL_DIR/update.sh
