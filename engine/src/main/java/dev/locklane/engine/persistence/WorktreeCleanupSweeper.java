@@ -40,6 +40,14 @@ import java.util.Optional;
  * time, with a human-readable reason attached to whichever check fails first — #320's
  * per-row manual "remove worktree" action calls this rather than re-deriving the
  * guard's conditions for itself, and shows the reason verbatim when it refuses.
+ *
+ * <p>#342 widens ADR-008's carve-out one step further: once a worktree is actually
+ * removed, its local {@code wip/<id>-<slug>} branch would otherwise survive forever
+ * (ADR-005) with nobody ever prompted to clean it up (the same "nobody is ever
+ * prompted" reasoning ADR-008 applied to the worktree itself) — see ADR-009. {@link
+ * #removeWorktree} attempts {@code git branch -d} (never {@code -D}, never retried)
+ * on that branch immediately after the worktree is gone: git's own merge check is the
+ * only judgment made, so a shipped branch goes and an unmerged one silently survives.
  */
 @Service
 public class WorktreeCleanupSweeper {
@@ -135,6 +143,11 @@ public class WorktreeCleanupSweeper {
         if (project.isEmpty()) {
             return false;
         }
+        // Read the branch before the worktree disappears -- there is nothing left to
+        // ask "what branch is this?" once the directory is gone. A detached HEAD (or
+        // a failed read) means there is no branch to delete, not an error (#342: a
+        // per-issue worktree may start detached once #340 lands).
+        Optional<String> branch = currentBranch(worktree.workingDirectory());
         // No --force: git itself refuses on any uncommitted/untracked state, a second,
         // independent guard alongside the git-status check above in case of a race.
         Optional<String> output = run(project.get().workareaPath(), "git", "worktree", "remove",
@@ -146,7 +159,23 @@ public class WorktreeCleanupSweeper {
         // SessionRegistry#close, broadcast the same consolesChanged event a human
         // explicitly closing it would) so nothing lists a path that no longer exists.
         sessionRegistry.close(worktree.worktreeId());
+        // ADR-009: the branch goes the same way the worktree just did, but only when
+        // git itself considers it safe -- "-d", never "-D", and no retry on refusal.
+        // Branches live in the shared repo, not per-worktree, so this runs against
+        // the project's own checkout, which the worktree removal above never touches.
+        branch.ifPresent(name -> run(project.get().workareaPath(), "git", "branch", "-d", name));
         return true;
+    }
+
+    /**
+     * The branch currently checked out in {@code workingDirectory}, empty when HEAD is
+     * detached ({@code git rev-parse --abbrev-ref HEAD} reports the literal {@code
+     * HEAD}) or the read fails for any reason -- either way, "no branch to delete".
+     */
+    private Optional<String> currentBranch(Path workingDirectory) {
+        return run(workingDirectory, "git", "rev-parse", "--abbrev-ref", "HEAD")
+                .map(String::strip)
+                .filter(name -> !name.isEmpty() && !"HEAD".equals(name));
     }
 
     private Optional<String> run(Path workingDirectory, String... command) {

@@ -108,7 +108,9 @@ any other change to this list.
 2. A console-created, per-issue worktree is removed automatically once its issue is
    confirmed closed, its git status is clean, and no console session is attached — a
    narrow, guarded exception to the pipeline's own "left alone permanently" default
-   (ADR-008).
+   (ADR-008). Once such a worktree is removed, its local `wip/<id>-<slug>` branch is
+   deleted too, but only via `git branch -d`: a fully merged branch goes, an unmerged
+   one is refused and left alone (ADR-009).
 3. Reserved protected surfaces, per ADR-007: once the ratified multi-user tenancy and
    authorization model is implemented, these application surfaces join §3's list — the
    Flyway migrations under `engine/src/main/resources/db/migration/` and
