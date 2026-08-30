@@ -66,6 +66,28 @@
         <dd>{{ project.createdAt || '—' }}</dd>
       </dl>
 
+      <div class="accent-color-section">
+        <span class="accent-color-label">accent color</span>
+        <div class="accent-swatches" role="group" aria-label="Project accent color">
+          @for (preset of accentPresets; track preset.id) {
+            <button
+              type="button"
+              class="accent-swatch"
+              [class.chosen]="project.accentColor === preset.accent"
+              [style.background]="preset.accent"
+              [attr.aria-pressed]="project.accentColor === preset.accent"
+              [attr.aria-label]="preset.label"
+              [title]="preset.label"
+              [disabled]="savingAccentColor"
+              (click)="chooseAccentColor(preset)"
+            ></button>
+          }
+        </div>
+        @if (accentColorError; as message) {
+          <p class="accent-color-error">{{ message }}</p>
+        }
+      </div>
+
       @if (project.status === 'READY') {
         <app-worktree-list [projectId]="projectId" />
       }

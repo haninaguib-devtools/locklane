@@ -18,6 +18,7 @@ describe('ProjectSummaryComponent', () => {
     gitUrl: 'git@example.com:acme/proj-a.git',
     workareaPath: '/tmp/a',
     defaultBranch: 'main',
+    accentColor: null,
     status: 'READY',
     createdAt: '2026-08-26T10:00:00Z',
   };
@@ -317,6 +318,56 @@ describe('ProjectSummaryComponent', () => {
       .flush({ error: 'nope' }, { status: 409, statusText: 'Conflict' });
 
     expect(deleted).not.toHaveBeenCalled();
+  });
+
+  it('shows no chosen accent swatch when the project has no accent color set (#428)', () => {
+    const fixture = init();
+
+    const chosen = (fixture.nativeElement as HTMLElement).querySelectorAll('.accent-swatch.chosen');
+    expect(chosen.length).toBe(0);
+  });
+
+  it('marks the swatch matching the project\'s stored accent color as chosen (#428)', () => {
+    const fixture = init([{ ...PROJECT, accentColor: '#5c8a4e' }]);
+
+    const chosen = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.accent-swatch.chosen')!;
+    expect(chosen.title).toBe('Sage');
+  });
+
+  it('sets the project accent color via PUT, updates the swatch, and refreshes CurrentProjectService (#428)', () => {
+    const fixture = init();
+
+    const swatches = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.accent-swatch');
+    swatches[1].click();
+
+    const req = httpMock.expectOne('/api/projects/1/accent-color');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ accentColor: '#5c8a4e' });
+    req.flush(null);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.project?.accentColor).toBe('#5c8a4e');
+    // CurrentProjectService is only ever constructed lazily, on first actual use
+    // -- this is that first use. In the real app it's already alive by the time
+    // this page exists (AppComponent's topbar reads it unconditionally), so its
+    // own constructor fetch and this explicit refresh() never coincide there;
+    // here, with no AppComponent in the tree, both fire: one from construction,
+    // one from the explicit call refreshCurrentProject() always makes.
+    const requests = httpMock.match('/api/projects');
+    expect(requests.length).toBe(2);
+    requests.forEach((request) => request.flush([{ ...PROJECT, accentColor: '#5c8a4e' }]));
+  });
+
+  it('shows an error and re-arms the swatches when setting the accent color fails (#428)', () => {
+    const fixture = init();
+
+    (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.accent-swatch')[0].click();
+    httpMock.expectOne('/api/projects/1/accent-color').flush(null, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.savingAccentColor).toBeFalse();
+    expect(fixture.componentInstance.project?.accentColor).toBeNull();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not set the accent color');
   });
 
   it('shows the backend refusal inline when the project has an open worktree or console', () => {
