@@ -227,6 +227,67 @@ UNINSTALL_BODY
 # its own, so the checks that extract this function key off this line, not off `}`.
 } # end write_uninstall_script
 
+# --- Resolving the user's real PATH (#422) -------------------------------------
+# A service manager (systemd, launchd) starts its unit/agent with its own minimal
+# PATH, not the one an interactive login shell builds up (nvm, homebrew, a language
+# version manager's shims, ...) -- so an AI CLI that's perfectly callable from a
+# terminal is invisible to the service. Resolved from a LOGIN shell specifically
+# (`-l`), the same PATH a freshly opened terminal gets, never this script's own
+# (possibly non-login) environment.
+#
+# THIS FUNCTION IS DUPLICATED, BYTE FOR BYTE, IN install.sh AND update.sh -- see
+# write_uninstall_script above for why. Change one, change the other.
+resolve_login_path() {
+  local resolved
+  resolved="$("${SHELL:-/bin/sh}" -lc 'echo $PATH' 2>/dev/null)" || resolved=""
+  if [ -z "$resolved" ]; then
+    resolved="$PATH"
+  fi
+  printf '%s' "$resolved"
+}
+
+# Rewrites (or, on a pre-#422 install, adds) the systemd unit's Environment=PATH= line
+# with a freshly resolved value -- so re-running update.sh repairs an already-broken
+# service without a reinstall. Rewritten line by line rather than with sed: the PATH
+# value is attacker-free but arbitrary, and this sidesteps having to escape it for a
+# sed pattern/replacement or an `a` command's own text-continuation rules.
+#
+# Two distinct passes, not one combined pass: a combined pass that both replaces an
+# existing `Environment=PATH=` line and inserts one after `[Service]` double-writes it
+# when a unit already has the line, since it hits both the `[Service]` and the
+# `Environment=PATH=` cases for the same file.
+update_systemd_path() {
+  local unit="$1" path_value="$2" tmp line
+  tmp="$(mktemp "$unit.XXXXXX")"
+  if grep -q '^Environment=PATH=' "$unit"; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        Environment=PATH=*) printf 'Environment=PATH=%s\n' "$path_value" ;;
+        *) printf '%s\n' "$line" ;;
+      esac
+    done < "$unit" > "$tmp"
+  else
+    while IFS= read -r line || [ -n "$line" ]; do
+      printf '%s\n' "$line"
+      if [ "$line" = '[Service]' ]; then
+        printf 'Environment=PATH=%s\n' "$path_value"
+      fi
+    done < "$unit" > "$tmp"
+  fi
+  mv "$tmp" "$unit"
+}
+
+# Rewrites (or, on a pre-#422 install, adds) the launchd plist's EnvironmentVariables
+# PATH entry with a freshly resolved value, via PlistBuddy -- the standard macOS tool
+# for editing a plist without hand-rolling XML, and one that handles a PATH value
+# containing spaces or colons correctly as long as it's quoted in the command string.
+update_launchd_path() {
+  local plist="$1" path_value="$2"
+  /usr/libexec/PlistBuddy -c "Delete :EnvironmentVariables" "$plist" >/dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$plist"
+  /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:PATH string \"$path_value\"" "$plist"
+}
+
 # --- Detect how the server was started (#386) -----------------------------------
 # install.sh sets up a systemd user service or a launchd agent when the platform
 # supports one, falling back to #385's plain detached start otherwise. Whichever it
@@ -243,6 +304,21 @@ elif [ -f "$agent_file" ] && command -v launchctl >/dev/null 2>&1; then
 else
   service_kind=""
 fi
+
+# --- Refresh the service's PATH (#422) -----------------------------------------
+# Done here, before anything else touches the service, so an already-broken install
+# is repaired by this run whether or not a newer jar is even available yet.
+case "$service_kind" in
+  systemd)
+    echo "Refreshing the systemd service's PATH..."
+    update_systemd_path "$unit_file" "$(resolve_login_path)"
+    systemctl --user daemon-reload 2>/dev/null || true
+    ;;
+  launchd)
+    echo "Refreshing the launchd agent's PATH..."
+    update_launchd_path "$agent_file" "$(resolve_login_path)"
+    ;;
+esac
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "error: the GitHub CLI (gh) is required — install it from https://cli.github.com, then run 'gh auth login'." >&2

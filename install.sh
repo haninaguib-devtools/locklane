@@ -258,6 +258,25 @@ UNINSTALL_BODY
 # its own, so the checks that extract this function key off this line, not off `}`.
 } # end write_uninstall_script
 
+# --- Resolving the user's real PATH (#422) -------------------------------------
+# A service manager (systemd, launchd) starts its unit/agent with its own minimal
+# PATH, not the one an interactive login shell builds up (nvm, homebrew, a language
+# version manager's shims, ...) -- so an AI CLI that's perfectly callable from a
+# terminal is invisible to the service. Resolved from a LOGIN shell specifically
+# (`-l`), the same PATH a freshly opened terminal gets, never this installer's own
+# (possibly non-login, e.g. piped through `curl | bash`) environment.
+#
+# THIS FUNCTION IS DUPLICATED, BYTE FOR BYTE, IN install.sh AND update.sh -- see
+# write_uninstall_script above for why. Change one, change the other.
+resolve_login_path() {
+  local resolved
+  resolved="$("${SHELL:-/bin/sh}" -lc 'echo $PATH' 2>/dev/null)" || resolved=""
+  if [ -z "$resolved" ]; then
+    resolved="$PATH"
+  fi
+  printf '%s' "$resolved"
+}
+
 # --- Prompts ------------------------------------------------------------------
 
 port=""
@@ -365,6 +384,7 @@ pid_file="$INSTALL_DIR/locklane.pid"
 service_kind=""
 # The unit or plist path the uninstaller must delete; empty for the detached fallback.
 reg_file=""
+resolved_path="$(resolve_login_path)"
 
 case "$(uname -s)" in
   Linux)
@@ -380,6 +400,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$INSTALL_DIR
+Environment=PATH=$resolved_path
 ExecStart=$java_bin -jar $INSTALL_DIR/locklane.jar
 Restart=always
 RestartSec=5
@@ -419,6 +440,10 @@ EOF
     <string>$INSTALL_DIR/locklane.jar</string>
   </array>
   <key>WorkingDirectory</key><string>$INSTALL_DIR</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$resolved_path</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key>
   <dict>
