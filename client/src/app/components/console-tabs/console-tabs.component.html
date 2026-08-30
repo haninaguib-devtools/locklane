@@ -15,16 +15,36 @@
   }
   @for (tab of tabs; track tab.id) {
     <span class="tab-wrap" [class.active]="tab.id === selected">
-      <button
-        type="button"
-        role="tab"
-        class="tab"
-        [class.active]="tab.id === selected"
-        [attr.aria-selected]="tab.id === selected"
-        (click)="select(tab.id)"
-      >
-        {{ tab.label }}
-      </button>
+      @if (renamingId === tab.id) {
+        <!-- #393: the label becomes a field in place. Enter commits, Escape abandons,
+             and clicking away commits too -- the same as leaving any inline edit. -->
+        <input
+          #nameInput
+          class="tab-name"
+          type="text"
+          [attr.maxlength]="maxNameLength"
+          aria-label="console tab name"
+          [value]="draftName"
+          (input)="onRenameInput($any($event.target).value)"
+          (click)="$event.stopPropagation()"
+          (blur)="commitRename()"
+          (keydown.enter)="commitRename()"
+          (keydown.escape)="cancelRename()"
+        />
+      } @else {
+        <button
+          type="button"
+          role="tab"
+          class="tab"
+          [class.active]="tab.id === selected"
+          [attr.aria-selected]="tab.id === selected"
+          [attr.title]="renamable ? 'double-click to rename' : null"
+          (click)="select(tab.id)"
+          (dblclick)="startRename(tab, $event)"
+        >
+          {{ tabText(tab) }}
+        </button>
+      }
       <button
         type="button"
         class="tab-close"

@@ -14,6 +14,12 @@ export interface OpenProjectConsole {
   workingDirectory: string;
   createdAt: string;
   lastAttachedAt: string;
+  /**
+   * The name the user gave this console's tab (#393); null when they gave it none.
+   * Optional so a response from an engine that predates the rename endpoint still
+   * types as an open console rather than failing to parse.
+   */
+  displayName?: string | null;
 }
 
 /**
@@ -59,6 +65,15 @@ export class ProjectConsoleService {
       {},
       { params: { from } },
     );
+  }
+
+  /**
+   * Names one console's tab, or clears the name with an empty string (#393). The name
+   * is stored by the engine against the session, so it comes back after a reload and
+   * shows the same in any browser.
+   */
+  rename(projectId: number, sessionId: string, name: string): Observable<void> {
+    return this.http.put<void>(`/api/projects/${projectId}/console/${sessionId}/name`, { name });
   }
 
   /** Ends one specific console session for good. */

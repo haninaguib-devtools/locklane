@@ -140,7 +140,7 @@ public class ProjectConsoleService {
         return openRecords(projectId, requestingUsername).stream()
                 .sorted(Comparator.comparing(WorktreeSessionRecord::createdAt))
                 .map(record -> new OpenConsole(record.worktreeId(), record.workingDirectory().toString(),
-                        record.createdAt(), record.lastAttachedAt()))
+                        record.createdAt(), record.lastAttachedAt(), record.displayName()))
                 .toList();
     }
 
@@ -253,6 +253,45 @@ public class ProjectConsoleService {
                 .map(WorktreeSessionRecord::workingDirectory)
                 .orElseGet(() -> projectRoot.resolveSibling(
                         WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix)));
+    }
+
+    /** The longest tab name accepted (#393) — long enough to be useful, short enough not to break the strip. */
+    public static final int MAX_DISPLAY_NAME_LENGTH = 60;
+
+    /**
+     * Sets or clears the name a user gave one of this project's console tabs (#393).
+     * A blank or {@code null} name clears it, so the client falls back to the label
+     * it generates itself; anything else is stored trimmed. Whitespace-only input is
+     * a clear rather than a name made of spaces.
+     *
+     * <p>{@link RenameOutcome#NOT_FOUND} — nothing renamed — when {@code sessionId}
+     * is not in this project's console family, has no record, or is not visible to
+     * {@code requestingUsername}: exactly the gate {@link #close(long, String,
+     * String)} applies, so one user can no more rename another's console than close
+     * it. {@link RenameOutcome#TOO_LONG} when the trimmed name exceeds
+     * {@link #MAX_DISPLAY_NAME_LENGTH} — rejected rather than silently truncated, so
+     * the user is told instead of surprised.
+     */
+    public RenameOutcome rename(long projectId, String sessionId, String requestingUsername, String name) {
+        Optional<WorktreeSessionRecord> record = sessionRepository.find(sessionId);
+        boolean renamable = belongsToProject(sessionId, projectId)
+                && record.map(r -> isVisibleTo(r, requestingUsername)).orElse(false);
+        if (!renamable) {
+            return RenameOutcome.NOT_FOUND;
+        }
+        String trimmed = name == null ? "" : name.trim();
+        if (trimmed.length() > MAX_DISPLAY_NAME_LENGTH) {
+            return RenameOutcome.TOO_LONG;
+        }
+        sessionRepository.setDisplayName(sessionId, trimmed.isEmpty() ? null : trimmed);
+        return RenameOutcome.RENAMED;
+    }
+
+    /** What {@link #rename} did: renamed (or cleared), refused, or rejected as over-long. */
+    public enum RenameOutcome {
+        RENAMED,
+        NOT_FOUND,
+        TOO_LONG
     }
 
     /**
@@ -374,7 +413,12 @@ public class ProjectConsoleService {
     public record ConsoleSession(String sessionId, String workingDirectory) {
     }
 
-    /** One row of {@link #listOpen} — what the consoles page (#179) renders. */
-    public record OpenConsole(String sessionId, String workingDirectory, Instant createdAt, Instant lastAttachedAt) {
+    /**
+     * One row of {@link #listOpen} — what the consoles page (#179) renders.
+     * {@code displayName} is the name the user gave this tab (#393), or {@code null}
+     * when they have given it none.
+     */
+    public record OpenConsole(String sessionId, String workingDirectory, Instant createdAt, Instant lastAttachedAt,
+            String displayName) {
     }
 }

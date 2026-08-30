@@ -45,8 +45,30 @@ describe('ProjectConsoleComponent', () => {
     return fixture;
   }
 
-  function row(sessionId: string, lastAttachedAt = '2026-08-27T10:00:00Z') {
-    return { sessionId, workingDirectory: '/repo', createdAt: '2026-08-27T09:00:00Z', lastAttachedAt };
+  function row(sessionId: string, lastAttachedAt = '2026-08-27T10:00:00Z', displayName: string | null = null) {
+    return {
+      sessionId,
+      workingDirectory: '/repo',
+      createdAt: '2026-08-27T09:00:00Z',
+      lastAttachedAt,
+      displayName,
+    };
+  }
+
+  /** Double-clicks the nth tab to open its inline rename field (#393). */
+  function renameField(fixture: ReturnType<typeof TestBed.createComponent<ProjectConsoleComponent>>, index = 0) {
+    const compiled = fixture.nativeElement as HTMLElement;
+    compiled.querySelectorAll<HTMLButtonElement>('.tab')[index].dispatchEvent(new MouseEvent('dblclick'));
+    fixture.detectChanges();
+    return compiled.querySelector<HTMLInputElement>('.tab-name')!;
+  }
+
+  function typeAndCommit(fixture: ReturnType<typeof TestBed.createComponent<ProjectConsoleComponent>>,
+      field: HTMLInputElement, value: string): void {
+    field.value = value;
+    field.dispatchEvent(new Event('input'));
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    fixture.detectChanges();
   }
 
   /** Clicks the confirm button of the app-styled confirm dialog opened by a tab close (#231). */
@@ -565,6 +587,94 @@ describe('ProjectConsoleComponent', () => {
 
     expect(compiled.querySelector('app-session-list')).toBeFalsy();
     expect(compiled.querySelector('.past-empty')!.textContent).toContain('no past conversations');
+  });
+
+  it('renames a tab in place and saves the name against the session (#393)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('console');
+
+    typeAndCommit(fixture, renameField(fixture), '  release notes  ');
+
+    // Shown immediately, before the server has answered.
+    expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('release notes');
+    const request = httpMock.expectOne('/api/projects/1/console/1-console-a1b2c3d4/name');
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.body).toEqual({ name: 'release notes' });
+    request.flush(null);
+  });
+
+  it('puts the cursor straight in the rename field (#393)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    const field = renameField(fixture);
+
+    expect(document.activeElement).toBe(field);
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+  });
+
+  it('shows the name the engine already has for a tab on load (#393)', () => {
+    const fixture = init();
+    httpMock
+      .expectOne('/api/projects/1/console/sessions')
+      .flush([row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z', 'release notes')]);
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.tab')!.textContent!.trim()).toBe('release notes');
+  });
+
+  it('clearing the name falls back to the auto-generated label (#393)', () => {
+    const fixture = init();
+    httpMock
+      .expectOne('/api/projects/1/console/sessions')
+      .flush([row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z', 'release notes')]);
+    fixture.detectChanges();
+
+    typeAndCommit(fixture, renameField(fixture), '   ');
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('console');
+    const request = httpMock.expectOne('/api/projects/1/console/1-console-a1b2c3d4/name');
+    expect(request.request.body).toEqual({ name: '' });
+    request.flush(null);
+  });
+
+  it('puts the previous name back when the rename fails (#393)', () => {
+    const fixture = init();
+    httpMock
+      .expectOne('/api/projects/1/console/sessions')
+      .flush([row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z', 'release notes')]);
+    fixture.detectChanges();
+
+    typeAndCommit(fixture, renameField(fixture), 'new name');
+    httpMock
+      .expectOne('/api/projects/1/console/1-console-a1b2c3d4/name')
+      .flush({}, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('release notes');
+    expect(compiled.querySelector('.strip-error')!.textContent).toContain('could not rename');
+  });
+
+  it('abandoning the field with Escape changes nothing (#393)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    const field = renameField(fixture);
+    field.value = 'never saved';
+    field.dispatchEvent(new Event('input'));
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+
+    // No request at all -- httpMock.verify() in afterEach is what asserts that.
+    expect((fixture.nativeElement as HTMLElement).querySelector('.tab')!.textContent!.trim()).toBe('console');
   });
 
   it('re-reads the list on every open, so a console closed meanwhile shows up (#372)', () => {

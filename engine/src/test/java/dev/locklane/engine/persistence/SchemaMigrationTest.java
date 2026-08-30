@@ -50,6 +50,35 @@ class SchemaMigrationTest {
     }
 
     @Test
+    void anExistingWorktreeSessionsTableGainsDisplayNameWithoutLosingRows(@TempDir Path dbDir) {
+        // "Before the upgrade": a database migrated only as far as V10 -- the shape
+        // worktree_sessions had before V11 added display_name (#393).
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "10");
+        new JdbcTemplate(oldShape).update("""
+                INSERT INTO worktree_sessions (worktree_id, working_directory, created_at, last_attached_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                "7-console-aaaaaaaa", "/work/console", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z");
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+        WorktreeSessionRepository repository = new WorktreeSessionRepository(oldShape);
+
+        // A session that predates naming keeps its row and simply carries no name,
+        // which is what makes the client fall back to its auto-generated label.
+        assertThat(repository.find("7-console-aaaaaaaa")).isPresent().get()
+                .extracting(WorktreeSessionRecord::displayName).isNull();
+
+        repository.setDisplayName("7-console-aaaaaaaa", "release notes");
+        assertThat(repository.find("7-console-aaaaaaaa")).isPresent().get()
+                .extracting(WorktreeSessionRecord::displayName).isEqualTo("release notes");
+
+        // And clearing it puts the row back to carrying no name at all.
+        repository.setDisplayName("7-console-aaaaaaaa", null);
+        assertThat(repository.find("7-console-aaaaaaaa")).isPresent().get()
+                .extracting(WorktreeSessionRecord::displayName).isNull();
+    }
+
+    @Test
     void anExistingProjectsTableGainsGithubTokenWithoutLosingRows(@TempDir Path dbDir) {
         // V4 created projects; V5 (the next one) adds github_token.
         DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "4");

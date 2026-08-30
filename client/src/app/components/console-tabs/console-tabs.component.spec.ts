@@ -86,4 +86,61 @@ describe('ConsoleTabsComponent', () => {
     expect(emitted).toBeUndefined();
     expect(c.pendingCloseId).toBeNull();
   });
+  it('does not start a rename where renaming is not enabled (#393: the issue page)', () => {
+    const c = new ConsoleTabsComponent();
+    c.startRename({ id: '7-console-aaaaaaaa', agent: 'claude', label: 'console' }, new Event('dblclick'));
+
+    expect(c.renamingId).toBeNull();
+  });
+
+  it('seeds the field with the name already given, never with the auto label (#393)', () => {
+    const c = new ConsoleTabsComponent();
+    c.renamable = true;
+
+    c.startRename({ id: '7-console-aaaaaaaa', agent: 'claude', label: 'console · claude' }, new Event('dblclick'));
+    expect(c.draftName).toBe('');
+
+    c.startRename(
+      { id: '7-console-bbbbbbbb', agent: 'claude', label: 'console 2', name: 'release notes' },
+      new Event('dblclick'),
+    );
+    expect(c.draftName).toBe('release notes');
+  });
+
+  it('emits the trimmed name on commit, and an empty string to clear it (#393)', () => {
+    const c = new ConsoleTabsComponent();
+    c.renamable = true;
+    const emitted: { id: string; name: string }[] = [];
+    c.rename.subscribe((request) => emitted.push(request));
+
+    c.startRename({ id: '7-console-aaaaaaaa', agent: 'claude', label: 'console' }, new Event('dblclick'));
+    c.onRenameInput('  release notes  ');
+    c.commitRename();
+
+    c.startRename({ id: '7-console-aaaaaaaa', agent: 'claude', label: 'console' }, new Event('dblclick'));
+    c.onRenameInput('   ');
+    c.commitRename();
+
+    expect(emitted).toEqual([
+      { id: '7-console-aaaaaaaa', name: 'release notes' },
+      { id: '7-console-aaaaaaaa', name: '' },
+    ]);
+    expect(c.renamingId).toBeNull();
+  });
+
+  it('cancelling emits nothing (#393)', () => {
+    const c = new ConsoleTabsComponent();
+    c.renamable = true;
+    let emitted = 0;
+    c.rename.subscribe(() => emitted++);
+
+    c.startRename({ id: '7-console-aaaaaaaa', agent: 'claude', label: 'console' }, new Event('dblclick'));
+    c.onRenameInput('never saved');
+    c.cancelRename();
+    // A stray commit after cancelling has no tab to name, so it stays silent.
+    c.commitRename();
+
+    expect(emitted).toBe(0);
+    expect(c.renamingId).toBeNull();
+  });
 });

@@ -277,6 +277,113 @@ class ProjectConsoleControllerTest {
                 .isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    @Test
+    void namingAConsoleTabShowsThatNameInTheOwnersListing(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        sessionRepository.recordAttach(projectId + "-console-aaaaaaaa", dbDir, EARLIER, "alice");
+        ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
+
+        var response = controller.rename(projectId, projectId + "-console-aaaaaaaa",
+                new ProjectConsoleController.RenameRequest("  release notes  "), ALICE);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        // Stored trimmed, and read back from the database rather than from memory --
+        // this is the "survives a reload, same in any browser" promise (#393).
+        assertThat(controller.sessions(projectId, ALICE))
+                .extracting(ProjectConsoleController.OpenConsoleView::displayName)
+                .containsExactly("release notes");
+    }
+
+    @Test
+    void clearingAConsoleTabsNameRestoresTheAutoLabel(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        sessionRepository.recordAttach(projectId + "-console-aaaaaaaa", dbDir, EARLIER, "alice");
+        ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
+        controller.rename(projectId, projectId + "-console-aaaaaaaa",
+                new ProjectConsoleController.RenameRequest("release notes"), ALICE);
+
+        // Whitespace-only is a clear, not a name made of spaces.
+        var response = controller.rename(projectId, projectId + "-console-aaaaaaaa",
+                new ProjectConsoleController.RenameRequest("   "), ALICE);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(controller.sessions(projectId, ALICE))
+                .extracting(ProjectConsoleController.OpenConsoleView::displayName)
+                .containsOnlyNulls();
+    }
+
+    @Test
+    void anOverLongNameIsRejectedRatherThanTruncated(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        sessionRepository.recordAttach(projectId + "-console-aaaaaaaa", dbDir, EARLIER, "alice");
+        ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
+
+        String tooLong = "x".repeat(ProjectConsoleService.MAX_DISPLAY_NAME_LENGTH + 1);
+        var response = controller.rename(projectId, projectId + "-console-aaaaaaaa",
+                new ProjectConsoleController.RenameRequest(tooLong), ALICE);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(controller.sessions(projectId, ALICE))
+                .extracting(ProjectConsoleController.OpenConsoleView::displayName)
+                .containsOnlyNulls();
+
+        // The bound itself is inclusive -- exactly the limit is accepted.
+        assertThat(controller.rename(projectId, projectId + "-console-aaaaaaaa",
+                new ProjectConsoleController.RenameRequest("x".repeat(ProjectConsoleService.MAX_DISPLAY_NAME_LENGTH)),
+                ALICE).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    void renamingAnotherOwnersConsoleIsNotFoundAndChangesNothing(@TempDir Path dbDir) {
+        createUser(dbDir, "alice");
+        long bobId = createUser(dbDir, "bob");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long bobsProjectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", bobId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        sessionRepository.recordAttach(bobsProjectId + "-console-bbbbbbbb", dbDir, EARLIER, "bob");
+        ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
+
+        assertThat(controller.rename(bobsProjectId, bobsProjectId + "-console-bbbbbbbb",
+                new ProjectConsoleController.RenameRequest("alice was here"), ALICE).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.sessions(bobsProjectId, BOB))
+                .extracting(ProjectConsoleController.OpenConsoleView::displayName)
+                .containsOnlyNulls();
+    }
+
+    @Test
+    void renamingAnIdOutsideTheProjectsConsoleFamilyIsNotFound(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        sessionRepository.recordAttach(projectId + "-174-some-worktree", dbDir, EARLIER, "alice");
+        ProjectConsoleController controller = controller(dbDir, projectRepository, sessionRepository);
+
+        // An issue's worktree session is never a project console tab, and a console
+        // that was never attached to has no record to name.
+        assertThat(controller.rename(projectId, projectId + "-174-some-worktree",
+                new ProjectConsoleController.RenameRequest("nope"), ALICE).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.rename(projectId, projectId + "-console-99999999",
+                new ProjectConsoleController.RenameRequest("nope"), ALICE).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
     private static long createUser(Path dbDir, String username) {
         return TestSqliteDatabases.newUserRepository(dbDir).create(username, "bcrypt-hash", Instant.now()).id();
     }

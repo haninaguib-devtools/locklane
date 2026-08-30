@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -70,7 +72,8 @@ public class ProjectConsoleController {
     public List<OpenConsoleView> sessions(@PathVariable long projectId, Principal principal) {
         return service.listOpen(projectId, principal.getName()).stream()
                 .map(console -> new OpenConsoleView(console.sessionId(), console.workingDirectory(),
-                        console.createdAt().toString(), console.lastAttachedAt().toString()))
+                        console.createdAt().toString(), console.lastAttachedAt().toString(),
+                        console.displayName()))
                 .toList();
     }
 
@@ -145,6 +148,27 @@ public class ProjectConsoleController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Names one of this project's console tabs, or clears the name (#393): a
+     * {@code null}/blank {@code name} restores the client's own auto-generated label.
+     * 404 for an id outside this project's console family, one never attached to, or
+     * one that isn't the caller's — the same gate the per-tab close applies, so a
+     * user cannot rename another owner's console. 400 for a name longer than
+     * {@link ProjectConsoleService#MAX_DISPLAY_NAME_LENGTH} characters after
+     * trimming; the name is stored as text and never interpreted, so the client
+     * renders it as text too.
+     */
+    @PutMapping("/{sessionId}/name")
+    public ResponseEntity<Void> rename(@PathVariable long projectId, @PathVariable String sessionId,
+            @RequestBody RenameRequest request, Principal principal) {
+        return switch (service.rename(projectId, sessionId, principal.getName(),
+                request == null ? null : request.name())) {
+            case RENAMED -> ResponseEntity.noContent().build();
+            case NOT_FOUND -> ResponseEntity.notFound().build();
+            case TOO_LONG -> ResponseEntity.badRequest().build();
+        };
+    }
+
     /** Same failure mode {@link WorktreeController} handles: {@code git worktree add} itself failed (#314). */
     @ExceptionHandler(WorktreeCreationService.WorktreeCreationException.class)
     public ResponseEntity<Map<String, String>> onCreationFailure(WorktreeCreationService.WorktreeCreationException e) {
@@ -155,7 +179,16 @@ public class ProjectConsoleController {
         return Map.of("sessionId", session.sessionId(), "workingDirectory", session.workingDirectory());
     }
 
-    /** One row of {@link #sessions} — mirrored client-side by #179. */
-    public record OpenConsoleView(String sessionId, String workingDirectory, String createdAt, String lastAttachedAt) {
+    /**
+     * One row of {@link #sessions} — mirrored client-side by #179.
+     * {@code displayName} is the name the user gave this tab (#393), {@code null}
+     * when they gave it none.
+     */
+    public record OpenConsoleView(String sessionId, String workingDirectory, String createdAt, String lastAttachedAt,
+            String displayName) {
+    }
+
+    /** The body of {@link #rename} — {@code null} or blank clears the name (#393). */
+    public record RenameRequest(String name) {
     }
 }
