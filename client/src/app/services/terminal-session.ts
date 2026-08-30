@@ -18,12 +18,17 @@ const MAX_BACKOFF_MS = 30000;
 
 export class TerminalSession {
   private socket: WebSocket | null = null;
-  /* A size the terminal settled on before the socket finished its handshake (#268).
-     Sending it then would silently drop it, and nothing re-emits a size once the
-     browser terminal is already correct — so it is held here and delivered on open.
-     One slot, not a queue: only the size the terminal actually ended at matters, and
-     replaying superseded ones would just make the PTY reflow more than once. */
-  private pendingResize: string | null = null;
+  /* The terminal's current size, held as state rather than observed as an edge (#376).
+     These used to be readonly constructor arguments, so every reconnect URL advertised
+     whatever size the tab had when its component was built, and the only other channel
+     was xterm's onResize -- which fires when the size *changes*, and never fires again
+     once the browser terminal is already correct. After a reconnect the client then
+     asserted no size at all, and an engine restart (which makes the reattach create a
+     fresh PTY) left that PTY at the stale URL size forever. Updated on every resize(),
+     put on every connect URL, and sent on every socket open, so the engine is told the
+     truth on each attach instead of only the first. */
+  private cols: number | null;
+  private rows: number | null;
   // Whether the tab this session belongs to is currently the focused one (#130) —
   // tracked so a reconnect can resend the focus notification, since the engine only
   // learns it from this connection's own messages and a reattach starts blank.
@@ -43,25 +48,21 @@ export class TerminalSession {
     // A past conversation to resume (#103) — only meaningful with a claude/codex
     // cmd on a brand-new session; the server composes the actual resume command.
     private readonly resume: string | null = null,
-    private readonly cols: number | null = null,
-    private readonly rows: number | null = null,
+    cols: number | null = null,
+    rows: number | null = null,
     // Whether this tab is the visible one at connect time (#130) -- if so, a focus
     // notification is sent the moment the socket opens, so a session that was already
-    // waiting for attention when its tab is (re)connected clears right away rather
-    // than sitting there until the user happens to type. It also means cols/rows carry
-    // a real fitted size rather than xterm's unfitted defaults, so that size is queued
-    // as a resize too (#271): the connect URL's cols/rows are sent for a brand-new
-    // session, but the engine deliberately ignores them on a reattach, so the '1'-tagged
-    // resize message below is the only channel that reaches an already-running PTY.
-    // Queued here rather than left to the terminal's onResize handler, which fires
-    // before this session exists and never fires at all when the fitted size happens to
-    // equal the defaults.
-    private readonly initiallyFocused: boolean = false,
+    // waiting for attention when its tab is (re)connected clears right away rather than
+    // sitting there until the user happens to type. Focus is all this decides now: it
+    // used to gate whether the connect-time size was also queued as a resize (#271),
+    // because only a visible tab could be measured at all. Every tab is measured before
+    // it connects since #375, and the size is re-asserted on every open below, so there
+    // is nothing left for it to gate.
+    initiallyFocused: boolean = false,
   ) {
+    this.cols = cols;
+    this.rows = rows;
     this.isFocused = initiallyFocused;
-    if (this.initiallyFocused && this.cols !== null && this.rows !== null) {
-      this.pendingResize = `${this.cols}x${this.rows}`;
-    }
   }
 
   /** Opens the connection. `onMessage`/`onClose` are also reused by every later reconnect (#279). */
@@ -83,10 +84,13 @@ export class TerminalSession {
     if (this.resume) {
       params.set('resume', this.resume);
     }
-    if (this.cols) {
+    // The size as it is *now*, not as it was when this session was constructed -- a
+    // reconnect that makes the engine create the PTY (after an engine restart, say)
+    // starts it at whatever this URL says (#376).
+    if (this.cols !== null) {
       params.set('cols', String(this.cols));
     }
-    if (this.rows) {
+    if (this.rows !== null) {
       params.set('rows', String(this.rows));
     }
     const query = params.size > 0 ? `?${params.toString()}` : '';
@@ -95,16 +99,16 @@ export class TerminalSession {
     socket.onopen = () => {
       this.backoffMs = INITIAL_BACKOFF_MS;
       // A reattach starts with the engine assuming this tab is unfocused (#130) --
-      // resend if it wasn't. A queued resize (from the very first connect, or from a
-      // resize() call that raced this reconnect) goes out the same way it always has.
+      // resend if it wasn't.
       if (this.isFocused) {
         this.focus();
       }
-      if (this.pendingResize !== null) {
-        const size = this.pendingResize;
-        this.pendingResize = null;
-        this.sendFramed(RESIZE, size);
-      }
+      // Every open, not just the first (#376). The engine deliberately ignores the
+      // connect URL's cols/rows when it finds a live session, so this '1'-tagged
+      // message is the only channel that reaches an already-running PTY -- and a
+      // resize() that raced this reconnect is carried here too, since the size it set
+      // is simply the current one by the time this runs.
+      this.sendSize();
     };
     socket.onmessage = (event) => this.onMessage?.(event.data);
     // A close the engine's keepalive forced (#279, dev.locklane.engine.ws.TerminalHeartbeat)
@@ -158,10 +162,19 @@ export class TerminalSession {
   }
 
   resize(cols: number, rows: number): void {
-    const size = `${cols}x${rows}`;
-    if (!this.sendFramed(RESIZE, size)) {
-      this.pendingResize = size;
+    this.cols = cols;
+    this.rows = rows;
+    // Nothing is queued when the socket is not open: the size is state now, and the
+    // next open sends whatever it currently holds (#376).
+    this.sendSize();
+  }
+
+  /** Tells the engine the size the browser terminal is at, if one is known yet. */
+  private sendSize(): void {
+    if (this.cols === null || this.rows === null) {
+      return;
     }
+    this.sendFramed(RESIZE, `${this.cols}x${this.rows}`);
   }
 
   /** Tells the engine this session's tab is the one the user is looking at (#130). */
