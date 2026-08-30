@@ -1,6 +1,6 @@
 {
   "template": "haninaguib-devtools/t-workflow",
-  "tag": "v0.0.5",
+  "tag": "v0.0.6",
   "migrations_applied": 0,
   "files": {
     ".agents/skills": "symlink:../.claude/skills",
@@ -17,7 +17,7 @@
     ".github/ISSUE_TEMPLATE/initiative.yml": "eba354060a14da4bd287915a7d30188be1208acd1e7d0a7a87828bbd8433d4a9",
     ".github/ISSUE_TEMPLATE/task.yml": "1f45aa2b98e648ba62633d93b26bba17669cbdbae315de4dcfbb5e5c800cebc3",
     ".github/copilot-instructions.md": "symlink:../AGENTS.md",
-    ".github/workflows/ci.yml": "ed810be11a56c7a0568c9fbb746f05b9bfe96f117eb339cfa3fa994a55efaf98",
+    ".github/workflows/ci.yml": "a647a5b82076ef291dd45adb0a4c59400d1629121791e6f18505d6d14df338f2",
     ".github/workflows/review-gate.yml": "bdbb7cc9783c6b408e576c0a954d83998b86affc6d25ad8b8a4c4346dd817c8b",
     ".gitignore": "1e6fdc0bed1d0771762f69774538442ea62d7b7d61647aed21e11de3b6f29c06",
     ".t-workflow/scripts/check-blocker-gate.sh": "a6ecdc1348445b5d7d4af018f2956c40ad3ea2ec1bd90ab162c833eb14559970",
