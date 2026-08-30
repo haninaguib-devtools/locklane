@@ -3,6 +3,7 @@ package dev.locklane.engine.persistence;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * A minimal throwaway local git repository — a bare "origin" and a pushed "main", no
@@ -41,6 +42,14 @@ final class GitTestRepos {
         String out = new String(p.getInputStream().readAllBytes()).strip();
         p.waitFor();
         return out;
+    }
+
+    /** Local branches matching {@code pattern} (e.g. {@code "console/*"}), one per line, trimmed. */
+    static List<String> branchList(Path repo, String pattern) throws IOException, InterruptedException {
+        Process p = new ProcessBuilder("git", "-C", repo.toString(), "branch", "--list", pattern).start();
+        String out = new String(p.getInputStream().readAllBytes());
+        p.waitFor();
+        return out.lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
     }
 
     private static void run(Path cwd, String... command) throws IOException, InterruptedException {

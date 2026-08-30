@@ -266,6 +266,38 @@ class WorktreeCreationServiceTest {
         assertThat(service.reopenSession(projectId, 9, projectId + "-8-other-issue")).isEmpty();
     }
 
+    @Test
+    void createsADetachedWorktreeAtOriginMainWithNoBranch(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-console-abcd1234");
+
+        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot);
+
+        assertThat(worktreePath).isDirectory();
+        // Detached HEAD: "branch --show-current" reports nothing for it.
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEmpty();
+        // No console/* branch (or any other) was minted on the project's behalf (#338).
+        assertThat(GitTestRepos.branchList(projectRoot, "console/*")).isEmpty();
+    }
+
+    @Test
+    void aTaskBranchCanStillBeCreatedAndCheckedOutInsideADetachedWorktree(@TempDir Path tmp) throws Exception {
+        // Exercises the /t-work path this worktree is handed off to (#338 done-when):
+        // a session that transitions to task work must still be able to mint and
+        // check out its own wip/<id>-<slug> branch from inside a detached worktree.
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-console-deadbeef");
+        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot);
+
+        Process checkout = new ProcessBuilder("git", "-C", worktreePath.toString(), "checkout", "-b",
+                "wip/42-do-the-thing").redirectErrorStream(true).start();
+        String output = new String(checkout.getInputStream().readAllBytes());
+        int exit = checkout.waitFor();
+
+        assertThat(exit).as("git checkout -b output: %s", output).isZero();
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/42-do-the-thing");
+    }
+
     private static ProjectRecord readyProject(ProjectRepository projectRepository, Path projectRoot) {
         return projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", 1L, Instant.now());
     }
