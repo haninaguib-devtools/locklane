@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { ResumeSession } from '../models/issue.model';
 
 export interface ProjectConsoleSession {
   sessionId: string;
@@ -22,6 +23,8 @@ export interface OpenProjectConsole {
  * engine reports, opaque to callers. Since #177 a project can have several open at
  * once — start mints a fresh id every call, listOpen lists the open ones, and close
  * ends one specific console (never removing its worktree — that cleanup is deferred).
+ * Since #372 it also reads the project's past conversations and reopens one, the same
+ * two calls `IssuesService` already makes for an issue's own consoles.
  */
 @Injectable({ providedIn: 'root' })
 export class ProjectConsoleService {
@@ -35,6 +38,27 @@ export class ProjectConsoleService {
   /** Mints a brand-new console session id and reports its working directory. */
   start(projectId: number): Observable<ProjectConsoleSession> {
     return this.http.post<ProjectConsoleSession>(`/api/projects/${projectId}/console`, {});
+  }
+
+  /**
+   * Past Claude/Codex/OpenCode conversations captured in this project's consoles
+   * (#372), newest first — including conversations whose console has since closed.
+   */
+  resumeSessions(projectId: number): Observable<ResumeSession[]> {
+    return this.http.get<ResumeSession[]>(`/api/projects/${projectId}/console/resume-sessions`);
+  }
+
+  /**
+   * Mints a brand-new console session resuming a past conversation (#372), in the
+   * working directory of the console (`from`) it was captured in — the resume command
+   * itself is passed when attaching, like any other new console's cmd.
+   */
+  reopenSession(projectId: number, from: string): Observable<ProjectConsoleSession> {
+    return this.http.post<ProjectConsoleSession>(
+      `/api/projects/${projectId}/console/resume-sessions/reopen`,
+      {},
+      { params: { from } },
+    );
   }
 
   /** Ends one specific console session for good. */

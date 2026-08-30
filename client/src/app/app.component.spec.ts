@@ -49,6 +49,11 @@ describe('AppComponent', () => {
   // it here rather than asserting on it in every unrelated test.
   afterEach(() => {
     httpMock.match('/api/usage').forEach((request) => request.flush(EMPTY_USAGE));
+    // Same reasoning for the project console page's past-conversation read (#372):
+    // it fires whenever that page mounts, in tests that are about routing, not it.
+    httpMock
+      .match((request) => request.url.endsWith('/console/resume-sessions'))
+      .forEach((request) => request.flush([]));
     httpMock.verify();
   });
 

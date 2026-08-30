@@ -32,6 +32,12 @@ describe('ProjectConsoleComponent', () => {
   });
 
   afterEach(() => {
+    // #372's past-conversation read fires on every load (and again after a close);
+    // a test that doesn't care about the list simply has it answered empty here,
+    // so it stays out of every other expectation.
+    httpMock
+      .match((request) => request.url.endsWith('/console/resume-sessions'))
+      .forEach((request) => request.flush([]));
     httpMock.verify();
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.lastConsole');
@@ -369,5 +375,55 @@ describe('ProjectConsoleComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.selected).toBe('2-console-a1b2c3d4');
+  });
+
+  it('lists the past conversations captured in this project\u2019s consoles and reopens one (#372)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([
+      {
+        worktreeId: '1-console-a1b2c3d4',
+        tool: 'claude',
+        resumeId: '11111111-1111-1111-1111-111111111111',
+        capturedAt: '2026-08-27T09:30:00Z',
+      },
+    ]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const toggle = compiled.querySelector<HTMLButtonElement>('.past-toggle')!;
+    expect(toggle.textContent).toContain('past sessions (1)');
+    // Collapsed until asked for -- the page opens straight into a live console.
+    expect(compiled.querySelector('app-session-list')).toBeFalsy();
+
+    toggle.click();
+    fixture.detectChanges();
+    compiled.querySelector<HTMLButtonElement>('app-session-list .reopen')!.click();
+
+    const reopen = httpMock.expectOne(
+      (request) =>
+        request.url === '/api/projects/1/console/resume-sessions/reopen' &&
+        request.params.get('from') === '1-console-a1b2c3d4',
+    );
+    reopen.flush({ sessionId: '1-console-a1b2c3d4-resume-99887766', workingDirectory: '/repo-console-a1b2c3d4' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4-resume-99887766');
+    const terminals = fixture.debugElement.queryAll(By.directive(TerminalComponent));
+    const reopened = terminals.find((t) => t.componentInstance.sessionId === '1-console-a1b2c3d4-resume-99887766')!;
+    // The resume id and the tool both reach the terminal, so its first attach
+    // launches `claude --resume <id>` rather than a fresh conversation.
+    expect(reopened.componentInstance.resume).toBe('11111111-1111-1111-1111-111111111111');
+    expect(reopened.componentInstance.cmd).toBe('claude');
+    expect(reopened.componentInstance.dir).toBe('/repo-console-a1b2c3d4');
+  });
+
+  it('shows no past-sessions disclosure when the project has none (#372)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([]);
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.past-toggle')).toBeFalsy();
   });
 });

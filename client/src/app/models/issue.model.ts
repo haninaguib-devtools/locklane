@@ -49,12 +49,14 @@ export interface TreeNode {
 }
 
 // Mirrors dev.locklane.engine.persistence.WorktreeController.ResumeSessionView:
-// one past Claude/Codex conversation captured in one of the issue's consoles
-// (#102), reopenable from the Overview tab (#103). `worktreeId` is the console
-// the conversation was captured in, not a console to attach to.
+// one past Claude/Codex/OpenCode conversation captured in one of the issue's
+// consoles (#102), reopenable from the Overview tab (#103). Since #372 the
+// project console page lists its own consoles' conversations through the same
+// shape. `worktreeId` is the console the conversation was captured in, not a
+// console to attach to.
 export interface ResumeSession {
   worktreeId: string;
-  tool: 'claude' | 'codex';
+  tool: 'claude' | 'codex' | 'opencode';
   resumeId: string;
   capturedAt: string;
 }
