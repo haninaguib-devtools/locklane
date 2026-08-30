@@ -136,17 +136,34 @@ entered were NOT applied — sign in with the account you already have."
 esac
 rm -f "$seed_log"
 
+# --- Start the server, detached ------------------------------------------------
+# Detached so it outlives this terminal (#385): nohup ignores the SIGHUP the shell
+# sends its children on exit, and disown drops it from the shell's own job table, which
+# is the second, independent way a closing terminal can take a background job down with
+# it. Output goes to a log file instead of this terminal; the pid is recorded alongside
+# it so update.sh can find and stop this instance later.
+
+log_file="$INSTALL_DIR/locklane.log"
+pid_file="$INSTALL_DIR/locklane.pid"
+echo "Starting the server..."
+(
+  cd "$INSTALL_DIR"
+  nohup java -jar locklane.jar > "$log_file" 2>&1 < /dev/null &
+  echo $! > "$pid_file"
+  disown
+)
+
 cat <<EOF
 
 Installed to $INSTALL_DIR:
   locklane.jar
   update.sh
   application-locklane.properties (mode 600; port and origins only)
+  locklane.log (server output)
 
 $account_note
 
-Start it with:
-  cd $INSTALL_DIR && java -jar locklane.jar
+The server is running on port $port. Output is logged to $log_file.
 
 Later, pull a newer build with:
   $INSTALL_DIR/update.sh
