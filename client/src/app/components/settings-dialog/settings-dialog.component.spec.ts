@@ -28,8 +28,16 @@ describe('SettingsDialogComponent', () => {
     return fixture;
   }
 
+  /** Also flushes the installed-agents request with all three, since every test but the ones
+   *  exercising that picker directly (below) don't care about its value. */
   function flushStatus(fixture: ReturnType<typeof create>, enabled: boolean): void {
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled });
+    httpMock.expectOne('/api/agents/installed').flush({ installed: ['claude', 'codex', 'opencode'] });
+    fixture.detectChanges();
+  }
+
+  function flushInstalledAgents(fixture: ReturnType<typeof create>, installed: string[]): void {
+    httpMock.expectOne('/api/agents/installed').flush({ installed });
     fixture.detectChanges();
   }
 
@@ -54,11 +62,52 @@ describe('SettingsDialogComponent', () => {
     flushStatus(first, false);
     (first.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.agent-option')[1].click();
 
+    // DefaultAgentStore is a root singleton and only fetches installed agents once
+    // (refreshInstalled is a no-op once already requested), so this second instance's
+    // ngOnInit issues no second /api/agents/installed request to flush.
     const second = create();
-    flushStatus(second, false);
+    httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
+    second.detectChanges();
     const options = (second.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.agent-option');
 
     expect(options[1].classList.contains('chosen')).toBe(true);
+  });
+
+  it('renders a button only for an agent detected as installed', () => {
+    const fixture = create();
+    httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
+    flushInstalledAgents(fixture, ['claude', 'opencode']);
+    const compiled = fixture.nativeElement as HTMLElement;
+    const labels = Array.from(compiled.querySelectorAll<HTMLButtonElement>('.agent-option')).map((b) =>
+      b.textContent?.trim(),
+    );
+
+    expect(labels).toEqual(['Claude', 'OpenCode']);
+  });
+
+  it('renders without error when the saved preference is no longer installed', () => {
+    localStorage.setItem(DEFAULT_AGENT_STORAGE_KEY, 'codex');
+    const fixture = create();
+    httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
+    flushInstalledAgents(fixture, ['claude']);
+    const compiled = fixture.nativeElement as HTMLElement;
+    const options = compiled.querySelectorAll<HTMLButtonElement>('.agent-option');
+
+    expect(options.length).toBe(1);
+    expect(options[0].textContent?.trim()).toBe('Claude');
+    expect(options[0].classList.contains('chosen')).toBe(false);
+  });
+
+  it('shows all three agents until the installed-agents fetch resolves, and keeps them on failure', () => {
+    const fixture = create();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelectorAll('.agent-option').length).toBe(3);
+
+    httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
+    httpMock.expectOne('/api/agents/installed').flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
+    fixture.detectChanges();
+
+    expect(compiled.querySelectorAll('.agent-option').length).toBe(3);
   });
 
   it('renders a title bar and loads the 2FA status', () => {

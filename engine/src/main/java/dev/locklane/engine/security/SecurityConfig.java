@@ -37,8 +37,11 @@ import org.springframework.http.HttpStatus;
  * retry at {@code /api/projects/{id}/retry}, #42; storing a project's GitHub token
  * at {@code /api/projects/{id}/github-token}, #81), the sidebar's usage widget
  * ({@code /api/usage}, #137 — it reads this host's own CLI credentials, not
- * per-project data, but is account-scoped the same way {@code /api/auth/me} is), and
- * the WebSocket session endpoint itself (every path under {@code /ws/sessions/}, #50) — its origin
+ * per-project data, but is account-scoped the same way {@code /api/auth/me} is), the
+ * detected-installed-agents endpoint backing the Settings dialog's default-agent picker
+ * ({@code /api/agents/installed}, #359 — same account-scoped reasoning as the usage
+ * widget above), and the WebSocket session endpoint itself (every path under
+ * {@code /ws/sessions/}, #50) — its origin
  * restriction lives in {@code WebSocketConfig}, but authentication is enforced
  * here like every other endpoint. Issue/PR reads themselves stay open (no
  * per-user boundary) even though each project's own token, #81, scopes which
@@ -85,6 +88,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects/*/console").authenticated()
                         .requestMatchers("/api/projects/*/console/*").authenticated()
                         .requestMatchers("/api/usage").authenticated()
+                        .requestMatchers("/api/agents/**").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll())

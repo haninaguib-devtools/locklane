@@ -9,30 +9,16 @@
         <h2>Default agent</h2>
         <p class="muted">Which agent new consoles launch with by default.</p>
         <div class="agent-toggle" role="group" aria-label="Default agent">
-          <button
-            type="button"
-            class="agent-option"
-            [class.chosen]="defaultAgent() === 'claude'"
-            (click)="chooseDefaultAgent('claude')"
-          >
-            Claude
-          </button>
-          <button
-            type="button"
-            class="agent-option"
-            [class.chosen]="defaultAgent() === 'codex'"
-            (click)="chooseDefaultAgent('codex')"
-          >
-            Codex
-          </button>
-          <button
-            type="button"
-            class="agent-option"
-            [class.chosen]="defaultAgent() === 'opencode'"
-            (click)="chooseDefaultAgent('opencode')"
-          >
-            OpenCode
-          </button>
+          @for (agent of installedAgents(); track agent) {
+            <button
+              type="button"
+              class="agent-option"
+              [class.chosen]="defaultAgent() === agent"
+              (click)="chooseDefaultAgent(agent)"
+            >
+              {{ agentLabels[agent] }}
+            </button>
+          }
         </div>
       </section>
 

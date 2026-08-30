@@ -704,6 +704,7 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('.account-menu')).toBeFalsy();
 
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
+    httpMock.expectOne('/api/agents/installed').flush({ installed: ['claude', 'codex', 'opencode'] });
     fixture.detectChanges();
 
     compiled.querySelector<HTMLButtonElement>('app-settings-dialog .close')!.click();
