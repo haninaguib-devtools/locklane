@@ -111,8 +111,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         // — is #242's project-owner-derived check (ADR-007 Decision 6), replacing
         // #48's "first attach claims it": WorktreeSessionAuthorization resolves the
         // project this session id belongs to and checks the caller against that
-        // project's owner_user_id -- ownership alone, no role exemption (#394,
-        // ADR-011) -- the exact same check the REST
+        // project's owner_user_id (or admin status), the exact same check the REST
         // listings (IssueWorktreeService, ProjectConsoleService) apply — one
         // implementation, so the two paths can never disagree about the same id.
         String username = wsSession.getPrincipal() != null ? wsSession.getPrincipal().getName() : null;

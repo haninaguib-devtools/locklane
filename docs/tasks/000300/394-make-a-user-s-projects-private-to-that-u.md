@@ -42,4 +42,23 @@ account, which cascade-deletes its projects, stays the only route.
 - none
 
 ## Deviations / notes
-- none
+- **An out-of-scope edit was made and then withdrawn.** The first implementation pass also
+  corrected a code comment in
+  `engine/src/main/java/dev/locklane/engine/ws/TerminalWebSocketHandler.java`, which still
+  describes the attach check as reading "owner_user_id (or admin status)". That file is not
+  in the plan's Allowed paths, and the cold review on PR #406 raised it as a high finding —
+  correctly: an unlisted path is out of scope whether or not the change is harmless, and the
+  first version of this record said "none" here, which made it a silent deviation as well.
+  The fix pass reverted the file to its state on `main`. Nothing else in the diff was
+  touched, and the checks were re-run.
+- **A stale comment is therefore left in place, knowingly.** That comment now describes an
+  authorization rule this task removed. It is prose, not behaviour — no code reads it — so it
+  is left for the human rather than fixed out of scope. It is the same defect as the review's
+  medium finding on `UserRecord.java:30` ("ADMIN can manage other accounts and every
+  project"), and the two belong in one follow-up issue: *"Correct the comments that still
+  describe the withdrawn administrator exemption"*, covering `TerminalWebSocketHandler` and
+  `UserRecord`. Proposed here for the human to open; no issue was created by this task.
+- The review's low finding — ADR-011's status line reading `accepted (2026-08-30)` where
+  `docs/adr/000-template.md` and ADR-010 use `Accepted · <date>` — is inside scope but is a
+  low finding, which a fix pass addresses only when the human asks by number. Left as-is,
+  reported.
