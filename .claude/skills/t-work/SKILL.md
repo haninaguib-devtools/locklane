@@ -35,7 +35,13 @@ implementation before editing files.
    list local and `origin/` refs matching `wip/<id>-*`, normalizing away the `origin/`
    prefix (ADR-001 §D4):
 
-   - exactly one → reuse it (`git checkout <branch>`, or it is already current);
+   - exactly one → reuse it (`git checkout <branch>`, or it is already current), then
+     check it against the `origin/main` the fetch above already updated: behind-only →
+     rebase onto it (`git rebase origin/main`) when the rebase applies cleanly, noting
+     it in the report; a conflict → stop and report, leaving the rebase in progress
+     rather than aborting it — never auto-resolve, the human resolves it directly and
+     re-invokes `/t-work` once done. The same fast-forward-when-safe,
+     stop-when-it-isn't split the `main` refusal below applies to branch creation;
    - none → derive `wip/<id>-<slug>` from the issue title (lowercase, each run of
      non-alphanumeric characters becomes `-`, trim leading/trailing `-`, truncate to 40
      characters, trim a trailing `-` again) and create it from a current `main`;

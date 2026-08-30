@@ -36,7 +36,7 @@ with rationale and alternatives considered:
   existing are 000-template, 001, 002" — that was true when `/t-plan` ran, but this
   branch (built on `wip/236-integration`, off current `main`) already carries
   `docs/adr/003-native-sub-issues-and-dependencies.md` through
-  `docs/adr/006-automatic-worktree-cleanup-sweep.md`, merged by unrelated tasks since
+  `docs/adr/008-automatic-worktree-cleanup-sweep.md`, merged by unrelated tasks since
   the plan was written. Reusing `003` would collide with an existing, unrelated ADR
   (the repo already has one accidental duplicate — two files both numbered `002` — which
   is a pre-existing defect, not a precedent worth repeating). The binding intent stated

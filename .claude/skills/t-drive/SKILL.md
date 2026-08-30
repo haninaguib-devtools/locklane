@@ -1,25 +1,33 @@
 ---
 name: t-drive
-description: Drive an initiative's children to completion on an integration branch — plan, implement, and independently review each, merging what review authorizes and excluding what fails one bounded retry — then stop once for the human's confirmation on a single PR to main (ADR-004). Use to drive, run, or autonomously work an entire initiative.
+description: Drive an initiative's children to completion on an integration branch (merging what review authorizes, excluding what fails one bounded retry, one PR to main), or drive a single ordinary task through its own pipeline — plan, implement, review as the gates require — chained into /t-ship's merge gate; either way the run stops once, at the human's confirmation (ADR-004, ADR-006). Use to drive, run, or autonomously work an initiative or a single task.
 ---
 
-# Drive an initiative
+# Drive an initiative, or a single task
 
-`/t-drive <initiative-id>` is the one narrow, explicitly-invoked exception to ADR-001
-D1's "nothing auto-chains": once a human invokes it, this one stage chains
-`/t-plan`+`/t-work`+`/t-review` across an initiative's children without stopping between
-them, merging what review authorizes into a shared integration branch, and stops once —
-at the human's confirmation on a single PR to `main`. Optional (`AGENTS.md`); nothing
-else in the pipeline invokes it. Resolve every `tracker:*`/`forge:*` operation via
-`docs/adapters/TRACKER.md` and `docs/adapters/FORGE.md` (GitHub by default). The rules
-are [ADR-004](../../../docs/adr/004-autonomous-initiative-driving.md); where this skill
-and that ADR differ, the ADR wins — flag it, do not improvise.
+`/t-drive <id>` is the one narrow, explicitly-invoked exception to ADR-001 D1's
+"nothing auto-chains", in two modes chosen by the issue's own shape: on an
+`initiative`-labeled issue it chains `/t-plan`+`/t-work`+`/t-review` across the
+initiative's children without stopping between them, merging what review authorizes
+into a shared integration branch, and stops once — at the human's confirmation on a
+single PR to `main`; on a plain task it chains that task's own ordinary pipeline —
+plan and review only where the gates require them — into `/t-ship`'s
+merge-confirmation gate, whose pause is the same single stop (§Solo mode). Optional
+(`AGENTS.md`); nothing else in the pipeline invokes it. Resolve every
+`tracker:*`/`forge:*` operation via `docs/adapters/TRACKER.md` and
+`docs/adapters/FORGE.md` (GitHub by default). The rules are
+[ADR-004](../../../docs/adr/004-autonomous-initiative-driving.md) for the initiative
+mode and [ADR-006](../../../docs/adr/006-single-task-driving.md) for the solo mode;
+where this skill and those ADRs differ, the ADR wins — flag it, do not improvise.
 
-## Phase 0 — is this really an initiative to drive
+## Phase 0 — eligibility, and which mode
 
 1. Read `AGENTS.md`, `CONSTITUTION.md`, and the issue (`tracker:view <id>`). **Refuse**
-   anything not labeled `initiative` — say so and recommend `/t-work <id>` on the task
-   directly.
+   a closed issue — nothing to drive; say so. Then fork on the `initiative` label:
+   labeled → the initiative mode, steps 2–3 below and Phases 1–3, exactly as ADR-004
+   defines them; a plain task → **skip steps 2–3 and go to §Solo mode** (ADR-006 D1).
+   A tracking issue that merely *looks* like an initiative (children, no label) is a
+   tracker defect to report, not a judgment call to make here.
 2. `tracker:list-children <id>` — every sub-issue, with state. **Refuse** an initiative
    with no open children — nothing to drive; say so.
 3. `tracker:list-open` **once**, filtered client-side to this initiative's open
@@ -154,17 +162,68 @@ held:
      - Fails again → **stop.** Report exactly what is still blocking, and do not name
        `/t-ship` — the human decides how to proceed from here.
 
+## Solo mode — one ordinary task, chained into the gate (ADR-006)
+
+A plain task from the Phase 0 fork runs its own ordinary pipeline, each stage by its
+existing contract, chained without stopping — no integration branch, no autonomous
+merge, every gate exactly where the manual pipeline fires it:
+
+1. **Eligibility.** `tracker:list-blockers <id>` into
+   `.t-workflow/scripts/check-blocker-gate.sh <file>` — the same gate `/t-work` Phase 1
+   step 2 runs. Exit 1 → **stop immediately**, spending no retry: an unsatisfied or
+   abandoned blocker is a precondition no fix pass changes (ADR-006 D4).
+2. **Plan, if the declared scope needs one.** Run the paths the task's Scope (or
+   existing `## Plan`) names through `.t-workflow/scripts/protected-paths.sh`. Protected
+   and no `## Plan` section → run `/t-plan <id>` — the invocation covers this write
+   (ADR-006 D6). If `/t-plan` stops with a question only a human can answer, **stop
+   immediately**, spending no retry, and report why. Not protected → no plan; continue.
+3. **Work.** Run `/t-work <id>` (Normal mode) exactly as it runs standalone: ordinary
+   branch from `main`, record, implement, checks, draft PR against `main`. No
+   retargeting — the Phase 2 base-retargeting step is initiative-mode machinery with no
+   counterpart here.
+4. **Review, if the actual diff needs one.** Run the diff's real paths —
+   `git -c core.quotePath=false diff --name-only main...HEAD` — through
+   `.t-workflow/scripts/protected-paths.sh --stdin`. Protected → run `/t-review <id>`
+   exactly as it runs standalone. Not protected → **skip review, deliberately**
+   (ADR-006 D5): with no autonomous merge anywhere in this mode, review keeps its
+   ordinary constitutional role, required for protected surfaces only; note the skip in
+   the report so the human can still ask for a cold read by hand. These are two
+   independent protected-path tests at two moments — declared scope in step 2, actual
+   diff here — never one "did it need planning" flag: a diff that strayed onto a
+   protected path is reviewed even when the declared scope looked clean.
+5. **One bounded retry.** `readiness: not-ready`, or a check `AGENTS.md` §Checks names
+   fails → exactly one `/t-work <id>` Fix-mode pass (only the named blocker/high
+   findings), re-run only the falsified checks, then `/t-review <id>` again scoped to
+   the fix — the bound and shape ADR-004 Decision 2 defines, no new machinery.
+   - Passes → continue to step 6.
+   - Fails again → **stop without shipping.** Name the blocking finding or check;
+     leave branch, PR, and issue exactly as they are — open, unmerged, untouched — for
+     an ordinary human pickup (`/t-work` fix pass, `/t-cancel`, or a re-plan). The
+     solo analog of exclusion: never auto-merged, never auto-cancelled.
+6. **Ship — pause at the gate.** Run `/t-ship <id>` and stop at its
+   merge-confirmation gate: that pause **is** the run's single stop (ADR-006 D3), not
+   a stop *before* `/t-ship` naming it — that is the initiative mode's ending, and the
+   asymmetry is deliberate. The gate itself is unchanged — same wording, same
+   refusals; the human's confirmation there is what makes the merge and the
+   issue-close asked-for (ADR-006 D6). If the session ends at the gate, a standalone
+   `/t-ship <id>` finishes the job; nothing is lost.
+
 ## Rules
 
-- Nothing here substitutes for `/t-work`'s or `/t-review`'s own contract — call them
-  exactly as documented, never reimplement their steps.
+- Nothing here substitutes for `/t-plan`'s, `/t-work`'s, `/t-review`'s, or `/t-ship`'s
+  own contract — call them exactly as documented, never reimplement their steps.
 - Never merge a child into the integration branch without a `readiness: ready` review of
   that child's own diff.
 - Never merge the integration branch into `main` — that is `/t-ship`'s job alone, after
   the human's confirmation.
-- Never auto-cancel an excluded child, or anything held because of one — whether that
-  work still happens is a human's call, via `/t-cancel` or an ordinary later `/t-work`
-  fix pass, never a side effect of a driven run.
+- In solo mode, merge nothing at all — the only merge is the one the human confirms at
+  `/t-ship`'s gate, and skipping review is legitimate only when the *actual diff* is
+  non-protected, decided by `.t-workflow/scripts/protected-paths.sh`, never by
+  recalling that the declared scope looked clean.
+- Never auto-cancel an excluded child, or anything held because of one — nor a solo
+  task that stopped without shipping — whether that work still happens is a human's
+  call, via `/t-cancel` or an ordinary later `/t-work` fix pass, never a side effect
+  of a driven run.
 - Never weaken a check, a finding's severity, or a gate to keep a child — or the
   aggregate PR — inside the run.
 - Report every outcome by issue number in the closing report: merged, excluded (with the

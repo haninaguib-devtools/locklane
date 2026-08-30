@@ -28,7 +28,7 @@ only). Plain `git` is never abstracted.
 | `/t-plan` | Optional; required before changing a protected surface. Pins scope, risks, and validation onto the issue. |
 | `/t-work` | Branch, record, implement, check, draft PR. One invocation, in the current checkout. |
 | `/t-review` | Cold-context review; findings posted on the PR. Required before shipping a protected surface. |
-| `/t-drive` | Optional. Walks an initiative's children to completion on an integration branch — plan, implement, and independently review each — merging what review authorizes and excluding what fails a bounded retry; stops once, for the human's confirmation on a single PR to `main` (ADR-004). |
+| `/t-drive` | Optional. Drives an initiative or a single task. An initiative's children walk to completion on an integration branch — plan, implement, and independently review each — merging what review authorizes and excluding what fails a bounded retry; stops once, for the human's confirmation on a single PR to `main` (ADR-004). A single ordinary task runs its own pipeline — plan and review only where the gates require them — chained into `/t-ship`'s merge gate, whose pause is the same single stop (ADR-006). |
 | `/t-ship` | Human-confirmed squash merge. Every path to `main` is a human-confirmed PR. |
 | `/t-cancel` | Terminal exit: the reason recorded on the issue, every neighbour decided, then the PR closed and its branch deleted. |
 | `/t-update` | For a repo generated from this template. Syncs its template-owned files to a pinned release, preserving local slots and applying pending migrations, as one ordinary task. |
