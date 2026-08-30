@@ -187,7 +187,107 @@ class WorktreeCleanupSweeperTest {
         assertThat(fx.repository.find(worktree.worktreeId())).isEmpty();
     }
 
+    // --- #339/ADR-010: the sweep as backstop for orphaned project-console worktrees ---
+
+    @Test
+    void sweepRemovesAnOrphanedProjectConsoleWorktreeThatIsCleanDetachedAndHasNoStrayCommits(@TempDir Path tmp)
+            throws Exception {
+        Fixture fx = fixture(tmp);
+        // No session record at all -- simulating the ordinary case (tab-close already
+        // deleted it) as well as a crash where none was ever recorded.
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).containsExactly(console.worktreeId());
+        assertThat(console.path()).doesNotExist();
+    }
+
+    @Test
+    void sweepLeavesADirtyProjectConsoleWorktreeAlone(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        Files.writeString(console.path().resolve("scratch.txt"), "uncommitted work");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).isEmpty();
+        assertThat(console.path()).isDirectory();
+    }
+
+    @Test
+    void sweepLeavesAProjectConsoleWorktreeAloneWhoseBranchIsCheckedOut(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        run(console.path(), "git", "checkout", "-b", "wip/1-do-the-thing");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).isEmpty();
+        assertThat(console.path()).isDirectory();
+    }
+
+    @Test
+    void sweepLeavesAProjectConsoleWorktreeAloneWithCommitsNotOnOriginMain(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        run(console.path(), "git", "commit", "--allow-empty", "-m", "unpushed work on detached HEAD");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).isEmpty();
+        assertThat(console.path()).isDirectory();
+    }
+
+    @Test
+    void sweepLeavesAProjectConsoleWorktreeAloneWhileItsSessionIsLive(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        SessionRegistry sessionRegistry = new SessionRegistry(fx.repository);
+        sessionRegistry.attach(console.worktreeId(), console.path());
+        WorktreeCleanupSweeper sweeper = sweeper(fx, sessionRegistry, List.of());
+
+        try {
+            List<String> removed = sweeper.sweep();
+
+            assertThat(removed).isEmpty();
+            assertThat(console.path()).isDirectory();
+        } finally {
+            sessionRegistry.close(console.worktreeId());
+        }
+    }
+
+    @Test
+    void removalRefusalReasonForProjectConsoleNamesTheFirstFailingCheck(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        run(console.path(), "git", "checkout", "-b", "wip/1-do-the-thing");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        Optional<String> reason = sweeper.removalRefusalReasonForProjectConsole(
+                new WorktreeCleanupSweeper.ProjectConsoleWorktree(fx.projectId, console.worktreeId(), console.path()));
+
+        assertThat(reason).contains("a branch is checked out in this worktree — it has outgrown scratch use, so it is left alone");
+    }
+
     private record WorktreeAndId(String worktreeId, Path path) {
+    }
+
+    private record ProjectConsoleWorktreeAndId(String worktreeId, Path path) {
+    }
+
+    /** A project-console-shaped sibling worktree (#339), detached at origin/main. */
+    private static ProjectConsoleWorktreeAndId createProjectConsoleWorktree(Fixture fx)
+            throws IOException, InterruptedException {
+        String suffix = "abcd1234";
+        Path worktreePath =
+                fx.projectRoot().resolveSibling(WorktreeCreationService.repoName(fx.projectRoot()) + "-console-" + suffix);
+        WorktreeCreationService.createDetachedWorktree(worktreePath, fx.projectRoot());
+        return new ProjectConsoleWorktreeAndId(fx.projectId + "-console-" + suffix, worktreePath);
     }
 
     private record Fixture(Path projectRoot, long projectId, WorktreeSessionRepository repository,

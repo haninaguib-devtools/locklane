@@ -125,6 +125,12 @@ any other change to this list.
    The task that lands each surface (#238–#242) adds its §3 bullet and its
    `protected-paths.sh` pattern together, per §3's own "one rule in two forms"
    invariant.
+4. A project-console worktree (no issue of its own) is removed on tab close, and by
+   the same periodic sweep as a backstop, once its session has ended, its HEAD is
+   detached (a checked-out branch means the console outgrew scratch and is left
+   alone), its git status is clean, and its HEAD is an ancestor of `origin/main` — a
+   second, distinct guarded exception to ADR-005, alongside point 2's rather than
+   folded into it (ADR-010).
 <!-- /local -->
 
 ## Amendment
