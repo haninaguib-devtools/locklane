@@ -8,14 +8,19 @@ import { OpenProjectConsole, ProjectConsoleService } from '../../services/projec
 import { LastConsoleStore } from '../../services/last-console-store';
 import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/console-tabs.component';
 import { ConsoleTab } from '../console-tabs/console-labels';
+import { SessionListComponent } from '../session-list/session-list.component';
 import { TerminalComponent } from '../terminal/terminal.component';
+import { ResumeSession } from '../../models/issue.model';
 
 // One open console's client-side state. `dir` comes from the engine either way;
 // `agent` is only known when this browser launched the session (AgentStore).
+// `resume` is the past conversation this console was opened to resume (#372),
+// null for an ordinary new one.
 interface OpenConsole {
   id: string;
   dir: string;
   agent: Agent | null;
+  resume: string | null;
 }
 
 // The project-level console page (#140, part of #138): lets a user start a
@@ -26,10 +31,17 @@ interface OpenConsole {
 // Since #177 a project can have several consoles open at once, so this
 // page shows the same tab strip an issue's consoles get (#178) -- minus the
 // Overview tab and the main/worktree choice, which only make sense for an issue.
+// Since #372 it also lists the conversations that ran in this project's consoles
+// and can reopen one -- the capability an issue's Overview tab has had since #103
+// -- behind a disclosure under the header, since #256 means this page almost always
+// opens straight into a live console, with no empty state to put the list in. The
+// list is read when that disclosure is first opened rather than on mount, so simply
+// landing on a console costs no extra request; the trade-off is that the collapsed
+// label cannot carry a count.
 @Component({
   selector: 'app-project-console',
   standalone: true,
-  imports: [ConsoleTabsComponent, TerminalComponent],
+  imports: [ConsoleTabsComponent, SessionListComponent, TerminalComponent],
   templateUrl: './project-console.component.html',
   styleUrl: './project-console.component.css',
 })
@@ -52,6 +64,12 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   starting = false;
   startError = false;
   closeError = false;
+  /** Past conversations captured in this project's consoles (#372), newest first. */
+  pastSessions: ResumeSession[] = [];
+  pastOpen = false;
+  pastLoading = false;
+  /** Whether the list below is a real answer yet -- false until the first read returns. */
+  pastLoaded = false;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId']) {
@@ -76,6 +94,10 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
     this.starting = false;
     this.startError = false;
     this.closeError = false;
+    this.pastSessions = [];
+    this.pastOpen = false;
+    this.pastLoading = false;
+    this.pastLoaded = false;
     this.service.listOpen(projectId).subscribe({
       next: (sessions) => {
         this.loading = false;
@@ -90,6 +112,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
           id: s.sessionId,
           dir: s.workingDirectory,
           agent: this.agentStore.get(s.sessionId),
+          resume: null,
         }));
         // The consoles page (#179) hands off with ?session=<id> naming the tab
         // to activate; otherwise reattach where the user left off -- the most
@@ -110,6 +133,69 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
       },
       error: () => {
         this.loading = false;
+      },
+    });
+  }
+
+  // A conversation outlives the console it ran in (#101), so this list is read
+  // independently of the open-console list; a failure leaves it simply empty rather
+  // than blocking the page.
+  private loadPastSessions(projectId: number): void {
+    this.pastLoading = true;
+    this.service.resumeSessions(projectId).subscribe({
+      next: (sessions) => {
+        this.pastSessions = sessions;
+        this.pastLoading = false;
+        this.pastLoaded = true;
+      },
+      error: () => {
+        this.pastSessions = [];
+        this.pastLoading = false;
+        this.pastLoaded = true;
+      },
+    });
+  }
+
+  // Opening the disclosure is what asks for the list, and asks again every time:
+  // the set grows whenever a console is closed, so a cached answer would go stale
+  // exactly when the user is most likely to want it.
+  togglePast(): void {
+    this.pastOpen = !this.pastOpen;
+    if (this.pastOpen) {
+      this.loadPastSessions(this.projectId);
+    }
+  }
+
+  /**
+   * Reopens a past conversation (#372): the engine mints a brand-new session in the
+   * original console's working directory, and the first attach launches the tool's
+   * own resume command -- the same handoff `main-content.component.ts` makes for an
+   * issue's conversations.
+   */
+  reopenSession(session: ResumeSession): void {
+    this.starting = true;
+    this.startError = false;
+    this.service.reopenSession(this.projectId, session.worktreeId).subscribe({
+      next: (started) => {
+        this.agentStore.set(started.sessionId, session.tool);
+        this.consoles = [
+          ...this.consoles,
+          {
+            id: started.sessionId,
+            dir: started.workingDirectory,
+            agent: session.tool,
+            resume: session.resumeId,
+          },
+        ];
+        this.relabel();
+        this.selectConsole(started.sessionId);
+        this.starting = false;
+        this.pastOpen = false;
+        this.consolesService.notifyOpened();
+      },
+      error: () => {
+        this.starting = false;
+        this.startError = true;
       },
     });
   }
@@ -150,7 +236,10 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
     this.service.start(this.projectId).subscribe({
       next: (session) => {
         this.agentStore.set(session.sessionId, agent);
-        this.consoles = [...this.consoles, { id: session.sessionId, dir: session.workingDirectory, agent }];
+        this.consoles = [
+          ...this.consoles,
+          { id: session.sessionId, dir: session.workingDirectory, agent, resume: null },
+        ];
         this.relabel();
         this.selectConsole(session.sessionId);
         this.starting = false;

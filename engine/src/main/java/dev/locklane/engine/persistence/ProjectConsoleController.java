@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
@@ -69,6 +70,45 @@ public class ProjectConsoleController {
                 .map(console -> new OpenConsoleView(console.sessionId(), console.workingDirectory(),
                         console.createdAt().toString(), console.lastAttachedAt().toString()))
                 .toList();
+    }
+
+    /**
+     * The past Claude/Codex/OpenCode conversations captured in this project's own
+     * consoles (#372), newest first — the project-page counterpart of
+     * {@link WorktreeController#resumeSessions}, and deliberately the same
+     * {@link WorktreeController.ResumeSessionView} row shape, so the client renders
+     * both lists with one component and one model. Same visibility rule as
+     * {@link #sessions}, applied to the console each conversation was captured in.
+     */
+    @GetMapping("/resume-sessions")
+    public List<WorktreeController.ResumeSessionView> resumeSessions(@PathVariable long projectId,
+            Principal principal) {
+        return service.resumeSessionsForProject(projectId, principal.getName()).stream()
+                .map(record -> new WorktreeController.ResumeSessionView(record.worktreeId(), record.tool(),
+                        record.resumeId(), record.capturedAt().toString()))
+                .toList();
+    }
+
+    /**
+     * Mints a brand-new console session for resuming a past conversation (#372), in
+     * the working directory of the console ({@code from}) it was captured in. The
+     * client attaches to the returned session id with {@code cmd=<tool>&resume=<id>}
+     * exactly as it attaches any other new console. {@code 404} when {@code from}
+     * carries no conversation the caller may see — same visibility rule as
+     * {@link #resumeSessions}.
+     */
+    @PostMapping("/resume-sessions/reopen")
+    public ResponseEntity<Map<String, String>> reopenSession(@PathVariable long projectId,
+            @RequestParam String from, Principal principal) {
+        boolean visible = service.resumeSessionsForProject(projectId, principal.getName()).stream()
+                .anyMatch(record -> record.worktreeId().equals(from));
+        if (!visible) {
+            return ResponseEntity.notFound().build();
+        }
+        return service.reopenSession(projectId, from)
+                .map(ProjectConsoleController::toBody)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /**

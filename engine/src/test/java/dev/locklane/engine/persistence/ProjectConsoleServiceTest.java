@@ -400,13 +400,168 @@ class ProjectConsoleServiceTest {
         projectRepository.setGithubToken(projectId, tokenCipher.encrypt("ghp_realtoken"));
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         ProjectConsoleService service = new ProjectConsoleService(projectRepository, tokenCipher,
-                new SessionRegistry(sessionRepository), sessionRepository, authorization(dbDir, projectRepository),
+                new SessionRegistry(sessionRepository), sessionRepository,
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization(dbDir, projectRepository),
                 sweeper(dbDir, sessionRepository, projectRepository));
 
         // Both the #177 family and the legacy pre-#177 id resolve the token.
         assertThat(service.environmentFor(projectId + "-console-0a1b2c3d"))
                 .isEqualTo(Map.of("GH_TOKEN", "ghp_realtoken"));
         assertThat(service.environmentFor(projectId + "-console")).isEqualTo(Map.of("GH_TOKEN", "ghp_realtoken"));
+    }
+
+    // ---- #372: past conversations in a project's own consoles ----
+
+    @Test
+    void listsThisProjectsPastConversationsNewestSightingFirst(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        ConsoleResumeSessionRepository resumeRepository = new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        resumeRepository.record(projectId + "-console-aaaaaaaa", "claude", "11111111-1111-1111-1111-111111111111",
+                EARLIER);
+        resumeRepository.record(projectId + "-console-bbbbbbbb", "opencode", "ses_01ABCDEFGHIJKLMNOPQRSTUVWX", LATER);
+        ProjectConsoleService service =
+                service(dbDir, projectRepository, TestSqliteDatabases.newRepository(dbDir), resumeRepository);
+
+        assertThat(service.resumeSessionsForProject(projectId, "alice"))
+                .extracting(ConsoleResumeSessionRecord::tool, ConsoleResumeSessionRecord::resumeId)
+                .containsExactly(
+                        tuple("opencode", "ses_01ABCDEFGHIJKLMNOPQRSTUVWX"),
+                        tuple("claude", "11111111-1111-1111-1111-111111111111"));
+    }
+
+    @Test
+    void listsAConversationSightedInSeveralConsolesOnceAtItsNewestSighting(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        ConsoleResumeSessionRepository resumeRepository = new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        String conversation = "11111111-1111-1111-1111-111111111111";
+        resumeRepository.record(projectId + "-console-aaaaaaaa", "claude", conversation, EARLIER);
+        resumeRepository.record(projectId + "-console-aaaaaaaa-resume-bbbbbbbb", "claude", conversation, LATER);
+        ProjectConsoleService service =
+                service(dbDir, projectRepository, TestSqliteDatabases.newRepository(dbDir), resumeRepository);
+
+        assertThat(service.resumeSessionsForProject(projectId, "alice"))
+                .extracting(ConsoleResumeSessionRecord::worktreeId)
+                .containsExactly(projectId + "-console-aaaaaaaa-resume-bbbbbbbb");
+    }
+
+    @Test
+    void doesNotListAnotherProjectsConsolesOrAnIssuesOwnOrTheLegacySharedCheckoutId(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        long otherProjectId =
+                projectRepository.createReady("other", "url", dbDir.resolve("other"), "main", aliceId, Instant.now())
+                        .id();
+        ConsoleResumeSessionRepository resumeRepository = new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        resumeRepository.record(otherProjectId + "-console-aaaaaaaa", "claude",
+                "11111111-1111-1111-1111-111111111111", LATER);
+        // An issue's own console, in this same project -- the issue page lists it.
+        resumeRepository.record(projectId + "-174-some-slug", "claude", "22222222-2222-2222-2222-222222222222", LATER);
+        // The pre-#177 bare id: it only ever ran in the project's shared checkout,
+        // which #341 retired as a console location, so a reopen could never work.
+        resumeRepository.record(projectId + "-console", "claude", "33333333-3333-3333-3333-333333333333", LATER);
+        ProjectConsoleService service =
+                service(dbDir, projectRepository, TestSqliteDatabases.newRepository(dbDir), resumeRepository);
+
+        assertThat(service.resumeSessionsForProject(projectId, "alice")).isEmpty();
+    }
+
+    @Test
+    void doesNotListAConversationFromAConsoleTheCallerCannotSee(@TempDir Path dbDir) {
+        createUser(dbDir, "alice");
+        long bobId = createUser(dbDir, "bob");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long bobsProjectId =
+                projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", bobId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        sessionRepository.recordAttach(bobsProjectId + "-console-aaaaaaaa", dbDir, EARLIER, "alice");
+        ConsoleResumeSessionRepository resumeRepository = new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        resumeRepository.record(bobsProjectId + "-console-aaaaaaaa", "claude",
+                "11111111-1111-1111-1111-111111111111", LATER);
+        ProjectConsoleService service = service(dbDir, projectRepository, sessionRepository, resumeRepository);
+
+        assertThat(service.resumeSessionsForProject(bobsProjectId, "alice")).isEmpty();
+    }
+
+    @Test
+    void reopeningRunsInTheOriginalConsolesRecordedDirectory(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(tmp);
+        ProjectConsoleService service = service(tmp, projectRepository, sessionRepository);
+        ProjectConsoleService.ConsoleSession original = service.start(projectId).get();
+        sessionRepository.recordAttach(original.sessionId(), Path.of(original.workingDirectory()), EARLIER, "alice");
+
+        ProjectConsoleService.ConsoleSession reopened = service.reopenSession(projectId, original.sessionId()).get();
+
+        assertThat(reopened.workingDirectory()).isEqualTo(original.workingDirectory());
+        // A brand-new session, never a reattach to the one still running.
+        assertThat(reopened.sessionId()).isNotEqualTo(original.sessionId())
+                .matches("^" + projectId + "-console-[0-9a-f]{8}-resume-[0-9a-f]{8}$");
+    }
+
+    @Test
+    void reopeningAClosedConsoleRebuildsItsWorktreeAtTheSamePath(@TempDir Path tmp) throws Exception {
+        // The whole point of #372: a project console's tab-close deletes both its
+        // session record and (#339) its worktree, so the directory a conversation is
+        // keyed to has to come back from the session id alone.
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(tmp);
+        ProjectConsoleService service = service(tmp, projectRepository, sessionRepository);
+        ProjectConsoleService.ConsoleSession original = service.start(projectId).get();
+        sessionRepository.recordAttach(original.sessionId(), Path.of(original.workingDirectory()), EARLIER, "alice");
+        assertThat(service.close(projectId, original.sessionId(), "alice")).isTrue();
+        assertThat(Path.of(original.workingDirectory())).doesNotExist();
+
+        ProjectConsoleService.ConsoleSession reopened = service.reopenSession(projectId, original.sessionId()).get();
+
+        assertThat(reopened.workingDirectory()).isEqualTo(original.workingDirectory());
+        assertThat(Path.of(reopened.workingDirectory())).isDirectory();
+        assertThat(GitTestRepos.currentBranch(Path.of(reopened.workingDirectory()))).isEmpty();
+    }
+
+    @Test
+    void reopeningAnAlreadyReopenedConsoleStillLandsInTheOriginalDirectory(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        ProjectConsoleService service = service(tmp, projectRepository);
+        ProjectConsoleService.ConsoleSession original = service.start(projectId).get();
+
+        ProjectConsoleService.ConsoleSession once = service.reopenSession(projectId, original.sessionId()).get();
+        ProjectConsoleService.ConsoleSession twice = service.reopenSession(projectId, once.sessionId()).get();
+
+        assertThat(once.workingDirectory()).isEqualTo(original.workingDirectory());
+        assertThat(twice.workingDirectory()).isEqualTo(original.workingDirectory());
+        // The id never grows a chain of resume tails, so the directory stays derivable.
+        assertThat(twice.sessionId()).matches("^" + projectId + "-console-[0-9a-f]{8}-resume-[0-9a-f]{8}$");
+    }
+
+    @Test
+    void refusesToReopenTheLegacySharedCheckoutConsoleOrAnythingOutsideTheProject(@TempDir Path tmp) throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp);
+        long aliceId = createUser(tmp, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "main", aliceId, Instant.now()).id();
+        ProjectConsoleService service = service(tmp, projectRepository);
+
+        assertThat(service.reopenSession(projectId, projectId + "-console")).isEmpty();
+        assertThat(service.reopenSession(projectId, projectId + "-174-some-slug")).isEmpty();
+        assertThat(service.reopenSession(projectId, (projectId + 1) + "-console-aaaaaaaa")).isEmpty();
+        assertThat(service.reopenSession(999, "999-console-aaaaaaaa")).isEmpty();
     }
 
     private static long createUser(Path dbDir, String username) {
@@ -427,8 +582,13 @@ class ProjectConsoleServiceTest {
 
     private static ProjectConsoleService service(Path dbDir, ProjectRepository projectRepository,
             WorktreeSessionRepository sessionRepository) {
+        return service(dbDir, projectRepository, sessionRepository, new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)));
+    }
+
+    private static ProjectConsoleService service(Path dbDir, ProjectRepository projectRepository,
+            WorktreeSessionRepository sessionRepository, ConsoleResumeSessionRepository resumeRepository) {
         return new ProjectConsoleService(projectRepository, tokenCipher(dbDir), new SessionRegistry(sessionRepository),
-                sessionRepository, authorization(dbDir, projectRepository),
+                sessionRepository, resumeRepository, authorization(dbDir, projectRepository),
                 sweeper(dbDir, sessionRepository, projectRepository));
     }
 

@@ -370,4 +370,76 @@ describe('ProjectConsoleComponent', () => {
 
     expect(fixture.componentInstance.selected).toBe('2-console-a1b2c3d4');
   });
+
+  it('reads and lists this project\u2019s past conversations only once the disclosure is opened (#372)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    // Landing on a live console costs no extra request -- the list is read on demand.
+    httpMock.expectNone('/api/projects/1/console/resume-sessions');
+    expect(compiled.querySelector('app-session-list')).toBeFalsy();
+
+    compiled.querySelector<HTMLButtonElement>('.past-toggle')!.click();
+    httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([
+      {
+        worktreeId: '1-console-a1b2c3d4',
+        tool: 'claude',
+        resumeId: '11111111-1111-1111-1111-111111111111',
+        capturedAt: '2026-08-27T09:30:00Z',
+      },
+    ]);
+    fixture.detectChanges();
+    compiled.querySelector<HTMLButtonElement>('app-session-list .reopen')!.click();
+
+    const reopen = httpMock.expectOne(
+      (request) =>
+        request.url === '/api/projects/1/console/resume-sessions/reopen' &&
+        request.params.get('from') === '1-console-a1b2c3d4',
+    );
+    reopen.flush({ sessionId: '1-console-a1b2c3d4-resume-99887766', workingDirectory: '/repo-console-a1b2c3d4' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4-resume-99887766');
+    const terminals = fixture.debugElement.queryAll(By.directive(TerminalComponent));
+    const reopened = terminals.find((t) => t.componentInstance.sessionId === '1-console-a1b2c3d4-resume-99887766')!;
+    // The resume id and the tool both reach the terminal, so its first attach
+    // launches `claude --resume <id>` rather than a fresh conversation.
+    expect(reopened.componentInstance.resume).toBe('11111111-1111-1111-1111-111111111111');
+    expect(reopened.componentInstance.cmd).toBe('claude');
+    expect(reopened.componentInstance.dir).toBe('/repo-console-a1b2c3d4');
+  });
+
+  it('says so plainly when the project has no past conversations (#372)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    compiled.querySelector<HTMLButtonElement>('.past-toggle')!.click();
+    httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([]);
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-session-list')).toBeFalsy();
+    expect(compiled.querySelector('.past-empty')!.textContent).toContain('no past conversations');
+  });
+
+  it('re-reads the list on every open, so a console closed meanwhile shows up (#372)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const toggle = compiled.querySelector<HTMLButtonElement>('.past-toggle')!;
+    toggle.click();
+    httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([]);
+    fixture.detectChanges();
+
+    toggle.click();
+    fixture.detectChanges();
+    toggle.click();
+    httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([]);
+    fixture.detectChanges();
+  });
 });
