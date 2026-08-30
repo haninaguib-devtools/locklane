@@ -310,6 +310,25 @@ describe('SidenavComponent', () => {
     expect(initiative.children.map((c) => c.number)).toEqual([2]);
   });
 
+  it('hides the per-row status label while hideShipped is checked (#351)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.hideShipped).toBeTrue();
+    expect(fixture.nativeElement.querySelectorAll('.issue-state')).toHaveSize(0);
+  });
+
+  it('shows the per-row status label once hideShipped is unchecked (#351)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.componentInstance.hideShipped = false;
+    fixture.detectChanges();
+
+    const labels = Array.from(fixture.nativeElement.querySelectorAll('.issue-state')) as HTMLElement[];
+    expect(labels.map((el) => el.textContent?.trim())).toEqual(['open', 'open', 'closed', 'open']);
+  });
+
   it('an issue with an open console stays visible under hideShipped even when closed (#263)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
