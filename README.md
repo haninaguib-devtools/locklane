@@ -4,6 +4,23 @@
 
 Generated from t-workflow @ 4b8ad51 — https://github.com/haninaguib-devtools/t-workflow
 
+## Installing
+
+Install locklane on your own machine — this downloads the engine, asks for a port and a
+login, and leaves it running as a per-user service:
+
+```
+curl -fsSL https://raw.githubusercontent.com/haninaguib-devtools/locklane/main/install.sh | bash
+```
+
+Everything lands in `~/.locklane`. Two scripts live there afterwards:
+
+- `~/.locklane/update.sh` — pull a newer build and restart the server.
+- `~/.locklane/uninstall.sh` — stop the server and de-register it from the service
+  manager, then ask separately whether to delete `~/.locklane` itself. That directory
+  holds the login accounts, the projects, and the database, so deleting it needs a typed
+  confirmation and is never the default.
+
 ## Read first
 
 - `CONSTITUTION.md` — the invariants. Binding on every task.
