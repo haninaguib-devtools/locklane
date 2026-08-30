@@ -16,9 +16,6 @@ import {
   issueNumberFromSessionId,
   projectIssueKeyFromSessionId,
 } from '../../services/consoles.service';
-import { ProjectConsoleService } from '../../services/project-console.service';
-import { AgentStore } from '../../services/agent-store';
-import { DefaultAgentStore } from '../../services/default-agent-store';
 import { AppEvent, ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '../../services/events.service';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
@@ -72,9 +69,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly projectSectionStore = inject(ProjectSectionStore);
   private readonly consolesService = inject(ConsolesService);
   private readonly eventsService = inject(EventsService);
-  private readonly projectConsoleService = inject(ProjectConsoleService);
-  private readonly agentStore = inject(AgentStore);
-  private readonly defaultAgentStore = inject(DefaultAgentStore);
   private readonly router = inject(Router);
 
   // Highlight only -- navigation is each row's own routerLink (#170), so selection
@@ -111,9 +105,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   private openMenuFor: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
-  // The project whose "+" is currently minting a console (#180) — guards the
-  // one-click entry against a double-click minting two sessions.
-  private startingConsoleFor: number | null = null;
 
   // "<projectId>:<issueNumber>" for every issue with at least one open console
   // (#108), refreshed whenever a console opens or closes anywhere in the app.
@@ -178,33 +169,18 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.load(() => (this.refreshing = false));
   }
 
-  // The header's one-click "+" (#180): mints a brand-new console session (#177) and
-  // lands on the project console page with that console's tab active — the tab strip
-  // (#178) reads the `session` query param. One click means no agent picker; the new
-  // console gets the Settings default agent (#219) instead.
+  // The header's one-click "+" (#180): asks the project console page for a brand-new
+  // console (#177) and lands on it with that console's tab active. The request rides
+  // in the `new` query param rather than this button minting the session itself
+  // (#370) — a session the engine has never attached to is absent from the page's
+  // open-console list, so the old `?session=<freshId>` handoff was discarded there
+  // and some existing console was shown instead, stranding the new console's
+  // worktree on disk. The page mints it, adds its tab, and drops the param again.
+  // One click still means no agent picker: the new console gets the Settings default
+  // agent (#219), which the page applies.
   openNewConsole(projectId: number, event: Event): void {
     event.stopPropagation();
-    if (this.startingConsoleFor !== null) {
-      return;
-    }
-    this.startingConsoleFor = projectId;
-    this.projectConsoleService.start(projectId).subscribe({
-      next: (session) => {
-        this.startingConsoleFor = null;
-        this.agentStore.set(session.sessionId, this.defaultAgentStore.agent());
-        this.consolesService.notifyOpened();
-        this.router.navigate(['/projects', projectId, 'console'], {
-          queryParams: { session: session.sessionId },
-        });
-      },
-      error: () => {
-        this.startingConsoleFor = null;
-      },
-    });
-  }
-
-  isStartingConsole(projectId: number): boolean {
-    return this.startingConsoleFor === projectId;
+    this.router.navigate(['/projects', projectId, 'console'], { queryParams: { new: 1 } });
   }
 
   // Opens this project alone in a new browser window (#286): the focused state rides

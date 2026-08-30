@@ -1,5 +1,6 @@
-import { Component, Input, OnChanges, OnDestroy, SimpleChanges, inject } from '@angular/core';
+import { Component, Input, OnChanges, OnDestroy, OnInit, SimpleChanges, inject } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { Agent, AgentStore } from '../../services/agent-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
 import { ConsolesService } from '../../services/consoles.service';
@@ -33,7 +34,7 @@ interface OpenConsole {
   templateUrl: './project-console.component.html',
   styleUrl: './project-console.component.css',
 })
-export class ProjectConsoleComponent implements OnChanges, OnDestroy {
+export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   private readonly service = inject(ProjectConsoleService);
   private readonly consolesService = inject(ConsolesService);
   private readonly issuesService = inject(IssuesService);
@@ -53,10 +54,53 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   startError = false;
   closeError = false;
 
+  private queryParamsSub: Subscription | null = null;
+  // Set when a `?new` request arrives while the open-console list is still in
+  // flight (#370): the start has to wait for that list, or the list's response
+  // would land on top of the console it just added.
+  private pendingNewConsole = false;
+
+  // The sidenav's "+" (#180) hands off with `?new` rather than minting a session
+  // itself (#370): a session the engine has never attached is missing from
+  // listOpen, so a `?session=<freshId>` handoff always fell through to some other
+  // console and left the new one's worktree stranded on disk. Minting lives here
+  // instead, where the session goes straight into the tab strip. Reading it off
+  // the live query params (not just the snapshot) is what makes a "+" click work
+  // while this page is already showing -- the projectId input does not change, so
+  // ngOnChanges never fires.
+  ngOnInit(): void {
+    this.queryParamsSub = this.route.queryParamMap.subscribe((params) => {
+      if (params.get('new') === null) {
+        return;
+      }
+      // Drop the flag before starting, so a reload -- or the next "+" click --
+      // is a fresh request rather than a repeat of this one.
+      this.clearNewParam();
+      if (this.starting) {
+        // The double-click guard, which used to live on the sidenav button: a
+        // further "+" while one console is being opened is ignored, and a failed
+        // start clears `starting` again, re-arming it.
+        return;
+      }
+      if (this.loading) {
+        this.pendingNewConsole = true;
+        return;
+      }
+      this.startDefault();
+    });
+  }
+
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId']) {
       this.load(this.projectId);
     }
+  }
+
+  /** Rewrites the URL without `new`, keeping every other param (`focus`, `session`). */
+  private clearNewParam(): void {
+    const queryParams = { ...this.route.snapshot.queryParams };
+    delete queryParams['new'];
+    this.router.navigate(['/projects', this.projectId, 'console'], { queryParams, replaceUrl: true });
   }
 
   // Leaving this page -- however the navigation happened -- never closes the
@@ -65,6 +109,7 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
   // view of this project's issue list may be stale, since the agent may have just
   // opened one via `gh` before the engine's own 30s poll would notice (#140).
   ngOnDestroy(): void {
+    this.queryParamsSub?.unsubscribe();
     this.issuesService.notifyProjectStale(this.projectId);
   }
 
@@ -76,9 +121,24 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
     this.starting = false;
     this.startError = false;
     this.closeError = false;
+    // `pendingNewConsole` deliberately survives this reset: a "+" click for
+    // another project changes the projectId input and the query params in the
+    // same navigation, in no guaranteed order (#370).
     this.service.listOpen(projectId).subscribe({
       next: (sessions) => {
         this.loading = false;
+        this.consoles = sessions.map((s) => ({
+          id: s.sessionId,
+          dir: s.workingDirectory,
+          agent: this.agentStore.get(s.sessionId),
+        }));
+        this.relabel();
+        if (this.takePendingNewConsole()) {
+          // The sidenav's "+" (#370): the project's existing consoles stay in the
+          // strip, with the brand-new one added alongside them and selected.
+          this.startDefault();
+          return;
+        }
         if (sessions.length === 0) {
           // #256: landing here with nothing open starts one immediately, using
           // the same default-agent source the sidenav "+" uses -- no picker, no
@@ -86,11 +146,6 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
           this.startDefault();
           return;
         }
-        this.consoles = sessions.map((s) => ({
-          id: s.sessionId,
-          dir: s.workingDirectory,
-          agent: this.agentStore.get(s.sessionId),
-        }));
         // The consoles page (#179) hands off with ?session=<id> naming the tab
         // to activate; otherwise reattach where the user left off -- the most
         // recently attached console, which is what this page showed before it
@@ -106,12 +161,24 @@ export class ProjectConsoleComponent implements OnChanges, OnDestroy {
                 null,
               )?.sessionId ?? null,
         );
-        this.relabel();
       },
       error: () => {
         this.loading = false;
+        if (this.takePendingNewConsole()) {
+          // The list failed, but the "+" click still asked for a console: mint it
+          // anyway rather than dropping the click (#370). A failed start shows the
+          // page's own start error, as it does anywhere else here.
+          this.startDefault();
+        }
       },
     });
+  }
+
+  /** Consumes a queued `?new` request, if one is waiting on the open-console list. */
+  private takePendingNewConsole(): boolean {
+    const pending = this.pendingNewConsole;
+    this.pendingNewConsole = false;
+    return pending;
   }
 
   /** Retries the empty-state auto-start after a failure -- the only "start" affordance left. */
