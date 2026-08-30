@@ -53,4 +53,36 @@ dirty-then-forgotten cases.
   treats "has a persisted record" as "open" (haninaguib, 2026-08-29, `/t-plan 339`).
 
 ## Deviations / notes
-- none
+- **Re-plan after `/t-review`'s first pass, addressing two High findings.** The
+  cold review of PR #361 found: (1) the first implementation pass of
+  `allProjectConsoleWorktrees()` discovered candidates with a plain `Files.list`
+  directory-name match, never actually calling `git worktree list --porcelain` as
+  the Plan's Risks/constraints required and as this record's own "Decisions made
+  along the way" claimed was built — a same-named but unrelated directory (a manual
+  backup, a stray clone) could have been listed as a discovered project-console
+  worktree, though `git worktree remove`'s own refusal of an unregistered path
+  happened to prevent any actual removal; (2)
+  `engine/src/test/java/dev/locklane/engine/persistence/ProjectConsoleControllerTest.java`
+  was modified (a `WorktreeCleanupSweeper` wired into its `ProjectConsoleController`
+  test-building helper, mirroring the sanctioned `ProjectConsoleService` constructor
+  change) but was never listed in the Plan's Allowed paths, which instead named
+  `ProjectWorktreesControllerTest.java` — a file this task never actually touches.
+  Corrected by: (1) rewrote `allProjectConsoleWorktrees()` to call
+  `git worktree list --porcelain` in each project's checkout and cross-reference its
+  `worktree <path>` lines against the sibling-directory naming filter, replacing the
+  `Files.list` approach entirely, plus a new real-git test
+  (`discoveryIgnoresASameNamedDirectoryThatWasNeverRegisteredAsAWorktree`) proving a
+  same-named, never-`git worktree add`-ed directory is never discovered; (2) re-ran
+  `/t-plan 339`, replacing the `## Plan` section's Allowed paths test-file line —
+  was: `..., ProjectWorktreesServiceTest.java, ProjectWorktreesControllerTest.java,
+  GitTestRepos.java`; now: `..., ProjectConsoleControllerTest.java,
+  ProjectWorktreesServiceTest.java, GitTestRepos.java` (dropping
+  `ProjectWorktreesControllerTest.java`, which this task never touches, and adding
+  `ProjectConsoleControllerTest.java`, which it always did) — and added a
+  Risks/constraints note making the git-native discovery requirement concrete
+  (`git worktree list --porcelain`, not directory-name matching alone). Approved in
+  the moment by this task's own driver (`/t-drive` 337, acting per its ADR-004/
+  ADR-006 delegated fix-mode authority) — no unrelated content changed. Re-ran the
+  targeted Maven tests, the full `./mvnw -B test` suite, and
+  `./.t-workflow/scripts/consistency-check.sh`/`check-manifest.sh`/`check-record.sh`,
+  all green; see the PR's checks for exact counts.

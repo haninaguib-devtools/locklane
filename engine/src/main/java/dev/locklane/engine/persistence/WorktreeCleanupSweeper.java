@@ -16,7 +16,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Stream;
 
 /**
  * Periodically deletes a console-created worktree once it is safe to do so (#319) —
@@ -60,11 +59,15 @@ import java.util.stream.Stream;
  * with it, unlike the per-issue case above) — checked and removed the same
  * all-or-nothing way, by {@link #sweep()} as the periodic backstop and by {@link
  * ProjectConsoleService#close(long, String, String)} synchronously on tab close.
- * Discovery is deliberately git-native (the sibling-directory naming convention
- * {@link ProjectConsoleService#startWorktreeSession} already uses), never from
- * {@link WorktreeSessionRepository}: a project console's tab-close already deletes
- * its persisted record unconditionally as part of ending the session, so a worktree
- * this guard refuses to remove would otherwise have no record left to find it by.
+ * Discovery ({@link #allProjectConsoleWorktrees()}) is deliberately git-native
+ * ({@code git worktree list --porcelain}, cross-referenced against the
+ * sibling-directory naming convention {@link
+ * ProjectConsoleService#startWorktreeSession} already uses), never from {@link
+ * WorktreeSessionRepository}: a project console's tab-close already deletes its
+ * persisted record unconditionally as part of ending the session, so a worktree this
+ * guard refuses to remove would otherwise have no record left to find it by — and
+ * asking git itself, rather than trusting directory names alone, means a same-named
+ * but unrelated directory is never mistaken for a real project-console worktree.
  */
 @Service
 public class WorktreeCleanupSweeper {
@@ -202,36 +205,59 @@ public class WorktreeCleanupSweeper {
     }
 
     /**
-     * Every project-console worktree that still exists on disk, across every project
-     * (#339) — discovered by the sibling-directory naming convention {@link
-     * ProjectConsoleService#startWorktreeSession} already uses
-     * ({@code <repoName>-console-<suffix>}), never from {@link
+     * Every project-console worktree git itself considers registered to a project's
+     * repository, across every project (#339) — {@code git worktree list --porcelain}
+     * in each project's own checkout, cross-referenced against the sibling-directory
+     * naming convention {@link ProjectConsoleService#startWorktreeSession} already
+     * uses ({@code <repoName>-console-<suffix>}), never from {@link
      * WorktreeSessionRepository}: see this class's javadoc for why a DB-record-based
-     * discovery would be wrong here. A project not found, or with no such siblings,
-     * simply contributes nothing.
+     * discovery would be wrong here. Asking git, rather than only matching directory
+     * names on disk, is deliberate: a same-named but unrelated directory (a manual
+     * backup, a stray clone parked next to the project) is never mistaken for a real
+     * project-console worktree, because it was never actually registered as one of
+     * this repository's linked worktrees. A project not found, or with no matching
+     * registered worktree, simply contributes nothing.
      */
     public List<ProjectConsoleWorktree> allProjectConsoleWorktrees() {
         List<ProjectConsoleWorktree> result = new ArrayList<>();
         for (ProjectRecord project : projectRepository.findAll()) {
             Path projectRoot = project.workareaPath();
-            Path parent = projectRoot.getParent();
-            if (parent == null || !Files.isDirectory(parent)) {
+            if (!Files.isDirectory(projectRoot)) {
                 continue;
             }
             String prefix = WorktreeCreationService.repoName(projectRoot) + "-console-";
-            try (Stream<Path> siblings = Files.list(parent)) {
-                siblings.filter(Files::isDirectory)
-                        .filter(path -> path.getFileName().toString().startsWith(prefix))
-                        .forEach(path -> {
-                            String suffix = path.getFileName().toString().substring(prefix.length());
-                            String worktreeId = project.id() + "-console-" + suffix;
-                            result.add(new ProjectConsoleWorktree(project.id(), worktreeId, path));
-                        });
-            } catch (IOException e) {
-                log.warn("Failed to list sibling directories of {}", projectRoot, e);
+            for (Path worktreePath : registeredWorktreePaths(projectRoot)) {
+                Path fileName = worktreePath.getFileName();
+                if (fileName == null || !fileName.toString().startsWith(prefix)) {
+                    continue;
+                }
+                String suffix = fileName.toString().substring(prefix.length());
+                String worktreeId = project.id() + "-console-" + suffix;
+                result.add(new ProjectConsoleWorktree(project.id(), worktreeId, worktreePath));
             }
         }
         return result;
+    }
+
+    /**
+     * Every worktree path {@code git worktree list --porcelain} reports for the
+     * repository rooted at {@code projectRoot} — one {@code worktree <path>} line per
+     * entry (blank-line separated; {@code HEAD}/{@code branch}/{@code detached}/etc.
+     * lines are irrelevant here and skipped). Empty when the command itself fails —
+     * treated the same as "nothing registered," never guessed from disk state.
+     */
+    private List<Path> registeredWorktreePaths(Path projectRoot) {
+        Optional<String> output = run(projectRoot, "git", "worktree", "list", "--porcelain");
+        if (output.isEmpty()) {
+            return List.of();
+        }
+        List<Path> paths = new ArrayList<>();
+        for (String line : output.get().split("\n")) {
+            if (line.startsWith("worktree ")) {
+                paths.add(Path.of(line.substring("worktree ".length()).strip()));
+            }
+        }
+        return paths;
     }
 
     /**

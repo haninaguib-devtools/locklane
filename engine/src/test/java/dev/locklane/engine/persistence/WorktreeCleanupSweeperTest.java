@@ -274,6 +274,22 @@ class WorktreeCleanupSweeperTest {
         assertThat(reason).contains("a branch is checked out in this worktree — it has outgrown scratch use, so it is left alone");
     }
 
+    @Test
+    void discoveryIgnoresASameNamedDirectoryThatWasNeverRegisteredAsAWorktree(@TempDir Path tmp) throws Exception {
+        // #339/ADR-010, per /t-review: discovery must ask git, not just match a
+        // directory's name -- a same-named but unrelated directory (a manual backup,
+        // a stray clone) must never be treated as a discovered project-console
+        // worktree, only ever a real git worktree/t-work's `git worktree add`
+        // actually registered.
+        Fixture fx = fixture(tmp);
+        Path phantom = fx.projectRoot()
+                .resolveSibling(WorktreeCreationService.repoName(fx.projectRoot()) + "-console-deadbeef");
+        Files.createDirectories(phantom);
+        Files.writeString(phantom.resolve("not-a-worktree.txt"), "just a directory with the right name");
+
+        assertThat(sweeper(fx, List.of()).allProjectConsoleWorktrees()).isEmpty();
+    }
+
     private record WorktreeAndId(String worktreeId, Path path) {
     }
 
