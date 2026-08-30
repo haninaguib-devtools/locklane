@@ -65,3 +65,42 @@ instead of handing back a checkout as stale as the day it was created.
   the unmodified base branch passed twice cleanly, then a further full run on this
   branch also passed all 445 tests (0 failures) with no code changes in between. Not
   investigated further — out of this task's scope (`WorktreeCreationService` only).
+- **Fix pass, addressing `/t-review`'s blocker finding (independent review, PR #357).**
+  The review found the PR `CONFLICTING` against its base `wip/337-integration`: a
+  sibling task, #338 ("Project consoles: create worktrees detached, without a
+  console/ branch"), had already landed on the integration branch and inserted its own
+  new method (`createDetachedWorktree`) at the same point in
+  `WorktreeCreationService.java` where this task inserts `openIssueWorktree`, with the
+  same collision in `GitTestRepos.java`. Resolved by merging
+  `origin/wip/337-integration` into this branch and keeping both additions side by
+  side — no functional overlap, #338's `createDetachedWorktree` is used only by
+  `ProjectConsoleService`, this task's `openIssueWorktree` only by the issue-console
+  path. The review also raised a medium finding (once resolved, `openIssueWorktree`'s
+  own inline `git worktree add --detach ... origin/main` call could instead delegate
+  to `#338`'s `createDetachedWorktree`, so that git invocation has one implementation
+  rather than two). Left unaddressed per Fix mode's "medium/low only when the human
+  asks by number" — noted here as a recommendation for the human, or a possible
+  follow-up issue, rather than acted on unprompted.
+  The merge surfaced a second, non-textual conflict the review didn't have the merged
+  content to see: `WorktreeCleanupSweeperTest` (from #342, already on the integration
+  branch) built its worktree fixtures via `WorktreeCreationService.startSession(...)`
+  and then read `git rev-parse --abbrev-ref HEAD` as "the branch to check cleanup
+  against" — valid when `startSession` always minted a branch, but after this task's
+  change a freshly-opened console's worktree is detached, so that read returned the
+  literal string `"HEAD"` and the test silently checked for a branch named `HEAD`
+  instead of a real one. One of the two branch-cleanup tests
+  (`leavesAnUnmergedBranchAloneAfterRemovingItsWorktree`) failed outright on this; its
+  sibling (`removesAWorktreeWhoseIssueIsClosedCleanAndUnattached`) still passed, but by
+  accident (a branch named `HEAD` never exists either way). The production code in
+  `WorktreeCleanupSweeper` already handled a detached worktree correctly (its own
+  `currentBranch` helper filters out the literal `HEAD`, treating it as "no branch to
+  delete" — the right outcome for a console that was never worked on). Fixed by having
+  the test's `createWorktree` fixture helper check out a real `wip/<id>-<slug>`
+  branch right after `startSession` returns, simulating the `/t-work` step these tests
+  are actually about, rather than assuming `startSession` still produces one itself.
+  Re-ran `WorktreeCreationServiceTest`, `WorktreeCleanupSweeperTest`,
+  `ProjectConsoleServiceTest`, and `ProjectConsoleControllerTest` three times each
+  (all stable, 0 failures), then the full `./mvnw -B test` suite once more end to end:
+  449/449 pass, 0 failures. Re-ran `check-manifest.sh`, `check-record.sh`,
+  `protected-paths.sh`/`check-plan-gate.sh` (against `origin/wip/337-integration...HEAD`),
+  and `consistency-check.sh` — all pass.
