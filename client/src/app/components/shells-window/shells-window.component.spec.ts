@@ -123,6 +123,35 @@ describe('ShellsWindowComponent', () => {
     expect(Array.from(labels, (el: Element) => el.textContent!.trim())).toEqual(['Main', '#438']);
   });
 
+  it('a project section + mints a shell at the project base path and selects it (#448)', async () => {
+    const fixture = init([shell({ sessionId: '1-shell-main-aaaa0001' })]);
+
+    (fixture.nativeElement.querySelector('.group-add') as HTMLButtonElement).click();
+    const post = httpMock.expectOne('/api/projects/1/shells');
+    expect(post.request.method).toBe('POST');
+    expect(post.request.body).toEqual({ issueNumber: null, workingDirectory: '/w' });
+    post.flush({ sessionId: '1-shell-main-cccc0001', workingDirectory: '/w' });
+    httpMock
+      .expectOne('/api/shells')
+      .flush([shell({ sessionId: '1-shell-main-aaaa0001' }), shell({ sessionId: '1-shell-main-cccc0001' })]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.selected).toBe('1-shell-main-cccc0001');
+    expect(TestBed.inject(Router).url).toBe('/shells/1-shell-main-cccc0001');
+    // No dedupe: another click mints another shell.
+    (fixture.nativeElement.querySelectorAll('.group-add')[0] as HTMLButtonElement).click();
+    const secondPost = httpMock.expectOne('/api/projects/1/shells');
+    secondPost.flush({ sessionId: '1-shell-main-cccc0002', workingDirectory: '/w' });
+    httpMock.expectOne('/api/shells').flush([]);
+  });
+
+  it('a group without a known project row shows no + (#448)', () => {
+    const fixture = init([shell({ sessionId: '9-shell-main-aaaa0009', projectId: 9 })]);
+
+    expect(fixture.nativeElement.querySelector('.group-add')).toBeNull();
+  });
+
   it('closing a shell asks for confirmation, deletes it, and keeps the window open', () => {
     const fixture = init([shell({ sessionId: '1-shell-main-aaaa0001' })]);
 

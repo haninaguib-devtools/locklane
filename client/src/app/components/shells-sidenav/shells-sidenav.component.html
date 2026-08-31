@@ -1,7 +1,19 @@
 <nav class="shells-nav">
   @for (group of groups; track group.projectId) {
     <div class="group">
-      <div class="group-name">{{ group.name }}</div>
+      <div class="group-head">
+        <div class="group-name">{{ group.name }}</div>
+        @if (group.project; as project) {
+          <button
+            type="button"
+            class="group-add"
+            [attr.aria-label]="'Open a shell at ' + group.name + '’s main checkout'"
+            (click)="openMainShell.emit(project)"
+          >
+            +
+          </button>
+        }
+      </div>
       @for (row of group.rows; track row.shell.sessionId) {
         <div class="row" [class.selected]="row.shell.sessionId === selected">
           <button type="button" class="row-label" (click)="selectShell.emit(row.shell)">

@@ -3,10 +3,16 @@ import { OpenShell } from '../../services/shells.service';
 import { Project } from '../../models/issue.model';
 import { ShellRow, labelShells, shellRowText } from './shell-labels';
 
-/** One sidenav section: a project's name and its shells, labeled. */
+/**
+ * One sidenav section: a project's name and its shells, labeled. `project` is the
+ * full row from the projects list when the group's project is known there, null
+ * otherwise — the `+` control (#448) needs its `workareaPath` to mint a
+ * main-checkout shell, so a group rendered under the fallback name shows no `+`.
+ */
 interface ShellGroup {
   projectId: number;
   name: string;
+  project: Project | null;
   rows: ShellRow[];
 }
 
@@ -30,6 +36,8 @@ export class ShellsSidenavComponent implements OnChanges {
   @Input() selected: string | null = null;
   @Output() selectShell = new EventEmitter<OpenShell>();
   @Output() closeShell = new EventEmitter<OpenShell>();
+  /** The `+` on a project section (#448): open a new shell at this project's main checkout. */
+  @Output() openMainShell = new EventEmitter<Project>();
 
   groups: ShellGroup[] = [];
 
@@ -40,7 +48,7 @@ export class ShellsSidenavComponent implements OnChanges {
       group.push(shell);
       byProject.set(shell.projectId, group);
     }
-    const names = new Map(this.projects.map((project) => [project.id, project.name]));
+    const byId = new Map(this.projects.map((project) => [project.id, project]));
     this.groups = [...byProject.entries()].map(([projectId, shells]) => {
       const ordered = [
         ...shells.filter((shell) => shell.mainCheckout),
@@ -48,7 +56,13 @@ export class ShellsSidenavComponent implements OnChanges {
           .filter((shell) => !shell.mainCheckout)
           .sort((a, b) => (a.issueNumber ?? 0) - (b.issueNumber ?? 0)),
       ];
-      return { projectId, name: names.get(projectId) ?? `project ${projectId}`, rows: labelShells(ordered) };
+      const project = byId.get(projectId) ?? null;
+      return {
+        projectId,
+        name: project?.name ?? `project ${projectId}`,
+        project,
+        rows: labelShells(ordered),
+      };
     });
   }
 
