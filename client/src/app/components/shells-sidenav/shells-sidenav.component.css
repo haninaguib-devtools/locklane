@@ -8,6 +8,12 @@
   box-sizing: border-box;
 }
 
+.group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .group-name {
   font-size: 12px;
   font-weight: 600;
@@ -15,6 +21,22 @@
   letter-spacing: 0.04em;
   color: #667;
   padding: 2px 8px 4px;
+}
+
+/* The per-project "open a shell at main" control (#448) — mirrors the project
+   console's own "+". */
+.group-add {
+  background: none;
+  border: none;
+  padding: 0 8px;
+  font-size: 15px;
+  line-height: 1;
+  color: #667;
+  cursor: pointer;
+}
+
+.group-add:hover {
+  color: #223;
 }
 
 .row {

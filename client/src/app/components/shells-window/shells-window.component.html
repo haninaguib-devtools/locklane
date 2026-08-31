@@ -7,11 +7,15 @@
       [selected]="selected"
       (selectShell)="select($event)"
       (closeShell)="requestClose($event)"
+      (openMainShell)="openMainShell($event)"
     />
   </aside>
   <main class="content">
     @if (closeError) {
       <div class="action-error">could not close that shell — try again</div>
+    }
+    @if (openError) {
+      <div class="action-error">could not open a shell — try again</div>
     }
     @if (loading) {
       <div class="placeholder">loading…</div>

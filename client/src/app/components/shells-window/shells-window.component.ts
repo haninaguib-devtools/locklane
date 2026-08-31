@@ -48,6 +48,7 @@ export class ShellsWindowComponent implements OnInit, OnDestroy {
   /** The shell whose close awaits confirmation in the dialog, if any. */
   pendingClose: OpenShell | null = null;
   closeError = false;
+  openError = false;
 
   private readonly subscriptions = new Subscription();
 
@@ -82,6 +83,24 @@ export class ShellsWindowComponent implements OnInit, OnDestroy {
   select(shell: OpenShell): void {
     this.selected = shell.sessionId;
     this.router.navigate(['/shells', shell.sessionId]);
+  }
+
+  /**
+   * The sidenav's per-project `+` (#448): mints a brand-new shell at the project's
+   * main checkout — no issue, no dedupe, every click another shell — then selects
+   * it. The re-fetch (rather than appending locally) keeps this window's list the
+   * server's own ordering, same as every other change.
+   */
+  openMainShell(project: Project): void {
+    this.openError = false;
+    this.shellsService.open(project.id, null, project.workareaPath).subscribe({
+      next: (created) => {
+        this.selected = created.sessionId;
+        this.router.navigate(['/shells', created.sessionId]);
+        this.reload();
+      },
+      error: () => (this.openError = true),
+    });
   }
 
   requestClose(shell: OpenShell): void {

@@ -37,6 +37,19 @@ describe('ShellsService', () => {
     req.flush(shells);
   });
 
+  it('mints a shell via POST /api/projects/{projectId}/shells', () => {
+    service
+      .open(1, null, '/repo')
+      .subscribe((result) =>
+        expect(result).toEqual({ sessionId: '1-shell-main-a1b2c3d4', workingDirectory: '/repo' }),
+      );
+
+    const req = httpMock.expectOne('/api/projects/1/shells');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ issueNumber: null, workingDirectory: '/repo' });
+    req.flush({ sessionId: '1-shell-main-a1b2c3d4', workingDirectory: '/repo' });
+  });
+
   it('closes one shell via DELETE /api/projects/{projectId}/shells/{sessionId}', () => {
     let completed = false;
     service.close(1, '1-shell-main-a1b2c3d4').subscribe({ complete: () => (completed = true) });
