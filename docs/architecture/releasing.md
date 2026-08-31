@@ -4,9 +4,12 @@
 
 Releases are cut by manually dispatching `.github/workflows/release.yml` (the `Release`
 workflow) — `workflow_dispatch` only, since #207. Nothing releases automatically on a
-push. One dispatch publishes two things from the same build: the rolling `latest`
-pre-release (#95), a moving pointer at the newest build, and the permanent per-version
-release (#98, #463) that appears once and never changes.
+push. One dispatch publishes one thing: the permanent per-version release (#98, #463)
+that appears once and never changes. That release is the only distribution channel —
+`install.sh` and `update.sh` download the jar of the newest permanent (non-prerelease)
+release, the same release the in-app update banner announces, so what an update installs
+is always what the banner named. The rolling `latest` pre-release that used to accompany
+each cut (#95), a moving pointer at the newest build, was retired by #465.
 
 ## The `-SNAPSHOT` convention
 
@@ -29,8 +32,7 @@ Dispatch the `Release` workflow (Actions → Release → Run workflow, or
    (`0.1.0-SNAPSHOT` → `0.1.0`). No literal version string lives in the workflow file.
 2. Builds and tests the jar with the version overridden to that bare release version,
    so the published jar identifies itself as the release, never as a SNAPSHOT.
-3. Upserts the rolling `latest` pre-release with that build.
-4. Creates the permanent release `v<version>` — not flagged as a pre-release, carrying
+3. Creates the permanent release `v<version>` — not flagged as a pre-release, carrying
    the runnable jar as `locklane.jar`.
 
 After the cut, when the next development cycle should build toward a different version,
@@ -48,5 +50,6 @@ first.
 
 - Nothing here bumps `<revision>` automatically (changelog generation, semantic-release,
   or similar) — a human decides when a version is cut.
-- The permanent release and the rolling `latest` release coexist; cutting a version never
-  removes `latest`.
+- No rolling pre-release channel: nothing republishes the retired `latest` pre-release,
+  and no moving tag points at the newest build. The newest permanent release is the one
+  download channel.

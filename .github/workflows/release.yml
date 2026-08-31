@@ -3,8 +3,8 @@
 # version by editing `<revision>` in the root pom through an ordinary PR, and this
 # workflow derives the release version by stripping the `-SNAPSHOT` suffix, builds the
 # jar as that bare version, and publishes a permanent release tagged `v<version>` that
-# never changes again (#98). It also upserts the rolling "latest" pre-release (#95),
-# which always points at the newest build.
+# never changes again (#98). That permanent release is the only channel: install.sh,
+# update.sh, and the in-app update banner all resolve the newest one (#465).
 name: Release
 
 on:
@@ -14,9 +14,10 @@ permissions:
   contents: read
 
 # A second dispatch landing while an earlier run is still publishing must not race it
-# for the same "latest" release — cancel the older, still-running publish instead.
+# past the immutability check for the same version — cancel the older, still-running
+# publish instead.
 concurrency:
-  group: release-latest
+  group: release
   cancel-in-progress: true
 
 jobs:
@@ -62,7 +63,6 @@ jobs:
         run: ./mvnw -B package -Drevision="$VERSION"
 
       - name: Stage the jar under its fixed release asset name
-        id: stage
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -74,37 +74,6 @@ jobs:
             exit 1
           fi
           cp "$src" locklane.jar
-
-          short_sha="${GITHUB_SHA:0:7}"
-          title="${VERSION} (build ${GITHUB_RUN_NUMBER} · ${short_sha})"
-          echo "title=${title}" >> "$GITHUB_OUTPUT"
-
-      - name: Upsert the rolling "latest" release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TITLE: ${{ steps.stage.outputs.title }}
-        run: |
-          # Update in place rather than delete-then-create, so the download URL never
-          # 404s mid-run. "latest" is a pre-release: it is a moving pointer at the
-          # newest build, never a permanent version.
-          if gh release view latest --json tagName >/dev/null 2>&1; then
-            gh release edit latest --title "$TITLE"
-          else
-            gh release create latest \
-              --title "$TITLE" \
-              --notes "Rolling build of the newest commit on main. Not a permanent version — see releases tagged v* for those, once they exist." \
-              --prerelease \
-              --target "$GITHUB_SHA"
-          fi
-          gh release upload latest locklane.jar --clobber
-
-      - name: Move the "latest" tag to this commit
-        # gh release edit's --target is only honored when a tag is first created — once
-        # "latest" already exists, editing the release's target does not move it. The
-        # tag itself has to be force-moved directly.
-        run: |
-          git tag -f latest "$GITHUB_SHA"
-          git push --force origin refs/tags/latest
 
       - name: Cut the permanent release for the derived version
         env:
