@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.pty.SessionRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
@@ -55,6 +56,37 @@ class ShellsControllerTest {
     }
 
     @Test
+    void openingAsANonOwnerIsNotFound(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        createUser(dbDir, "bob");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository
+                .createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        ShellsController controller = controller(dbDir, projectRepository);
+
+        assertThat(controller.open(projectId, new ShellsController.OpenShellRequest(7, dbDir.toString()), BOB)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void closingEndsTheShellAndRefusesWhatIsNotTheCallersShell(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        createUser(dbDir, "bob");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository
+                .createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        ShellsController controller = controller(dbDir, projectRepository);
+        String shellId = controller.open(projectId,
+                new ShellsController.OpenShellRequest(null, dbDir.resolve("work").toString()), ALICE)
+                .getBody().get("sessionId");
+
+        assertThat(controller.close(projectId, shellId, BOB).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.close(projectId, shellId, ALICE).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(controller.close(projectId, shellId, ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.shells(ALICE)).isEmpty();
+    }
+
+    @Test
     void listingCarriesTheGroupingFieldsAndOnlyTheCallersShells(@TempDir Path dbDir) {
         long aliceId = createUser(dbDir, "alice");
         createUser(dbDir, "bob");
@@ -81,9 +113,10 @@ class ShellsControllerTest {
     }
 
     private static ShellsController controller(Path dbDir, ProjectRepository projectRepository) {
-        return new ShellsController(new ShellSessionService(projectRepository,
-                TestSqliteDatabases.newRepository(dbDir),
-                new WorktreeSessionAuthorization(projectRepository, TestSqliteDatabases.newUserRepository(dbDir))));
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        return new ShellsController(new ShellSessionService(projectRepository, sessionRepository,
+                new WorktreeSessionAuthorization(projectRepository, TestSqliteDatabases.newUserRepository(dbDir)),
+                new SessionRegistry(sessionRepository)));
     }
 
     private static long createUser(Path dbDir, String username) {

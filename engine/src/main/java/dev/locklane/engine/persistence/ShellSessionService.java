@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.pty.SessionRegistry;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
@@ -47,12 +48,14 @@ public class ShellSessionService {
     private final ProjectRepository projectRepository;
     private final WorktreeSessionRepository sessionRepository;
     private final WorktreeSessionAuthorization authorization;
+    private final SessionRegistry sessionRegistry;
 
     public ShellSessionService(ProjectRepository projectRepository, WorktreeSessionRepository sessionRepository,
-            WorktreeSessionAuthorization authorization) {
+            WorktreeSessionAuthorization authorization, SessionRegistry sessionRegistry) {
         this.projectRepository = projectRepository;
         this.sessionRepository = sessionRepository;
         this.authorization = authorization;
+        this.sessionRegistry = sessionRegistry;
     }
 
     /**
@@ -61,22 +64,49 @@ public class ShellSessionService {
      * is {@code null} — persists it immediately, and reports the id to attach a
      * WebSocket to with {@code cmd=shell}. Empty for an unknown or
      * not-yet-{@link ProjectStatus#READY} project — the same rule every other
-     * session-creating entry point applies. No owner check here: like starting any
-     * other session, the real ownership gate is the WebSocket attach itself
-     * ({@code TerminalWebSocketHandler}), not this creation step;
-     * {@code creatingUsername} is stamped on the row as the informational
-     * {@code owner_username} every attach records.
+     * session-creating entry point applies — and, since #460, for a caller who does
+     * not own the project. Unlike the other session-creating entry points, whose real
+     * ownership gate is the WebSocket attach, minting a shell persists a row the
+     * owner's own {@link #listOpen} would show and {@code hasAnySessions} would count
+     * before any attach ever happens — so the owner gate has to hold here too, not
+     * only at attach. The check runs {@link WorktreeSessionAuthorization#isVisibleTo}
+     * on the freshly minted id (its project prefix is what that check keys on), the
+     * exact rule the listings and the attach gate apply, before anything is
+     * persisted.
      */
     public Optional<ShellSession> open(long projectId, Integer issueNumber, Path workingDirectory,
             String creatingUsername) {
         return projectRepository.findById(projectId)
                 .filter(project -> project.status() == ProjectStatus.READY)
-                .map(project -> {
-                    String sessionId = projectId + "-shell-" + (issueNumber == null ? "main" : issueNumber)
-                            + "-" + shortId();
+                .map(project -> projectId + "-shell-" + (issueNumber == null ? "main" : issueNumber)
+                        + "-" + shortId())
+                .filter(sessionId -> authorization.isVisibleTo(sessionId, creatingUsername))
+                .map(sessionId -> {
                     sessionRepository.recordAttach(sessionId, workingDirectory, Instant.now(), creatingUsername);
                     return new ShellSession(sessionId, workingDirectory.toString());
                 });
+    }
+
+    /**
+     * Ends one of this project's shell sessions for good (#460): kills any live PTY
+     * and deletes the persisted row, via {@link SessionRegistry#close} — which also
+     * removes the session's uploads and broadcasts {@code consolesChanged} for the
+     * project, the same as closing any other session. False — nothing closed — when
+     * {@code sessionId} is not in this project's shell family, has no persisted row,
+     * or is not visible to {@code requestingUsername}: the gate
+     * {@link ProjectConsoleService#close(long, String, String)} applies, minus its
+     * worktree-removal attempt — a shell runs in a directory some other session
+     * family (or the project checkout) owns, so nothing on disk is ever touched.
+     */
+    public boolean close(long projectId, String sessionId, String requestingUsername) {
+        boolean closeable = belongsToProject(sessionId, projectId)
+                && sessionRepository.find(sessionId).isPresent()
+                && authorization.isVisibleTo(sessionId, requestingUsername);
+        if (!closeable) {
+            return false;
+        }
+        sessionRegistry.close(sessionId);
+        return true;
     }
 
     /**

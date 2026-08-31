@@ -1,6 +1,7 @@
 package dev.locklane.engine.persistence;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,7 +35,8 @@ public class ShellsController {
      * worktree when {@code issueNumber} is given, the project's main checkout when
      * it is absent — and reports the id to attach a WebSocket to with
      * {@code cmd=shell}. 400 for a missing/blank directory; 404 for an unknown or
-     * not-yet-ready project.
+     * not-yet-ready project, and (#460) for a caller who is not the project's owner
+     * — the same "show nothing rather than everything" posture the listings use.
      */
     @PostMapping("/api/projects/{projectId}/shells")
     public ResponseEntity<Map<String, String>> open(@PathVariable long projectId,
@@ -62,6 +64,23 @@ public class ShellsController {
                         shell.mainCheckout(), shell.workingDirectory(), shell.createdAt().toString(),
                         shell.lastAttachedAt().toString(), shell.displayName()))
                 .toList();
+    }
+
+    /**
+     * Ends one specific shell session for good (#460) — kills any live PTY and
+     * deletes its row, so it disappears from {@link #shells} everywhere; the engine
+     * broadcasts the same {@code consolesChanged} event any other session close
+     * does. 404 for an id outside this project's shell family, one never persisted,
+     * or one that isn't the caller's — the same gate the other per-session closes
+     * apply. Never touches any directory on disk.
+     */
+    @DeleteMapping("/api/projects/{projectId}/shells/{sessionId}")
+    public ResponseEntity<Void> close(@PathVariable long projectId, @PathVariable String sessionId,
+            Principal principal) {
+        if (!service.close(projectId, sessionId, principal.getName())) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.noContent().build();
     }
 
     /** The body of {@link #open} — {@code issueNumber} absent means the project's main checkout. */
