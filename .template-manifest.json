@@ -18,7 +18,7 @@
     ".github/ISSUE_TEMPLATE/task.yml": "1f45aa2b98e648ba62633d93b26bba17669cbdbae315de4dcfbb5e5c800cebc3",
     ".github/copilot-instructions.md": "symlink:../AGENTS.md",
     ".github/workflows/ci.yml": "a4921e94eb3372790d361b6ff950efdcc501e422d05e978759680d708a7f5941",
-    ".github/workflows/review-gate.yml": "915819aed97c29026d5a0f2ae006f5044903ea973ee73ac3db5cb428d77cb38d",
+    ".github/workflows/review-gate.yml": "dc567b4256e52933877f78dffe64fe9b559125cad02991f486ed9577636160d2",
     ".gitignore": "1e6fdc0bed1d0771762f69774538442ea62d7b7d61647aed21e11de3b6f29c06",
     ".t-workflow/scripts/check-blocker-gate.sh": "a6ecdc1348445b5d7d4af018f2956c40ad3ea2ec1bd90ab162c833eb14559970",
     ".t-workflow/scripts/check-manifest.sh": "38eba061378eea84f0b24b36221cddbd66a1d1fcb3d8cc1d6a8c12c33d7bae76",

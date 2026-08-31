@@ -13,12 +13,16 @@
 # shows a required check with no run at all (expected/pending). `synchronize` (a push)
 # still re-fires the job, since a new commit invalidates whatever verdict existed;
 # `pull_request_review: submitted` still fires it too, since that is what produces a
-# verdict to check in the first place.
+# verdict to check in the first place. `ready_for_review` fires it as well: marking a PR
+# ready is what starts the gate-relevant lifecycle now (ci.yml carries the same type for
+# the same reason), and a PR readied with no post-open push would otherwise leave this
+# required context with no run at all — blocking the merge of even a non-protected diff
+# the check would happily pass.
 name: review-gate
 
 on:
   pull_request:
-    types: [synchronize]
+    types: [synchronize, ready_for_review]
   pull_request_review:
     types: [submitted]
 
