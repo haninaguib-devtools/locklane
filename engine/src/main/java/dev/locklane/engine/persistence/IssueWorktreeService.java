@@ -163,8 +163,7 @@ public class IssueWorktreeService {
      */
     public boolean hasAnySessions(long projectId) {
         return repository.findAll().stream()
-                .anyMatch(record -> matchesProject(record.worktreeId(), projectId)
-                        || matchesProjectConsole(record.worktreeId(), projectId));
+                .anyMatch(record -> belongsToProject(record.worktreeId(), projectId));
     }
 
     /**
@@ -178,10 +177,23 @@ public class IssueWorktreeService {
      */
     public void deleteSessionsForProject(long projectId) {
         repository.findAll().stream()
-                .filter(record -> matchesProject(record.worktreeId(), projectId)
-                        || matchesProjectConsole(record.worktreeId(), projectId))
+                .filter(record -> belongsToProject(record.worktreeId(), projectId))
                 .map(WorktreeSessionRecord::worktreeId)
                 .forEach(repository::delete);
+    }
+
+    /**
+     * Whether this session belongs to this project at all, whatever its family —
+     * issue worktree, project console, or shell (#445) — the shared test behind
+     * {@link #hasAnySessions} and {@link #deleteSessionsForProject}: both are
+     * system-level sweeps over every session the project owns, so a family missing
+     * here would let a project delete orphan a session, or a user cascade-delete
+     * leave its rows behind.
+     */
+    private static boolean belongsToProject(String worktreeId, long projectId) {
+        return matchesProject(worktreeId, projectId)
+                || matchesProjectConsole(worktreeId, projectId)
+                || ShellSessionService.belongsToProject(worktreeId, projectId);
     }
 
     /**
