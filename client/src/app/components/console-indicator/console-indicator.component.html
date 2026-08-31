@@ -53,12 +53,11 @@
               >
                 <span class="issue ellipsis">
                   @if (item.entry.issueNumber !== null) {
-                    #{{ item.entry.issueNumber }} {{ item.entry.issueTitle }}
+                    #{{ item.entry.issueNumber }} {{ item.entry.title }}
                   } @else {
-                    {{ item.entry.issueTitle }}
+                    {{ item.entry.title }}
                   }
                 </span>
-                <span class="meta">{{ item.entry.label }}</span>
               </button>
             }
           }

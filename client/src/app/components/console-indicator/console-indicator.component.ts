@@ -2,27 +2,30 @@ import { Component, ElementRef, OnDestroy, ViewChild, computed, effect, inject, 
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { Observable, Subscription, combineLatest, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
-import { ConsolesService, isProjectConsoleSessionId, issueNumberFromSessionId } from '../../services/consoles.service';
+import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
 import { CurrentProjectService } from '../../services/current-project.service';
+import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { EventsService, isConsoleAttentionEvent } from '../../services/events.service';
 import { Project } from '../../models/issue.model';
-import { labelConsoles } from '../console-tabs/console-labels';
+import { labelProjectConsoles, tabText } from '../console-tabs/console-labels';
 
 /**
  * An issue's own console (issueNumber set) or one of the project's own consoles
  * (#139/#177, issueNumber null -- there is no issue to jump to, and no per-issue
  * "active console" to remember). Carries its own project (#290) since entries now
  * span every project the user has, not just whichever one is currently selected.
+ * `title` is the single line a row renders (#449) -- for a project console this
+ * already includes the "Project - " prefix and the tab's own current text, read
+ * from the same source (`tabText()`) the tab strip itself uses.
  */
 export interface ConsoleEntry {
   sessionId: string;
   projectId: number;
   issueNumber: number | null;
-  issueTitle: string;
-  label: string;
+  title: string;
 }
 
 /** One project's entries, in the order `groups` below picks headings by (#290). */
@@ -33,10 +36,11 @@ export interface ConsoleGroup {
 }
 
 // The "Open Shells"-style header badge (#32): shows how many consoles are open
-// across every project the user has (#290), narrowed to just the project open
-// in this window once one is selected (#309), and a picker that jumps straight
-// to one. Redesigned in #105 to match portstow's `open-shells` modal (scrim,
-// focus trap, arrow/enter/escape) and to read `entries` off a reactive stream --
+// across every project the user has (#290), narrowed to just one project's
+// consoles only inside a popped-out single-project focused window (#309, #449),
+// and a picker that jumps straight to one. Redesigned in #105 to match portstow's
+// `open-shells` modal (scrim, focus trap, arrow/enter/escape) and to read
+// `entries` off a reactive stream --
 // `onOpened`/`onClosed` (#108) -- instead of a cached field only `refresh()` ever
 // touched, which is what let the badge miss an opened console until something else
 // happened to close.
@@ -50,6 +54,7 @@ export class ConsoleIndicatorComponent implements OnDestroy {
   private readonly currentProject = inject(CurrentProjectService);
   private readonly consolesService = inject(ConsolesService);
   private readonly issuesService = inject(IssuesService);
+  private readonly projectConsoleService = inject(ProjectConsoleService);
   private readonly agentStore = inject(AgentStore);
   private readonly activeConsoleStore = inject(ActiveConsoleStore);
   private readonly eventsService = inject(EventsService);
@@ -62,14 +67,16 @@ export class ConsoleIndicatorComponent implements OnDestroy {
   // the header -- fetched once, not re-fetched when a console opens or closes;
   // AppComponent's own project-creation/deletion flows already refresh the
   // sidenav explicitly rather than relying on this widget to notice on its own.
-  // Narrowed to just the current project (#309) when the window has one open;
-  // every project otherwise, unchanged from #290's all-projects behavior. Built
-  // from the service's own observables, not its signals, so this stays
+  // Narrowed to just the current project only inside a popped-out focused window
+  // (#449, `focusedProjectId`); every project otherwise, including while
+  // browsing a specific project's pages in the ordinary window -- unlike the
+  // header's own title, this no longer narrows off the raw route projectId.
+  // Built from the service's own observables, not its signals, so this stays
   // synchronous the same way the widget's pre-#309 project fetch was -- a
   // signal-to-observable bridge only updates on the next change-detection tick.
   private readonly visibleProjects$: Observable<Project[]> = combineLatest([
     this.currentProject.projects$,
-    this.currentProject.projectId$,
+    this.currentProject.focusedProjectId$,
   ]).pipe(map(([projects, id]) => (id === null ? projects : projects.filter((project) => project.id === id))));
 
   private readonly visibleProjects = toSignal(this.visibleProjects$, { initialValue: [] as Project[] });
@@ -254,13 +261,17 @@ export class ConsoleIndicatorComponent implements OnDestroy {
   }
 
   private fetchProjectEntries(project: Project): Observable<ConsoleEntry[]> {
-    return forkJoin([this.consolesService.list(project.id), this.issuesService.list(project.id)]).pipe(
-      map(([ids, issues]) => {
+    return forkJoin([
+      this.consolesService.list(project.id),
+      this.issuesService.list(project.id),
+      this.projectConsoleService.listOpen(project.id),
+    ]).pipe(
+      map(([ids, issues, projectConsoles]) => {
         const titles = new Map(issues.map((issue) => [issue.number, issue.title]));
         const issueEntries = ids
           .map((id) => this.toIssueEntry(project, id, titles))
           .filter((entry): entry is ConsoleEntry => entry !== null);
-        const projectEntries = this.toProjectEntries(project, ids.filter(isProjectConsoleSessionId));
+        const projectEntries = this.toProjectEntries(project, projectConsoles);
         return [...issueEntries, ...projectEntries];
       }),
     );
@@ -271,24 +282,28 @@ export class ConsoleIndicatorComponent implements OnDestroy {
     if (issueNumber === null) {
       return null;
     }
-    const [{ label }] = labelConsoles([{ id: sessionId, agent: this.agentStore.get(sessionId) }]);
     return {
       sessionId,
       projectId: project.id,
       issueNumber,
-      issueTitle: titles.get(issueNumber) ?? `#${issueNumber}`,
-      label,
+      title: titles.get(issueNumber) ?? `#${issueNumber}`,
     };
   }
 
-  // Project consoles have no location (main/wtree) to label by -- just "console",
-  // "console 2", ... plus the agent when known, matching the project-console
-  // page's own tab labels.
-  private toProjectEntries(project: Project, sessionIds: string[]): ConsoleEntry[] {
-    return sessionIds.map((sessionId, index) => {
-      const agent = this.agentStore.get(sessionId);
-      const label = `console${index > 0 ? ` ${index + 1}` : ''}${agent ? ` · ${agent}` : ''}`;
-      return { sessionId, projectId: project.id, issueNumber: null, issueTitle: 'Project console', label };
-    });
+  // Read from the exact same source the project-console tab strip itself uses
+  // (#449) -- labelProjectConsoles()'s numbering, `displayName` fetched from the
+  // same listOpen() call and in the same order the tab strip gets it, and
+  // tabText()'s rename lookup -- so a renamed tab shows here immediately and the
+  // two titles can never drift onto separately maintained computations.
+  private toProjectEntries(project: Project, consoles: OpenProjectConsole[]): ConsoleEntry[] {
+    const tabs = labelProjectConsoles(
+      consoles.map((c) => ({ id: c.sessionId, agent: this.agentStore.get(c.sessionId), name: c.displayName ?? null })),
+    );
+    return tabs.map((tab) => ({
+      sessionId: tab.id,
+      projectId: project.id,
+      issueNumber: null,
+      title: `Project - ${tabText(tab)}`,
+    }));
   }
 }

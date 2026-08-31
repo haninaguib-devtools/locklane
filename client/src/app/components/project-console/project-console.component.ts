@@ -12,7 +12,7 @@ import {
   OpenConsoleRequest,
   RenameConsoleRequest,
 } from '../console-tabs/console-tabs.component';
-import { ConsoleTab } from '../console-tabs/console-labels';
+import { ConsoleTab, labelProjectConsoles } from '../console-tabs/console-labels';
 import { SessionListComponent } from '../session-list/session-list.component';
 import { TerminalComponent } from '../terminal/terminal.component';
 import { ResumeSession } from '../../models/issue.model';
@@ -426,15 +426,9 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
 
   // Every console here runs in the project's own checkout, so the issue pages'
   // main/wtree labelling (console-labels.ts) carries no information -- tabs are
-  // just "console", "console 2", ..., plus the agent when known.
+  // just "console", "console 2", ..., plus the agent when known, via the shared
+  // labelProjectConsoles() (#449) the header consoles widget also calls.
   private relabel(): void {
-    this.tabs = this.consoles.map((c, i) => ({
-      id: c.id,
-      agent: c.agent,
-      label: `console${i > 0 ? ` ${i + 1}` : ''}${c.agent ? ` · ${c.agent}` : ''}`,
-      // #393: a user's own name for the tab wins over the label above, and clearing
-      // it brings that label straight back -- which is why both are carried.
-      name: c.name,
-    }));
+    this.tabs = labelProjectConsoles(this.consoles);
   }
 }

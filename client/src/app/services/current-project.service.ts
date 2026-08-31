@@ -1,7 +1,7 @@
 import { Injectable, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
-import { Observable, ReplaySubject, distinctUntilChanged, filter, map, startWith } from 'rxjs';
+import { Observable, ReplaySubject, combineLatest, distinctUntilChanged, filter, map, startWith } from 'rxjs';
 import { Project } from '../models/issue.model';
 import { ProjectsService } from './projects.service';
 
@@ -55,6 +55,30 @@ export class CurrentProjectService {
     return project ? { id, name: project.name, accentColor: project.accentColor } : null;
   });
 
+  // A single-project focused window (#286): opened by the sidenav's pop-out
+  // control via `window.open()`, carrying `focus=1` in the URL rather than any
+  // shared service, so -- like `projectId` above -- this is re-derived from the
+  // route on every navigation instead of persisted anywhere. Moved here from
+  // AppComponent (#449) so the consoles widget can narrow by the same focused-
+  // window state the sidenav already does, instead of a second private copy.
+  readonly focusMode$: Observable<boolean> = this.router.events.pipe(
+    filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+    map(() => this.isFocusMode()),
+    startWith(this.isFocusMode()),
+    distinctUntilChanged(),
+  );
+  readonly focusMode = toSignal(this.focusMode$, { initialValue: this.isFocusMode() });
+
+  // The project to narrow to for a consumer that should only narrow inside a
+  // popped-out focused window (#449) -- unlike `projectId`/`current` above,
+  // which the header keeps reading regardless of focus (#309) so its "LockLane -
+  // {project}" text is unaffected by this.
+  readonly focusedProjectId$: Observable<number | null> = combineLatest([this.projectId$, this.focusMode$]).pipe(
+    map(([id, focused]) => (focused ? id : null)),
+    distinctUntilChanged(),
+  );
+  readonly focusedProjectId = toSignal(this.focusedProjectId$, { initialValue: null as number | null });
+
   constructor() {
     // A one-shot call, same as ConsoleIndicatorComponent's own former fetch --
     // completes on its own once the response lands, nothing to unsubscribe.
@@ -79,5 +103,9 @@ export class CurrentProjectService {
     const raw = this.route.snapshot.firstChild?.paramMap.get('projectId') ?? null;
     const id = raw !== null ? Number(raw) : NaN;
     return Number.isFinite(id) ? id : null;
+  }
+
+  private isFocusMode(): boolean {
+    return this.route.snapshot.queryParamMap.get('focus') === '1';
   }
 }

@@ -85,6 +85,10 @@ describe('AppComponent', () => {
     for (const projectId of projectIds) {
       httpMock.match(`/api/projects/${projectId}/consoles`).forEach((request) => request.flush([]));
       httpMock.expectOne(`/api/projects/${projectId}/issues`).flush([]);
+      // #449: the widget also reads each project's open project-console
+      // sessions directly, to source a project console's row from the same
+      // place the tab strip gets its text.
+      httpMock.match(`/api/projects/${projectId}/console/sessions`).forEach((request) => request.flush([]));
     }
   }
 
@@ -138,10 +142,13 @@ describe('AppComponent', () => {
   /**
    * The project summary's own console button (#221) fetches the project's open
    * consoles once it learns the project is READY -- only once flushSidenavAndSummary
-   * has resolved that project-list fetch.
+   * has resolved that project-list fetch. The header's own console indicator now
+   * reads the same endpoint for its project-console rows (#449), so this flushes
+   * every pending request to it with the same data, whichever of the two (or
+   * both) are outstanding at call time.
    */
   function flushProjectConsoleSessions(sessions: OpenProjectConsole[] = []): void {
-    httpMock.expectOne('/api/projects/1/console/sessions').flush(sessions);
+    httpMock.match('/api/projects/1/console/sessions').forEach((request) => request.flush(sessions));
   }
 
   /**
@@ -424,7 +431,6 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
     flushConsoleIndicator();
-    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
     flushConsoleIndicator();
@@ -546,7 +552,6 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
     flushConsoleIndicator();
-    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
     // #256: no open console auto-starts one with the default agent -- which the
     // header's console indicator and the sidenav both learn about in turn.
@@ -579,7 +584,6 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
     flushConsoleIndicator();
-    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     fixture.detectChanges();
     httpMock
       .expectOne('/api/projects/1/console')
