@@ -4,7 +4,11 @@
   align-items: center;
   gap: 2px;
   padding: 0 16px;
-  background: var(--panel);
+  /* --project-tint (#433) is only set while this component sits under a
+     tinted issue page -- unset on the project's own console page (see
+     app.component.ts's projectPageTint), falling back to the plain panel
+     background this always had. */
+  background: var(--project-tint, var(--panel));
   border-bottom: 1px solid var(--border);
 }
 
@@ -14,8 +18,11 @@
   border-bottom: 2px solid transparent;
 }
 
+/* --project-accent (#433) is the current project's own raw accent color,
+   unset on the project's own console page and for a project with none set --
+   both fall back to the existing global --accent. */
 .tab-wrap.active {
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--project-accent, var(--accent));
 }
 
 .tab {

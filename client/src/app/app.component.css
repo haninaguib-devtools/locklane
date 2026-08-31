@@ -158,7 +158,11 @@
    `background` defaults to `--window` here so a project with no accent color
    set (every project predating this feature, since the backend column is
    nullable) looks exactly as it did before -- AppComponent only overrides it
-   with an inline style once a color is actually set. */
+   with an inline style once a color is actually set, and (#433) never at all
+   while the project's own console page is showing. The `--project-tint` /
+   `--project-accent` custom properties AppComponent sets alongside `background`
+   are unused here directly -- they exist so descendants of `app-main-content`
+   (issue-header, flow-strip, console-tabs, overview-tab) can inherit them. */
 .project-pages {
   display: flex;
   flex: 1;

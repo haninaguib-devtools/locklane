@@ -1,7 +1,10 @@
 .header {
   position: relative;
   padding: 14px 16px 10px;
-  background: var(--panel);
+  /* --project-tint (#433) is only set while this component sits under a
+     tinted issue page -- unset elsewhere, falling back to the plain panel
+     background this always had. */
+  background: var(--project-tint, var(--panel));
   border-bottom: 1px solid var(--border-soft);
 }
 
