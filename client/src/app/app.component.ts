@@ -118,6 +118,27 @@ export class AppComponent {
     return project ? deriveProjectBackgroundTint(project.accentColor) : null;
   });
 
+  // #433 extends the tint from the summary page to the issue page's own chrome,
+  // but explicitly excludes the project's own console page -- so both of these
+  // are `null` while `onProjectConsole()` is true, regardless of whether the
+  // project has an accent color set. Bound to `.project-pages` as inline styles
+  // (its own `background` for `projectPageTint`, plus the `--project-tint` /
+  // `--project-accent` custom properties below), so a descendant of
+  // `app-main-content` -- `issue-header`, `flow-strip`, `console-tabs`,
+  // `overview-tab` -- can pick either up through ordinary CSS inheritance
+  // without any `@Input()` plumbing, while `app-project-console`'s own
+  // `console-tabs` never sees either property set and keeps using the global
+  // `--accent` it always has.
+  readonly projectPageTint = computed(() => (this.onProjectConsole() ? null : this.projectBackgroundTint()));
+
+  readonly projectPageAccent = computed(() => {
+    if (this.onProjectConsole()) {
+      return null;
+    }
+    const project = this.currentProject.current();
+    return project ? project.accentColor : null;
+  });
+
   readonly selectedIssue = toSignal(
     this.router.events.pipe(
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),

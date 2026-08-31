@@ -384,6 +384,58 @@ describe('AppComponent', () => {
     expect(el.style.background).toBe('rgb(247, 234, 230)');
   }));
 
+  it('extends the background tint to the issue page, and exposes it to descendants as --project-tint / --project-accent (#433)', fakeAsync(() => {
+    const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues/42');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(3);
+    lists.forEach((request) => request.flush([TINTED_PROJECT]));
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushUsageWidget();
+    flushConsoleIndicator();
+    flushIssue(42);
+    fixture.detectChanges();
+
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
+    // Same terracotta blend the project summary page shows for the same accent color.
+    expect(el.style.background).toBe('rgb(247, 234, 230)');
+    expect(el.style.getPropertyValue('--project-tint')).toBe('rgb(247, 234, 230)');
+    expect(el.style.getPropertyValue('--project-accent')).toBe('#c15f3c');
+  }));
+
+  it('keeps the project console page untinted even when the project has an accent color set (#433)', fakeAsync(() => {
+    const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/projects/1/console');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(2);
+    lists.forEach((request) => request.flush([TINTED_PROJECT]));
+    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    flushUsageWidget();
+    flushConsoleIndicator();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
+    flushConsoleIndicator();
+    fixture.detectChanges();
+
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
+    expect(el.style.background).toBe('');
+    expect(el.style.getPropertyValue('--project-tint')).toBe('');
+    expect(el.style.getPropertyValue('--project-accent')).toBe('');
+  }));
+
   it('deleting a project from its summary page refreshes the sidenav in place (#249)', fakeAsync(() => {
     logIn();
     navigateToProjectSummary();
