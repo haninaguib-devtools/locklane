@@ -13,10 +13,15 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Periodically compares this repo's latest permanent release against the version the
  * engine was built with (#287), and broadcasts {@code releaseAvailable} on
- * {@link EventBroadcaster} the moment a newer one appears. {@link #newerVersionAvailable()}
+ * {@link EventBroadcaster} the moment a newer one appears. {@link #newerReleaseAvailable()}
  * is what {@code EventsWebSocketHandler} reads to tell a newly-connecting client, since a
  * connection made after the broadcast already fired would otherwise never learn the
  * state.
+ *
+ * <p>The payload carries the release's own Releases-page {@code url} alongside its
+ * {@code version} (#466), so the client can link the banner to the release's notes; both
+ * the broadcast and the on-connect replay are built from the same stored
+ * {@link NewerRelease}, so a late joiner sees the identical link.
  *
  * <p>The running version never changes at runtime and a permanent release is immutable
  * once cut, so once a newer release is found it never needs to be un-found — this only
@@ -25,10 +30,18 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class ReleaseUpdateChecker {
 
+    /** A newer release the engine knows about: its version and its GitHub Releases-page URL (#466). */
+    public record NewerRelease(String version, String url) {
+
+        Map<String, String> payload() {
+            return Map.of("version", version, "url", url);
+        }
+    }
+
     private final ReleaseClient releaseClient;
     private final EventBroadcaster eventBroadcaster;
     private final String runningVersion;
-    private final AtomicReference<String> newerVersion = new AtomicReference<>();
+    private final AtomicReference<NewerRelease> newerRelease = new AtomicReference<>();
 
     @Autowired
     public ReleaseUpdateChecker(ReleaseClient releaseClient, EventBroadcaster eventBroadcaster, BuildProperties buildProperties) {
@@ -41,9 +54,9 @@ public class ReleaseUpdateChecker {
         this.runningVersion = runningVersion;
     }
 
-    /** The newer version known to be available, if any — what a newly-connecting client should be told. */
-    public Optional<String> newerVersionAvailable() {
-        return Optional.ofNullable(newerVersion.get());
+    /** The newer release known to be available, if any — what a newly-connecting client should be told. */
+    public Optional<NewerRelease> newerReleaseAvailable() {
+        return Optional.ofNullable(newerRelease.get());
     }
 
     @Scheduled(fixedDelayString = "${locklane.release-check.interval-ms}",
@@ -57,9 +70,10 @@ public class ReleaseUpdateChecker {
         if (!isNewer(latestVersion, runningVersion)) {
             return;
         }
-        String previous = newerVersion.getAndSet(latestVersion);
-        if (!latestVersion.equals(previous)) {
-            eventBroadcaster.broadcast("releaseAvailable", Map.of("version", latestVersion));
+        NewerRelease found = new NewerRelease(latestVersion, latest.get().url());
+        NewerRelease previous = newerRelease.getAndSet(found);
+        if (previous == null || !found.version().equals(previous.version())) {
+            eventBroadcaster.broadcast("releaseAvailable", found.payload());
         }
     }
 

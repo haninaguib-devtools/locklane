@@ -1,5 +1,6 @@
 package dev.locklane.engine.ws;
 
+import dev.locklane.engine.github.ReleaseUpdateChecker;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.socket.WebSocketSession;
 
@@ -35,14 +36,19 @@ class EventsWebSocketHandlerTest {
 
     @Test
     void aConnectionIsToldAboutAnAlreadyKnownNewerReleaseRightAway() {
+        // The late-joiner replay (#287) carries the same version-plus-url payload the
+        // broadcast does (#466), so a client connecting after detection sees the
+        // identical banner, link included.
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
-        EventsWebSocketHandler handler =
-                new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", () -> Optional.of("0.2.0"));
+        EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
+                () -> Optional.of(new ReleaseUpdateChecker.NewerRelease(
+                        "0.2.0", "https://github.com/o/r/releases/tag/v0.2.0")));
         WebSocketSession session = mock(WebSocketSession.class);
 
         handler.afterConnectionEstablished(session);
 
-        verify(broadcaster).sendTo(session, "releaseAvailable", Map.of("version", "0.2.0"));
+        verify(broadcaster).sendTo(session, "releaseAvailable",
+                Map.of("version", "0.2.0", "url", "https://github.com/o/r/releases/tag/v0.2.0"));
     }
 
     @Test

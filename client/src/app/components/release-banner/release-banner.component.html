@@ -1,5 +1,11 @@
 @if (version(); as version) {
   <div class="release-banner" role="status">
-    A newer version ({{ version }}) is available.
+    @if (url(); as url) {
+      <a [href]="url" target="_blank" rel="noopener noreferrer">
+        A newer version ({{ version }}) is available.
+      </a>
+    } @else {
+      A newer version ({{ version }}) is available.
+    }
   </div>
 }
