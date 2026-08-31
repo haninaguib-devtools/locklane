@@ -146,8 +146,3 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.meta {
-  font-size: 11px;
-  color: var(--faint);
-}

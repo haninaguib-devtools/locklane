@@ -7,6 +7,7 @@ import { ActiveConsoleStore } from '../../services/active-console-store';
 import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
 import { EventsService } from '../../services/events.service';
+import { OpenProjectConsole } from '../../services/project-console.service';
 import { GhIssue, Project } from '../../models/issue.model';
 import { routes } from '../../app.routes';
 
@@ -45,6 +46,10 @@ describe('ConsoleIndicatorComponent', () => {
     return { number, title, state: 'OPEN', labels: [], body: '', createdAt: '', updatedAt: '' };
   }
 
+  function projectConsole(sessionId: string, displayName: string | null = null): OpenProjectConsole {
+    return { sessionId, workingDirectory: '/tmp', createdAt: '', lastAttachedAt: '', displayName };
+  }
+
   function init(): ReturnType<typeof TestBed.createComponent<ConsoleIndicatorComponent>> {
     return TestBed.createComponent(ConsoleIndicatorComponent);
   }
@@ -54,37 +59,43 @@ describe('ConsoleIndicatorComponent', () => {
     httpMock.expectOne('/api/projects').flush(projects);
   }
 
-  /** One project's consoles+issues calls, fired for every project on every fetch cycle. */
-  function flushProjectEntries(projectId: number, ids: string[], issues: GhIssue[]): void {
+  /** One project's consoles+issues+project-console-sessions calls, fired on every fetch cycle. */
+  function flushProjectEntries(
+    projectId: number,
+    ids: string[],
+    issues: GhIssue[],
+    projectConsoles: OpenProjectConsole[] = [],
+  ): void {
     httpMock.expectOne(`/api/projects/${projectId}/consoles`).flush(ids);
     httpMock.expectOne(`/api/projects/${projectId}/issues`).flush(issues);
+    httpMock.expectOne(`/api/projects/${projectId}/console/sessions`).flush(projectConsoles);
   }
 
   /** Mounts, resolves the project list with just PROJECT_A, then that one project's entries. */
   function initWithEntries(
     ids: string[],
     issues: GhIssue[],
+    projectConsoles: OpenProjectConsole[] = [],
   ): ReturnType<typeof TestBed.createComponent<ConsoleIndicatorComponent>> {
     const fixture = init();
     flushProjects();
-    flushProjectEntries(1, ids, issues);
+    flushProjectEntries(1, ids, issues, projectConsoles);
     return fixture;
   }
 
-  it('builds an entry per console, with issue title and label', () => {
-    TestBed.inject(AgentStore).set('1-7-main-a1b2c3d4', 'claude');
+  it('builds an entry per console, with its issue title', () => {
     const fixture = initWithEntries(['1-7-main-a1b2c3d4', '1-8-rename-toggle'], [issue(7, 'Seven'), issue(8, 'Eight')]);
 
     expect(fixture.componentInstance.entries()).toEqual([
-      { sessionId: '1-7-main-a1b2c3d4', projectId: 1, issueNumber: 7, issueTitle: 'Seven', label: 'main · claude' },
-      { sessionId: '1-8-rename-toggle', projectId: 1, issueNumber: 8, issueTitle: 'Eight', label: 'wtree' },
+      { sessionId: '1-7-main-a1b2c3d4', projectId: 1, issueNumber: 7, title: 'Seven' },
+      { sessionId: '1-8-rename-toggle', projectId: 1, issueNumber: 8, title: 'Eight' },
     ]);
   });
 
   it('falls back to "#N" when the issue title is not known', () => {
     const fixture = initWithEntries(['1-9-slug'], []);
 
-    expect(fixture.componentInstance.entries()[0].issueTitle).toBe('#9');
+    expect(fixture.componentInstance.entries()[0].title).toBe('#9');
   });
 
   it('excludes a console id with no project/issue-number prefix', () => {
@@ -95,30 +106,32 @@ describe('ConsoleIndicatorComponent', () => {
 
   it('builds an entry for a project console (#194), issue entries first', () => {
     TestBed.inject(AgentStore).set('1-console-a1b2c3d4', 'codex');
-    const fixture = initWithEntries(['1-7-rename-toggle', '1-console-a1b2c3d4'], [issue(7, 'Seven')]);
+    const fixture = initWithEntries(['1-7-rename-toggle'], [issue(7, 'Seven')], [projectConsole('1-console-a1b2c3d4')]);
 
     expect(fixture.componentInstance.entries()).toEqual([
-      { sessionId: '1-7-rename-toggle', projectId: 1, issueNumber: 7, issueTitle: 'Seven', label: 'wtree' },
-      {
-        sessionId: '1-console-a1b2c3d4',
-        projectId: 1,
-        issueNumber: null,
-        issueTitle: 'Project console',
-        label: 'console · codex',
-      },
+      { sessionId: '1-7-rename-toggle', projectId: 1, issueNumber: 7, title: 'Seven' },
+      { sessionId: '1-console-a1b2c3d4', projectId: 1, issueNumber: null, title: 'Project - console · codex' },
     ]);
   });
 
-  it('recognizes the legacy bare "<projectId>-console" project console id', () => {
-    const fixture = initWithEntries(['1-console'], []);
+  it("reads a project console's title from the same rename the tab strip shows (#449)", () => {
+    const fixture = initWithEntries([], [], [projectConsole('1-console-a1b2c3d4', 'release notes')]);
 
-    expect(fixture.componentInstance.entries()).toEqual([
-      { sessionId: '1-console', projectId: 1, issueNumber: null, issueTitle: 'Project console', label: 'console' },
-    ]);
+    expect(fixture.componentInstance.entries()[0].title).toBe('Project - release notes');
+  });
+
+  it('numbers several project consoles the same way the tab strip does, in listOpen() order (#449)', () => {
+    const fixture = initWithEntries(
+      [],
+      [],
+      [projectConsole('1-console-a1b2c3d4'), projectConsole('1-console-e5f6a7b8')],
+    );
+
+    expect(fixture.componentInstance.entries().map((e) => e.title)).toEqual(['Project - console', 'Project - console 2']);
   });
 
   it('jumping to a project console entry navigates to the project console page with its session id', () => {
-    const fixture = initWithEntries(['1-console-a1b2c3d4'], []);
+    const fixture = initWithEntries([], [], [projectConsole('1-console-a1b2c3d4')]);
     const router = TestBed.inject(Router);
     const navigateSpy = spyOn(router, 'navigate');
 
@@ -327,11 +340,12 @@ describe('ConsoleIndicatorComponent', () => {
   });
 });
 
-// #309: narrowed to the project open in this window when the route carries a
-// projectId, via the shared CurrentProjectService -- needs a real route (unlike
-// the suite above, which never navigates and so is always in the all-projects
-// case CurrentProjectService reports for `null`) to exercise the scoped case.
-describe('ConsoleIndicatorComponent, scoped to a project (#309)', () => {
+// #309/#449: narrowed to just one project's consoles only inside a popped-out,
+// single-project focused window (focus=1, #286, via the shared
+// CurrentProjectService) -- needs a real route (unlike the suite above, which
+// never navigates and so is always in the all-projects case
+// CurrentProjectService reports for `null`) to exercise the narrowed case.
+describe('ConsoleIndicatorComponent, inside a focused project window (#286, #449)', () => {
   let httpMock: HttpTestingController;
 
   const PROJECT_A: Project = {
@@ -362,32 +376,50 @@ describe('ConsoleIndicatorComponent, scoped to a project (#309)', () => {
     return { number, title, state: 'OPEN', labels: [], body: '', createdAt: '', updatedAt: '' };
   }
 
-  it("lists only the open project's entries when the route carries a projectId", fakeAsync(() => {
-    TestBed.inject(Router).navigateByUrl('/projects/1/issues');
+  /** One project's consoles+issues+project-console-sessions calls. */
+  function flushProjectEntries(projectId: number, ids: string[], issues: GhIssue[]): void {
+    httpMock.expectOne(`/api/projects/${projectId}/consoles`).flush(ids);
+    httpMock.expectOne(`/api/projects/${projectId}/issues`).flush(issues);
+    httpMock.expectOne(`/api/projects/${projectId}/console/sessions`).flush([]);
+  }
+
+  it("lists only the open project's entries inside a popped-out focus=1 window", fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues?focus=1');
     tick();
 
     const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
     httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/consoles').flush(['1-7-rename-toggle']);
-    httpMock.expectOne('/api/projects/1/issues').flush([issue(7, 'Seven')]);
+    flushProjectEntries(1, ['1-7-rename-toggle'], [issue(7, 'Seven')]);
 
     expect(fixture.componentInstance.entries().map((e) => e.sessionId)).toEqual(['1-7-rename-toggle']);
-    // Project 2's own consoles/issues are never requested -- httpMock.verify()
+    // Project 2's own consoles/issues/sessions are never requested -- httpMock.verify()
     // in afterEach would fail if they were left outstanding, and fail
     // differently (a stray request) if they were fetched at all.
   }));
 
-  it('never shows group headings when scoped to one project, even with several projects total', fakeAsync(() => {
+  it('never shows group headings when narrowed to one project inside a focus=1 window', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues?focus=1');
+    tick();
+
+    const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    flushProjectEntries(1, ['1-7-rename-toggle'], [issue(7, 'Seven')]);
+
+    expect(fixture.componentInstance.showGroupHeadings()).toBeFalse();
+    expect(fixture.componentInstance.groups().map((g) => g.projectName)).toEqual(['Alpha']);
+  }));
+
+  it('shows every project grouped while browsing a project\'s pages in the ordinary window, without focus=1 (#449)', fakeAsync(() => {
     TestBed.inject(Router).navigateByUrl('/projects/1/issues');
     tick();
 
     const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
     httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/consoles').flush(['1-7-rename-toggle']);
-    httpMock.expectOne('/api/projects/1/issues').flush([issue(7, 'Seven')]);
+    flushProjectEntries(1, ['1-7-rename-toggle'], [issue(7, 'Seven')]);
+    flushProjectEntries(2, [], []);
 
-    expect(fixture.componentInstance.showGroupHeadings()).toBeFalse();
-    expect(fixture.componentInstance.groups().map((g) => g.projectName)).toEqual(['Alpha']);
+    expect(fixture.componentInstance.entries().map((e) => e.projectId)).toEqual([1]);
+    expect(fixture.componentInstance.showGroupHeadings()).toBeTrue();
   }));
 
   it('falls back to every project (#290) once the window has no project open', fakeAsync(() => {
@@ -396,10 +428,8 @@ describe('ConsoleIndicatorComponent, scoped to a project (#309)', () => {
 
     const fixture = TestBed.createComponent(ConsoleIndicatorComponent);
     httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/consoles').flush(['1-7-rename-toggle']);
-    httpMock.expectOne('/api/projects/1/issues').flush([issue(7, 'Seven')]);
-    httpMock.expectOne('/api/projects/2/consoles').flush([]);
-    httpMock.expectOne('/api/projects/2/issues').flush([]);
+    flushProjectEntries(1, ['1-7-rename-toggle'], [issue(7, 'Seven')]);
+    flushProjectEntries(2, [], []);
 
     expect(fixture.componentInstance.entries().map((e) => e.projectId)).toEqual([1]);
     expect(fixture.componentInstance.showGroupHeadings()).toBeTrue();

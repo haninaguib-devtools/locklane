@@ -64,4 +64,35 @@ describe('CurrentProjectService', () => {
     httpMock.expectOne('/api/projects').flush([{ ...PROJECT, accentColor: '#5c8a4e' }]);
     expect(service.current()?.accentColor).toBe('#5c8a4e');
   }));
+
+  it('focusedProjectId is null when the project page is open in the ordinary window, without focus=1 (#449)', fakeAsync(() => {
+    navigateTo(1);
+    const service = TestBed.inject(CurrentProjectService);
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+
+    expect(service.focusMode()).toBeFalse();
+    expect(service.focusedProjectId()).toBeNull();
+    // projectId/current -- what the header's own title reads -- stay narrowed
+    // regardless of focus mode; only focusedProjectId differs (#449).
+    expect(service.projectId()).toBe(1);
+  }));
+
+  it('focusedProjectId matches projectId inside a popped-out, focus=1 window (#286, #449)', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues?focus=1');
+    tick();
+    const service = TestBed.inject(CurrentProjectService);
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+
+    expect(service.focusMode()).toBeTrue();
+    expect(service.focusedProjectId()).toBe(1);
+  }));
+
+  it('focusedProjectId is null with no project open at all, focus=1 or not', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/?focus=1');
+    tick();
+    const service = TestBed.inject(CurrentProjectService);
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+
+    expect(service.focusedProjectId()).toBeNull();
+  }));
 });
