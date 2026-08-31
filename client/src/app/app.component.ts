@@ -10,6 +10,7 @@ import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-re
 import { LoginComponent } from './components/login/login.component';
 import { ConsoleIndicatorComponent } from './components/console-indicator/console-indicator.component';
 import { ProjectConsoleComponent } from './components/project-console/project-console.component';
+import { ShellsWindowComponent } from './components/shells-window/shells-window.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
 import { AdminUsersComponent } from './components/admin-users/admin-users.component';
 import { AddProjectPopupComponent } from './components/add-project-popup/add-project-popup.component';
@@ -38,6 +39,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     SettingsDialogComponent,
     AdminUsersComponent,
     ProjectConsoleComponent,
+    ShellsWindowComponent,
     AddProjectPopupComponent,
     UpdateBannerComponent,
     ReleaseBannerComponent,
@@ -158,6 +160,17 @@ export class AppComponent {
     { initialValue: this.isProjectConsoleRoute() },
   );
 
+  // The Shells window routes (#446) render their own minimal shell -- no
+  // topbar/sidebar -- so the template branches on this before the authed layout,
+  // the same way the project-console route is detected below.
+  readonly onShellsWindow = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map(() => this.isShellsRoute()),
+    ),
+    { initialValue: this.isShellsRoute() },
+  );
+
   // The sidenav shows every project at once (#44), so its selection carries a
   // project id alongside the issue number -- combined here for its [selected]
   // input, which needs both to highlight the right row in the right section.
@@ -264,6 +277,11 @@ export class AppComponent {
   private isProjectConsoleRoute(): boolean {
     const segments = this.route.snapshot.firstChild?.url ?? [];
     return segments.some((segment) => segment.path === 'console');
+  }
+
+  private isShellsRoute(): boolean {
+    const segments = this.route.snapshot.firstChild?.url ?? [];
+    return segments[0]?.path === 'shells';
   }
 }
 

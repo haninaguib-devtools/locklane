@@ -14,6 +14,11 @@ export const routes: Routes = [
   // button, which create a session when none is open yet or jump back into an
   // existing one.
   { path: 'projects/:projectId/console', children: [] },
+  // The Shells window (#446): a singleton popup with its own minimal shell --
+  // AppComponent renders ShellsWindowComponent for these instead of the authed
+  // topbar/sidebar layout, still behind the login check.
+  { path: 'shells/:id', children: [] },
+  { path: 'shells', children: [] },
   // The workspace Overview (#197): no project id picked, so AppComponent renders
   // it directly -- no redirect into a project the way #43 used to. Not logged in
   // / no projects yet: OverviewComponent and AppComponent's own login check
