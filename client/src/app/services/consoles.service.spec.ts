@@ -54,6 +54,25 @@ describe('ConsolesService', () => {
     expect(notified).toBeTrue();
   });
 
+  it('notifies onRenamed subscribers when a tab is renamed locally (#456)', () => {
+    let notified = false;
+    service.onRenamed.subscribe(() => (notified = true));
+
+    service.notifyRenamed();
+
+    expect(notified).toBeTrue();
+  });
+
+  it('does not fold remote consolesChanged events into onRenamed — remote renames are a declared boundary (#456)', () => {
+    let notified = false;
+    service.onRenamed.subscribe(() => (notified = true));
+
+    emitAppEvent({ type: 'consolesChanged', projectId: 1 } satisfies AppEvent);
+    emitReconnect();
+
+    expect(notified).toBeFalse();
+  });
+
   it('notifies onOpened and onClosed subscribers when a consolesChanged event arrives remotely (#195)', () => {
     let openedCount = 0;
     let closedCount = 0;

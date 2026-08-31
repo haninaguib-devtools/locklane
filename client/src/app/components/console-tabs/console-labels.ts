@@ -57,15 +57,15 @@ export function labelConsoles(consoles: ConsoleInfo[]): ConsoleTab[] {
 /**
  * Project-console tab labels (#139/#177): every console runs in its own worktree
  * with no location to label by, just an index from the second console on
- * ("console", "console 2"), plus the agent when known ("console · claude"). The
- * one place this is computed (#449) -- the project-console page's own tab strip
- * and the header consoles widget both call this and then {@link tabText}, rather
- * than each maintaining its own copy of the numbering rule.
+ * ("console", "console 2") -- no agent suffix, unlike {@link labelConsoles}
+ * (#456). The one place this is computed (#449) -- the project-console page's own
+ * tab strip and the header consoles widget both call this and then
+ * {@link tabText}, rather than each maintaining its own copy of the numbering
+ * rule.
  */
 export function labelProjectConsoles(consoles: (ConsoleInfo & { name?: string | null })[]): ConsoleTab[] {
   return consoles.map((c, i) => {
     const index = i > 0 ? ` ${i + 1}` : '';
-    const agent = c.agent ? ` · ${c.agent}` : '';
-    return { ...c, label: `console${index}${agent}` };
+    return { ...c, label: `console${index}` };
   });
 }

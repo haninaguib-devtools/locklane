@@ -84,7 +84,7 @@ export class ConsoleIndicatorComponent implements OnDestroy {
   readonly entries = toSignal(
     this.visibleProjects$.pipe(
       switchMap((projects) =>
-        merge(of(null), this.consolesService.onOpened, this.consolesService.onClosed).pipe(
+        merge(of(null), this.consolesService.onOpened, this.consolesService.onClosed, this.consolesService.onRenamed).pipe(
           switchMap(() => this.fetchEntries(projects)),
         ),
       ),
@@ -293,8 +293,9 @@ export class ConsoleIndicatorComponent implements OnDestroy {
   // Read from the exact same source the project-console tab strip itself uses
   // (#449) -- labelProjectConsoles()'s numbering, `displayName` fetched from the
   // same listOpen() call and in the same order the tab strip gets it, and
-  // tabText()'s rename lookup -- so a renamed tab shows here immediately and the
-  // two titles can never drift onto separately maintained computations.
+  // tabText()'s rename lookup -- so the two titles can never drift onto separately
+  // maintained computations. The title is still baked in at fetch time, so a rename
+  // reaches this row only because `entries` refetches on onRenamed (#456).
   private toProjectEntries(project: Project, consoles: OpenProjectConsole[]): ConsoleEntry[] {
     const tabs = labelProjectConsoles(
       consoles.map((c) => ({ id: c.sessionId, agent: this.agentStore.get(c.sessionId), name: c.displayName ?? null })),

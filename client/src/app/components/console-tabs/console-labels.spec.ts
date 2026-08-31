@@ -28,20 +28,20 @@ describe('labelConsoles', () => {
 });
 
 describe('labelProjectConsoles (#449)', () => {
-  it('labels a lone console with no index', () => {
+  it('labels a lone console with no index, and never an agent suffix (#456)', () => {
     const tabs = labelProjectConsoles([{ id: '1-console-a1b2c3d4', agent: 'codex' }]);
 
-    expect(tabs.map((t) => t.label)).toEqual(['console · codex']);
+    expect(tabs.map((t) => t.label)).toEqual(['console']);
   });
 
-  it('indexes from the second console on, in the order given', () => {
+  it('indexes from the second console on, in the order given, with no agent suffix known or not (#456)', () => {
     const tabs = labelProjectConsoles([
       { id: '1-console-a1b2c3d4', agent: 'claude' },
       { id: '1-console-e5f6a7b8', agent: null },
       { id: '1-console-c9d0e1f2', agent: 'shell' },
     ]);
 
-    expect(tabs.map((t) => t.label)).toEqual(['console · claude', 'console 2', 'console 3 · shell']);
+    expect(tabs.map((t) => t.label)).toEqual(['console', 'console 2', 'console 3']);
   });
 
   it('carries the name through unchanged, for tabText() to read', () => {
