@@ -335,6 +335,36 @@ describe('ProjectConsoleComponent', () => {
     expect(compiled.querySelectorAll('app-terminal').length).toBe(1);
   });
 
+  it('reveals a console\'s worktree in the file manager from its tab (#441)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    compiled.querySelector<HTMLButtonElement>('.tab-reveal')!.click();
+    fixture.detectChanges();
+
+    const req = httpMock.expectOne('/api/projects/1/consoles/1-console-a1b2c3d4/reveal-in-file-manager');
+    expect(req.request.method).toBe('POST');
+    req.flush(null);
+
+    expect(fixture.componentInstance.revealError).toBeFalse();
+  });
+
+  it('shows an error when revealing a console fails (#441)', () => {
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    fixture.componentInstance.revealConsole('1-console-a1b2c3d4');
+    httpMock
+      .expectOne('/api/projects/1/consoles/1-console-a1b2c3d4/reveal-in-file-manager')
+      .error(new ProgressEvent('network error'));
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.revealError).toBeTrue();
+  });
+
   it('shows an error and lets the user retry when the auto-start fails', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
