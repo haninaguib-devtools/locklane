@@ -8,6 +8,7 @@ import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.pty.SessionRegistry;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
+import dev.locklane.engine.ws.EventBroadcaster;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -16,9 +17,12 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class ShellSessionServiceTest {
 
@@ -87,6 +91,82 @@ class ShellSessionServiceTest {
         ShellSessionService.ShellSession second = service.open(projectId, 7, dbDir, "alice").orElseThrow();
 
         assertThat(second.sessionId()).isNotEqualTo(first.sessionId());
+    }
+
+    @Test
+    void openingAsANonOwnerIsEmptyAndPersistsNothing(@TempDir Path dbDir) {
+        // #460: minting persists a row the owner's listing shows and hasAnySessions
+        // counts before any attach, so the owner gate has to hold at mint, not only
+        // at the WebSocket attach the other session families rely on.
+        long aliceId = createUser(dbDir, "alice");
+        createUser(dbDir, "bob");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository
+                .createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        ShellSessionService service = service(dbDir, projectRepository, sessionRepository);
+
+        assertThat(service.open(projectId, 7, dbDir, "bob")).isEmpty();
+
+        assertThat(sessionRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    void closingDeletesTheRowAndTheListingNoLongerShowsIt(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository
+                .createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        ShellSessionService service = service(dbDir, projectRepository, sessionRepository);
+        String shellId = service.open(projectId, 7, dbDir.resolve("proj-7"), "alice").orElseThrow().sessionId();
+
+        assertThat(service.close(projectId, shellId, "alice")).isTrue();
+
+        assertThat(sessionRepository.find(shellId)).isEmpty();
+        assertThat(service.listOpen("alice")).isEmpty();
+    }
+
+    @Test
+    void closingRefusesANonOwnerANonShellIdAndANeverPersistedId(@TempDir Path dbDir) {
+        long aliceId = createUser(dbDir, "alice");
+        createUser(dbDir, "bob");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository
+                .createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        ShellSessionService service = service(dbDir, projectRepository, sessionRepository);
+        String shellId = service.open(projectId, 7, dbDir.resolve("proj-7"), "alice").orElseThrow().sessionId();
+        // An ordinary agent session: in the project, but not in the shell family.
+        sessionRepository.recordAttach(projectId + "-7-do-the-thing", dbDir.resolve("proj-7"),
+                Instant.parse("2026-08-25T12:00:00Z"), "alice");
+
+        assertThat(service.close(projectId, shellId, "bob")).isFalse();
+        assertThat(service.close(projectId, projectId + "-7-do-the-thing", "alice")).isFalse();
+        assertThat(service.close(projectId, projectId + "-shell-7-ffffffff", "alice")).isFalse();
+
+        // Nothing was closed: both rows are still there.
+        assertThat(sessionRepository.find(shellId)).isPresent();
+        assertThat(sessionRepository.find(projectId + "-7-do-the-thing")).isPresent();
+    }
+
+    @Test
+    void closingAnOpenShellBroadcastsConsolesChanged(@TempDir Path dbDir) {
+        // The Shells window's live sidenav (#446) rides on this broadcast, so it is
+        // pinned here even though SessionRegistry.close is what emits it.
+        long aliceId = createUser(dbDir, "alice");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository
+                .createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ShellSessionService service = service(dbDir, projectRepository, sessionRepository,
+                new SessionRegistry(sessionRepository, null, broadcaster));
+        String shellId = service.open(projectId, null, dbDir.resolve("work"), "alice").orElseThrow().sessionId();
+
+        assertThat(service.close(projectId, shellId, "alice")).isTrue();
+
+        verify(broadcaster).broadcast("consolesChanged", Map.of("projectId", projectId));
     }
 
     @Test
@@ -174,8 +254,13 @@ class ShellSessionServiceTest {
 
     private static ShellSessionService service(Path dbDir, ProjectRepository projectRepository,
             WorktreeSessionRepository sessionRepository) {
+        return service(dbDir, projectRepository, sessionRepository, new SessionRegistry(sessionRepository));
+    }
+
+    private static ShellSessionService service(Path dbDir, ProjectRepository projectRepository,
+            WorktreeSessionRepository sessionRepository, SessionRegistry sessionRegistry) {
         return new ShellSessionService(projectRepository, sessionRepository,
-                authorization(dbDir, projectRepository));
+                authorization(dbDir, projectRepository), sessionRegistry);
     }
 
     private static ProjectConsoleService projectConsoleService(Path dbDir, ProjectRepository projectRepository,
