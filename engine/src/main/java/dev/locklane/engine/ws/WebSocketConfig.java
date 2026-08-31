@@ -44,7 +44,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
         // The app-wide notification channel (#128), separate from the per-session
         // terminal sockets above.
         registry.addHandler(new EventsWebSocketHandler(eventBroadcaster, versionStamp, runningVersion,
-                        releaseUpdateChecker::newerVersionAvailable), "/ws/events")
+                        releaseUpdateChecker::newerReleaseAvailable), "/ws/events")
                 .setAllowedOrigins(allowedOrigins);
     }
 }

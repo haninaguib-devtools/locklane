@@ -24,58 +24,63 @@ class ReleaseUpdateCheckerTest {
 
         checker.check();
 
-        assertThat(checker.newerVersionAvailable()).isEmpty();
+        assertThat(checker.newerReleaseAvailable()).isEmpty();
         verifyNoInteractions(broadcaster);
     }
 
     @Test
     void checkDoesNothingWhenTheLatestReleaseIsNotNewerThanTheRunningVersion() {
-        FakeReleaseClient client = new FakeReleaseClient(Optional.of(new GhRelease("v0.1.0")));
+        FakeReleaseClient client = new FakeReleaseClient(Optional.of(new GhRelease("v0.1.0", "https://github.com/o/r/releases/tag/v0.1.0")));
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         ReleaseUpdateChecker checker = new ReleaseUpdateChecker(client, broadcaster, "0.1.0-SNAPSHOT");
 
         checker.check();
 
-        assertThat(checker.newerVersionAvailable()).isEmpty();
+        assertThat(checker.newerReleaseAvailable()).isEmpty();
         verifyNoInteractions(broadcaster);
     }
 
     @Test
     void checkBroadcastsAndRecordsTheNewerVersionWhenTheLatestReleaseIsAhead() {
-        FakeReleaseClient client = new FakeReleaseClient(Optional.of(new GhRelease("v0.2.0")));
+        FakeReleaseClient client = new FakeReleaseClient(Optional.of(new GhRelease("v0.2.0", "https://github.com/o/r/releases/tag/v0.2.0")));
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         ReleaseUpdateChecker checker = new ReleaseUpdateChecker(client, broadcaster, "0.1.0-SNAPSHOT");
 
         checker.check();
 
-        assertThat(checker.newerVersionAvailable()).contains("0.2.0");
-        verify(broadcaster).broadcast("releaseAvailable", Map.of("version", "0.2.0"));
+        assertThat(checker.newerReleaseAvailable()).contains(new ReleaseUpdateChecker.NewerRelease(
+                "0.2.0", "https://github.com/o/r/releases/tag/v0.2.0"));
+        verify(broadcaster).broadcast("releaseAvailable",
+                Map.of("version", "0.2.0", "url", "https://github.com/o/r/releases/tag/v0.2.0"));
     }
 
     @Test
     void checkBroadcastsOnlyOnceForTheSameNewerVersionAcrossRepeatedChecks() {
-        FakeReleaseClient client = new FakeReleaseClient(Optional.of(new GhRelease("v0.2.0")));
+        FakeReleaseClient client = new FakeReleaseClient(Optional.of(new GhRelease("v0.2.0", "https://github.com/o/r/releases/tag/v0.2.0")));
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         ReleaseUpdateChecker checker = new ReleaseUpdateChecker(client, broadcaster, "0.1.0-SNAPSHOT");
         checker.check();
 
         checker.check();
 
-        verify(broadcaster).broadcast("releaseAvailable", Map.of("version", "0.2.0"));
+        verify(broadcaster).broadcast("releaseAvailable",
+                Map.of("version", "0.2.0", "url", "https://github.com/o/r/releases/tag/v0.2.0"));
     }
 
     @Test
     void checkBroadcastsAgainWhenAFurtherReleaseIsCutLater() {
-        FakeReleaseClient client = new FakeReleaseClient(Optional.of(new GhRelease("v0.2.0")));
+        FakeReleaseClient client = new FakeReleaseClient(Optional.of(new GhRelease("v0.2.0", "https://github.com/o/r/releases/tag/v0.2.0")));
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         ReleaseUpdateChecker checker = new ReleaseUpdateChecker(client, broadcaster, "0.1.0-SNAPSHOT");
         checker.check();
 
-        client.setLatest(Optional.of(new GhRelease("v0.3.0")));
+        client.setLatest(Optional.of(new GhRelease("v0.3.0", "https://github.com/o/r/releases/tag/v0.3.0")));
         checker.check();
 
-        assertThat(checker.newerVersionAvailable()).contains("0.3.0");
-        verify(broadcaster).broadcast("releaseAvailable", Map.of("version", "0.3.0"));
+        assertThat(checker.newerReleaseAvailable()).contains(new ReleaseUpdateChecker.NewerRelease(
+                "0.3.0", "https://github.com/o/r/releases/tag/v0.3.0"));
+        verify(broadcaster).broadcast("releaseAvailable",
+                Map.of("version", "0.3.0", "url", "https://github.com/o/r/releases/tag/v0.3.0"));
     }
 
     @Test

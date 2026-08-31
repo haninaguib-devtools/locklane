@@ -69,14 +69,23 @@ export function isEngineVersionEvent(event: AppEvent): event is EngineVersionEve
  * once the engine already knows about one, and broadcast to every connected client the
  * moment it finds out. Purely informational -- unlike `engineVersion` above, this never
  * triggers an in-app update of any kind.
+ *
+ * `url` (#466) is that release's GitHub Releases page, for the banner to link to.
+ * Optional so a client rolled out ahead of its engine still accepts the old
+ * version-only payload -- the banner then falls back to plain text.
  */
 export interface ReleaseAvailableEvent extends AppEvent {
   type: 'releaseAvailable';
   version: string;
+  url?: string;
 }
 
 export function isReleaseAvailableEvent(event: AppEvent): event is ReleaseAvailableEvent {
-  return event.type === 'releaseAvailable' && typeof event['version'] === 'string';
+  return (
+    event.type === 'releaseAvailable' &&
+    typeof event['version'] === 'string' &&
+    (event['url'] === undefined || typeof event['url'] === 'string')
+  );
 }
 
 const INITIAL_BACKOFF_MS = 1000;
