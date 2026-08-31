@@ -1,6 +1,10 @@
-import { Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, Optional, Output, ViewChild } from '@angular/core';
+import { Observable, map, of, switchMap } from 'rxjs';
 import { Agent } from '../../services/agent-store';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
+import { issueNumberFromSessionId } from '../../services/consoles.service';
+import { ShellsService } from '../../services/shells.service';
+import { WorktreesService } from '../../services/worktrees.service';
 import { ConsoleTab, OVERVIEW_TAB_ID, tabText } from './console-labels';
 
 export interface OpenConsoleRequest {
@@ -21,6 +25,17 @@ export interface RenameConsoleRequest {
   styleUrl: './console-tabs.component.css',
 })
 export class ConsoleTabsComponent {
+  // @Optional() constructor parameters, not inject() fields, deliberately (#447):
+  // the existing unit tests instantiate this component with bare
+  // `new ConsoleTabsComponent()` (the defaults cover that), and other component
+  // suites render this strip under TestBeds with no HttpClient provider —
+  // @Optional() lets DI hand in null there instead of erroring, and the
+  // open-shell control simply no-ops without its services.
+  constructor(
+    @Optional() private readonly shellsService: ShellsService | null = null,
+    @Optional() private readonly worktreesService: WorktreesService | null = null,
+  ) {}
+
   // Exposed for the template's Overview tab, pinned first in the same strip (#96).
   readonly overviewId = OVERVIEW_TAB_ID;
   // Exposed for the template: the user's own name for a tab, or its auto label (#393).
@@ -130,6 +145,63 @@ export class ConsoleTabsComponent {
     this.reveal.emit(id);
   }
 
+  // Whether the last open-shell attempt failed (#447) — cleared on the next one.
+  shellOpenFailed = false;
+
+  /**
+   * The hover-revealed shell icon (#447): mints a brand-new shell session at this
+   * tab's worktree — never a reuse, every click another shell — then opens/focuses
+   * the singleton Shells window on it. The owning project id is parsed from the
+   * tab's own session id (`<projectId>-…`, the same convention the engine keys
+   * authorization and broadcasts on).
+   */
+  openShellAt(tab: ConsoleTab, event: Event): void {
+    event.stopPropagation();
+    const shells = this.shellsService;
+    const projectId = projectIdOf(tab.id);
+    if (shells === null || this.worktreesService === null || projectId === null) {
+      return;
+    }
+    this.shellOpenFailed = false;
+    this.directoryOf(projectId, tab)
+      .pipe(switchMap((dir) => shells.open(projectId, issueNumberFromSessionId(tab.id), dir)))
+      .subscribe({
+        next: (created) => {
+          // The initiative's singleton convention (#444): a repeated open with the
+          // same window name navigates and focuses the existing window.
+          window.open(`/shells/${created.sessionId}`, 'locklane-shells');
+        },
+        error: () => (this.shellOpenFailed = true),
+      });
+  }
+
+  /**
+   * Where this tab's console actually runs: its own `dir` when the caller carried
+   * it (the project-console page does), otherwise the project worktree list — a
+   * read-only lookup — first by the tab's exact session id, then by its issue
+   * number, since an issue has one worktree. Errors when neither matches, which
+   * the open-shell subscriber surfaces as {@link #shellOpenFailed}.
+   */
+  private directoryOf(projectId: number, tab: ConsoleTab): Observable<string> {
+    if (tab.dir) {
+      return of(tab.dir);
+    }
+    return this.worktreesService!.list(projectId).pipe(
+      map((rows) => {
+        const own = rows.find((row) => row.worktreeId === tab.id);
+        if (own) {
+          return own.workingDirectory;
+        }
+        const issue = issueNumberFromSessionId(tab.id);
+        const byIssue = issue !== null ? rows.find((row) => row.issueNumber === issue) : undefined;
+        if (byIssue) {
+          return byIssue.workingDirectory;
+        }
+        throw new Error(`no worktree directory known for console '${tab.id}'`);
+      }),
+    );
+  }
+
   confirmClose(): void {
     const id = this.pendingCloseId;
     this.pendingCloseId = null;
@@ -157,4 +229,10 @@ export class ConsoleTabsComponent {
   plusClicked(): void {
     this.open.emit({ agent: this.defaultAgent });
   }
+}
+
+/** The leading numeric segment every real session id starts with (`<projectId>-…`). */
+function projectIdOf(sessionId: string): number | null {
+  const match = /^(\d+)-/.exec(sessionId);
+  return match ? Number(match[1]) : null;
 }

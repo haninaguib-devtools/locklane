@@ -47,6 +47,34 @@
       }
       <button
         type="button"
+        class="tab-shell"
+        aria-label="open a shell at this console's worktree"
+        (click)="openShellAt(tab, $event)"
+      >
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+          <rect
+            x="1.5"
+            y="2.5"
+            width="13"
+            height="11"
+            rx="1.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+          />
+          <path
+            d="M4 6l2.5 2L4 10"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path d="M8 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+        </svg>
+      </button>
+      <button
+        type="button"
         class="tab-reveal"
         aria-label="reveal in file manager"
         (click)="revealTab(tab.id, $event)"
@@ -85,6 +113,10 @@
     </div>
   }
 </div>
+
+@if (shellOpenFailed) {
+  <div class="shell-error">could not open a shell at that console's worktree — try again</div>
+}
 
 @if (pendingCloseId !== null) {
   <app-confirm-dialog

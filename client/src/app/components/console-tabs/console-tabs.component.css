@@ -80,6 +80,35 @@
   color: var(--text);
 }
 
+/* The open-a-shell icon (#447) — the same hover-revealed treatment as the
+   reveal-in-file-manager icon it sits next to. */
+.tab-shell {
+  display: flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 2px 4px 2px 0;
+  color: var(--faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.tab-wrap:hover .tab-shell,
+.tab-wrap:focus-within .tab-shell {
+  opacity: 1;
+}
+
+.tab-shell:hover {
+  color: var(--text);
+}
+
+.shell-error {
+  padding: 6px 16px;
+  font-size: 12px;
+  color: #b3261e;
+}
+
 .plus-wrap {
   position: relative;
   margin-left: 8px;
