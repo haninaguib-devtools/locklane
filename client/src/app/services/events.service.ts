@@ -48,10 +48,16 @@ export function isConsolesChangedEvent(event: AppEvent): event is ConsolesChange
  * connection -- see `dev.locklane.engine.ws.EventsWebSocketHandler`. A different stamp
  * on reconnect than the one seen at boot means the engine was redeployed with a
  * possibly-changed client bundle.
+ *
+ * `release` (#467) is the human-readable version the engine is running
+ * (`BuildProperties#getVersion()`, e.g. `0.1.0-SNAPSHOT`) -- display-only, never part
+ * of the staleness comparison above. Optional so a client rolled out ahead of its
+ * engine still recognizes the old one-field greeting.
  */
 export interface EngineVersionEvent extends AppEvent {
   type: 'engineVersion';
   version: string;
+  release?: string;
 }
 
 export function isEngineVersionEvent(event: AppEvent): event is EngineVersionEvent {

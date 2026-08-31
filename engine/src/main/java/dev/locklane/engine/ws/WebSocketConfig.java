@@ -20,6 +20,9 @@ public class WebSocketConfig implements WebSocketConfigurer {
     // at Maven build time (see engine/pom.xml's build-info execution), so it differs
     // between any two builds, including two builds of the same commit.
     private final String versionStamp;
+    // The human-readable version this build was made as (#467): the Maven project
+    // version, e.g. 0.1.0-SNAPSHOT on a dev build, 0.1.0 on a release build.
+    private final String runningVersion;
 
     public WebSocketConfig(TerminalWebSocketHandler terminalWebSocketHandler, EventBroadcaster eventBroadcaster,
             ReleaseUpdateChecker releaseUpdateChecker,
@@ -29,6 +32,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
         this.releaseUpdateChecker = releaseUpdateChecker;
         this.allowedOrigins = allowedOrigins.split(",");
         this.versionStamp = buildProperties.getTime().toString();
+        this.runningVersion = buildProperties.getVersion();
     }
 
     @Override
@@ -39,7 +43,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .setAllowedOrigins(allowedOrigins);
         // The app-wide notification channel (#128), separate from the per-session
         // terminal sockets above.
-        registry.addHandler(new EventsWebSocketHandler(eventBroadcaster, versionStamp,
+        registry.addHandler(new EventsWebSocketHandler(eventBroadcaster, versionStamp, runningVersion,
                         releaseUpdateChecker::newerVersionAvailable), "/ws/events")
                 .setAllowedOrigins(allowedOrigins);
     }
