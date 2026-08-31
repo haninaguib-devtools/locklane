@@ -8,14 +8,14 @@ import java.util.regex.Pattern;
 
 /**
  * The one authorization check for whether a caller may view or attach to a
- * worktree/console session (#242, ADR-007 Decision 6) — replacing "first attach
+ * worktree/console session (#242, ADR-101 Decision 6) — replacing "first attach
  * claims it" (#48): a session's visibility now derives from its owning project's
  * {@code owner_user_id}, never from whichever authenticated request happened to
  * attach to it first (that is still recorded on the session row as
  * {@code owner_username}, but purely informational — see
  * {@link WorktreeSessionRepository#recordAttach}). A caller may see and attach only
  * to their own project's sessions — no role, administrator included, is exempt
- * (#394, ADR-011, withdrawing the administrator exemption in ADR-007 Decision 6).
+ * (#394, ADR-105, withdrawing the administrator exemption in ADR-101 Decision 6).
  * Attaching is interactive code execution in the project's checkout, with that
  * project's decrypted GitHub token in the environment, so there is no weaker
  * "administrative read" of a session to grant.

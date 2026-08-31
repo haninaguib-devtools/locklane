@@ -10,7 +10,7 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Covers #240's cascade-delete done-when (ADR-007 Decision 4): deleting a user removes
+ * Covers #240's cascade-delete done-when (ADR-101 Decision 4): deleting a user removes
  * every project it owns, those projects' on-disk workarea checkouts, and any
  * worktree/console sessions scoped to them -- and nothing belonging to a different
  * user.

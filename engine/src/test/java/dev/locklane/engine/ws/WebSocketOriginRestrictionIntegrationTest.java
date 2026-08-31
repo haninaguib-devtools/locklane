@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * (which is covered separately in {@link WebSocketSessionOwnershipIntegrationTest}).
  * The allowed-origin case gives its user a real project and prefixes its worktree id
  * with that project's id, so #242's authorization is satisfied by actual ownership
- * rather than by the administrator exemption #394 (ADR-011) withdrew; the
+ * rather than by the administrator exemption #394 (ADR-105) withdrew; the
  * disallowed-origin case never reaches that check at all (rejected earlier, at the
  * handshake).
  */

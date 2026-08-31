@@ -87,7 +87,7 @@ has already left the pipeline, say which and stop.
    this exact head commit can even exist.
 2. **CI-green, watched attended** (#113, amending ADR-007's *unattended* one-look rule
    for the structurally similar case in `/t-drive` Solo step 6 — see
-   [ADR-012](../../../docs/adr/012-t-ship-attended-ci-watch.md) for why the two differ).
+   [ADR-008](../../../docs/adr/008-t-ship-attended-ci-watch.md) for why the two differ).
    Read the PR's checks (`forge:pr-checks <pr>`).
    - **No CI configured** → acceptable, said out loud, continue to step 3.
    - **Every check already concluded** (green or red) → continue immediately, no wait.

@@ -27,7 +27,7 @@ import java.util.function.Supplier;
  * stored token gets none — over a real network connection, same style as
  * {@link TerminalWebSocketHandlerIntegrationTest}. Each project is created as the
  * connecting account's own, so #242's authorization is satisfied by real ownership —
- * #394 (ADR-011) withdrew the administrator exemption these previously leaned on, and
+ * #394 (ADR-105) withdrew the administrator exemption these previously leaned on, and
  * ownership is what a console attach has always been meant to turn on.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

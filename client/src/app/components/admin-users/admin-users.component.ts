@@ -5,7 +5,7 @@ import { AuthService } from '../../services/auth.service';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 
 /**
- * The admin user-management panel (#240, ADR-007 Decisions 3-4): lists every account
+ * The admin user-management panel (#240, ADR-101 Decisions 3-4): lists every account
  * and exposes creating and deleting one. `AppComponent` only renders this from the
  * account menu's "Manage users" item, itself only shown when {@link
  * AuthService.isAdmin} is true (#240) -- purely a display decision, since every
@@ -22,7 +22,7 @@ import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.compone
  * Deleting goes through the same {@link ConfirmDialogComponent} every other
  * destructive action in this app uses, since it is irreversible: the account, every
  * project it owned, and those projects' on-disk checkouts and sessions are all gone
- * together (ADR-007 Decision 4).
+ * together (ADR-101 Decision 4).
  */
 @Component({
   selector: 'app-admin-users',

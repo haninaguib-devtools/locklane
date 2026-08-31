@@ -1,4 +1,4 @@
-# ADR-007: Multi-user tenancy and authorization model
+# ADR-101: Multi-user tenancy and authorization model
 
 **Status:** Accepted · 2026-08-29
 **Deciders:** project owner *(solo phase; see ADR-001's Deciders note — the same
@@ -83,7 +83,7 @@ account gets its first real password, and who can see and attach to a running se
   admin costs nothing new operationally — it is the same "there must always be at least
   one account to log in as" guarantee the bootstrapper exists for, just with a role
   attached. Closing off self-registration entirely (not merely "invite-only" self-serve
-  signup) matches the deployment model in ADR-002: a home server one person, or a small
+  signup) matches the deployment model in ADR-100: a home server one person, or a small
   trusted group, runs for themselves — there is no product need for strangers to be able
   to create accounts, and every open self-registration surface is attack surface with no
   offsetting benefit here.
@@ -116,7 +116,7 @@ account gets its first real password, and who can see and attach to a running se
   filesystem permissions as the actual boundary) — rejected for #1/#2. It would require
   the engine to run project workareas under per-user OS accounts or per-user containers,
   a deployment model change far outside this initiative's scope and in tension with
-  ADR-002's single always-on server process; it also does not by itself protect
+  ADR-100's single always-on server process; it also does not by itself protect
   anything reached through the API rather than through a shell, which is every real
   access path this app has.
 - **Shared/team-owned projects** (a project with multiple owners or a shared workspace,
@@ -146,7 +146,7 @@ account gets its first real password, and who can see and attach to a running se
   goal and can be its own future ADR if it turns out to be needed.
 - **Emailed password reset / "set your own initial password" link** instead of a
   forced change on first login (#5) — rejected because this deployment has no outbound
-  email integration (ADR-002's stack has no mail sender), and building one only to
+  email integration (ADR-100's stack has no mail sender), and building one only to
   deliver one email per new account is disproportionate to the problem. A temporary
   admin-chosen password plus a mandatory first-login change needs no new infrastructure
   and closes the same gap.

@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  * session that legitimately transitions to task work gets its proper
  * {@code wip/<id>-<slug>} branch from {@code /t-work} at that point instead — the
  * detached worktree still gives full file isolation in the meantime, rather than
- * every console sharing that one checkout, as before #314. Since #339/ADR-010,
+ * every console sharing that one checkout, as before #314. Since #339/ADR-104,
  * closing a console tab attempts to remove its worktree too, guarded: the session
  * has just ended, HEAD is still detached (a checked-out branch means the console
  * outgrew scratch — left alone permanently, ADR-005), the worktree is clean, and its
@@ -189,7 +189,7 @@ public class ProjectConsoleService {
      *
      * <p>Where the issue-side reopen can always fall back to the issue's one stable
      * worktree path, a project console's directory belongs to that console alone —
-     * and closing its tab deletes both its session record and (#339/ADR-010) its
+     * and closing its tab deletes both its session record and (#339/ADR-104) its
      * worktree. So the directory is resolved from the record while one exists, and
      * otherwise rebuilt from the session id itself: {@code
      * "<projectId>-console-<suffix>"} always named the sibling checkout {@code
@@ -309,7 +309,7 @@ public class ProjectConsoleService {
     /**
      * Tears down one specific console session of the project's family (#177 — the
      * per-tab close) and, once the session has ended, attempts to remove its worktree
-     * (#339/ADR-010): kept, never force-removed, when HEAD is not detached, the
+     * (#339/ADR-104): kept, never force-removed, when HEAD is not detached, the
      * worktree is dirty, or HEAD is not yet an ancestor of {@code origin/main} — the
      * same guard {@link WorktreeCleanupSweeper#removalRefusalReasonForProjectConsole}
      * exposes, so a refusal here and the periodic sweep's own backstop check never

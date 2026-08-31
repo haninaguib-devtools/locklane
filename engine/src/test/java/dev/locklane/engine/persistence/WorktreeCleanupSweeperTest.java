@@ -187,7 +187,7 @@ class WorktreeCleanupSweeperTest {
         assertThat(fx.repository.find(worktree.worktreeId())).isEmpty();
     }
 
-    // --- #339/ADR-010: the sweep as backstop for orphaned project-console worktrees ---
+    // --- #339/ADR-104: the sweep as backstop for orphaned project-console worktrees ---
 
     @Test
     void sweepRemovesAnOrphanedProjectConsoleWorktreeThatIsCleanDetachedAndHasNoStrayCommits(@TempDir Path tmp)
@@ -276,7 +276,7 @@ class WorktreeCleanupSweeperTest {
 
     @Test
     void discoveryIgnoresASameNamedDirectoryThatWasNeverRegisteredAsAWorktree(@TempDir Path tmp) throws Exception {
-        // #339/ADR-010, per /t-review: discovery must ask git, not just match a
+        // #339/ADR-104, per /t-review: discovery must ask git, not just match a
         // directory's name -- a same-named but unrelated directory (a manual backup,
         // a stray clone) must never be treated as a discovered project-console
         // worktree, only ever a real git worktree/t-work's `git worktree add`

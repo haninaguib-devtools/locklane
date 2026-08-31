@@ -1,12 +1,12 @@
-# ADR-011: A project is private to its owner, with no administrator exemption
+# ADR-105: A project is private to its owner, with no administrator exemption
 
 **Status:** accepted (2026-08-30). Supersedes the administrator exemption in
-[ADR-007](007-multi-user-tenancy-and-authorization.md) Decisions 1 and 6; the rest of
-ADR-007 stands unchanged.
+[ADR-101](101-multi-user-tenancy-and-authorization.md) Decisions 1 and 6; the rest of
+ADR-101 stands unchanged.
 
 ## Context
 
-ADR-007 made `owner_user_id` the isolation boundary between accounts, and then carved an
+ADR-101 made `owner_user_id` the isolation boundary between accounts, and then carved an
 administrator out of it twice. Decision 1 scoped every project read and mutation to the
 owner but let an administrator through; Decision 6 derived worktree and console session
 visibility from the owning project's owner and added "admins can see and attach to any
@@ -17,7 +17,7 @@ returns any project to an administrator regardless of ownership, and
 looks at ownership at all.
 
 The practical effect is that the first account ever bootstrapped — always an administrator
-(ADR-007 Decision 3) — can list, open, retry, delete, and set a GitHub token on every other
+(ADR-101 Decision 3) — can list, open, retry, delete, and set a GitHub token on every other
 account's projects, and can attach to any account's live terminal. Attaching to a terminal
 is not a read-only capability: it is a shell in someone else's checkout, with that project's
 decrypted GitHub token in its environment.
@@ -38,21 +38,21 @@ issue opened for that purpose was cancelled for exactly this reason.
    `ProjectController.findAuthorized` authorizes on ownership alone, with no role
    exemption; a project belonging to another account resolves to empty and is reported as
    404, indistinguishable from a project that does not exist. This replaces the
-   administrator half of ADR-007 Decision 1; that decision's substance — `owner_user_id`
+   administrator half of ADR-101 Decision 1; that decision's substance — `owner_user_id`
    as the boundary, enforced in the application layer — is otherwise untouched.
 2. **Worktree and console session visibility derives from the owning project's owner, and
    from nothing else.** `WorktreeSessionAuthorization` grants an administrator no access to
    another account's sessions. This replaces the parenthetical administrator clause in
-   ADR-007 Decision 6; the rest of that decision — visibility derived from the project
+   ADR-101 Decision 6; the rest of that decision — visibility derived from the project
    rather than from first-attach, `owner_username` as a denormalized record — stands.
-3. **Administrators keep account management and gain nothing else.** ADR-007 Decision 3
+3. **Administrators keep account management and gain nothing else.** ADR-101 Decision 3
    (the first bootstrapped account is an administrator; no self-registration) and the
    admin-only user-management surface are unchanged. The role stops being a way around
    project ownership; it does not stop existing.
 4. **No operator route to another account's project is built, and the resulting
    limitation is accepted.** Nobody can clean up, transfer, or debug an account's project.
    The only route to a project whose owner is gone or stuck is deleting the owning account,
-   which cascade-deletes that account's projects (ADR-007 Decision 4). Building a recovery
+   which cascade-deletes that account's projects (ADR-101 Decision 4). Building a recovery
    path is separate work, not deferred work implied by this decision.
 
 ## Rationale
@@ -62,12 +62,12 @@ issue opened for that purpose was cancelled for exactly this reason.
   other account, permanently, with no audit trail and no consent step. The benefit was an
   operator convenience nobody had yet needed: no support workflow, no runbook, and no
   request for one existed.
-- **A terminal attach is not an administrative read.** ADR-007 grouped session visibility
+- **A terminal attach is not an administrative read.** ADR-101 grouped session visibility
   with project visibility, which made "admins can see and attach to any session" look like
   the same kind of permission as listing rows. It is not — it is interactive code execution
   in another person's working tree, with their credentials in the environment. Grouped
   correctly, it does not survive the trade above.
-- **Deployment shape, not company shape.** ADR-007's own rationale notes that a home-server
+- **Deployment shape, not company shape.** ADR-101's own rationale notes that a home-server
   deployment has no OS-level tenant boundary to lean on, which is why the check lives in
   Java. The same observation cuts against the exemption: with no OS boundary underneath,
   the Java check is the entire boundary, and a role that bypasses it is the entire absence
@@ -83,7 +83,7 @@ issue opened for that purpose was cancelled for exactly this reason.
 
 ## Alternatives considered
 
-- **Keep ADR-007 as ratified.** Rejected: it is exactly the arrangement the owner
+- **Keep ADR-101 as ratified.** Rejected: it is exactly the arrangement the owner
   reconsidered, and the concrete cost above is paid continuously by every non-administrator
   account.
 - **A narrowed administrator: deletion and recovery powers only, no reading or attaching.**

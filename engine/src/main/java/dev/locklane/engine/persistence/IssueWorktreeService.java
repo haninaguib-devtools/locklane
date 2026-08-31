@@ -65,9 +65,9 @@ public class IssueWorktreeService {
     /**
      * Worktree ids known for this project's issue that {@code requestingUsername}
      * may see, empty if none — visibility is derived from the session's owning
-     * project (#242, ADR-007 Decision 6, via {@link WorktreeSessionAuthorization}):
+     * project (#242, ADR-101 Decision 6, via {@link WorktreeSessionAuthorization}):
      * the project's owner sees every session in it; anyone else sees none of them,
-     * regardless of who last attached and regardless of role (#394, ADR-011).
+     * regardless of who last attached and regardless of role (#394, ADR-105).
      */
     public List<String> worktreeIdsForIssue(long projectId, int issueNumber, String requestingUsername) {
         return repository.findAll().stream()
@@ -169,7 +169,7 @@ public class IssueWorktreeService {
 
     /**
      * Forgets every worktree/console session belonging to this project (#240's
-     * cascade-delete of a deleted user's owned projects, ADR-007 Decision 4) — the same
+     * cascade-delete of a deleted user's owned projects, ADR-101 Decision 4) — the same
      * "does this session belong to this project" test as {@link #hasAnySessions}, but
      * removing the rows instead of just reporting them. Deliberately unconditional,
      * unlike the single-project delete path ({@code ProjectCheckoutService#delete}) that

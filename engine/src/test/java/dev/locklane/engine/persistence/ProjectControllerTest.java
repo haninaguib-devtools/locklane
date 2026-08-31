@@ -36,7 +36,7 @@ class ProjectControllerTest {
     }
 
     /**
-     * #394 (ADR-011) withdrew the administrator exemption ADR-007 Decision 1 granted:
+     * #394 (ADR-105) withdrew the administrator exemption ADR-101 Decision 1 granted:
      * an administrator's project list is their own projects, exactly like anyone
      * else's, and another account's project is simply absent from it.
      */
@@ -128,7 +128,7 @@ class ProjectControllerTest {
     }
 
     /**
-     * The by-id half of #394 (ADR-011): every operation that funnels through
+     * The by-id half of #394 (ADR-105): every operation that funnels through
      * {@code findAuthorized} refuses an administrator on another account's project,
      * as a 404 indistinguishable from the project not existing — and leaves the
      * project itself untouched.

@@ -41,7 +41,7 @@ final class AuthenticatedWebSocketClients {
 
     /**
      * As above, with an explicit role — only for tests that are actually about a
-     * role. It is no longer a way past session authorization: since #394 (ADR-011) an
+     * role. It is no longer a way past session authorization: since #394 (ADR-105) an
      * administrator may attach to nothing an ordinary account could not, so a test
      * that needs an attach to succeed gives its user a real project via
      * {@link #projectOwnedBy} and uses that project's id as the session id's prefix.

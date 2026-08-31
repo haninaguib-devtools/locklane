@@ -52,7 +52,7 @@ import org.springframework.http.HttpStatus;
  *
  * <p>Admin-only, on top of plain authentication: {@code /api/admin/**} (#240 —
  * {@link AdminUserController}'s user creation/deletion, the only way a second account
- * ever comes to exist, ADR-007 Decision 3). {@code hasRole("ADMIN")} implies
+ * ever comes to exist, ADR-101 Decision 3). {@code hasRole("ADMIN")} implies
  * authentication, so an unauthenticated caller still gets 401 from the same entry
  * point as everything else; an authenticated non-admin caller gets Spring Security's
  * default 403, which is what #240's done-when asks for.

@@ -1,4 +1,4 @@
-# ADR-002: The rewrite's stack and agent model
+# ADR-100: The rewrite's stack and agent model
 
 **Status:** Accepted · 2026-08-24
 **Deciders:** project owner *(solo phase; see ADR-001's Deciders note — the same

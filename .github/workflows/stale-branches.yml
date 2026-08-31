@@ -7,7 +7,7 @@ name: Stale branches
 
 on:
   schedule:
-    - cron: "0 * * * *" # hourly
+    - cron: "0 6 * * *" # daily
   workflow_dispatch: {}
 
 permissions:

@@ -24,7 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Admin-only account management (#240, ADR-007 Decisions 3-4): there is no
+ * Admin-only account management (#240, ADR-101 Decisions 3-4): there is no
  * self-registration anywhere in this app, so creating a second account, or removing
  * one, only ever happens here. {@link SecurityConfig} gates every path under
  * {@code /api/admin/**} with {@code hasRole("ADMIN")} — a non-admin (or unauthenticated)
@@ -41,7 +41,7 @@ import java.util.Optional;
  * back: the admin already knows it, so there is nothing new to show.
  *
  * <p>Deleting a user cascade-deletes everything it owned via
- * {@link UserCascadeDeleteService} (ADR-007 Decision 4) before the {@code users} row
+ * {@link UserCascadeDeleteService} (ADR-101 Decision 4) before the {@code users} row
  * itself is removed here.
  */
 @RestController
@@ -97,7 +97,7 @@ public class AdminUserController {
     }
 
     /**
-     * Cascade-deletes the account (ADR-007 Decision 4) — its owned projects, those
+     * Cascade-deletes the account (ADR-101 Decision 4) — its owned projects, those
      * projects' on-disk workarea checkouts, and any worktree/console sessions scoped to
      * them — then the account row itself. 404 for an unknown id, indistinguishable from
      * a bad request; 409 rather than served for an admin's own account, so a caller can

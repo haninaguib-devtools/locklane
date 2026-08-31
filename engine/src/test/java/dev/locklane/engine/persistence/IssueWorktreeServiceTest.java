@@ -11,11 +11,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Covers #15's done-when: worktrees grouped by project+issue, non-conforming ids
- * excluded (#43). Visibility itself is #242's project-owner-derived model (ADR-007
+ * excluded (#43). Visibility itself is #242's project-owner-derived model (ADR-101
  * Decision 6, via {@link WorktreeSessionAuthorization}): a session's owning project
  * is resolved from the leading numeric segment of its id, and only that project's
  * owner sees it — who last attached to the session no longer matters, and since #394
- * (ADR-011) neither does the caller's role.
+ * (ADR-105) neither does the caller's role.
  */
 class IssueWorktreeServiceTest {
 
@@ -162,7 +162,7 @@ class IssueWorktreeServiceTest {
     }
 
     /**
-     * #394 (ADR-011) withdrew the administrator exemption ADR-007 Decision 6 granted:
+     * #394 (ADR-105) withdrew the administrator exemption ADR-101 Decision 6 granted:
      * an administrator sees another account's worktree and console sessions exactly
      * as any other non-owner does — not at all.
      */

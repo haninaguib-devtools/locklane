@@ -104,14 +104,14 @@ any other change to this list.
 <!-- local -->
 1. Spring Boot engine + Angular PWA client + SQLite for durable non-binding state, with
    one persistent PTY (pseudo-terminal) session per git worktree, reattachable from any
-   browser, from anywhere — never a job queue (ADR-002).
+   browser, from anywhere — never a job queue (ADR-100).
 2. A console-created, per-issue worktree is removed automatically once its issue is
    confirmed closed, its git status is clean, and no console session is attached — a
    narrow, guarded exception to the pipeline's own "left alone permanently" default
-   (ADR-008). Once such a worktree is removed, its local `wip/<id>-<slug>` branch is
+   (ADR-102). Once such a worktree is removed, its local `wip/<id>-<slug>` branch is
    deleted too, but only via `git branch -d`: a fully merged branch goes, an unmerged
-   one is refused and left alone (ADR-009).
-3. Reserved protected surfaces, per ADR-007: once the ratified multi-user tenancy and
+   one is refused and left alone (ADR-103).
+3. Reserved protected surfaces, per ADR-101: once the ratified multi-user tenancy and
    authorization model is implemented, these application surfaces join §3's list — the
    Flyway migrations under `engine/src/main/resources/db/migration/` and
    `engine/src/main/java/dev/locklane/engine/persistence/migration/`, the
@@ -130,11 +130,11 @@ any other change to this list.
    detached (a checked-out branch means the console outgrew scratch and is left
    alone), its git status is clean, and its HEAD is an ancestor of `origin/main` — a
    second, distinct guarded exception to ADR-005, alongside point 2's rather than
-   folded into it (ADR-010).
+   folded into it (ADR-104).
 5. A project is visible and operable only to the account that owns it, and a
    worktree/console session only to the owner of its project — no role, administrator
-   included, is exempt; administrators manage accounts and nothing more (ADR-011,
-   superseding the administrator exemption in ADR-007 Decisions 1 and 6).
+   included, is exempt; administrators manage accounts and nothing more (ADR-105,
+   superseding the administrator exemption in ADR-101 Decisions 1 and 6).
 <!-- /local -->
 
 ## Amendment

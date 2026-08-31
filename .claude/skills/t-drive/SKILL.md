@@ -18,8 +18,8 @@ merge-confirmation gate, whose pause is the same single stop (§Solo mode). Opti
 `docs/adapters/FORGE.md` (GitHub by default). The rules are
 [ADR-004](../../../docs/adr/004-autonomous-initiative-driving.md) for the initiative
 mode and [ADR-006](../../../docs/adr/006-single-task-driving.md) for the solo mode,
-amended by [ADR-012](../../../docs/adr/012-t-ship-attended-ci-watch.md) for how the solo
-sequence now reaches `/t-ship`'s gate with CI still possibly unsettled — ADR-012 itself
+amended by [ADR-008](../../../docs/adr/008-t-ship-attended-ci-watch.md) for how the solo
+sequence now reaches `/t-ship`'s gate with CI still possibly unsettled — ADR-008 itself
 amends [ADR-007](../../../docs/adr/007-solo-drive-defers-on-pending-ci.md), whose own
 pre-`/t-ship` CI check no longer applies under the pipeline's current CI timing (#113);
 where this skill and those ADRs differ, the ADR wins — flag it, do not improvise.
@@ -216,12 +216,12 @@ merge, every gate exactly where the manual pipeline fires it:
 6. **Ship — pause at the gate.** Run `/t-ship <id>` and stop at its
    merge-confirmation gate: that pause **is** the run's single stop (ADR-006 D3). There
    is no CI look here before invoking it (ADR-007's own pre-`/t-ship` check is retired by
-   [ADR-012](../../../docs/adr/012-t-ship-attended-ci-watch.md)): CI does not start until
+   [ADR-008](../../../docs/adr/008-t-ship-attended-ci-watch.md)): CI does not start until
    `/t-ship`'s own Procedure step 1 marks the PR ready, so nothing exists yet for a
    pre-invocation look to observe — `/t-ship`'s Procedure step 2 now does the CI wait
    itself, watching attended (bounded by `ci.yml`/`review-gate.yml`'s own
    `timeout-minutes:`, #113) regardless of whether a human typed `/t-ship` directly or
-   this run chained into it, per ADR-012 D1. That watch, plus the ordinary
+   this run chained into it, per ADR-008 D1. That watch, plus the ordinary
    merge-confirmation gate, is still exactly one stopping shape reached per run — a red
    CI stops the run there (the same "concluded failure is decisive information, not a
    wait" `/t-ship` always reported, now discovered inside its own Procedure instead of a

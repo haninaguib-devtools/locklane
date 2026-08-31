@@ -5,7 +5,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * Deletes everything a user owned (#240, ADR-007 Decision 4): their projects, those
+ * Deletes everything a user owned (#240, ADR-101 Decision 4): their projects, those
  * projects' on-disk workarea checkouts, and any worktree/console sessions scoped to
  * them. The user row itself is deleted last, by the caller
  * ({@link dev.locklane.engine.security.AdminUserController}), once every owned project

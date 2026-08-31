@@ -97,7 +97,7 @@ class ProjectConsoleServiceTest {
 
     @Test
     void closingACleanDetachedNoCommitsSessionRemovesItsWorktree(@TempDir Path tmp) throws Exception {
-        // #339/ADR-010: a fresh console worktree is detached at origin/main, clean,
+        // #339/ADR-104: a fresh console worktree is detached at origin/main, clean,
         // and has no commits of its own -- every guard condition clears, so closing
         // the tab removes it, unlike before this task (#314's deferred cleanup).
         Path workarea = GitTestRepos.initTestRepo(tmp);
@@ -247,7 +247,7 @@ class ProjectConsoleServiceTest {
     }
 
     /**
-     * #394 (ADR-011): an administrator reaches another account's console no more than
+     * #394 (ADR-105): an administrator reaches another account's console no more than
      * any other non-owner does — it is neither findable, nor listed, nor closable.
      */
     @Test

@@ -24,8 +24,8 @@ import java.util.regex.Pattern;
  * CRUD over projects (#42) — creating one kicks off an async clone via
  * {@link ProjectCheckoutService}.
  *
- * <p>Every project belongs to exactly one account (#239, ADR-007 Decision 1) and is
- * private to it (#394, ADR-011, which withdrew the administrator exemption ADR-007
+ * <p>Every project belongs to exactly one account (#239, ADR-101 Decision 1) and is
+ * private to it (#394, ADR-105, which withdrew the administrator exemption ADR-101
  * Decisions 1 and 6 had granted): {@code list} returns only the caller's own
  * projects, whatever their role, and every by-id operation below is scoped through
  * {@link #findAuthorized(long, Authentication)}, which resolves to empty — reported
@@ -143,7 +143,7 @@ public class ProjectController {
 
     /**
      * The project, if it exists and the caller owns it (#239, #394). Ownership is the
-     * whole of the check — no role is exempt (ADR-011). Empty either when the project
+     * whole of the check — no role is exempt (ADR-105). Empty either when the project
      * doesn't exist or when it belongs to someone else, deliberately
      * indistinguishable to the caller.
      */

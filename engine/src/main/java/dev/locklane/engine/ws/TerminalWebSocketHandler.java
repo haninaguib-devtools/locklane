@@ -108,7 +108,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         // closed, not open.
         //
         // The actual decision — may this caller see/attach to this session at all
-        // — is #242's project-owner-derived check (ADR-007 Decision 6), replacing
+        // — is #242's project-owner-derived check (ADR-101 Decision 6), replacing
         // #48's "first attach claims it": WorktreeSessionAuthorization resolves the
         // project this session id belongs to and checks the caller against that
         // project's owner_user_id (or admin status), the exact same check the REST

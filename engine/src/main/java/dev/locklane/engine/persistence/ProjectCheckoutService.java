@@ -46,7 +46,7 @@ public class ProjectCheckoutService {
      * {@code gitUrl}; the workarea directory name is derived from the (derived or
      * given) name, disambiguated with a numeric suffix on collision. {@code ownerUserId}
      * (#239) is the authenticated caller creating the project — the workarea lands
-     * under {@code workareas/<ownerUserId>/<slug>} (ADR-007 Decision 2), organizational
+     * under {@code workareas/<ownerUserId>/<slug>} (ADR-101 Decision 2), organizational
      * only, never itself the authorization boundary.
      */
     public ProjectRecord createProject(String gitUrl, String requestedName, long ownerUserId) {
@@ -99,7 +99,7 @@ public class ProjectCheckoutService {
      * Unconditionally deletes a project and everything scoped to it: any worktree or
      * console sessions, its DB row, and its on-disk workarea checkout (best-effort, same
      * as {@link #delete}) — never refuses on an open session the way {@link #delete}
-     * does. Only {@link UserCascadeDeleteService} calls this (#240, ADR-007 Decision 4):
+     * does. Only {@link UserCascadeDeleteService} calls this (#240, ADR-101 Decision 4):
      * cascade-deleting a user is exactly the case where its projects' sessions are
      * supposed to disappear along with the project, not block the delete the way they do
      * for an ordinary single-project delete. A no-op if the project is already gone, so

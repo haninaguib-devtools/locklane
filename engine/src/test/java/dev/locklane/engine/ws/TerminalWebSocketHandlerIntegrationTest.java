@@ -29,7 +29,7 @@ import java.util.function.Supplier;
  * with that project's id, so #242's project-owner-derived authorization (covered by
  * {@code WebSocketSessionOwnershipIntegrationTest}, not here) is satisfied by actual
  * ownership. Before #394 these logged in as an admin instead and leaned on the role
- * exemption ADR-011 withdrew; that is no longer available, and the point of this
+ * exemption ADR-105 withdrew; that is no longer available, and the point of this
  * class is terminal I/O, not authorization.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

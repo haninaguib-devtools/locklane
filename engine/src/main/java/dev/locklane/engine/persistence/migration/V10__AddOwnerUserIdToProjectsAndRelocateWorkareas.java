@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * {@code owner_user_id} (#239, ADR-007 Decision 1) is the actual authorization
+ * {@code owner_user_id} (#239, ADR-101 Decision 1) is the actual authorization
  * boundary for a project: every project belongs to exactly one account, and every
  * project read/write path checks this column against the caller's identity (admin
  * excepted) in the application layer — never the filesystem. Left nullable at the
@@ -34,7 +34,7 @@ import java.util.List;
  * required an authenticated caller — that case is a no-op.
  *
  * <p>Also relocates each backfilled project's on-disk workarea directory from
- * {@code <parent>/<slug>} to {@code <parent>/<owner_user_id>/<slug>} (ADR-007
+ * {@code <parent>/<slug>} to {@code <parent>/<owner_user_id>/<slug>} (ADR-101
  * Decision 2), so the layout on disk matches what {@code ProjectCheckoutService}
  * writes for every new project from here on. Safe to interrupt and rerun: only rows
  * still missing an owner are considered, the move is skipped (not an error) when the
@@ -98,7 +98,7 @@ public class V10__AddOwnerUserIdToProjectsAndRelocateWorkareas extends BaseJavaM
         }
     }
 
-    /** {@code <parent>/<slug>} -> {@code <parent>/<ownerUserId>/<slug>}, per ADR-007 Decision 2. */
+    /** {@code <parent>/<slug>} -> {@code <parent>/<ownerUserId>/<slug>}, per ADR-101 Decision 2. */
     private static Path relocated(Path oldPath, long ownerUserId) {
         Path parent = oldPath.getParent();
         Path leaf = oldPath.getFileName();

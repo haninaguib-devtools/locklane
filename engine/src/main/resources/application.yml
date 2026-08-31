@@ -67,7 +67,7 @@ locklane:
     interval-ms: 3600000
   worktree-cleanup:
     # How often dev.locklane.engine.persistence.WorktreeCleanupSweeper re-evaluates
-    # every console-created worktree for automatic removal (#319, ADR-008's carve-out
+    # every console-created worktree for automatic removal (#319, ADR-102's carve-out
     # of ADR-005) -- coarse on purpose: a worktree only ever becomes eligible once its
     # issue is closed, so there is no benefit to checking faster than a human is
     # likely to close issues.

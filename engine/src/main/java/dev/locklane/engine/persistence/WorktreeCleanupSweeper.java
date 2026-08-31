@@ -41,15 +41,15 @@ import java.util.Optional;
  * per-row manual "remove worktree" action calls this rather than re-deriving the
  * guard's conditions for itself, and shows the reason verbatim when it refuses.
  *
- * <p>#342 widens ADR-008's carve-out one step further: once a worktree is actually
+ * <p>#342 widens ADR-102's carve-out one step further: once a worktree is actually
  * removed, its local {@code wip/<id>-<slug>} branch would otherwise survive forever
  * (ADR-005) with nobody ever prompted to clean it up (the same "nobody is ever
- * prompted" reasoning ADR-008 applied to the worktree itself) — see ADR-009. {@link
+ * prompted" reasoning ADR-102 applied to the worktree itself) — see ADR-103. {@link
  * #removeWorktree} attempts {@code git branch -d} (never {@code -D}, never retried)
  * on that branch immediately after the worktree is gone: git's own merge check is the
  * only judgment made, so a shipped branch goes and an unmerged one silently survives.
  *
- * <p>#339/ADR-010 adds a second, distinct carve-out alongside this one, for a
+ * <p>#339/ADR-104 adds a second, distinct carve-out alongside this one, for a
  * worktree-creation path this class's original guard was never written for: a
  * project console (no issue of its own, {@link ProjectConsoleService}). {@link
  * #allProjectConsoleWorktrees()}/{@link #removalRefusalReasonForProjectConsole}/
@@ -185,7 +185,7 @@ public class WorktreeCleanupSweeper {
         // SessionRegistry#close, broadcast the same consolesChanged event a human
         // explicitly closing it would) so nothing lists a path that no longer exists.
         sessionRegistry.close(worktree.worktreeId());
-        // ADR-009: the branch goes the same way the worktree just did, but only when
+        // ADR-103: the branch goes the same way the worktree just did, but only when
         // git itself considers it safe -- "-d", never "-D", and no retry on refusal.
         // Branches live in the shared repo, not per-worktree, so this runs against
         // the project's own checkout, which the worktree removal above never touches.
@@ -262,7 +262,7 @@ public class WorktreeCleanupSweeper {
 
     /**
      * Empty when {@code worktree} clears every one of this second guard's four
-     * conditions (#339/ADR-010), checked fresh, in the order stated there; otherwise
+     * conditions (#339/ADR-104), checked fresh, in the order stated there; otherwise
      * the reason the first failing one refuses, worded for a human reading it on the
      * project page rather than a log line — the same {@link #removalRefusalReason}
      * pattern the per-issue guard already established, applied to a worktree-creation
@@ -312,8 +312,8 @@ public class WorktreeCleanupSweeper {
 
     /**
      * Whether {@code workingDirectory}'s HEAD commit is reachable from a freshly
-     * fetched {@code origin/main} — the one guard condition #339/ADR-010 needed that
-     * ADR-008's per-issue guard never did: a detached worktree has no branch to
+     * fetched {@code origin/main} — the one guard condition #339/ADR-104 needed that
+     * ADR-102's per-issue guard never did: a detached worktree has no branch to
      * preserve a commit once the worktree (and its reflog) is removed, unlike a
      * per-issue worktree's named branch. Fetches first so a stale local
      * {@code origin/main} never says yes to a commit that has since been judged not

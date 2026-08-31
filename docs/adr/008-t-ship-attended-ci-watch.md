@@ -1,4 +1,4 @@
-# ADR-012: `/t-ship` watches CI attended; `/t-drive` Solo drops its own pre-look
+# ADR-008: `/t-ship` watches CI attended; `/t-drive` Solo drops its own pre-look
 
 **Status:** Accepted · 2026-08-31
 **Deciders:** project owner *(solo phase; queued for review alongside ADR-001–007 if a
