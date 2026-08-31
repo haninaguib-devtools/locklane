@@ -1,5 +1,8 @@
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ConsoleTabsComponent } from './console-tabs.component';
+import { ConsoleTab } from './console-labels';
 
 describe('ConsoleTabsComponent', () => {
   it('emits the clicked console id', () => {
@@ -102,7 +105,12 @@ describe('ConsoleTabsComponent', () => {
   });
 
   it('renders the reveal icon on a live console tab but not on the pinned Overview tab (#441)', () => {
-    TestBed.configureTestingModule({ imports: [ConsoleTabsComponent] });
+    // The http providers exist for the open-a-shell control's services (#447),
+    // constructed with the component; this test itself never talks HTTP.
+    TestBed.configureTestingModule({
+      imports: [ConsoleTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
     const fixture = TestBed.createComponent(ConsoleTabsComponent);
     fixture.componentInstance.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
     fixture.detectChanges();
@@ -168,5 +176,113 @@ describe('ConsoleTabsComponent', () => {
 
     expect(emitted).toBe(0);
     expect(c.renamingId).toBeNull();
+  });
+});
+
+// The open-a-shell control (#447) talks HTTP and the DOM, so unlike the pure unit
+// tests above these render the component under TestBed.
+describe('ConsoleTabsComponent open-a-shell (#447)', () => {
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [ConsoleTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => httpMock.verify());
+
+  function render(tabs: ConsoleTab[], overview = true) {
+    const fixture = TestBed.createComponent(ConsoleTabsComponent);
+    fixture.componentInstance.tabs = tabs;
+    fixture.componentInstance.overview = overview;
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('shows the icon on a live console tab and never on the Overview pseudo-tab', () => {
+    const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+
+    // One icon for the one real tab; the Overview tab renders first with none.
+    const icons = fixture.nativeElement.querySelectorAll('.tab-shell');
+    expect(icons.length).toBe(1);
+    const overviewWrap = fixture.nativeElement.querySelector('.tab-wrap');
+    expect(overviewWrap.querySelector('.tab-shell')).toBeNull();
+  });
+
+  it('clicking mints a shell at the tab-carried directory and opens the singleton window', () => {
+    // The project-console page's tabs carry their directory (#447).
+    const openSpy = spyOn(window, 'open');
+    const fixture = render(
+      [{ id: '1-console-aaaa0001', agent: 'shell', label: 'console', dir: '/repo-console-aaaa0001' }],
+      false,
+    );
+
+    (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
+
+    const post = httpMock.expectOne('/api/projects/1/shells');
+    expect(post.request.method).toBe('POST');
+    expect(post.request.body).toEqual({ issueNumber: null, workingDirectory: '/repo-console-aaaa0001' });
+    post.flush({ sessionId: '1-shell-main-cccc0001', workingDirectory: '/repo-console-aaaa0001' });
+    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-main-cccc0001', 'locklane-shells');
+  });
+
+  it('an issue tab with no carried directory resolves it from the project worktree list', () => {
+    const openSpy = spyOn(window, 'open');
+    const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+
+    (fixture.nativeElement.querySelectorAll('.tab-shell')[0] as HTMLButtonElement).click();
+
+    httpMock.expectOne('/api/projects/1/worktrees').flush([
+      {
+        worktreeId: '1-7-do-the-thing',
+        issueNumber: 7,
+        workingDirectory: '/repo-7',
+        clean: true,
+        sessionAttached: true,
+      },
+    ]);
+    const post = httpMock.expectOne('/api/projects/1/shells');
+    expect(post.request.body).toEqual({ issueNumber: 7, workingDirectory: '/repo-7' });
+    post.flush({ sessionId: '1-shell-7-dddd0001', workingDirectory: '/repo-7' });
+    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-7-dddd0001', 'locklane-shells');
+  });
+
+  it('clicking again mints another shell — no reuse', () => {
+    const openSpy = spyOn(window, 'open');
+    const fixture = render(
+      [{ id: '1-console-aaaa0001', agent: 'shell', label: 'console', dir: '/repo-console-aaaa0001' }],
+      false,
+    );
+    const icon = fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement;
+
+    icon.click();
+    httpMock
+      .expectOne('/api/projects/1/shells')
+      .flush({ sessionId: '1-shell-main-cccc0001', workingDirectory: '/repo-console-aaaa0001' });
+    icon.click();
+    httpMock
+      .expectOne('/api/projects/1/shells')
+      .flush({ sessionId: '1-shell-main-cccc0002', workingDirectory: '/repo-console-aaaa0001' });
+
+    expect(openSpy).toHaveBeenCalledTimes(2);
+    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-main-cccc0002', 'locklane-shells');
+  });
+
+  it('a failed mint shows the error note instead of opening a window', () => {
+    const openSpy = spyOn(window, 'open');
+    const fixture = render(
+      [{ id: '1-console-aaaa0001', agent: 'shell', label: 'console', dir: '/repo-console-aaaa0001' }],
+      false,
+    );
+
+    (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
+    httpMock.expectOne('/api/projects/1/shells').flush(null, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('.shell-error')).not.toBeNull();
   });
 });
