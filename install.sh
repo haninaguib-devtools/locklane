@@ -13,7 +13,8 @@
 set -euo pipefail
 
 # Mirrors engine/src/main/resources/application.yml's
-# locklane.release-check.repository — the only release channel that exists today.
+# locklane.release-check.repository — the repo whose newest permanent release the
+# in-app update banner announces; this script installs from that same channel (#465).
 REPO="haninaguib-devtools/locklane"
 INSTALL_DIR="${LOCKLANE_HOME:-$HOME/.locklane}"
 
@@ -34,8 +35,10 @@ java_bin="$(command -v java)"
 
 mkdir -p "$INSTALL_DIR"
 
-echo "Downloading locklane.jar (latest build of $REPO)..."
-gh release download latest --repo "$REPO" --pattern locklane.jar \
+# No tag argument: gh resolves the newest permanent (non-prerelease, non-draft)
+# release — the same release the in-app update banner announces (#465).
+echo "Downloading locklane.jar (newest release of $REPO)..."
+gh release download --repo "$REPO" --pattern locklane.jar \
   --dir "$INSTALL_DIR" --clobber
 
 echo "Fetching update.sh..."

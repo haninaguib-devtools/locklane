@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pulls the current locklane.jar (latest build) into this directory and relaunches it
+# Pulls the newest released locklane.jar into this directory and relaunches it
 # (#289). Run from ~/.locklane, where install.sh put things.
 #
 # The one edit it ever makes to application-locklane.properties is retiring the stored
@@ -7,7 +7,8 @@
 set -euo pipefail
 
 # Mirrors engine/src/main/resources/application.yml's
-# locklane.release-check.repository — the only release channel that exists today.
+# locklane.release-check.repository — the repo whose newest permanent release the
+# in-app update banner announces; this script updates from that same channel (#465).
 REPO="haninaguib-devtools/locklane"
 
 cd "$(dirname "$0")"
@@ -382,8 +383,10 @@ case "$service_kind" in
     ;;
 esac
 
-echo "Downloading locklane.jar (latest build of $REPO)..."
-gh release download latest --repo "$REPO" --pattern locklane.jar \
+# No tag argument: gh resolves the newest permanent (non-prerelease, non-draft)
+# release — the same release the in-app update banner announces (#465).
+echo "Downloading locklane.jar (newest release of $REPO)..."
+gh release download --repo "$REPO" --pattern locklane.jar \
   --dir . --clobber
 
 # --- Start the new build ---------------------------------------------------------
