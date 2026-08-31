@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * CRUD over projects (#42) — creating one kicks off an async clone via
@@ -37,6 +38,9 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/api/projects")
 public class ProjectController {
+
+    /** #427's accepted shape for a project's accent color — a 6-digit hex triplet. */
+    private static final Pattern HEX_COLOR = Pattern.compile("^#[0-9a-fA-F]{6}$");
 
     private final ProjectRepository repository;
     private final ProjectCheckoutService checkoutService;
@@ -119,6 +123,25 @@ public class ProjectController {
     }
 
     /**
+     * Sets this project's accent color (#427), so its own pages can be tinted with a
+     * lighter version of it — separate from, and with no effect on, the global,
+     * client-only accent that keeps driving the navbar/header. Ownership-gated the
+     * same as every other by-id operation here; the value must be a 6-digit hex color.
+     */
+    @PutMapping("/{id}/accent-color")
+    public ResponseEntity<?> setAccentColor(
+            @PathVariable long id, @RequestBody SetAccentColorRequest request, Authentication authentication) {
+        if (findAuthorized(id, authentication).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        if (request.accentColor() == null || !HEX_COLOR.matcher(request.accentColor()).matches()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "accentColor must be a hex color like #c15f3c"));
+        }
+        repository.setAccentColor(id, request.accentColor());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * The project, if it exists and the caller owns it (#239, #394). Ownership is the
      * whole of the check — no role is exempt (ADR-011). Empty either when the project
      * doesn't exist or when it belongs to someone else, deliberately
@@ -145,13 +168,16 @@ public class ProjectController {
     public record SetGithubTokenRequest(String token) {
     }
 
+    public record SetAccentColorRequest(String accentColor) {
+    }
+
     /** JSON shape for a project — {@code workareaPath} as a plain string, unlike the persisted {@link ProjectRecord}. */
     public record ProjectView(
             long id, long ownerUserId, String name, String gitUrl, String workareaPath, String defaultBranch,
-            String status, String createdAt) {
+            String status, String createdAt, String accentColor) {
         static ProjectView from(ProjectRecord r) {
             return new ProjectView(r.id(), r.ownerUserId(), r.name(), r.gitUrl(), r.workareaPath().toString(),
-                    r.defaultBranch(), r.status().name(), r.createdAt().toString());
+                    r.defaultBranch(), r.status().name(), r.createdAt().toString(), r.accentColor());
         }
     }
 }

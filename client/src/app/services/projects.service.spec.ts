@@ -26,6 +26,7 @@ describe('ProjectsService', () => {
         gitUrl: 'url',
         workareaPath: '/tmp/proj',
         defaultBranch: 'main',
+        accentColor: null,
         status: 'READY',
         createdAt: '',
       },
@@ -44,6 +45,7 @@ describe('ProjectsService', () => {
       gitUrl: 'url',
       workareaPath: '/tmp/bar',
       defaultBranch: null,
+      accentColor: null,
       status: 'CLONING',
       createdAt: '',
     };
@@ -68,6 +70,15 @@ describe('ProjectsService', () => {
 
     const req = httpMock.expectOne('/api/projects/1');
     expect(req.request.method).toBe('DELETE');
+    req.flush(null);
+  });
+
+  it('sets a project accent color via PUT /api/projects/{id}/accent-color', () => {
+    service.setAccentColor(1, '#c15f3c').subscribe();
+
+    const req = httpMock.expectOne('/api/projects/1/accent-color');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ accentColor: '#c15f3c' });
     req.flush(null);
   });
 });

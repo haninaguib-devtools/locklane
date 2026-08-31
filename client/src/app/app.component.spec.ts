@@ -22,6 +22,7 @@ describe('AppComponent', () => {
     gitUrl: 'url',
     workareaPath: '/tmp/proj',
     defaultBranch: 'main',
+    accentColor: null,
     status: 'READY',
     createdAt: '',
   };
@@ -313,6 +314,74 @@ describe('AppComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.brand')?.textContent?.trim()).toBe('LockLane - proj');
+  }));
+
+  it('picking an accent color from the project summary tints .project-pages immediately, the first time in the session (#428)', fakeAsync(() => {
+    logIn();
+    navigateToProjectSummary();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    flushSidenavAndSummary();
+    flushProjectConsoleSessions();
+    flushConsoleIndicator();
+    fixture.detectChanges();
+    flushProjectWorktrees();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
+
+    // Sage is the second preset (accent-theme-store.ts).
+    compiled.querySelectorAll<HTMLButtonElement>('.accent-swatch')[1].click();
+    httpMock.expectOne('/api/projects/1/accent-color').flush(null);
+    fixture.detectChanges();
+
+    // CurrentProjectService was already constructed by the header's own
+    // `headerTitle` read, well before this click -- this must still be an
+    // explicit re-fetch, not a no-op left over from that earlier construction
+    // (the bug this test guards against).
+    httpMock.expectOne('/api/projects').flush([{ ...PROJECT, accentColor: '#5c8a4e' }]);
+    // The console indicator re-derives from CurrentProjectService's own
+    // `projects$` (console-indicator.component.ts), so this refresh also
+    // re-fires its consoles/issues fetch -- a real, expected ripple, not
+    // specific to this bug fix.
+    flushConsoleIndicator();
+    fixture.detectChanges();
+
+    // sage (#5c8a4e) blended toward white at the same ~13% ratio.
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('rgb(234, 240, 232)');
+  }));
+
+  it('leaves .project-pages at its default background when the project has no accent color (#428)', fakeAsync(() => {
+    const fixture = openedApp();
+
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
+    expect(el.style.background).toBe('');
+  }));
+
+  it('tints .project-pages with a background derived from the accent color once one is set (#428)', fakeAsync(() => {
+    const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
+    logIn();
+    navigateToProjectSummary();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(3);
+    lists.forEach((request) => request.flush([TINTED_PROJECT]));
+    const trees = httpMock.match('/api/projects/1/issues/tree');
+    expect(trees.length).toBe(2);
+    trees.forEach((request) => request.flush([]));
+    flushUsageWidget();
+    flushProjectConsoleSessions();
+    flushConsoleIndicator();
+    fixture.detectChanges();
+    flushProjectWorktrees();
+
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
+    // terracotta (#c15f3c) blended toward white at the same ~13% ratio
+    // AccentThemeStore's own presets use for their `accentSoft` companion.
+    expect(el.style.background).toBe('rgb(247, 234, 230)');
   }));
 
   it('deleting a project from its summary page refreshes the sidenav in place (#249)', fakeAsync(() => {

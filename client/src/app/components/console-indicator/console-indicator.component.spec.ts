@@ -19,6 +19,7 @@ describe('ConsoleIndicatorComponent', () => {
     gitUrl: 'url-a',
     workareaPath: '/tmp/a',
     defaultBranch: 'main',
+    accentColor: null,
     status: 'READY',
     createdAt: '',
   };
@@ -339,6 +340,7 @@ describe('ConsoleIndicatorComponent, scoped to a project (#309)', () => {
     gitUrl: 'url-a',
     workareaPath: '/tmp/a',
     defaultBranch: 'main',
+    accentColor: null,
     status: 'READY',
     createdAt: '',
   };

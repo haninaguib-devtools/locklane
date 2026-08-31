@@ -8,6 +8,7 @@ import { ProjectsService } from './projects.service';
 export interface CurrentProject {
   id: number;
   name: string;
+  accentColor: string | null;
 }
 
 /**
@@ -51,7 +52,7 @@ export class CurrentProjectService {
       return null;
     }
     const project = this.projects().find((p) => p.id === id);
-    return project ? { id, name: project.name } : null;
+    return project ? { id, name: project.name, accentColor: project.accentColor } : null;
   });
 
   constructor() {
@@ -61,6 +62,16 @@ export class CurrentProjectService {
     // data (AppComponent injects it lazily -- see its own `currentProject`
     // getter -- and ConsoleIndicatorComponent only mounts once signed in), so
     // there is no unauthenticated fetch on the login screen to guard against.
+    this.refresh();
+  }
+
+  /**
+   * Re-fetches the project list (#428): a project's own page can change a field
+   * on it -- the accent color picker, so far -- with no other way to tell this
+   * service's cached copy, since `current()` otherwise only changes on
+   * navigation.
+   */
+  refresh(): void {
     this.projectsService.list().subscribe((projects) => this.projectsSubject.next(projects));
   }
 

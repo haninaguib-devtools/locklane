@@ -18,6 +18,7 @@ import { ReleaseBannerComponent } from './components/release-banner/release-bann
 import { AccentThemeStore } from './services/accent-theme-store';
 import { AuthService } from './services/auth.service';
 import { CurrentProjectService } from './services/current-project.service';
+import { deriveProjectBackgroundTint } from './services/project-accent-tint';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
 
 const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
@@ -105,6 +106,16 @@ export class AppComponent {
   readonly headerTitle = computed(() => {
     const project = this.currentProject.current();
     return project ? `LockLane - ${project.name}` : 'LockLane';
+  });
+
+  // The background wash behind a project's own pages (#428), derived from its
+  // accent color -- `null` for a project with none set (every pre-existing
+  // project, since the backend column is nullable), which leaves the
+  // `.project-pages` wrapper at its plain CSS background, no visual regression.
+  // Never affects `.topbar`/`.sidebar`, which sit outside this wrapper entirely.
+  readonly projectBackgroundTint = computed(() => {
+    const project = this.currentProject.current();
+    return project ? deriveProjectBackgroundTint(project.accentColor) : null;
   });
 
   readonly selectedIssue = toSignal(

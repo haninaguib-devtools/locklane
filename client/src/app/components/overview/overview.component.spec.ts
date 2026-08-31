@@ -16,6 +16,7 @@ describe('OverviewComponent', () => {
     gitUrl: 'url-a',
     workareaPath: '/tmp/a',
     defaultBranch: 'main',
+    accentColor: null,
     status: 'READY',
     createdAt: '',
   };
