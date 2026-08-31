@@ -20,12 +20,14 @@ describe('ProjectConsoleComponent', () => {
     localStorage.removeItem('locklane.defaultAgent');
     TestBed.configureTestingModule({
       imports: [ProjectConsoleComponent],
-      // The wildcard route lets tests navigate to a URL carrying the ?session
-      // handoff (#179) that the component reads off the root route's snapshot.
+      // Mirrors app.routes.ts's real `:projectId` route (#439: CurrentProjectService
+      // reads it off the snapshot) with a wildcard fallback for any other URL a test
+      // navigates to, carrying e.g. the ?session handoff (#179) read off the root
+      // route's snapshot.
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        provideRouter([{ path: '**', children: [] }]),
+        provideRouter([{ path: 'projects/:projectId/console', children: [] }, { path: '**', children: [] }]),
       ],
     });
     httpMock = TestBed.inject(HttpTestingController);
@@ -467,6 +469,38 @@ describe('ProjectConsoleComponent', () => {
 
     expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
     expect((fixture.nativeElement as HTMLElement).querySelectorAll('app-terminal').length).toBe(2);
+  }));
+
+  it('mints the new console under the newly-clicked project, not the one still rendered (#439)', fakeAsync(() => {
+    const router = TestBed.inject(Router);
+    router.navigateByUrl('/projects/1/console');
+    tick();
+
+    const fixture = init(1);
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    fixture.detectChanges();
+
+    // The click's navigation lands its query param -- and, in the real app, its route
+    // projectId -- before Angular has propagated the new projectId to this
+    // component's input (#439's race): the input is only updated below, after this
+    // navigation and its query-param subscription have already run.
+    router.navigate(['/projects', 2, 'console'], { queryParams: { new: 1 } });
+    tick();
+    httpMock.expectNone('/api/projects/1/console');
+
+    fixture.componentRef.setInput('projectId', 2);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
+    fixture.detectChanges();
+    httpMock
+      .expectOne('/api/projects/2/console')
+      .flush({ sessionId: '2-console-a1b2c3d4', workingDirectory: '/repo-2' });
+    fixture.detectChanges();
+    tick();
+
+    expect(fixture.componentInstance.selected).toBe('2-console-a1b2c3d4');
+    expect(router.url).toContain('/projects/2/console');
+    expect(router.url).not.toContain('new=1');
   }));
 
   it('ignores a further ?new while one console is still being started (#180, #370)', fakeAsync(() => {
