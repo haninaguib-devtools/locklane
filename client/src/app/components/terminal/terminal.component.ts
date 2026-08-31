@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   AfterViewInit,
   Component,
@@ -7,10 +8,13 @@ import {
   OnDestroy,
   SimpleChanges,
   ViewChild,
+  inject,
 } from '@angular/core';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { IDisposable, Terminal } from '@xterm/xterm';
+import { forkJoin } from 'rxjs';
+import { SessionUploadsService } from '../../services/session-uploads.service';
 import { TerminalSession } from '../../services/terminal-session';
 
 // One console tab's terminal. An instance is bound to a single session for its
@@ -36,6 +40,16 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() active = true;
 
   @ViewChild('container', { static: true }) container!: ElementRef<HTMLDivElement>;
+
+  /**
+   * A transient message about a dropped/pasted file (#436) — an upload refusal (too
+   * big, a folder) or failure, surfaced as an overlay instead of failing silently.
+   * The PTY's own display is never written to for this: the CLI owns that screen.
+   */
+  notice: string | null = null;
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private readonly uploadsService = inject(SessionUploadsService);
 
   private term: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
@@ -70,6 +84,62 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (event.button === 2 && this.term != null && this.term.modes.mouseTrackingMode !== 'none') {
       event.stopPropagation();
     }
+  };
+
+  // Dropping a file on a native terminal types its path; here the CLI runs on the
+  // server while the file lives on the browser's machine, and a page only ever gets
+  // the file's *contents* -- so the bytes are uploaded first and the server-side
+  // path is what gets pasted (#436). Default-prevented only when the drag actually
+  // carries files, so the browser never navigates to a dropped file while any other
+  // kind of drag keeps today's behavior untouched.
+  private readonly allowFileDrop = (event: DragEvent): void => {
+    if (event.dataTransfer?.types.includes('Files')) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  private readonly uploadDroppedFiles = (event: DragEvent): void => {
+    const transfer = event.dataTransfer;
+    if (!transfer || !transfer.types.includes('Files')) {
+      return;
+    }
+    event.preventDefault();
+    const files: File[] = [];
+    let droppedFolder = false;
+    for (const item of Array.from(transfer.items)) {
+      if (item.kind !== 'file') {
+        continue;
+      }
+      // The only reliable folder test a drop offers: a directory still yields a
+      // File object (empty, OS-dependent), so File itself can't be trusted here.
+      if (item.webkitGetAsEntry?.()?.isDirectory) {
+        droppedFolder = true;
+        continue;
+      }
+      const file = item.getAsFile();
+      if (file) {
+        files.push(file);
+      }
+    }
+    if (droppedFolder) {
+      this.showNotice('Folders cannot be dropped here — drop individual files instead.');
+    }
+    this.uploadAndPastePaths(files);
+  };
+
+  // Capture phase on the container, same trick as the right-click suppression
+  // above: it runs before xterm's own paste handling on its textarea, but only a
+  // paste actually carrying files is intercepted -- a text paste falls through to
+  // xterm completely untouched (#436).
+  private readonly uploadPastedFiles = (event: ClipboardEvent): void => {
+    const files = event.clipboardData?.files;
+    if (!files || files.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.uploadAndPastePaths(Array.from(files));
   };
 
   /* A sidenav-slider drag or live window resize fires the ResizeObserver on
@@ -171,6 +241,12 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     // Capture phase: this has to run before the mousedown reaches xterm's own
     // element, whose "always on" listener is what reports the press to the PTY.
     this.container.nativeElement.addEventListener('mousedown', this.suppressRightClickUnderMouseTracking, true);
+    // File drag-and-drop and image paste (#436). The paste listener is capture-phase
+    // -- see uploadPastedFiles; dragover must be default-prevented for the drop
+    // event to fire at all, and both are gated on the drag carrying files.
+    this.container.nativeElement.addEventListener('dragover', this.allowFileDrop);
+    this.container.nativeElement.addEventListener('drop', this.uploadDroppedFiles);
+    this.container.nativeElement.addEventListener('paste', this.uploadPastedFiles, true);
     document.addEventListener('visibilitychange', this.checkConnectionOnForeground);
     window.addEventListener('focus', this.checkConnectionOnForeground);
   }
@@ -194,8 +270,14 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.container.nativeElement.removeEventListener('mousedown', this.suppressRightClickUnderMouseTracking, true);
+    this.container.nativeElement.removeEventListener('dragover', this.allowFileDrop);
+    this.container.nativeElement.removeEventListener('drop', this.uploadDroppedFiles);
+    this.container.nativeElement.removeEventListener('paste', this.uploadPastedFiles, true);
     document.removeEventListener('visibilitychange', this.checkConnectionOnForeground);
     window.removeEventListener('focus', this.checkConnectionOnForeground);
+    if (this.noticeTimer !== null) {
+      clearTimeout(this.noticeTimer);
+    }
     if (this.pendingFit !== null) {
       clearTimeout(this.pendingFit);
     }
@@ -252,6 +334,36 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     }
   }
 
+  /**
+   * Uploads each file and pastes the server-side paths through xterm's own paste()
+   * — the same bracketed-paste transformation keyboard paste gets (#436), so a CLI
+   * with paste mode on sees one atomic paste, exactly like a path typed by a
+   * native terminal's drag-and-drop. A trailing space matches that native behavior
+   * and leaves the prompt ready for Enter.
+   */
+  private uploadAndPastePaths(files: File[]): void {
+    if (files.length === 0) {
+      return;
+    }
+    forkJoin(files.map((file) => this.uploadsService.upload(this.sessionId, file))).subscribe({
+      next: (results) => this.term?.paste(results.map((result) => result.path).join(' ') + ' '),
+      error: (err) => this.showNotice(uploadFailureMessage(err)),
+    });
+  }
+
+  private showNotice(text: string): void {
+    this.notice = text;
+    if (this.noticeTimer !== null) {
+      clearTimeout(this.noticeTimer);
+    }
+    this.noticeTimer = setTimeout(() => {
+      this.noticeTimer = null;
+      this.notice = null;
+    }, TerminalComponent.NOTICE_VISIBLE_MS);
+  }
+
+  private static readonly NOTICE_VISIBLE_MS = 6000;
+
   private connect(): void {
     this.session = new TerminalSession(
       this.sessionId,
@@ -271,4 +383,19 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       },
     );
   }
+}
+
+/**
+ * The engine's own refusal wording when it sent one (#436: the size cap, an
+ * invalid session) — that message says why, so it beats anything composed here —
+ * else a generic failure line for a network error or an errorless response.
+ */
+function uploadFailureMessage(err: unknown): string {
+  if (err instanceof HttpErrorResponse) {
+    const serverMessage = (err.error as { error?: unknown } | null)?.error;
+    if (typeof serverMessage === 'string' && serverMessage.length > 0) {
+      return serverMessage;
+    }
+  }
+  return 'File upload failed — nothing was delivered to the session.';
 }

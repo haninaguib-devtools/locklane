@@ -5,6 +5,7 @@ import dev.locklane.engine.persistence.ConsoleResumeSessionRecord;
 import dev.locklane.engine.persistence.ConsoleResumeSessionRepository;
 import dev.locklane.engine.persistence.WorktreeSessionRecord;
 import dev.locklane.engine.persistence.WorktreeSessionRepository;
+import dev.locklane.engine.uploads.SessionUploadStorage;
 import dev.locklane.engine.ws.EventBroadcaster;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -62,13 +63,19 @@ public class SessionRegistry {
     private final WorktreeSessionRepository repository;
     private final ConsoleResumeSessionRepository resumeRepository;
     private final EventBroadcaster eventBroadcaster;
+    // Nullable (test-only constructors): files uploaded onto this session's terminal
+    // (#436) — removed when the session ends for good in close() below, and only
+    // there: a disconnect or engine restart keeps the session's record, so it keeps
+    // its uploads too.
+    private final SessionUploadStorage uploadStorage;
 
     @Autowired
     public SessionRegistry(WorktreeSessionRepository repository, ConsoleResumeSessionRepository resumeRepository,
-            EventBroadcaster eventBroadcaster) {
+            EventBroadcaster eventBroadcaster, SessionUploadStorage uploadStorage) {
         this.repository = repository;
         this.resumeRepository = resumeRepository;
         this.eventBroadcaster = eventBroadcaster;
+        this.uploadStorage = uploadStorage;
         this.shellCommand = defaultShellCommand();
     }
 
@@ -79,12 +86,18 @@ public class SessionRegistry {
      * a null repository turns the scan off; tests that care pass a real one.
      */
     public SessionRegistry(WorktreeSessionRepository repository) {
-        this(repository, null, new EventBroadcaster(new ObjectMapper()));
+        this(repository, null, new EventBroadcaster(new ObjectMapper()), null);
     }
 
     /** Test-only: resume-id capture on (#102), events channel off — see above. */
     public SessionRegistry(WorktreeSessionRepository repository, ConsoleResumeSessionRepository resumeRepository) {
-        this(repository, resumeRepository, new EventBroadcaster(new ObjectMapper()));
+        this(repository, resumeRepository, new EventBroadcaster(new ObjectMapper()), null);
+    }
+
+    /** Test-only: a real events channel, no resume capture and no upload cleanup (#436). */
+    public SessionRegistry(WorktreeSessionRepository repository, ConsoleResumeSessionRepository resumeRepository,
+            EventBroadcaster eventBroadcaster) {
+        this(repository, resumeRepository, eventBroadcaster, null);
     }
 
     /**
@@ -265,6 +278,12 @@ public class SessionRegistry {
             session.close();
         }
         repository.delete(sessionId);
+        // Files uploaded onto this session's terminal (#436) end with it —
+        // unconditionally, not only when something was open: a folder can survive
+        // from before an engine restart, when the live session was already gone.
+        if (uploadStorage != null) {
+            uploadStorage.deleteFor(sessionId);
+        }
         if (wasOpen) {
             broadcastConsolesChanged(sessionId);
         }

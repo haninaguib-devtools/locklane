@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
@@ -41,7 +43,12 @@ describe('TerminalComponent', () => {
     originalWebSocket = window.WebSocket;
     (window as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
     FakeWebSocket.opened = [];
-    TestBed.configureTestingModule({ imports: [TerminalComponent] });
+    TestBed.configureTestingModule({
+      imports: [TerminalComponent],
+      // The component injects SessionUploadsService (#436); nothing here talks to a
+      // real backend.
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
   });
 
   afterEach(() => {
@@ -329,4 +336,119 @@ describe('TerminalComponent', () => {
       (window as unknown as { ResizeObserver: unknown }).ResizeObserver = originalResizeObserver;
     }
   }));
+
+  // File drag-and-drop and image paste (#436).
+
+  function fileTransfer(name = 'shot.png'): DataTransfer {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['png-bytes'], name, { type: 'image/png' }));
+    return transfer;
+  }
+
+  it('uploads a dropped file and pastes the server-side path through xterm paste (#436)', () => {
+    mountTab(true);
+    const pasteSpy = spyOn(Terminal.prototype, 'paste');
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    const drop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: fileTransfer() });
+    const browserDefaultAllowed = containerEl().dispatchEvent(drop);
+
+    expect(browserDefaultAllowed).withContext('drop must be default-prevented so the browser never navigates').toBeFalse();
+    const req = httpMock.expectOne('/api/sessions/test-session/uploads');
+    req.flush({ path: '/srv/uploads/test-session/shot.png' });
+    expect(pasteSpy).toHaveBeenCalledWith('/srv/uploads/test-session/shot.png ');
+    httpMock.verify();
+  });
+
+  it('default-prevents dragover only for a drag that carries files (#436)', () => {
+    mountTab(true);
+
+    const fileDrag = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: fileTransfer() });
+    expect(containerEl().dispatchEvent(fileDrag)).toBeFalse();
+
+    const textTransfer = new DataTransfer();
+    textTransfer.setData('text/plain', 'not a file');
+    const textDrag = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: textTransfer });
+    expect(containerEl().dispatchEvent(textDrag)).toBeTrue();
+  });
+
+  it('leaves a non-file drop completely untouched (#436)', () => {
+    mountTab(true);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', 'dragged text');
+    const drop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer });
+
+    expect(containerEl().dispatchEvent(drop)).toBeTrue();
+    httpMock.verify(); // nothing uploaded
+  });
+
+  it('uploads a pasted image file and pastes its path the same way (#436)', () => {
+    mountTab(true);
+    const pasteSpy = spyOn(Terminal.prototype, 'paste');
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    const paste = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: fileTransfer() });
+    const browserDefaultAllowed = containerEl().dispatchEvent(paste);
+
+    expect(browserDefaultAllowed).toBeFalse();
+    const req = httpMock.expectOne('/api/sessions/test-session/uploads');
+    req.flush({ path: '/srv/uploads/test-session/shot.png' });
+    expect(pasteSpy).toHaveBeenCalledWith('/srv/uploads/test-session/shot.png ');
+    httpMock.verify();
+  });
+
+  it('leaves a text paste untouched, so keyboard paste keeps working exactly as before (#436)', () => {
+    mountTab(true);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', 'pasted text');
+    const paste = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer });
+
+    expect(containerEl().dispatchEvent(paste)).toBeTrue();
+    httpMock.verify(); // nothing uploaded
+  });
+
+  it('surfaces the engine refusal instead of failing silently when an upload is rejected (#436)', () => {
+    const component = mountTab(true);
+    const pasteSpy = spyOn(Terminal.prototype, 'paste');
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    containerEl().dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: fileTransfer() }));
+    httpMock.expectOne('/api/sessions/test-session/uploads').flush(
+      { error: 'The file exceeds the 10 MB upload limit' },
+      { status: 413, statusText: 'Payload Too Large' },
+    );
+
+    expect(component.notice).toBe('The file exceeds the 10 MB upload limit');
+    expect(pasteSpy).not.toHaveBeenCalled();
+    fixture!.detectChanges();
+    expect((fixture!.nativeElement as HTMLElement).querySelector('.upload-notice')?.textContent)
+      .toContain('upload limit');
+    httpMock.verify();
+  });
+
+  it('politely refuses a dropped folder (#436)', () => {
+    const component = mountTab(true);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    // A synthetic DataTransfer cannot fabricate a directory entry, so the handler is
+    // fed a hand-built event shaped like Chrome's real folder drop: kind 'file',
+    // webkitGetAsEntry reporting a directory.
+    const folderItem = {
+      kind: 'file',
+      webkitGetAsEntry: () => ({ isDirectory: true }),
+      getAsFile: () => null,
+    };
+    const event = {
+      dataTransfer: { types: ['Files'], items: [folderItem], files: { length: 1 } },
+      preventDefault: jasmine.createSpy('preventDefault'),
+    } as unknown as DragEvent;
+    (component as unknown as { uploadDroppedFiles: (e: DragEvent) => void }).uploadDroppedFiles(event);
+
+    expect(component.notice).toContain('Folders cannot be dropped here');
+    httpMock.verify(); // nothing uploaded
+  });
 });
