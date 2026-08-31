@@ -34,7 +34,7 @@ public class CliReleaseClient implements ReleaseClient {
     public Optional<GhRelease> latestRelease() {
         try {
             ProcessBuilder builder = new ProcessBuilder("gh", "release", "view",
-                    "--repo", repository, "--json", "tagName");
+                    "--repo", repository, "--json", "tagName,url");
             Process process = builder.start();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             int exit = process.waitFor();
@@ -45,7 +45,7 @@ public class CliReleaseClient implements ReleaseClient {
                 return Optional.empty();
             }
             JsonNode node = MAPPER.readTree(output);
-            return Optional.of(new GhRelease(node.path("tagName").asText()));
+            return Optional.of(new GhRelease(node.path("tagName").asText(), node.path("url").asText()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return Optional.empty();

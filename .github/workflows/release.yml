@@ -1,8 +1,12 @@
-# Publishes a rolling "latest" release of the runnable engine jar on every push to
-# main (#95), and, when the pushed commit's pom version has dropped its -SNAPSHOT
-# suffix, also cuts a permanent release tagged v<version> that never changes again
-# (#98). The two coexist: "latest" always tracks the newest build regardless of
-# version; the permanent release only appears the moment a version is actually cut.
+# Cuts a release on manual dispatch (workflow_dispatch-only since #207). `main` always
+# builds toward an `X.Y.Z-SNAPSHOT` version (#463): the maintainer picks the next
+# version by editing `<revision>` in the root pom through an ordinary PR, and this
+# workflow derives the release version by stripping the `-SNAPSHOT` suffix, builds the
+# jar as that bare version, and publishes a permanent release tagged `v<version>` that
+# never changes again (#98). That permanent release is the only channel: install.sh,
+# update.sh, and the in-app update banner all resolve the newest one (#465). The
+# release body is the version's CHANGELOG.md section, merged to main through a notes
+# PR before the dispatch and extracted verbatim here — never generated here (#464).
 name: Release
 
 on:
@@ -11,10 +15,11 @@ on:
 permissions:
   contents: read
 
-# A second push landing while an earlier run is still publishing must not race it for
-# the same "latest" release — cancel the older, still-running publish instead.
+# A second dispatch landing while an earlier run is still publishing must not race it
+# past the immutability check for the same version — cancel the older, still-running
+# publish instead.
 concurrency:
-  group: release-latest
+  group: release
   cancel-in-progress: true
 
 jobs:
@@ -32,74 +37,65 @@ jobs:
           java-version: "21"
           cache: maven
 
+      - name: Derive the release version from the pom revision
+        id: version
+        # `<revision>` on main is always `X.Y.Z-SNAPSHOT` (#463,
+        # docs/architecture/releasing.md); the release version is that value with the
+        # suffix stripped. `${raw%-SNAPSHOT}` is a no-op when the suffix is absent, so
+        # a dispatch against an already-bare revision still releases that version —
+        # the immutability check below is what protects a version already cut.
+        run: |
+          raw=$(./mvnw -q -f engine/pom.xml help:evaluate \
+            -Dexpression=project.version -DforceStdout)
+          version="${raw%-SNAPSHOT}"
+          echo "Revision is ${raw}; releasing ${version}."
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract this version's notes from CHANGELOG.md
+        # The notes PR merged this version's section into CHANGELOG.md before the
+        # dispatch (#464, docs/architecture/releasing.md § Release notes); this step
+        # only extracts it — regenerating notes here could drift from what the human
+        # reviewed, so the release body equals the committed section by construction.
+        # No section means the notes PR has not landed: fail before spending a build.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! ./scripts/generate-release-notes.sh extract --version "$VERSION" > release-notes.md; then
+            echo "::error::CHANGELOG.md has no section for ${VERSION} — generate and merge the notes PR before dispatching (docs/architecture/releasing.md)"
+            exit 1
+          fi
+
       - name: Build and test the engine, then repackage the runnable jar
-        # From the root, not `-f engine/pom.xml`: engine/pom.xml parents to
-        # spring-boot-starter-parent rather than the root aggregator, and engine
-        # depends on the client module. Building engine standalone skips the
-        # reactor, so a fresh runner (no client jar in its local repo yet) fails to
-        # resolve that dependency. The root build resolves it through the reactor.
-        run: ./mvnw -B package
+        # From the root, not `-f engine/pom.xml`: engine depends on the client
+        # module, and building engine standalone skips the reactor, so a fresh
+        # runner (no client jar in its local repo yet) fails to resolve that
+        # dependency. The root build resolves it through the reactor.
+        #
+        # -Drevision overrides the pom's `X.Y.Z-SNAPSHOT` with the bare release
+        # version (Maven CI-friendly versions resolve it reactor-wide), so the
+        # published jar identifies itself as the release, never as a SNAPSHOT.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./mvnw -B package -Drevision="$VERSION"
 
       - name: Stage the jar under its fixed release asset name
-        id: stage
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # Read the version at build time rather than hardcoding it, so no literal
-          # version string ever needs to appear (or drift out of date) in this file.
-          version=$(./mvnw -q -f engine/pom.xml help:evaluate \
-            -Dexpression=project.version -DforceStdout)
-
           # engine/pom.xml sets no <finalName>, so Maven's default naming applies:
           # the spring-boot-maven-plugin repackages this jar in place.
-          src="engine/target/engine-${version}.jar"
+          src="engine/target/engine-${VERSION}.jar"
           if [ ! -f "$src" ]; then
             echo "::error::expected jar not found at $src"
             exit 1
           fi
           cp "$src" locklane.jar
 
-          short_sha="${GITHUB_SHA:0:7}"
-          title="${version} (build ${GITHUB_RUN_NUMBER} · ${short_sha})"
-          echo "title=${title}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Upsert the rolling "latest" release
+      - name: Cut the permanent release for the derived version
         env:
           GH_TOKEN: ${{ github.token }}
-          TITLE: ${{ steps.stage.outputs.title }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # Update in place rather than delete-then-create, so the download URL never
-          # 404s mid-run. "latest" is a pre-release: it is a moving pointer at the
-          # newest build, never a permanent version.
-          if gh release view latest --json tagName >/dev/null 2>&1; then
-            gh release edit latest --title "$TITLE"
-          else
-            gh release create latest \
-              --title "$TITLE" \
-              --notes "Rolling build of the newest commit on main. Not a permanent version — see releases tagged v* for those, once they exist." \
-              --prerelease \
-              --target "$GITHUB_SHA"
-          fi
-          gh release upload latest locklane.jar --clobber
-
-      - name: Move the "latest" tag to this commit
-        # gh release edit's --target is only honored when a tag is first created — once
-        # "latest" already exists, editing the release's target does not move it. The
-        # tag itself has to be force-moved directly.
-        run: |
-          git tag -f latest "$GITHUB_SHA"
-          git push --force origin refs/tags/latest
-
-      - name: Cut a permanent release for this version, if it dropped -SNAPSHOT
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.stage.outputs.version }}
-        run: |
-          # SNAPSHOT builds have no version to hang a permanent release on — only
-          # "latest", updated above, tracks them.
-          case "$VERSION" in
-            *-SNAPSHOT) echo "Version $VERSION is a SNAPSHOT — no permanent release."; exit 0 ;;
-          esac
-
           tag="v${VERSION}"
 
           # A released version is immutable: a second run against the same version
@@ -112,6 +108,6 @@ jobs:
 
           gh release create "$tag" \
             --title "$tag" \
-            --notes "Permanent release of version ${VERSION}." \
+            --notes-file release-notes.md \
             --target "$GITHUB_SHA" \
             locklane.jar
