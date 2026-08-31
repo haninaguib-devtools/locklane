@@ -2,6 +2,9 @@
 <app-update-banner />
 @if (!isLoggedIn()) {
   <app-login />
+} @else if (onShellsWindow()) {
+  <!-- The Shells window (#446): its own minimal shell, no topbar/sidebar. -->
+  <app-shells-window />
 } @else {
   <div class="authed">
     <div class="topbar">

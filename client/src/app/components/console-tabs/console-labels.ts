@@ -7,10 +7,14 @@ export const OVERVIEW_TAB_ID = 'overview';
 
 // A console open under an issue: the engine's session id, plus the agent the
 // client remembers launching it with (null when unknown — another browser
-// opened it, or storage was cleared).
+// opened it, or storage was cleared). `dir` is the console's working directory
+// when the caller knows it (#447: the project-console page's tabs carry it at
+// runtime, since labelProjectConsoles spreads that page's own console objects);
+// absent, the open-shell control resolves it from the project worktree list.
 export interface ConsoleInfo {
   id: string;
   agent: Agent | null;
+  dir?: string | null;
 }
 
 export interface ConsoleTab extends ConsoleInfo {

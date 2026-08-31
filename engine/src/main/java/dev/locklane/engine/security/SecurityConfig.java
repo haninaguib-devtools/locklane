@@ -87,6 +87,11 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects/*/consoles").authenticated()
                         .requestMatchers("/api/projects/*/console").authenticated()
                         .requestMatchers("/api/projects/*/console/*").authenticated()
+                        // The shell-session endpoints (#445/#460): the trailing /**
+                        // matches zero or more segments, covering both the collection
+                        // POST and the per-session DELETE.
+                        .requestMatchers("/api/projects/*/shells/**").authenticated()
+                        .requestMatchers("/api/shells").authenticated()
                         .requestMatchers("/api/sessions/*/uploads").authenticated()
                         .requestMatchers("/api/usage").authenticated()
                         .requestMatchers("/api/agents/**").authenticated()
