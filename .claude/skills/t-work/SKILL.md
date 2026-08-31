@@ -137,7 +137,9 @@ implementation before editing files.
    continuing, never bypassed (`CONSTITUTION.md` §1.5).
 4. Commit on the branch — real messages, imperative, no `wip`, no trailers.
 5. Push (`git push -u origin wip/<id>-<slug>`) and open the draft PR
-   (`forge:pr-create-draft`) — title: `[<id>] <issue title>`; body: the tracker's
+   (`forge:pr-create-draft`, against `main` unless the invoking session directed this run
+   at a different base — `/t-drive` does, naming the initiative's integration branch for
+   a driven child, ADR-004 Decision 1) — title: `[<id>] <issue title>`; body: the tracker's
    auto-close phrase for `<id>` when it has one (`tracker:auto-close-on-merge`),
    followed by what changed, what was verified with actual results, and what remains
    open. **Include a `## Checks run` section**, one line per check that is a candidate

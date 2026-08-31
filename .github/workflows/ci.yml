@@ -1,20 +1,30 @@
 # Mechanical enforcement (workflow §9): the checks AGENTS.md §Checks names, run on every
 # PR and on main, plus the CONSTITUTION.md §3 gates task #30 adds (plan, blockers,
 # record honesty, PR title — the cold-review gate lives in review-gate.yml, since it
-# also needs the pull_request_review trigger). Every job name here is a status-check
-# context `.t-workflow/scripts/github-bootstrap.sh` marks required in branch protection — renaming
-# one means updating that script in the same change.
+# also needs the pull_request_review trigger). The job name here is a status-check
+# context `.t-workflow/scripts/github-bootstrap.sh` marks required in branch protection —
+# renaming it means updating that script in the same change.
 #
-# `edited` is added to the default pull_request types so a title-only edit (title-gate)
-# or an issue-body-only edit (plan-gate, which reads the issue, not the PR) gets a fresh
-# run without needing a new commit. That trigger applies to the whole workflow, so a job
-# with no reason to react to an edit opts back out individually (#81) with
-# `if: github.event.action != 'edited'`.
+# Every check below runs as one job with sequential steps, not one job each (#94/#113):
+# GitHub Actions bills each job on its own runner rounded up to a full minute, so seven
+# jobs of a few seconds' real work each billed roughly seven minutes for well under one
+# minute of actual work. Steps in one job share a runner and are billed together. Each
+# step below still has its own name, its own log, and its own pass/fail outcome — a
+# failure in any one of them fails the job (and therefore the PR) exactly as when each
+# ran as its own job — and `if: "!cancelled() && ..."` (rather than a job-level `if:`)
+# keeps every later step running even after an earlier one has already failed, so a PR
+# with more than one failing check still surfaces all of them in a single run.
+#
+# The job itself is skipped while the PR is a draft (#113): the whole work/review/fix
+# window then costs zero hosted minutes, and the one run that gates a merge starts when
+# `ready_for_review` fires — normally `/t-ship` marking the PR ready. A `push` event has
+# no `pull_request` payload, so `github.event_name != 'pull_request'` short-circuits the
+# condition true for `push: main`, which always runs regardless of any PR's draft state.
 name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -23,43 +33,37 @@ permissions:
   # plan-gate, title-gate, and blockers all read issue state (body, title, blockedBy).
   issues: read
 
+# One PR's runs supersede each other (keyed by PR number, stable across pushes); one
+# main's pushes supersede each other (keyed by ref) — a superseded run is cancelled
+# rather than left to bill for a result nobody will read (#113).
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  consistency:
-    name: consistency
-    # No code an 'edited' event (a PR title/body change) can affect — running this on
-    # an edit-only event is pure waste (#81). `github.event.action` is unset on `push`,
-    # and an unset property compared with `!=` evaluates true, so the guard leaves the
-    # `push: main` trigger unaffected.
-    if: github.event.action != 'edited'
+  checks:
+    name: checks
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # 20, not the template's 10: this consumer's build step below runs a full
+    # Maven + frontend build, and a cold-cache run needs the headroom.
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Cross-artifact document consistency
-        run: ./.t-workflow/scripts/consistency-check.sh
-
-  # This repo's own addition, not template content: the template itself carries no
-  # .template-manifest.json (it is not a pinned consumer), so its own copy of this
-  # workflow has no equivalent job — docs/architecture/manifest.md §The CI lock says
-  # each consumer wires this in itself. Task #192.
-  manifest:
-    name: manifest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Template-owned files match the pinned manifest
-        run: ./.t-workflow/scripts/check-manifest.sh
-
-  # CONSTITUTION.md §1.2 makes "a record rides in its PR" non-optional, and workflow §1.4
-  # prefers a rule the build enforces over one the model must remember.
-  record:
-    name: record
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
+      # fetch-depth: 0 for record and plan-gate below, which diff against
+      # origin/$BASE_REF; the other steps don't need full history but aren't harmed by
+      # it, so one shared checkout replaces what were five identical ones.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+
+      - name: Cross-artifact document consistency
+        if: "!cancelled()"
+        run: ./.t-workflow/scripts/consistency-check.sh
+
+      # CONSTITUTION.md §1.2 makes "a record rides in its PR" non-optional, and workflow
+      # §1.4 prefers a rule the build enforces over one the model must remember.
       - name: A task PR carries its own task record
+        if: "!cancelled() && github.event_name == 'pull_request'"
         env:
           # Both refs go through env, never straight into the script: git ref names allow
           # characters the shell would interpret.
@@ -114,18 +118,11 @@ jobs:
           # sections) is not honest — goal item 4 of #30.
           bash .t-workflow/scripts/check-record.sh "$id" "$recfile"
 
-  # CONSTITUTION.md §3's plan-before-protected-work rule, mechanized (goal item 1 of
-  # #30): a PR whose diff touches a protected surface fails unless its issue carries
-  # exactly one `## Plan` section.
-  plan-gate:
-    name: plan-gate
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
+      # CONSTITUTION.md §3's plan-before-protected-work rule, mechanized (goal item 1 of
+      # #30): a PR whose diff touches a protected surface fails unless its issue carries
+      # exactly one `## Plan` section.
       - name: A protected diff carries exactly one Plan section
+        if: "!cancelled() && github.event_name == 'pull_request'"
         env:
           HEAD_REF: ${{ github.head_ref }}
           BASE_REF: ${{ github.base_ref }}
@@ -135,7 +132,7 @@ jobs:
           # `## Plan` of its own — the initiative issue never has one. Every child that
           # touched a protected surface was already plan-gated individually, on its own
           # PR against this same branch, before /t-drive merged it in (ADR-004 Decision
-          # 1) — this job's check already ran, successfully, once per included child.
+          # 1) — this step's check already ran, successfully, once per included child.
           if printf '%s' "$HEAD_REF" | grep -qE '^wip/[0-9]+-integration$'; then
             echo "OK: $HEAD_REF is a driven-initiative integration branch — each included child was already plan-gated individually."
             exit 0
@@ -150,14 +147,9 @@ jobs:
           git -c core.quotePath=false diff --name-only "origin/$BASE_REF"...HEAD |
             bash .t-workflow/scripts/check-plan-gate.sh /tmp/issue-body.md
 
-  # /t-work Phase 3's PR title convention, mechanized (goal item 5 of #30).
-  title-gate:
-    name: title-gate
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # /t-work Phase 3's PR title convention, mechanized (goal item 5 of #30).
       - name: The PR title starts with [<id>], matching the branch
+        if: "!cancelled() && github.event_name == 'pull_request'"
         env:
           HEAD_REF: ${{ github.head_ref }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -169,18 +161,14 @@ jobs:
           fi
           bash .t-workflow/scripts/check-title-gate.sh "$id" "$PR_TITLE"
 
-  # ADR-001 §D3.2 over the native blockedBy field (ADR-003), mechanized (goal item 3 of
-  # #30): every blocker of the PR's issue must be closed as completed. Re-evaluated on
-  # every pull_request sync/reopen/edit — the closest approximation to "at merge time"
-  # available without a merge queue (see the Plan's human_checks on this issue); a
-  # human who wants a fresher read before clicking merge can re-run this job.
-  blockers:
-    name: blockers
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # ADR-001 §D3.2 over the native blockedBy field (ADR-003), mechanized (goal item 3
+      # of #30): every blocker of the PR's issue must be closed as completed.
+      # Re-evaluated on every pull_request sync/reopen/ready-for-review — the closest
+      # approximation to "at merge time" available without a merge queue (see the Plan's
+      # human_checks on this issue); a human who wants a fresher read before clicking
+      # merge can re-run this job.
       - name: Every blocker of this task's issue is closed as completed
+        if: "!cancelled() && github.event_name == 'pull_request'"
         env:
           HEAD_REF: ${{ github.head_ref }}
           OWNER: ${{ github.repository_owner }}
@@ -209,29 +197,28 @@ jobs:
             --jq '.data.repository.issue.blockedBy.nodes' > /tmp/blockers.json
           bash .t-workflow/scripts/check-blocker-gate.sh /tmp/blockers.json
 
-  # Regression coverage for the plumbing behind the gates above: protected-paths.sh's
-  # exit codes and quoting, the bucket math, and every check-*.sh script against
-  # fixtures (Done-when 1 and 2 of #30).
-  plumbing-test:
-    name: plumbing-test
-    # Same reasoning as `consistency` above — nothing an 'edited' event can affect (#81).
-    if: github.event.action != 'edited'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Regression coverage for the plumbing behind the gates above: protected-paths.sh's
+      # exit codes and quoting, the bucket math, and every check-*.sh script against
+      # fixtures (Done-when 1 and 2 of #30).
       - name: Gate scripts behave correctly against fixtures
+        if: "!cancelled()"
         run: ./.t-workflow/scripts/plumbing-test.sh
 
-  # AGENTS.md §Checks item 1 is the single place that names this command.
-  build:
-    name: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # This repo's own addition, not template content: the template carries no
+      # .template-manifest.json (it is not a pinned consumer) — docs/architecture/
+      # manifest.md §The CI lock says each consumer wires this in itself. Task #192,
+      # folded from its own job into a step here at the v0.0.8 sync.
+      - name: Template-owned files match the pinned manifest
+        if: "!cancelled()"
+        run: ./.t-workflow/scripts/check-manifest.sh
+
+      # AGENTS.md §Checks item 1 is the single place that names this command.
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        if: "!cancelled()"
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
       - name: Build and test every module
+        if: "!cancelled()"
         run: ./mvnw -B test

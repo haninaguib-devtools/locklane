@@ -79,15 +79,28 @@ holding only the id, so this matters more here than anywhere else.
    its failures are findings, semantic consistency stays this skill's judgment).
 
    **A check tagged `either` (or, with no plan, one named in `AGENTS.md` §Checks) may be
-   reported as already passing, without running it again, only when the PR's
-   `## Checks run` section (`/t-work` Phase 3 step 5) names that exact command at a
-   commit sha equal to `.pr.headRefOid`** — the head this review is reading, already in
-   the snapshot from step 2. Anything short of an exact match — no such section, a
-   differently-worded command, or a sha that is not the current head (a push landed
-   after the note was written, including a fix-mode push that rewrote the section for a
-   newer commit) — leaves the reuse condition unproven: **run the check yourself**,
-   exactly as if no plan named it reusable at all. A check tagged `review`-only is never
-   a candidate — `/t-work` was never going to run it, so there is nothing to reuse.
+   reported as already passing, without running it again, when either of two sources
+   proves it at the exact commit this review is reading (`.pr.headRefOid`, already in the
+   snapshot from step 2) — never a looser match on either (#113):**
+   - the PR's `## Checks run` section (`/t-work` Phase 3 step 5) names that exact command
+     at a commit sha equal to `.pr.headRefOid`; or
+   - CI reports the corresponding job successful at `.pr.headRefOid` (`forge:pr-checks
+     <pr>`) — in this repo, `consistency-check.sh` runs as one sequential step of
+     `ci.yml`'s single `checks` job (no `continue-on-error` on any step), so a green
+     `checks` context at this sha proves every step inside it passed, consistency-check
+     included; a check with no corresponding CI job is never a candidate for this source.
+
+   Anything short of an exact match on **either** source — no `## Checks run` section and
+   no matching green CI run, a differently-worded command, or a sha that is not the
+   current head (a push landed after the note was written, including a fix-mode push
+   that rewrote the section for a newer commit, or CI has not yet reported for this sha)
+   — leaves the reuse condition unproven: **run the check yourself**, exactly as if
+   neither source named it reusable. **State which source satisfied each reused check**
+   — `## Checks run` provenance and a live CI result prove different things and are never
+   interchangeable in the review body (step 7 below). A check tagged `review`-only is
+   never a candidate for the `## Checks run` source — `/t-work` was never going to run it
+   itself — but remains a candidate for the CI source whenever CI runs that same check
+   unconditionally (as `consistency-check.sh` does, regardless of any plan's tags).
 
    A failing check is a finding at the severity its consequence deserves. Four things are
    **blocker or high by construction**, never medium or low: a check that failed,
@@ -109,11 +122,13 @@ holding only the id, so this matters more here than anywhere else.
    since a cold reviewer's comment and a warm one's are byte-identical otherwise;
    `same session` on a protected surface is a contradiction (see Isolation above) —
    writing it down makes the violation visible instead of invisible.
-   **List every check from step 6, each line naming which it was:** a reused one as
-   `reused — ran by /t-work at commit \`<sha>\`: \`<command>\` — <PASS/FAIL>`, one this
-   review ran itself as `ran by this review: \`<command>\` — <PASS/FAIL>`. The two
-   phrasings are never interchangeable — nobody reading the review may mistake a reused
-   result for one this pass actually verified.
+   **List every check from step 6, each line naming which it was:** one reused from
+   `/t-work`'s own provenance as `reused — ran by /t-work at commit \`<sha>\`:
+   \`<command>\` — <PASS/FAIL>`; one reused from a live CI result as `reused — CI reports
+   \`<job>\` <PASS/FAIL> at commit \`<sha>\``; one this review ran itself as `ran by this
+   review: \`<command>\` — <PASS/FAIL>`. The three phrasings are never interchangeable —
+   nobody reading the review may mistake a reused result, from either source, for one
+   this pass actually verified.
    Findings ordered blocker / high / medium / low, each with evidence and a location.
    End with an explicit verdict line: `readiness: ready` — no blocker or high findings
    and no unexplained removals; `readiness: not-ready` otherwise, naming the next step

@@ -17,10 +17,12 @@ merge-confirmation gate, whose pause is the same single stop (§Solo mode). Opti
 `tracker:*`/`forge:*` operation via `docs/adapters/TRACKER.md` and
 `docs/adapters/FORGE.md` (GitHub by default). The rules are
 [ADR-004](../../../docs/adr/004-autonomous-initiative-driving.md) for the initiative
-mode and [ADR-006](../../../docs/adr/006-single-task-driving.md) for the solo mode
-(amended by [ADR-007](../../../docs/adr/007-solo-drive-defers-on-pending-ci.md) for the
-one case where CI has not yet settled); where this skill and those ADRs differ, the ADR
-wins — flag it, do not improvise.
+mode and [ADR-006](../../../docs/adr/006-single-task-driving.md) for the solo mode,
+amended by [ADR-012](../../../docs/adr/012-t-ship-attended-ci-watch.md) for how the solo
+sequence now reaches `/t-ship`'s gate with CI still possibly unsettled — ADR-012 itself
+amends [ADR-007](../../../docs/adr/007-solo-drive-defers-on-pending-ci.md), whose own
+pre-`/t-ship` CI check no longer applies under the pipeline's current CI timing (#113);
+where this skill and those ADRs differ, the ADR wins — flag it, do not improvise.
 
 ## Phase 0 — eligibility, and which mode
 
@@ -94,9 +96,15 @@ topological order, one after another.
    reuses it; its contract is untouched (issue #39's Non-goals) — `/t-drive` only makes
    sure the branch already exists in the right place before asking `/t-work` to use it.
 4. **Work.** Run `/t-work <child-id>` (Normal mode — branch, record, implement, check,
-   draft PR). `forge:pr-create-draft` has no way to name a non-default base, so the draft
-   PR lands against `main` by default — immediately retarget it:
-   `forge:pr-set-base <pr> wip/<initiative-id>-integration`.
+   draft PR), directing it to open the draft PR against
+   `wip/<initiative-id>-integration` instead of `main` (`/t-work` Phase 3 step 5 —
+   `forge:pr-create-draft`'s `<base>` argument names the integration branch directly at
+   creation, confirmed to work alongside `--draft`, #113). The PR never lands against
+   `main` in the first place, so it needs no retarget afterward — the earlier
+   `forge:pr-set-base` retarget fired a `pull_request: edited` event `review-gate.yml`
+   never listened for, letting a child merge with its `cold-review` verdict computed
+   against the wrong base, and burned an extra CI run per child while `edited` was a CI
+   trigger at all (#113).
 5. **Review.** Run `/t-review <child-id>` exactly as it already runs standalone — same
    isolation rule, same verdict line, reviewed against the integration branch as its
    base.
@@ -205,25 +213,22 @@ merge, every gate exactly where the manual pipeline fires it:
      leave branch, PR, and issue exactly as they are — open, unmerged, untouched — for
      an ordinary human pickup (`/t-work` fix pass, `/t-cancel`, or a re-plan). The
      solo analog of exclusion: never auto-merged, never auto-cancelled.
-6. **CI must be settled before spending the run's one stop on the gate** (ADR-007).
-   Resolve the task's PR (`forge:pr-find-by-task <id>`) and read its checks
-   (`forge:pr-checks <pr>` — `gh pr checks <pr> --json name,bucket`; exit code 8 means
-   at least one is still pending). **Any check still queued or in progress
-   (`bucket: pending`) → stop here, without invoking `/t-ship`.** Name the pending
-   check(s) plainly, say this is not a failure — CI has not finished yet — and name
-   `/t-ship <id>` as what to run once it has; this is a single, one-time look, never a
-   poll-and-wait loop with a timeout to calibrate. No CI configured, or every check has
-   already concluded (green or red) → continue to step 7 unchanged: a concluded
-   failure is decisive information, not a wait, and `/t-ship`'s own precondition 3
-   reports it immediately, exactly as it always has.
-7. **Ship — pause at the gate.** Run `/t-ship <id>` and stop at its
-   merge-confirmation gate: that pause **is** the run's single stop (ADR-006 D3, as
-   amended by ADR-007 for step 6's one exception above), not a stop *before* `/t-ship`
-   naming it in the ordinary case — that is the initiative mode's ending, and the
-   asymmetry is deliberate. The gate itself is unchanged — same wording, same
-   refusals; the human's confirmation there is what makes the merge and the
-   issue-close asked-for (ADR-006 D6). If the session ends at the gate, a standalone
-   `/t-ship <id>` finishes the job; nothing is lost.
+6. **Ship — pause at the gate.** Run `/t-ship <id>` and stop at its
+   merge-confirmation gate: that pause **is** the run's single stop (ADR-006 D3). There
+   is no CI look here before invoking it (ADR-007's own pre-`/t-ship` check is retired by
+   [ADR-012](../../../docs/adr/012-t-ship-attended-ci-watch.md)): CI does not start until
+   `/t-ship`'s own Procedure step 1 marks the PR ready, so nothing exists yet for a
+   pre-invocation look to observe — `/t-ship`'s Procedure step 2 now does the CI wait
+   itself, watching attended (bounded by `ci.yml`/`review-gate.yml`'s own
+   `timeout-minutes:`, #113) regardless of whether a human typed `/t-ship` directly or
+   this run chained into it, per ADR-012 D1. That watch, plus the ordinary
+   merge-confirmation gate, is still exactly one stopping shape reached per run — a red
+   CI stops the run there (the same "concluded failure is decisive information, not a
+   wait" `/t-ship` always reported, now discovered inside its own Procedure instead of a
+   `/t-drive` pre-check), a green one proceeds to the gate — never both. The gate itself
+   is unchanged — same wording, same refusals; the human's confirmation there is what
+   makes the merge and the issue-close asked-for (ADR-006 D6). If the session ends at
+   the gate, a standalone `/t-ship <id>` finishes the job; nothing is lost.
 
 ## Rules
 

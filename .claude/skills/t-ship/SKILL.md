@@ -37,7 +37,7 @@ has already left the pipeline, say which and stop.
 
 2. **Review.** Required when the PR touches a protected surface; missing → stop and name
    `/t-review <id>`. If a review exists, fetch it once here with `forge:pr-reviews <pr>`
-   and hold the result — **precondition 7 below reuses this same fetch**, never
+   and hold the result — **precondition 6 below reuses this same fetch**, never
    re-querying it. Its latest verdict governs regardless: `not-ready` → `/t-work <id>`
    in fix mode. No review and no protected path → continue, saying out loud that none
    ran.
@@ -49,24 +49,22 @@ has already left the pipeline, say which and stop.
    the `isolation:` line and staleness by hand. Exit 1 → stop, send it back to
    `/t-review <id>`, quoting the script's own reason (a missing or `same session`
    isolation line, or a review older than the head commit).
-3. CI, if configured, is green: `forge:pr-checks <pr>`. No CI configured is acceptable,
-   said out loud.
-4. The branch merges cleanly against current `origin/main` (`forge:pr-view <pr>`). A
+3. The branch merges cleanly against current `origin/main` (`forge:pr-view <pr>`). A
    conflict means another task landed first; resolving it goes back through `/t-work`.
    Mergeability is computed asynchronously and often returns **unknown** at first: wait
    a few seconds and retry, up to about three times; still unknown → carry
    `mergeability: unknown` into the gate's evidence rather than asserting a clean merge
    that was never confirmed.
-5. **What is about to merge is what was built.** The PR carries only pushed commits;
+4. **What is about to merge is what was built.** The PR carries only pushed commits;
    compare the local branch tip (`git rev-parse HEAD`, on the task branch) with the
    PR's head (`forge:pr-view <pr>`). Mismatch → stop, say which commits are unpushed,
    push them (re-runs CI and, on a protected surface, invalidates the review per
    precondition 2). Off the task branch → say the comparison could not be made.
-6. The task record is in the diff and current, deviations included — or, for a driven
+5. The task record is in the diff and current, deviations included — or, for a driven
    initiative's aggregate PR (`/t-drive`, ADR-004, branch `wip/<id>-integration`), every
    included child's own record is in the diff, each already current from its own merge
    into the integration branch.
-7. **Pending human checks**, when a review exists: read it from **precondition 2's own
+6. **Pending human checks**, when a review exists: read it from **precondition 2's own
    `forge:pr-reviews <pr>` fetch** — never a second call for the same PR. Its
    `## Pending human checks` section lists judgments no command can settle. **Checks
    listed** → carry them into the confirmation, non-blocking, acknowledged by
@@ -75,12 +73,60 @@ has already left the pipeline, say which and stop.
    ask the human to name the checks from the plan or confirm there are none. No review
    at all → the evidence value is `no review ran`.
 
+   **CI is not a precondition here** (amended #113): the pipeline now skips CI on a
+   draft PR (`.github/workflows/ci.yml`, `.github/workflows/review-gate.yml`) and starts
+   it at `ready_for_review`, so a CI read taken before this PR is marked ready would see
+   "nothing ran" and misreport it as green. CI-green moves into the Procedure, evaluated
+   only after step 1 marks the PR ready and actually starts it — see Procedure step 2.
+
 ## Procedure
 
-1. `forge:pr-ready <pr>` — the draft becomes ready.
-2. **Stop and ask the human to confirm the merge**, showing the PR URL
+1. `forge:pr-ready <pr>` — the draft becomes ready. This is also what starts CI (#113):
+   `ci.yml` and `review-gate.yml` both skip a draft PR and trigger on
+   `ready_for_review`/the readiness transition, so this step is the first moment CI for
+   this exact head commit can even exist.
+2. **CI-green, watched attended** (#113, amending ADR-007's *unattended* one-look rule
+   for the structurally similar case in `/t-drive` Solo step 6 — see
+   [ADR-012](../../../docs/adr/012-t-ship-attended-ci-watch.md) for why the two differ).
+   Read the PR's checks (`forge:pr-checks <pr>`).
+   - **No CI configured** → acceptable, said out loud, continue to step 3.
+   - **Every check already concluded** (green or red) → continue immediately, no wait.
+   - **Any check still queued or in progress** → a human is present at this gate and is
+     the bound (unlike `/t-drive`'s unattended solo look), so **watch**: re-read
+     `forge:pr-checks <pr>` on a short interval until every check concludes, or the
+     session is interrupted. **Interrupted mid-watch** → stop here, report which checks
+     were still pending, and say that the PR stays ready — a later `/t-ship <id>`
+     re-enters this same step and finds them concluded (or still watches, if they
+     somehow are not). Never a fixed timeout to calibrate and never a give-up: the human
+     watching is what bounds this, exactly as ADR-007's rationale requires for its own
+     one-look design, just attended here instead of unattended.
+   - **Every check concludes green** → continue to step 3.
+   - **Any check concludes red** → stop. **Put the PR back into draft**
+     (`forge:pr-draft <pr>`) — step 1 marked it ready in expectation of CI that has now
+     failed, mirroring step 3's own `abort` handling below — report which check failed
+     and where to read why, and name `/t-work <id>` (fix mode) as the next command. Never
+     reach the merge-confirmation gate on a red or unconcluded check.
+3. **Branch-protection contexts, only if this PR renames them** (#113). Check whether
+   this PR's diff changes the required-status-check `contexts`
+   `.t-workflow/scripts/github-bootstrap.sh` asserts. **Not applicable** (the common
+   case) → continue to step 4. **Applicable** → this PR cannot merge under the *current*
+   live protection, self-referentially: whatever the old contexts named, this PR's own
+   CI no longer produces them (that is the diff), so the old required checks would sit
+   at "expected" forever and block the merge button — the exact #94/#109 failure,
+   self-inflicted on this PR unless the live setting moves before the merge is
+   attempted, not after. Confirm the new context name(s) already have a real run to
+   point at — **this PR's own head sha**, not `main` (the merge hasn't happened yet):
+   `gh api repos/<owner>/<repo>/commits/<head-sha>/check-runs`, expecting `checks`
+   (from step 1–2 above) and `cold-review` (from precondition 2's review, which must
+   already exist on a protected surface) to both appear. Missing either → stop, name
+   what's missing; do not flip protection against a context nobody has produced.
+   **Do not execute the flip yet** — it happens only after the human's confirmation
+   below, folded into the same gate rather than a second one
+   (`docs/architecture/confirmation-gates.md`: one gate per turn), since the flip is
+   what makes the merge this gate authorizes actually possible.
+4. **Stop and ask the human to confirm the merge**, showing the PR URL
    (`forge:pr-view <pr>`) and a one-paragraph what-and-why in plain prose per AGENTS.md
-   §Communication, then **the pending human checks from precondition 7** — the last
+   §Communication, then **the pending human checks from precondition 6** — the last
    moment they can be raised. If approval rules are configured on the repo, they must
    also approve on the forge (`forge:pr-approval`). Do not merge on silence.
 
@@ -88,19 +134,45 @@ has already left the pipeline, say which and stop.
    question (or the environment's native question mechanism), last thing in the
    message —
 
-   - evidence: review `<verdict, or 'no review ran'>` · CI `<state>` · diff `<files/size
-     summary>` · human checks `<the pending checks, or none>`
+   - evidence: review `<verdict, or 'no review ran'>` · CI `<state, and which checks — or
+     'no CI configured'>` · diff `<files/size summary>` · human checks `<the pending
+     checks, or none>` · branch protection `<'no change needed', or 'will update
+     required checks from <old list> to <new list> — required for this merge to
+     succeed', from step 3>`
    - question: "Merge PR #<pr> into main?"
    - options: `confirm` (human checks judged) / `abort` (do not merge)
 
    **On `abort`, put the PR back into draft** (`forge:pr-draft <pr>`) before reporting —
    step 1 marked it ready in expectation of a merge that did not happen; nothing else is
-   touched. **Outstanding checks are acknowledged, not blocking** — confirming *is* the
+   touched, including branch protection — step 3 only checked, it never executed.
+   **Outstanding checks are acknowledged, not blocking** — confirming *is* the
    acknowledgement; a human who wants a check settled first answers `abort`.
-3. On confirmation, squash-merge with a **self-contained commit** written from the
-   record, via `forge:pr-merge <pr>` — **re-read `docs/adapters/FORGE.md`'s
-   `forge:pr-merge` row first and check the exact command against it.** The subject
-   overrides the forge's default entirely, so append the PR reference explicitly.
+5. **On confirmation:** if step 3 found the flip applicable, execute it *now*, before
+   attempting the merge — this is what the confirmation just given authorizes, alongside
+   the merge itself. Flip the live setting directly to the exact list
+   `.t-workflow/scripts/github-bootstrap.sh` asserts, then read the same endpoint back
+   and confirm it matches:
+
+   ```bash
+   echo '{"strict": false, "contexts": [<the new list>]}' |
+     gh api "repos/<owner>/<repo>/branches/main/protection/required_status_checks" \
+       -X PATCH --input -
+   gh api "repos/<owner>/<repo>/branches/main/protection/required_status_checks" \
+     --jq .contexts
+   ```
+
+   **Never run `github-bootstrap.sh` here.** Its required-checks gating looks for the
+   new context on `main`, which cannot exist until this very merge lands — pre-merge it
+   takes its "CI has not run on main yet" branch instead of asserting the new list
+   (#113's own ship tripped exactly this). The script is a post-merge true-up only:
+   after the merge, once `main`'s first CI run of the new context concludes, re-run it
+   and confirm it reports the same list this step just set. Not applicable → nothing to
+   do here, continue.
+
+   Then squash-merge with a **self-contained commit** written from the record, via
+   `forge:pr-merge <pr>` — **re-read `docs/adapters/FORGE.md`'s `forge:pr-merge` row
+   first and check the exact command against it.** The subject overrides the forge's
+   default entirely, so append the PR reference explicitly.
 
    **Ordinary task (the common case, unchanged):**
 
@@ -143,16 +215,17 @@ has already left the pipeline, say which and stop.
    never carries this phrase — merging into a non-default branch does not trigger the
    forge's auto-close, and a child is not done until its work reaches `main` through
    this PR.
-4. `git fetch --prune` (deleted `wip/` branches otherwise linger as stale
+6. `git fetch --prune` (deleted `wip/` branches otherwise linger as stale
    `origin/wip/*` refs), then **at most, fast-forward a `main` this checkout happens to
    be sitting on** (ADR-002) — merging leaves the task's worktree, local branch, and
    this checkout untouched, left alone permanently (ADR-005), never a side effect of
    shipping: `git rev-parse --abbrev-ref HEAD`, then **on `main`**: `git merge --ff-only
    origin/main`; **on any other branch**, including the task branch: leave it exactly
    where it is — the normal outcome now that shipping runs from anywhere.
-5. A `tracker:view <id>` `parent` field names a tracking issue whose `subIssuesSummary`
+7. A `tracker:view <id>` `parent` field names a tracking issue whose `subIssuesSummary`
    the task's close above already updated — nothing to write here.
-6. Report the merge commit hash, whether a cold review ran, and whether this checkout's
+8. Report the merge commit hash, whether a cold review ran, whether branch protection
+   was updated (step 3/5), and whether this checkout's
    `main` was fast-forwarded. **If `subIssuesSummary` (`tracker:view <parent-id>`) now
    shows every child closed**, ask whether to close the initiative too — never
    automatic. For a driven run that just shipped, `<parent-id>` is `<id>` itself (the

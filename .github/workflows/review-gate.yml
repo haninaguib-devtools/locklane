@@ -4,13 +4,21 @@
 # invalidates the previous verdict (the timestamp check), and a submitted review is
 # what produces one to check in the first place. Both events carry the same
 # `pull_request` payload shape, so the one job below handles either uniformly. The job
-# name `cold-review` is the status-check context `.t-workflow/scripts/github-bootstrap.sh` marks
-# required — renaming it means updating that script in the same change.
+# name `cold-review` is the status-check context `.t-workflow/scripts/github-bootstrap.sh`
+# marks required — renaming it means updating that script in the same change.
+#
+# `pull_request:` no longer listens for `opened`/`reopened` (#113): those fired before
+# any review could possibly exist, so a freshly-opened protected PR showed `cold-review`
+# failing by construction — accurate would be "no verdict yet", which is what GitHub
+# shows a required check with no run at all (expected/pending). `synchronize` (a push)
+# still re-fires the job, since a new commit invalidates whatever verdict existed;
+# `pull_request_review: submitted` still fires it too, since that is what produces a
+# verdict to check in the first place.
 name: review-gate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [synchronize]
   pull_request_review:
     types: [submitted]
 
@@ -18,10 +26,27 @@ permissions:
   contents: read
   pull-requests: read
 
+# Same reasoning as ci.yml's concurrency block (#113): a later push or a later review
+# supersedes whatever this job already found for an earlier commit, so cancel the
+# stale run instead of letting it finish and bill for a verdict nobody will read.
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   cold-review:
     name: cold-review
+    # Skip a push while the PR is still a draft — that push costs zero hosted minutes,
+    # matching ci.yml's own draft skip (#113). A submitted review always runs this job
+    # regardless of draft state: `/t-review` may run, and does run in this pipeline's
+    # ordinary sequence, before `/t-ship` ever marks the PR ready (`/t-ship` precondition
+    # 2 requires the review to already exist), so a review submitted pre-ready must still
+    # produce a verdict — the check this job exists to compute.
+    if: github.event_name == 'pull_request_review' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # Real work here is seconds; ten minutes is a generous bound so a hang fails loudly
+    # instead of running to GitHub's 6-hour default (#113).
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

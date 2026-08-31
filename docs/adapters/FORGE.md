@@ -20,14 +20,23 @@ see `docs/adapters/TRACKER.md`.
 
 ## Operations
 
-### `forge:pr-create-draft <title> <body>` — open a draft PR from the pushed branch
+### `forge:pr-create-draft <title> <body> [<base>]` — open a draft PR from the pushed branch
 
 Include the tracker's auto-close phrase in the body when the tracker supports it
-(`tracker:auto-close-on-merge`).
+(`tracker:auto-close-on-merge`). `<base>` is optional: omitted, the PR targets the
+repository's default branch — confirmed empirically (`/t-drive`'s own task record, #41):
+a PR opened from a branch with no `--base` targets the default branch regardless of that
+branch's actual git parent, never inferring one from the branch's git history. Named,
+the PR targets that branch directly instead — confirmed empirically (#113: a disposable
+probe PR opened with `--draft --base <non-default-branch>` landed with that exact branch
+as `baseRefName`) — narrowing task #41's finding to what it actually showed: omitting
+`--base` falls back to the default branch; passing it explicitly works normally, `--draft`
+included. `/t-drive` (ADR-004 Decision 1) uses the `<base>` form to open each child's
+draft PR directly against the initiative's integration branch, never against `main`.
 
 | Backend | Command |
 |---|---|
-| GitHub | `gh pr create --draft --title "<title>" --body "<body>"` |
+| GitHub | `gh pr create --draft --title "<title>" --body "<body>"` (`<base>` omitted); `gh pr create --draft --title "<title>" --body "<body>" --base <base>` (`<base>` given) |
 
 ### `forge:pr-create <title> <body>` — open a non-draft PR directly
 
@@ -37,12 +46,11 @@ Include the tracker's auto-close phrase in the body when the tracker supports it
 
 ### `forge:pr-set-base <pr> <base>` — retarget an existing PR's base branch
 
-Contract: `forge:pr-create-draft` has no way to name a non-default base, so it always
-lands against the repository's default branch — confirmed empirically (`/t-drive`'s own
-task record, #41): a PR opened from a branch with no `--base` targets the default branch
-regardless of that branch's actual git parent. `/t-drive` uses this operation
-(ADR-004 Decision 1) to move a child's freshly-opened draft PR from that default onto the
-initiative's integration branch.
+Contract: moves an **already-open** PR onto a different base. Not currently called by
+any skill (`/t-drive`, the only caller, switched to naming the base at creation time via
+`forge:pr-create-draft`'s `<base>` argument — #113) — kept documented as a general
+operation for a base decided only after the PR already exists, rather than removed
+speculatively.
 
 | Backend | Command |
 |---|---|
