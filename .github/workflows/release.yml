@@ -4,7 +4,9 @@
 # workflow derives the release version by stripping the `-SNAPSHOT` suffix, builds the
 # jar as that bare version, and publishes a permanent release tagged `v<version>` that
 # never changes again (#98). That permanent release is the only channel: install.sh,
-# update.sh, and the in-app update banner all resolve the newest one (#465).
+# update.sh, and the in-app update banner all resolve the newest one (#465). The
+# release body is the version's CHANGELOG.md section, merged to main through a notes
+# PR before the dispatch and extracted verbatim here — never generated here (#464).
 name: Release
 
 on:
@@ -49,6 +51,20 @@ jobs:
           echo "Revision is ${raw}; releasing ${version}."
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
+      - name: Extract this version's notes from CHANGELOG.md
+        # The notes PR merged this version's section into CHANGELOG.md before the
+        # dispatch (#464, docs/architecture/releasing.md § Release notes); this step
+        # only extracts it — regenerating notes here could drift from what the human
+        # reviewed, so the release body equals the committed section by construction.
+        # No section means the notes PR has not landed: fail before spending a build.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! ./scripts/generate-release-notes.sh extract --version "$VERSION" > release-notes.md; then
+            echo "::error::CHANGELOG.md has no section for ${VERSION} — generate and merge the notes PR before dispatching (docs/architecture/releasing.md)"
+            exit 1
+          fi
+
       - name: Build and test the engine, then repackage the runnable jar
         # From the root, not `-f engine/pom.xml`: engine depends on the client
         # module, and building engine standalone skips the reactor, so a fresh
@@ -92,6 +108,6 @@ jobs:
 
           gh release create "$tag" \
             --title "$tag" \
-            --notes "Permanent release of version ${VERSION}." \
+            --notes-file release-notes.md \
             --target "$GITHUB_SHA" \
             locklane.jar
