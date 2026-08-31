@@ -1,0 +1,24 @@
+<nav class="shells-nav">
+  @for (group of groups; track group.projectId) {
+    <div class="group">
+      <div class="group-name">{{ group.name }}</div>
+      @for (row of group.rows; track row.shell.sessionId) {
+        <div class="row" [class.selected]="row.shell.sessionId === selected">
+          <button type="button" class="row-label" (click)="selectShell.emit(row.shell)">
+            {{ text(row) }}
+          </button>
+          <button
+            type="button"
+            class="row-close"
+            [attr.aria-label]="'Close shell ' + text(row)"
+            (click)="closeShell.emit(row.shell)"
+          >
+            ×
+          </button>
+        </div>
+      }
+    </div>
+  } @empty {
+    <div class="empty">no open shells</div>
+  }
+</nav>
