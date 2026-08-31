@@ -14,6 +14,7 @@ import {
   ConsolesService,
   isProjectConsoleSessionId,
   issueNumberFromSessionId,
+  projectIdFromProjectConsoleSessionId,
   projectIssueKeyFromSessionId,
 } from '../../services/consoles.service';
 import { AppEvent, ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '../../services/events.service';
@@ -119,6 +120,11 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // own set (rather than folded into openConsoleIssues) since a dot can need to pulse
   // independent of whether the console list has otherwise changed.
   private waitingIssues = new Set<string>();
+  // Raw session ids of project-level consoles currently waiting for attention (#450).
+  // Keyed off the session id itself, like the header's console-indicator, rather than
+  // the project id: with two project consoles open, one going active must not clear a
+  // flag another still-waiting console set.
+  private waitingProjectConsoleSessions = new Set<string>();
   private readonly consoleSub: Subscription;
   // "Notify, then fetch" (#129): the event carries no issue data, so a matching
   // project re-fetches its own tree over the existing REST endpoint. A reconnect
@@ -331,14 +337,12 @@ export class SidenavComponent implements OnInit, OnDestroy {
     return this.openConsoleProjects.has(projectId);
   }
 
+  // Like hasOpenConsoleForProject above, tracks project-level console sessions
+  // exclusively (#450) -- an issue-attached console's wait shows on that issue row's
+  // own dot, never here.
   hasAttentionWaitingForProject(projectId: number): boolean {
-    return this.anyKeyForProject(this.waitingIssues, projectId);
-  }
-
-  private anyKeyForProject(keys: Set<string>, projectId: number): boolean {
-    const prefix = `${projectId}:`;
-    for (const key of keys) {
-      if (key.startsWith(prefix)) {
+    for (const sessionId of this.waitingProjectConsoleSessions) {
+      if (projectIdFromProjectConsoleSessionId(sessionId) === projectId) {
         return true;
       }
     }
@@ -352,16 +356,28 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.router.navigate(['/projects', projectId, 'console']);
   }
 
-  /** Applies one `consoleAttention` event (#130) onto whichever issue its session belongs to. */
+  /**
+   * Applies one `consoleAttention` event (#130) onto whichever issue its session
+   * belongs to -- or, for a project-level console's session id, which carries no
+   * issue number, onto its project's own row (#450).
+   */
   private applyAttentionEvent(event: ConsoleAttentionEvent): void {
     const key = projectIssueKeyFromSessionId(event.sessionId);
-    if (key === null) {
+    if (key !== null) {
+      if (event.state === 'waiting') {
+        this.waitingIssues.add(key);
+      } else {
+        this.waitingIssues.delete(key);
+      }
+      return;
+    }
+    if (projectIdFromProjectConsoleSessionId(event.sessionId) === null) {
       return;
     }
     if (event.state === 'waiting') {
-      this.waitingIssues.add(key);
+      this.waitingProjectConsoleSessions.add(event.sessionId);
     } else {
-      this.waitingIssues.delete(key);
+      this.waitingProjectConsoleSessions.delete(event.sessionId);
     }
   }
 

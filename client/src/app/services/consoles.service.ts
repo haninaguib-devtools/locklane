@@ -82,6 +82,17 @@ export function isProjectConsoleSessionId(sessionId: string): boolean {
 }
 
 /**
+ * The owning project's id, parsed out of a project-level console's session id
+ * (#450) -- the project-console-aware counterpart of `projectIssueKeyFromSessionId`
+ * below, for placing a `consoleAttention` event onto the right project row when its
+ * session id carries no issue number.
+ */
+export function projectIdFromProjectConsoleSessionId(sessionId: string): number | null {
+  const match = /^(\d+)-console(-.+)?$/.exec(sessionId);
+  return match ? Number(match[1]) : null;
+}
+
+/**
  * The "<projectId>:<issueNumber>" key the sidenav indexes its per-issue state by
  * (#108), parsed straight out of a session id (#43) -- used to place a `consoleAttention`
  * event (#130), which carries only a session id, onto the right issue row.
