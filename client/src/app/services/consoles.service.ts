@@ -9,6 +9,7 @@ export class ConsolesService {
   private readonly eventsService = inject(EventsService);
   private readonly closed$ = new Subject<void>();
   private readonly opened$ = new Subject<void>();
+  private readonly renamed$ = new Subject<void>();
 
   // A console opening or closing in another browser tab/session reaches this one
   // over the app-wide events channel (#195) as `consolesChanged`. Neither local
@@ -58,6 +59,19 @@ export class ConsolesService {
 
   notifyOpened(): void {
     this.opened$.next();
+  }
+
+  /**
+   * Fires whenever a console tab is renamed in this browser (#456), so the header
+   * consoles widget can recompute its `Project - <tab text>` rows without a reload.
+   * Local-only, unlike `onOpened`/`onClosed`: the events channel carries no rename
+   * event, so a rename made in another browser/session stays invisible until the
+   * next open/close or reload — a declared boundary of #456, not an oversight.
+   */
+  readonly onRenamed: Observable<void> = this.renamed$;
+
+  notifyRenamed(): void {
+    this.renamed$.next();
   }
 }
 

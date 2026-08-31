@@ -104,13 +104,13 @@ describe('ConsoleIndicatorComponent', () => {
     expect(fixture.componentInstance.entries().map((e) => e.sessionId)).toEqual(['1-7-rename-toggle']);
   });
 
-  it('builds an entry for a project console (#194), issue entries first', () => {
+  it('builds an entry for a project console (#194), issue entries first, without an agent suffix (#456)', () => {
     TestBed.inject(AgentStore).set('1-console-a1b2c3d4', 'codex');
     const fixture = initWithEntries(['1-7-rename-toggle'], [issue(7, 'Seven')], [projectConsole('1-console-a1b2c3d4')]);
 
     expect(fixture.componentInstance.entries()).toEqual([
       { sessionId: '1-7-rename-toggle', projectId: 1, issueNumber: 7, title: 'Seven' },
-      { sessionId: '1-console-a1b2c3d4', projectId: 1, issueNumber: null, title: 'Project - console · codex' },
+      { sessionId: '1-console-a1b2c3d4', projectId: 1, issueNumber: null, title: 'Project - console' },
     ]);
   });
 
@@ -128,6 +128,35 @@ describe('ConsoleIndicatorComponent', () => {
     );
 
     expect(fixture.componentInstance.entries().map((e) => e.title)).toEqual(['Project - console', 'Project - console 2']);
+  });
+
+  it("refetches its rows on a tab rename, so a project console's row updates without a reload (#456)", () => {
+    const fixture = initWithEntries(
+      [],
+      [],
+      [projectConsole('1-console-a1b2c3d4'), projectConsole('1-console-e5f6a7b8')],
+    );
+    expect(fixture.componentInstance.entries().map((e) => e.title)).toEqual(['Project - console', 'Project - console 2']);
+
+    TestBed.inject(ConsolesService).notifyRenamed();
+
+    flushProjectEntries(1, [], [], [projectConsole('1-console-a1b2c3d4', 'release notes'), projectConsole('1-console-e5f6a7b8')]);
+    expect(fixture.componentInstance.entries().map((e) => e.title)).toEqual([
+      'Project - release notes',
+      'Project - console 2',
+    ]);
+  });
+
+  it('a rename reverted after a failed save refetches again, putting the old row text back (#456)', () => {
+    const fixture = initWithEntries([], [], [projectConsole('1-console-a1b2c3d4', 'release notes')]);
+    expect(fixture.componentInstance.entries()[0].title).toBe('Project - release notes');
+
+    // The revert path fires the same notification; the refetch reads the name the
+    // server still has.
+    TestBed.inject(ConsolesService).notifyRenamed();
+
+    flushProjectEntries(1, [], [], [projectConsole('1-console-a1b2c3d4', 'release notes')]);
+    expect(fixture.componentInstance.entries()[0].title).toBe('Project - release notes');
   });
 
   it('jumping to a project console entry navigates to the project console page with its session id', () => {

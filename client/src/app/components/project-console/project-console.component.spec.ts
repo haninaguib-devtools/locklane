@@ -189,14 +189,14 @@ describe('ProjectConsoleComponent', () => {
     expect(TestBed.inject(LastConsoleStore).get(1)).toBe('1-console-e5f6a7b8');
   });
 
-  it('labels a tab with the agent this browser launched it with', () => {
+  it('labels a tab without an agent suffix, even when the launching agent is known (#456)', () => {
     TestBed.inject(AgentStore).set('1-console-a1b2c3d4', 'codex');
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
     fixture.detectChanges();
 
     const tab = (fixture.nativeElement as HTMLElement).querySelector('.tab')!;
-    expect(tab.textContent!.trim()).toBe('console · codex');
+    expect(tab.textContent!.trim()).toBe('console');
   });
 
   it('starts a console with no picker of any kind when the project has no open console (#256)', () => {
@@ -435,9 +435,9 @@ describe('ProjectConsoleComponent', () => {
     const tabs = Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.tab'),
     ).map((b) => b.textContent!.trim());
-    // The new one carries its agent; the two reattached ones were not launched by
-    // this browser, so AgentStore knows nothing about them.
-    expect(tabs).toEqual(['console', 'console 2', 'console 3 · claude']);
+    // Labels carry no agent suffix (#456), so the freshly-minted one looks the
+    // same as the two reattached ones this browser did not launch.
+    expect(tabs).toEqual(['console', 'console 2', 'console 3']);
   }));
 
   it('gives a ?new console the Settings default agent, with no picker (#219, #370)', fakeAsync(() => {
@@ -659,11 +659,14 @@ describe('ProjectConsoleComponent', () => {
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('console');
+    const renamedSpy = spyOn(TestBed.inject(ConsolesService), 'notifyRenamed');
 
     typeAndCommit(fixture, renameField(fixture), '  release notes  ');
 
-    // Shown immediately, before the server has answered.
+    // Shown immediately, before the server has answered -- and announced just as
+    // immediately, so the header consoles widget refetches its rows (#456).
     expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('release notes');
+    expect(renamedSpy).toHaveBeenCalledTimes(1);
     const request = httpMock.expectOne('/api/projects/1/console/1-console-a1b2c3d4/name');
     expect(request.request.method).toBe('PUT');
     expect(request.request.body).toEqual({ name: 'release notes' });
@@ -708,12 +711,13 @@ describe('ProjectConsoleComponent', () => {
     request.flush(null);
   });
 
-  it('puts the previous name back when the rename fails (#393)', () => {
+  it('puts the previous name back when the rename fails (#393), announcing the revert too (#456)', () => {
     const fixture = init();
     httpMock
       .expectOne('/api/projects/1/console/sessions')
       .flush([row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z', 'release notes')]);
     fixture.detectChanges();
+    const renamedSpy = spyOn(TestBed.inject(ConsolesService), 'notifyRenamed');
 
     typeAndCommit(fixture, renameField(fixture), 'new name');
     httpMock
@@ -724,6 +728,9 @@ describe('ProjectConsoleComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('release notes');
     expect(compiled.querySelector('.strip-error')!.textContent).toContain('could not rename');
+    // Once for the optimistic update, once for the revert -- the widget's row must
+    // fall back with the tab (#456).
+    expect(renamedSpy).toHaveBeenCalledTimes(2);
   });
 
   it('abandoning the field with Escape changes nothing (#393)', () => {

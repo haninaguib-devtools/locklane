@@ -363,7 +363,9 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   /**
    * Renames a tab (#393). The new name is shown immediately and then written to the
    * engine; a failed write puts the previous name back, so the strip never keeps
-   * showing a name the server does not have.
+   * showing a name the server does not have. Each change of what the tab shows --
+   * the optimistic update and the error-path revert alike -- is announced via
+   * notifyRenamed() so the header consoles widget re-reads its rows (#456).
    */
   renameConsole(request: RenameConsoleRequest): void {
     const target = this.consoles.find((c) => c.id === request.id);
@@ -378,11 +380,13 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     this.renameError = false;
     this.consoles = this.consoles.map((c) => (c.id === request.id ? { ...c, name: name || null } : c));
     this.relabel();
+    this.consolesService.notifyRenamed();
     this.service.rename(this.projectId, request.id, name).subscribe({
       error: () => {
         this.consoles = this.consoles.map((c) => (c.id === request.id ? { ...c, name: previous } : c));
         this.relabel();
         this.renameError = true;
+        this.consolesService.notifyRenamed();
       },
     });
   }
