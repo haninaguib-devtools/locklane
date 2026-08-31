@@ -107,12 +107,34 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
         // start clears `starting` again, re-arming it.
         return;
       }
-      if (this.loading) {
+      // #439: a "+" click for a *different* project changes this navigation's query
+      // param and its route projectId together, but the projectId input only catches
+      // up once NavigationEnd fires -- later than this subscription, which sees the
+      // query param during route activation. Reading the target off the route
+      // directly (rather than trusting `this.projectId`, which can still name the
+      // previously-viewed project at this point) is what tells the two cases apart;
+      // a target this early read can't resolve (no route param configured, as in a
+      // component test with no such route) falls back to the loading-only check,
+      // same as before this fix.
+      const target = this.targetProjectId();
+      if ((target !== null && target !== this.projectId) || this.loading) {
         this.pendingNewConsole = true;
         return;
       }
       this.startDefault();
     });
+  }
+
+  // The project id the route names right now (#439), read straight off the root
+  // route's snapshot the same way CurrentProjectService derives its own NavigationEnd-
+  // gated `projectId` signal -- but synchronously, from wherever the route tree
+  // already stands at the moment this is called, since that's what settles first (see
+  // ngOnInit above). `null` when the active route carries no such param, e.g. a test
+  // that never configured one.
+  private targetProjectId(): number | null {
+    const raw = this.route.snapshot.firstChild?.paramMap.get('projectId') ?? null;
+    const id = raw !== null ? Number(raw) : NaN;
+    return Number.isFinite(id) ? id : null;
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -125,7 +147,14 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   private clearNewParam(): void {
     const queryParams = { ...this.route.snapshot.queryParams };
     delete queryParams['new'];
-    this.router.navigate(['/projects', this.projectId, 'console'], { queryParams, replaceUrl: true });
+    // #439: build the URL from the route's own (possibly just-updated) project id, not
+    // `this.projectId` -- during the race this method exists to help resolve, the
+    // input still names the previously-viewed project, and navigating there would
+    // snap the URL back to it out from under the navigation already landing on the
+    // newly-clicked one. Falls back to the input when the route carries no such param
+    // (e.g. a component test with none configured), same as before this fix.
+    const projectId = this.targetProjectId() ?? this.projectId;
+    this.router.navigate(['/projects', projectId, 'console'], { queryParams, replaceUrl: true });
   }
 
   // Leaving this page -- however the navigation happened -- never closes the
