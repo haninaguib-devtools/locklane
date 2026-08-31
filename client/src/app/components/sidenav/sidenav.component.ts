@@ -18,6 +18,7 @@ import {
   projectIssueKeyFromSessionId,
 } from '../../services/consoles.service';
 import { AppEvent, ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '../../services/events.service';
+import { RunningVersionService } from '../../services/running-version.service';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
@@ -71,6 +72,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly consolesService = inject(ConsolesService);
   private readonly eventsService = inject(EventsService);
   private readonly router = inject(Router);
+
+  // The engine's own version off the events-channel greeting (#467), for the footer
+  // line pinned under the usage widget. Null until the first connect delivers it.
+  readonly runningVersion = inject(RunningVersionService).version;
 
   // Highlight only -- navigation is each row's own routerLink (#170), so selection
   // flows in from the URL and never back out through an event.

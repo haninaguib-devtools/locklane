@@ -410,3 +410,14 @@ ul.branch {
 .menu button:hover {
   background: var(--bg);
 }
+
+/* The engine's own version (#467), pinned under the usage widget -- deliberately the
+   quietest thing in the sidebar. */
+.app-version {
+  flex: none;
+  padding: 5px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}

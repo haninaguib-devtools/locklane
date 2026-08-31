@@ -1,8 +1,11 @@
 package dev.locklane.engine.ws;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.info.BuildProperties;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -40,6 +43,9 @@ class EventsWebSocketHandlerIntegrationTest {
     @Autowired
     private EventBroadcaster eventBroadcaster;
 
+    @Autowired
+    private BuildProperties buildProperties;
+
     @Test
     void connectingYieldsAnEngineVersionStampBeforeAnyOtherTraffic() throws Exception {
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
@@ -49,7 +55,12 @@ class EventsWebSocketHandlerIntegrationTest {
 
         waitUntil(() -> !client.messages.isEmpty(), Duration.ofSeconds(5));
 
-        assertThat(client.messages.get(0)).matches("\\{\"type\":\"engineVersion\",\"version\":\".+\"}");
+        // Parsed-field assertions rather than a byte-exact regex: the payload now
+        // carries two fields (#467) built with Map.of, which guarantees no key order.
+        JsonNode greeting = new ObjectMapper().readTree(client.messages.get(0));
+        assertThat(greeting.path("type").asText()).isEqualTo("engineVersion");
+        assertThat(greeting.path("version").asText()).isNotEmpty();
+        assertThat(greeting.path("release").asText()).isEqualTo(buildProperties.getVersion());
 
         session.close();
         // Leave the broadcaster's registry empty before finishing, so the other tests'

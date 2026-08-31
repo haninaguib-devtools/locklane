@@ -7,12 +7,19 @@ import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { EventsService } from '../../services/events.service';
+import { RunningVersionService } from '../../services/running-version.service';
 import { IssuesService } from '../../services/issues.service';
 import { Project, TreeNode } from '../../models/issue.model';
 import { UsageSnapshot } from '../../models/usage.model';
 
 describe('SidenavComponent', () => {
   let httpMock: HttpTestingController;
+
+  // What the stubbed RunningVersionService reports (#467). Stubbed in the shared
+  // provider list (a per-test overrideProvider would come too late -- injecting
+  // HttpTestingController below already instantiates the module); each test flips
+  // this variable instead. Null = the engine hasn't reported a version yet.
+  let runningVersion: string | null;
 
   const PROJECT_A: Project = {
     id: 1,
@@ -30,9 +37,15 @@ describe('SidenavComponent', () => {
     localStorage.removeItem('locklane.pinnedIssues');
     localStorage.removeItem('locklane.collapsedInitiatives');
     localStorage.removeItem('locklane.collapsedProjectSections');
+    runningVersion = null;
     TestBed.configureTestingModule({
       imports: [SidenavComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: RunningVersionService, useValue: { version: () => runningVersion } },
+      ],
     });
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -123,6 +136,24 @@ describe('SidenavComponent', () => {
     const [sectionA, sectionB] = fixture.componentInstance.projectSections;
     expect(fixture.componentInstance.mainNodesFor(sectionA).map((n) => n.number)).toEqual([1, 4]);
     expect(fixture.componentInstance.mainNodesFor(sectionB).map((n) => n.number)).toEqual([9]);
+  });
+
+  it('shows the running engine version in the footer once known (#467)', () => {
+    runningVersion = '0.1.0-SNAPSHOT';
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    const footer = (fixture.nativeElement as HTMLElement).querySelector('.app-version');
+    expect(footer?.textContent).toContain('locklane 0.1.0-SNAPSHOT');
+  });
+
+  it('shows no version footer before the engine has reported one (#467)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.app-version')).toBeNull();
   });
 
   it('reports an error state when a tree fetch fails', () => {
