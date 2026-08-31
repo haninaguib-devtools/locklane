@@ -3,10 +3,29 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  /* Anchors the .upload-notice overlay (#436). */
+  position: relative;
 }
 
 .terminal {
   flex: 1;
   min-height: 0;
   background: #1c1a17;
+}
+
+/* A transient refusal/failure message for a dropped or pasted file (#436) --
+   overlaid rather than written into the terminal, whose display the CLI owns. */
+.upload-notice {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  max-width: min(90%, 32rem);
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  background: #3a2f28;
+  color: #f0e6d8;
+  font-size: 0.85rem;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.4);
+  pointer-events: none;
 }

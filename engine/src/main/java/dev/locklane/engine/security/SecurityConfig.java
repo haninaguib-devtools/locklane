@@ -87,6 +87,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects/*/consoles").authenticated()
                         .requestMatchers("/api/projects/*/console").authenticated()
                         .requestMatchers("/api/projects/*/console/*").authenticated()
+                        .requestMatchers("/api/sessions/*/uploads").authenticated()
                         .requestMatchers("/api/usage").authenticated()
                         .requestMatchers("/api/agents/**").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
