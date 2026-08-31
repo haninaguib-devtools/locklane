@@ -69,6 +69,7 @@ export class MainContentComponent implements OnChanges {
   starting = false;
   startError = false;
   closeError = false;
+  revealError = false;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['issueNumber'] || changes['projectId']) {
@@ -104,6 +105,7 @@ export class MainContentComponent implements OnChanges {
     this.selectedConsole = null;
     this.startError = false;
     this.closeError = false;
+    this.revealError = false;
 
     this.issuesService.get(projectId, number).subscribe((issue) => {
       this.issue = issue;
@@ -211,6 +213,15 @@ export class MainContentComponent implements OnChanges {
       },
       error: () => {
         this.closeError = true;
+      },
+    });
+  }
+
+  revealConsole(id: string): void {
+    this.revealError = false;
+    this.consolesService.reveal(this.projectId, id).subscribe({
+      error: () => {
+        this.revealError = true;
       },
     });
   }

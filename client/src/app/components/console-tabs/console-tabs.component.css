@@ -56,6 +56,30 @@
   color: var(--text);
 }
 
+/* #441: fades in on hover/focus of the tab, like the close button sitting next to
+   it -- but starts invisible rather than absent, so revealing it never shifts the
+   tab strip's layout. */
+.tab-reveal {
+  display: flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 2px 4px 2px 0;
+  color: var(--faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.tab-wrap:hover .tab-reveal,
+.tab-wrap:focus-within .tab-reveal {
+  opacity: 1;
+}
+
+.tab-reveal:hover {
+  color: var(--text);
+}
+
 .plus-wrap {
   position: relative;
   margin-left: 8px;

@@ -31,6 +31,14 @@ export class ConsolesService {
   }
 
   /**
+   * Reveals a console's worktree in the local OS's file manager (#441). The engine
+   * resolves the path server-side from the console id, so no path is ever sent here.
+   */
+  reveal(projectId: number, id: string): Observable<void> {
+    return this.http.post<void>(`/api/projects/${projectId}/consoles/${id}/reveal-in-file-manager`, {});
+  }
+
+  /**
    * Fires whenever a console session is closed for good somewhere in the app (#75)
    * — including another browser tab or session (#195) — so the header indicator
    * can refresh its count without an unrelated reload.

@@ -30,6 +30,7 @@
     (open)="openFromTabs($event)"
     (close)="closeConsole($event)"
     (rename)="renameConsole($event)"
+    (reveal)="revealConsole($event)"
   />
   @if (startError) {
     <div class="action-error strip-error">could not start a console — try again</div>
@@ -39,6 +40,9 @@
   }
   @if (renameError) {
     <div class="action-error strip-error">could not rename that console — try again</div>
+  }
+  @if (revealError) {
+    <div class="action-error strip-error">could not open the file manager — try again</div>
   }
   <!-- The positioning context every tab body is sized against (#375) -- see the same
        wrapper in main-content.component.html. -->

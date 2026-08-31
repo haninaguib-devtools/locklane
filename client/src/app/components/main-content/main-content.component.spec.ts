@@ -289,6 +289,30 @@ describe('MainContentComponent', () => {
     expect(fixture.componentInstance.consoles.map((c) => c.id)).toEqual(['1-7-main-a1b2c3d4']);
   });
 
+  it('revealing a console asks the engine to open its file manager (#441)', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4']);
+
+    fixture.componentInstance.revealConsole('1-7-main-a1b2c3d4');
+    const req = httpMock.expectOne('/api/projects/1/consoles/1-7-main-a1b2c3d4/reveal-in-file-manager');
+    expect(req.request.method).toBe('POST');
+    req.flush(null);
+
+    expect(fixture.componentInstance.revealError).toBeFalse();
+  });
+
+  it('a failed reveal reports an error (#441)', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4']);
+
+    fixture.componentInstance.revealConsole('1-7-main-a1b2c3d4');
+    httpMock
+      .expectOne('/api/projects/1/consoles/1-7-main-a1b2c3d4/reveal-in-file-manager')
+      .error(new ProgressEvent('network error'));
+
+    expect(fixture.componentInstance.revealError).toBeTrue();
+  });
+
   it('defaults to the overview tab and derives the repo web url from the project', () => {
     const fixture = init(7);
     respond(7, []);

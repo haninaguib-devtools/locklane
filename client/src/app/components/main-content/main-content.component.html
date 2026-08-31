@@ -13,12 +13,16 @@
     (selectedChange)="onTabSelected($event)"
     (open)="openConsole($event)"
     (close)="closeConsole($event)"
+    (reveal)="revealConsole($event)"
   />
   @if (startError) {
     <div class="action-error">could not open a console — try again</div>
   }
   @if (closeError) {
     <div class="action-error">could not close that console — try again</div>
+  }
+  @if (revealError) {
+    <div class="action-error">could not open the file manager — try again</div>
   }
   <!-- The positioning context every tab body is sized against (#375). A hidden tab is
        taken out of flow rather than removed, so it still has a layout box to measure --

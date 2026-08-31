@@ -1,3 +1,4 @@
+import { TestBed } from '@angular/core/testing';
 import { ConsoleTabsComponent } from './console-tabs.component';
 
 describe('ConsoleTabsComponent', () => {
@@ -85,6 +86,31 @@ describe('ConsoleTabsComponent', () => {
 
     expect(emitted).toBeUndefined();
     expect(c.pendingCloseId).toBeNull();
+  });
+
+  it('revealTab stops propagation and emits the console id immediately, with no confirmation (#441)', () => {
+    const c = new ConsoleTabsComponent();
+    let emitted: string | undefined;
+    c.reveal.subscribe((id) => (emitted = id));
+    const event = new Event('click');
+    const stopSpy = spyOn(event, 'stopPropagation');
+
+    c.revealTab('7-rename-toggle', event);
+
+    expect(stopSpy).toHaveBeenCalled();
+    expect(emitted).toBe('7-rename-toggle');
+  });
+
+  it('renders the reveal icon on a live console tab but not on the pinned Overview tab (#441)', () => {
+    TestBed.configureTestingModule({ imports: [ConsoleTabsComponent] });
+    const fixture = TestBed.createComponent(ConsoleTabsComponent);
+    fixture.componentInstance.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
+    fixture.detectChanges();
+
+    const tabWraps = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.tab-wrap'));
+    expect(tabWraps.length).toBe(2); // the pinned Overview tab, plus the one console tab
+    expect(tabWraps[0].querySelector('.tab-reveal')).toBeNull();
+    expect(tabWraps[1].querySelector('.tab-reveal')).not.toBeNull();
   });
   it('does not start a rename where renaming is not enabled (#393: the issue page)', () => {
     const c = new ConsoleTabsComponent();

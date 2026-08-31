@@ -72,6 +72,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   startError = false;
   closeError = false;
   renameError = false;
+  revealError = false;
   /** Past conversations captured in this project's consoles (#372), newest first. */
   pastSessions: ResumeSession[] = [];
   pastOpen = false;
@@ -176,6 +177,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     this.startError = false;
     this.closeError = false;
     this.renameError = false;
+    this.revealError = false;
     this.pastSessions = [];
     this.pastOpen = false;
     this.pastLoading = false;
@@ -405,6 +407,15 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
       },
       error: () => {
         this.closeError = true;
+      },
+    });
+  }
+
+  revealConsole(id: string): void {
+    this.revealError = false;
+    this.consolesService.reveal(this.projectId, id).subscribe({
+      error: () => {
+        this.revealError = true;
       },
     });
   }

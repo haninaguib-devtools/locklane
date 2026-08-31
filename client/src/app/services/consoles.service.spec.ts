@@ -37,6 +37,14 @@ describe('ConsolesService', () => {
     req.flush(['1-7-main-a1b2c3d4', '1-8-slug']);
   });
 
+  it('reveals a console in the file manager via POST /api/projects/{projectId}/consoles/{id}/reveal-in-file-manager (#441)', () => {
+    service.reveal(1, '1-7-main-a1b2c3d4').subscribe();
+
+    const req = httpMock.expectOne('/api/projects/1/consoles/1-7-main-a1b2c3d4/reveal-in-file-manager');
+    expect(req.request.method).toBe('POST');
+    req.flush(null);
+  });
+
   it('notifies onClosed subscribers when a console is closed', () => {
     let notified = false;
     service.onClosed.subscribe(() => (notified = true));

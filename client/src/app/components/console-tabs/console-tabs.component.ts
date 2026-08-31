@@ -52,6 +52,9 @@ export class ConsoleTabsComponent {
   @Output() open = new EventEmitter<OpenConsoleRequest>();
   @Output() close = new EventEmitter<string>();
   @Output() rename = new EventEmitter<RenameConsoleRequest>();
+  // #441: reveals a tab's worktree in the OS's file manager. No confirmation needed
+  // (unlike close) -- it can't lose anything.
+  @Output() reveal = new EventEmitter<string>();
 
   // The longest name accepted, mirroring the engine's own bound (#393) so an
   // over-long name is prevented here rather than rejected after a round trip.
@@ -120,6 +123,11 @@ export class ConsoleTabsComponent {
   closeTab(id: string, event: Event): void {
     event.stopPropagation();
     this.pendingCloseId = id;
+  }
+
+  revealTab(id: string, event: Event): void {
+    event.stopPropagation();
+    this.reveal.emit(id);
   }
 
   confirmClose(): void {
