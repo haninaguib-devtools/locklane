@@ -1,6 +1,6 @@
 {
   "template": "haninaguib-devtools/t-workflow",
-  "tag": "v0.0.8",
+  "tag": "v0.0.9",
   "migrations_applied": 0,
   "files": {
     ".agents/skills": "symlink:../.claude/skills",
@@ -33,7 +33,7 @@
     ".t-workflow/scripts/review-snapshot.sh": "618b1a290d91cc6140e35e9cd9ebb0ec3edef5577d4ff0ef76d1bf667eeec4f5",
     ".t-workflow/scripts/status-snapshot.sh": "06ee1c42d37e241e258995db394db0af58761e9161266f180d08722af6aa3524",
     ".t-workflow/scripts/template-owned-paths.sh": "d1422690a7082e8209652f2423610a2614d2ca848cf9c40ff0d78eabf733a08d",
-    "AGENTS.md": "c861f6c7b1b3325fb950941191ed9781c210b2c9330b0a34908d4239e216d9c3",
+    "AGENTS.md": "1da426cda947acd4a72ad4dbd8092e0d7a4fc4ee85de692db1099bb967da2a47",
     "CLAUDE.md": "symlink:AGENTS.md",
     "CONSTITUTION.md": "15be69adfcc284806908824522b439918f887158a83a0317994a64f5ea288803",
     "GEMINI.md": "symlink:AGENTS.md",
@@ -50,7 +50,7 @@
     "docs/adr/008-t-ship-attended-ci-watch.md": "ec433c35f1d7f2b614066852e525cec05b8161a84830e1c884002f6dc15e22ef",
     "docs/architecture/confirmation-gates.md": "98d666e2e4794b0275b5f285e23faba16577d9d6bb0b60da3e501106baf0648a",
     "docs/architecture/issue-templates.md": "f3ba11c4d2b47402171c8eeb0d98398a545b9baf6b81ff2163a930cb8dc9bf9b",
-    "docs/architecture/local-slots.md": "2f45a131c680958132508aca6d3be92686d9fa4cae6c56503ebc2c9b671103d9",
+    "docs/architecture/local-slots.md": "cbad45664ea3845553f49d1f555c76247e747381fa2c26bd5e055091f004b6c4",
     "docs/architecture/manifest.md": "abed5706bbb5557d93b96fd4e26389050de5cc6e98df97a345ded88dc4a5f829",
     "docs/architecture/migrations.md": "5e826e52803ea9faab04cb4f92fe6edde42687c45abd0acb778c64a485559b41",
     "docs/tasks/README.md": "3a2b284f76b79da495a3967c1dec1104a3cec04b614cc1146eab3ca31d1c91c9",

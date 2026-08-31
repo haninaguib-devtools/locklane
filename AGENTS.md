@@ -43,6 +43,19 @@ only). Plain `git` is never abstracted.
   is repository genesis (`CONSTITUTION.md` §3): the template's placeholder fills and the
   first commit happen by hand, because there is no tracker and no `main` to open a PR
   against yet. It expires once that commit is pushed.
+- **No skill runs without the human's ask.** An agent starts a stage from the pipeline
+  table above only when the human explicitly named it or clearly directed that specific
+  action in their own words ("open a task for this", "ship it", "cancel this one",
+  "what's the status", "sync the template") — `/t-status` included, even though it is
+  read-only, so the rule stays uniform rather than carving out exceptions by
+  side-effect. A description, bug report, or observation in conversation is never by
+  itself such an ask, even when it obviously describes something worth fixing or the
+  action would be harmless: say what you noticed and wait, the same as a mid-task
+  discovery.
+
+  The one exception is `/t-drive`: its own `SKILL.md` calls it "the one narrow,
+  explicitly-invoked exception to ADR-001 D1's 'nothing auto-chains'" — the human names
+  `/t-drive <id>` once, and that single ask covers every stage it chains internally.
 - **Writing to the tracker needs the human's ask.** Creating or changing anything on the
   tracker — opening an issue, commenting, adding or removing a label, closing or
   reopening one — puts an item on the owner's tracker under the owner's name, so an agent

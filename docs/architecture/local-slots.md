@@ -38,3 +38,18 @@ nothing to stamp and nothing that can drift between them, by construction. Editi
 session-start contract always means editing `AGENTS.md` itself; the three aliases exist
 only so each agent finds its expected filename. `.agents/skills` is a separate symlink
 to `.claude/skills/` and is unrelated to this mechanism.
+
+## Consumer ADR numbering
+
+`docs/adr/` is one directory holding two provenances: template ADRs, synced in by
+`/t-update`, and a consumer repo's own. The template owns numbers **000–099**; a
+consumer's local ADRs start at **100**. The two must never share a number: the
+consistency check resolves a decision reference like "ADR-008 D1" by globbing
+`docs/adr/008-*.md` and taking the first match, so a local 008 sitting beside a
+synced 008 makes every such reference ambiguous — and the template can mint any
+number in its range in any future release (v0.0.8's new ADR-008 landed on a
+consumer that had already used 008 locally, in exactly this way; that consumer
+renumbered its local ADRs to 100+ at the sync). A consumer that numbered local
+ADRs below 100 renumbers them out of the range at its next sync, updating its own
+references; historical task records keep the numbers that were current when they
+were written.
