@@ -8,6 +8,7 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { IDisposable, Terminal } from '@xterm/xterm';
 import { TerminalSession } from '../../services/terminal-session';
@@ -57,6 +58,20 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     }
   };
 
+  // A CLI with mouse tracking enabled (claude/codex turn on ?1000h/?1002h/?1003h) owns
+  // the selection the user sees, and xterm forwards every button press to it -- so a
+  // right-click aimed at the browser's context menu reached the CLI as a mouse press
+  // and made it drop that selection (#435). The context menu never needs the PTY to
+  // know about the click: swallow button 2 before xterm's own element listener can
+  // report it (capture phase on the container fires first; xterm only ever sends the
+  // matching release for a press it saw, so suppressing the press suppresses both).
+  // Plain shell tabs have no mouse tracking, so right-click there is untouched.
+  private readonly suppressRightClickUnderMouseTracking = (event: MouseEvent): void => {
+    if (event.button === 2 && this.term != null && this.term.modes.mouseTrackingMode !== 'none') {
+      event.stopPropagation();
+    }
+  };
+
   /* A sidenav-slider drag or live window resize fires the ResizeObserver on
      every pixel. Fitting on each tick streams a column count per pixel to the
      server, and each reflow rewraps the CLI's full-width output into scrollback
@@ -77,6 +92,22 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     });
     this.fitAddon = new FitAddon();
     this.term.loadAddon(this.fitAddon);
+    // OSC 52 is how a CLI running in the PTY (claude's own Ctrl+C copy, tmux, vim)
+    // puts text on the clipboard -- the server has no clipboard tool, so this escape
+    // sequence is its only route out, and without a handler xterm drops it silently
+    // (#435). Writes go through copyToClipboard rather than the addon's default
+    // provider: a plain navigator.clipboard.writeText rejection (Safari gives no
+    // user-gesture credit to server output) would vanish as an unhandled promise,
+    // while copyToClipboard falls back to execCommand and logs a failure. Reads are
+    // declined with an empty report: OSC 52 read would let any PTY application
+    // silently exfiltrate the user's clipboard, which is why most terminals ship
+    // with it off.
+    this.term.loadAddon(
+      new ClipboardAddon(undefined, {
+        readText: () => '',
+        writeText: (_selection, text) => this.copyToClipboard(text),
+      }),
+    );
     // xterm's default binds Ctrl/Cmd+C to sending an interrupt (SIGINT) no matter
     // what, and its canvas has `user-select: none` so there is no real DOM selection
     // for a browser copy shortcut to act on either (#226). With a selection present,
@@ -87,7 +118,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
         event.type === 'keydown' && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c';
       if (isCopyChord && this.term?.hasSelection()) {
         event.preventDefault();
-        this.copySelection(this.term.getSelection());
+        this.copyToClipboard(this.term.getSelection());
         return false;
       }
       return true;
@@ -137,6 +168,9 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       }, TerminalComponent.FIT_QUIET_MS);
     });
     this.resizeObserver.observe(this.container.nativeElement);
+    // Capture phase: this has to run before the mousedown reaches xterm's own
+    // element, whose "always on" listener is what reports the press to the PTY.
+    this.container.nativeElement.addEventListener('mousedown', this.suppressRightClickUnderMouseTracking, true);
     document.addEventListener('visibilitychange', this.checkConnectionOnForeground);
     window.addEventListener('focus', this.checkConnectionOnForeground);
   }
@@ -159,6 +193,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.container.nativeElement.removeEventListener('mousedown', this.suppressRightClickUnderMouseTracking, true);
     document.removeEventListener('visibilitychange', this.checkConnectionOnForeground);
     window.removeEventListener('focus', this.checkConnectionOnForeground);
     if (this.pendingFit !== null) {
@@ -176,22 +211,24 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   /**
-   * `navigator.clipboard.writeText` alone silently fails the copy chord in two real
-   * cases (#350): Safari does not treat a keydown as a sufficient user gesture for a
-   * clipboard write, and Chrome rejects when the site's clipboard permission is
-   * blocked. Either way, fall back to a synchronous execCommand('copy') rather than
-   * swallowing the rejection.
+   * `navigator.clipboard.writeText` alone silently fails in two real cases (#350):
+   * Safari does not treat a keydown -- let alone an OSC 52 arriving with server
+   * output (#435) -- as a sufficient user gesture for a clipboard write, and Chrome
+   * rejects when the site's clipboard permission is blocked. Either way, fall back
+   * to a synchronous execCommand('copy') rather than swallowing the rejection.
+   * Serves both copy paths: the Cmd/Ctrl+C chord on an xterm selection, and an
+   * OSC 52 write from the PTY application via the clipboard addon.
    */
-  private copySelection(text: string): void {
+  private copyToClipboard(text: string): void {
     const clipboard = navigator.clipboard;
     if (clipboard?.writeText) {
-      clipboard.writeText(text).catch(() => this.copySelectionFallback(text));
+      clipboard.writeText(text).catch(() => this.copyFallback(text));
     } else {
-      this.copySelectionFallback(text);
+      this.copyFallback(text);
     }
   }
 
-  private copySelectionFallback(text: string): void {
+  private copyFallback(text: string): void {
     const textarea = document.createElement('textarea');
     textarea.value = text;
     // Off-screen but still focusable/selectable -- execCommand('copy') acts on

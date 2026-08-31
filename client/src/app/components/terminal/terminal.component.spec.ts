@@ -1,4 +1,5 @@
 import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import { TerminalComponent } from './terminal.component';
@@ -90,6 +91,20 @@ describe('TerminalComponent', () => {
     return (component as unknown as { term: Terminal }).term;
   }
 
+  function containerEl(): HTMLElement {
+    return fixture!.nativeElement.querySelector('.terminal');
+  }
+
+  function rightClickOnTerminal(): MouseEvent {
+    // Dispatched on xterm's own element inside the container, the way a real click
+    // lands -- the component's capture-phase listener on the container must run
+    // before it reaches xterm.
+    const event = new MouseEvent('mousedown', { button: 2, bubbles: true, cancelable: true });
+    spyOn(event, 'stopPropagation').and.callThrough();
+    (containerEl().querySelector('.xterm') as HTMLElement).dispatchEvent(event);
+    return event;
+  }
+
   it('passes rightClickSelectsWord: false to xterm so a right-click preserves a drag selection (#350)', () => {
     const { component } = createTerminal();
     expect((term(component) as unknown as { options: { rightClickSelectsWord: boolean } }).options.rightClickSelectsWord).toBeFalse();
@@ -176,6 +191,72 @@ describe('TerminalComponent', () => {
 
     expect(consoleErrorSpy).toHaveBeenCalled();
   }));
+
+  it('loads the clipboard addon so an OSC 52 write from the PTY application is not dropped (#435)', () => {
+    const loadAddonSpy = spyOn(Terminal.prototype, 'loadAddon').and.callThrough();
+
+    mountTab(true);
+
+    expect(loadAddonSpy.calls.allArgs().some((args) => args[0] instanceof ClipboardAddon))
+      .withContext('a ClipboardAddon instance must be among the loaded addons')
+      .toBeTrue();
+  });
+
+  it('puts an OSC 52 payload from the PTY application onto the browser clipboard (#435)', (done) => {
+    const writeText = jasmine.createSpy('writeText').and.returnValue(Promise.resolve());
+    spyOnProperty(navigator, 'clipboard', 'get').and.returnValue({ writeText } as unknown as Clipboard);
+
+    const component = mountTab(true);
+    // "hello" base64-encoded, exactly as claude emits it when its own Ctrl+C copies.
+    term(component).write('\x1b]52;c;aGVsbG8=\x07', () => {
+      expect(writeText).toHaveBeenCalledWith('hello');
+      done();
+    });
+  });
+
+  it('declines an OSC 52 clipboard *read*, so a PTY application cannot see the clipboard (#435)', (done) => {
+    const readText = jasmine.createSpy('readText').and.returnValue(Promise.resolve('secret'));
+    spyOnProperty(navigator, 'clipboard', 'get').and.returnValue({ readText } as unknown as Clipboard);
+
+    const component = mountTab(true);
+    term(component).write('\x1b]52;c;?\x07', () => {
+      expect(readText).not.toHaveBeenCalled();
+      done();
+    });
+  });
+
+  it('swallows a right-click mousedown while the application has mouse tracking on, so the press never reaches the CLI (#435)', (done) => {
+    const component = mountTab(true);
+    // DECSET 1002: button-event mouse tracking, one of the modes claude enables.
+    term(component).write('\x1b[?1002h', () => {
+      expect(term(component).modes.mouseTrackingMode).not.toBe('none');
+
+      const event = rightClickOnTerminal();
+
+      expect(event.stopPropagation).toHaveBeenCalled();
+      done();
+    });
+  });
+
+  it('leaves a right-click alone in a plain shell tab (no mouse tracking), preserving #350 behavior', () => {
+    mountTab(true);
+
+    const event = rightClickOnTerminal();
+
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+  });
+
+  it('leaves a left-click alone under mouse tracking -- only button 2 is suppressed (#435)', (done) => {
+    const component = mountTab(true);
+    term(component).write('\x1b[?1002h', () => {
+      const event = new MouseEvent('mousedown', { button: 0, bubbles: true, cancelable: true });
+      spyOn(event, 'stopPropagation').and.callThrough();
+      (containerEl().querySelector('.xterm') as HTMLElement).dispatchEvent(event);
+
+      expect(event.stopPropagation).not.toHaveBeenCalled();
+      done();
+    });
+  });
 
   it('opens xterm at mount even for a tab that is not the selected one (#375)', () => {
     const openSpy = spyOn(Terminal.prototype, 'open').and.callThrough();
