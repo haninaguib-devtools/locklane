@@ -23,22 +23,28 @@ set -uo pipefail
 # positives on a PR that just merged.
 GRACE_SECONDS="${GRACE_SECONDS:-3600}"
 
+# One page must hold the repository's whole PR history (the at-cap warning below fires
+# if it ever stops doing so). 200 was outgrown at ~203 PRs (issue #454).
+PAGE_LIMIT=1000
+
 # Portable ISO-8601 -> epoch: GNU `date -d` (CI runners, Linux) first, BSD/macOS
-# `date -j` (local runs) as fallback.
+# `date -j` (local runs) as fallback. Both legs silenced: on garbage input the GNU leg's
+# fallback is BSD's `-j`, whose "invalid option" noise is not a diagnostic — the caller
+# reports the row itself on failure.
 to_epoch() {
-  date -u -d "$1" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s
+  date -u -d "$1" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null
 }
 
 now=$(date -u +%s)
 
-if ! prs=$(gh pr list --state all --limit 200 \
+if ! prs=$(gh pr list --state all --limit "$PAGE_LIMIT" \
   --json number,headRefName,state,mergedAt,closedAt,url); then
   echo "FAIL: gh pr list failed — could not scan for stale branches." >&2
   exit 2
 fi
 
 count=$(printf '%s' "$prs" | jq 'length')
-if [ "$count" -ge 200 ]; then
+if [ "$count" -ge "$PAGE_LIMIT" ]; then
   echo "WARNING: gh pr list returned $count PRs, at the page limit — this scan may be" >&2
   echo "  incomplete. Raise --limit rather than trusting a clean result." >&2
 fi
@@ -60,10 +66,16 @@ while IFS=$'\t' read -r number head state mergedAt closedAt url; do
     *) continue ;;  # OPEN — not merged or closed yet
   esac
   if [ -z "$ts" ] || [ "$ts" = "null" ]; then
+    echo "WARNING: PR #$number ($state) carries no merged/closed timestamp — row" >&2
+    echo "  skipped, its branch '$head' was NOT verified — $url" >&2
     continue
   fi
 
-  event_epoch=$(to_epoch "$ts") || continue
+  if ! event_epoch=$(to_epoch "$ts"); then
+    echo "WARNING: PR #$number ($state) has an unparseable timestamp '$ts' — row" >&2
+    echo "  skipped, its branch '$head' was NOT verified — $url" >&2
+    continue
+  fi
   age=$(( now - event_epoch ))
   if [ "$age" -lt "$GRACE_SECONDS" ]; then
     continue
@@ -80,7 +92,11 @@ while IFS=$'\t' read -r number head state mergedAt closedAt url; do
     echo "FAIL: could not check whether branch '$head' still exists: $branch_err" >&2
     exit 2
   fi
-done < <(printf '%s' "$prs" | jq -r '.[] | [.number, .headRefName, .state, .mergedAt, .closedAt, .url] | @tsv')
+# The timestamps are `// "null"`-defaulted because @tsv renders JSON null as an empty
+# field, and tab is IFS whitespace — `read` collapses the resulting adjacent tabs, so a
+# closed-unmerged PR (mergedAt null) shifted every later field one left and compared
+# staleness against its own URL (issue #454).
+done < <(printf '%s' "$prs" | jq -r '.[] | [.number, .headRefName, .state, (.mergedAt // "null"), (.closedAt // "null"), .url] | @tsv')
 
 if [ "$stale" -eq 0 ]; then
   echo "OK: no stale wip/*/fix/* branches found (grace period ${GRACE_SECONDS}s)."
