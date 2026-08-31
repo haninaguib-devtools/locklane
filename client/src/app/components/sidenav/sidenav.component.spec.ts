@@ -687,6 +687,52 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.hasAttentionWaiting(2, 4)).toBeTrue();
   });
 
+  it('a consoleAttention waiting event for a project-level console marks that project, an active event clears it (#450)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console', state: 'waiting' });
+    expect(fixture.componentInstance.hasAttentionWaitingForProject(1)).toBeTrue();
+    // The event lands on the project row only -- no issue row is marked.
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 4)).toBeFalse();
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console', state: 'active' });
+    expect(fixture.componentInstance.hasAttentionWaitingForProject(1)).toBeFalse();
+  });
+
+  it('an issue-attached console waiting does not mark the project row -- it tracks project-level consoles exclusively (#450)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-4-main-slug', state: 'waiting' });
+
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 4)).toBeTrue();
+    expect(fixture.componentInstance.hasAttentionWaitingForProject(1)).toBeFalse();
+  });
+
+  it('a suffixed project-console session id marks only its own project (#450)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '2-console-abc', state: 'waiting' });
+
+    expect(fixture.componentInstance.hasAttentionWaitingForProject(2)).toBeTrue();
+    expect(fixture.componentInstance.hasAttentionWaitingForProject(1)).toBeFalse();
+  });
+
+  it('one project console going active does not clear another still-waiting one (#450)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-a', state: 'waiting' });
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-b', state: 'waiting' });
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-a', state: 'active' });
+
+    expect(fixture.componentInstance.hasAttentionWaitingForProject(1)).toBeTrue();
+  });
+
   /** The header's rendered text with whitespace collapsed, e.g. "proj-a (3)". */
   function headerText(fixture: { nativeElement: HTMLElement }): string {
     const label = fixture.nativeElement.querySelector('.section-header .project-label') as HTMLElement;
