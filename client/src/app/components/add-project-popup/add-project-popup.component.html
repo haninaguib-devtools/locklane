@@ -26,6 +26,23 @@
       </button>
     </div>
 
+    <ng-template #accountPicker>
+      @if (accounts.length > 0) {
+        <label>
+          GitHub account
+          <select name="githubLogin" class="github-login" [(ngModel)]="githubLogin" [disabled]="submitting">
+            @for (account of accounts; track account.login) {
+              <option [value]="account.login">{{ account.login }}{{ account.active ? ' (active)' : '' }}</option>
+            }
+          </select>
+        </label>
+      } @else if (accountsLoaded) {
+        <p class="hint no-accounts">
+          no GitHub account on the engine host — run <code>gh auth login</code> there first
+        </p>
+      }
+    </ng-template>
+
     @if (mode === 'import') {
       <form (ngSubmit)="submit()">
         <label>
@@ -51,6 +68,7 @@
             [disabled]="submitting"
           />
         </label>
+        <ng-container *ngTemplateOutlet="accountPicker" />
 
         @if (error) {
           <p class="error">{{ error }}</p>
@@ -85,6 +103,7 @@
             [disabled]="submitting"
           />
         </label>
+        <ng-container *ngTemplateOutlet="accountPicker" />
         <label class="checkbox-label">
           <input type="checkbox" name="bootstrapTWorkflow" [(ngModel)]="bootstrapTWorkflow" [disabled]="submitting" />
           bootstrap with t-workflow
@@ -95,7 +114,7 @@
         }
 
         <div class="actions">
-          <button type="submit" [disabled]="!org.trim() || !newRepoName.trim() || submitting">
+          <button type="submit" [disabled]="!org.trim() || !newRepoName.trim() || !canCreate || submitting">
             {{ submitting ? 'creating…' : 'create project' }}
           </button>
         </div>

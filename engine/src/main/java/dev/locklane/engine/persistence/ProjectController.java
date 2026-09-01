@@ -69,7 +69,8 @@ public class ProjectController {
             return ResponseEntity.badRequest().body(Map.of("error", "gitUrl is required"));
         }
         UserRecord caller = currentUser(authentication);
-        ProjectRecord project = checkoutService.createProject(request.gitUrl(), request.name(), caller.id());
+        ProjectRecord project = checkoutService.createProject(
+                request.gitUrl(), request.name(), caller.id(), request.githubLogin());
         return ResponseEntity.status(HttpStatus.CREATED).body(ProjectView.from(project));
     }
 
@@ -77,7 +78,9 @@ public class ProjectController {
      * The "Create new" side of the Add Project dialog (#491): creates a brand-new
      * GitHub repository at {@code org/name} via {@code gh} instead of importing one
      * that already exists, then registers it through the same async, status-tracked
-     * flow as {@link #create}.
+     * flow as {@link #create}. Both accept an optional {@code githubLogin} (#532), one
+     * of the accounts {@code gh} is logged into on this host, for the project to act
+     * as; absent, the engine behaves exactly as before.
      */
     @PostMapping("/new")
     public ResponseEntity<?> createNew(@RequestBody CreateNewProjectRequest request, Authentication authentication) {
@@ -89,7 +92,7 @@ public class ProjectController {
         }
         UserRecord caller = currentUser(authentication);
         ProjectRecord project = checkoutService.createNewProject(
-                request.org(), request.name(), request.bootstrapTWorkflow(), caller.id());
+                request.org(), request.name(), request.bootstrapTWorkflow(), caller.id(), request.githubLogin());
         return ResponseEntity.status(HttpStatus.CREATED).body(ProjectView.from(project));
     }
 
@@ -182,10 +185,12 @@ public class ProjectController {
                         "authenticated as '" + authentication.getName() + "' but no such user row exists"));
     }
 
-    public record CreateProjectRequest(String gitUrl, String name) {
+    /** {@code githubLogin} (#532) is optional — {@code null} when the client chose no account. */
+    public record CreateProjectRequest(String gitUrl, String name, String githubLogin) {
     }
 
-    public record CreateNewProjectRequest(String org, String name, boolean bootstrapTWorkflow) {
+    /** {@code githubLogin} (#532) is optional — {@code null} when the client chose no account. */
+    public record CreateNewProjectRequest(String org, String name, boolean bootstrapTWorkflow, String githubLogin) {
     }
 
     public record SetGithubTokenRequest(String token) {

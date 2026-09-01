@@ -599,6 +599,107 @@ class ProjectCheckoutServiceTest {
                 .isEqualTo("Initial commit");
     }
 
+    // #532: a project may act as one of the accounts `gh` is logged into on the host.
+    // The stub gh below stands in for the real CLI: `auth token --user <login>` knows
+    // exactly one account ("work", token "work-token") and answers any other login
+    // with gh 2.98.0's real wording and exit 1; `repo create` records the GH_TOKEN it
+    // was given and its arguments. Every invocation is appended to a calls log.
+
+    @Test
+    void createProjectWithALoginStoresThatAccountsTokenBeforeCloning(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+        ProjectRepository repository = repositoryOver(tmp);
+
+        ProjectRecord project = service.createProject(origin.toString(), "imported", 1L, "work");
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        assertThat(found.defaultBranch()).isEqualTo("main");
+        String stored = repository.findGithubToken(project.id()).orElseThrow();
+        assertThat(stored).isNotEqualTo("work-token"); // encrypted at rest
+        assertThat(tokenCipher(tmp).decrypt(stored)).isEqualTo("work-token");
+        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("auth token --user work\n");
+        // The clone itself is untouched: no token in the remote URL, no gh involved.
+        assertThat(run(project.workareaPath(), "git", "remote", "get-url", "origin").strip())
+                .isEqualTo(origin.toString());
+    }
+
+    @Test
+    void createProjectWithAnUnknownLoginFailsBeforeCloningAndNamesTheLogin(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+        ProjectRepository repository = repositoryOver(tmp);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        ProjectRecord project;
+        try {
+            project = service.createProject(origin.toString(), "unknown-login", 1L, "nobody");
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(repository.findGithubToken(project.id())).isEmpty();
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("'nobody'")
+                    .contains("no oauth token found for github.com account nobody");
+        });
+        // No clone was attempted: the workarea was never created.
+        assertThat(project.workareaPath()).doesNotExist();
+        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("auth token --user nobody\n");
+    }
+
+    @Test
+    void createProjectWithoutALoginNeverInvokesGh(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+
+        ProjectRecord project = service.createProject(origin.toString(), "plain", 1L, "  ");
+
+        assertThat(repositoryOver(tmp).findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.READY);
+        assertThat(repositoryOver(tmp).findGithubToken(project.id())).isEmpty();
+        assertThat(ghLog.resolve("calls")).doesNotExist();
+    }
+
+    @Test
+    void createRepoAndPushWithALoginActsAsThatAccountThroughGhTokenAndStoresIt(@TempDir Path tmp) throws Exception {
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        // A pre-receive hook sees the pushing process's environment, so it can prove
+        // the push itself ran with GH_TOKEN set -- a local bare repo can't otherwise
+        // tell one pusher from another.
+        Path hook = bareRemote.resolve("hooks").resolve("pre-receive");
+        Files.writeString(hook, "#!/usr/bin/env bash\nprintf '%s' \"${GH_TOKEN-<unset>}\" > \""
+                + ghLog.resolve("push-env") + "\"\n");
+        hook.toFile().setExecutable(true);
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("as-work");
+        ProjectRecord project = repository.create("as-work", bareRemote.toString(), workarea, 1L, Instant.now());
+
+        service.createRepoAndPush(project, "my-org", false, Optional.of("work"));
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        assertThat(tokenCipher(tmp).decrypt(repository.findGithubToken(project.id()).orElseThrow()))
+                .isEqualTo("work-token");
+        assertThat(Files.readString(ghLog.resolve("calls")))
+                .isEqualTo("auth token --user work\nrepo create my-org/as-work --private\n");
+        assertThat(Files.readString(ghLog.resolve("repo-create-env"))).isEqualTo("work-token");
+        assertThat(Files.readString(ghLog.resolve("push-env"))).isEqualTo("work-token");
+        assertThat(run(bareRemote, "git", "log", "-1", "--format=%s", found.defaultBranch()).strip())
+                .isEqualTo("Initial commit");
+    }
+
     @Test
     void parseOauthScopesReadsTheHeaderAsGhApiPrintsIt() {
         String response = """
@@ -630,6 +731,146 @@ class ProjectCheckoutServiceTest {
                 .isEmpty();
         assertThat(ProjectCheckoutService.parseOauthScopes("HTTP/2.0 200 OK\nX-Oauth-Scopes: \n\n")).isEmpty();
         assertThat(ProjectCheckoutService.parseOauthScopes("")).isEmpty();
+    }
+
+    @Test
+    void createRepoAndPushWithAnUnknownLoginCreatesNothing(@TempDir Path tmp) throws Exception {
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("as-nobody");
+        ProjectRecord project = repository.create(
+                "as-nobody", "https://127.0.0.1:1/my-org/as-nobody.git", workarea, 1L, Instant.now());
+
+        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            service.createRepoAndPush(project, "my-org", false, Optional.of("nobody"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(repository.findGithubToken(project.id())).isEmpty();
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("'nobody'");
+        });
+        // gh was asked for the token and nothing else -- no repository was created.
+        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("auth token --user nobody\n");
+        assertThat(ghLog.resolve("repo-create-env")).doesNotExist();
+        assertThat(workarea).doesNotExist();
+    }
+
+    // #531 composes with #532: the workflow-scope gate examines the token the bootstrap
+    // push will actually use -- with a chosen account, that account's token, stored on
+    // the row before the gate runs -- not the host's active login.
+
+    @Test
+    void createRepoAndPushRunsTheWorkflowScopeGateOnTheChosenAccountsToken(@TempDir Path tmp) throws Exception {
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog),
+                token -> token.equals("work-token") ? Optional.of(Set.of("repo")) : Optional.of(Set.of("repo", "workflow")));
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("as-work-no-scope");
+        ProjectRecord project = repository.create(
+                "as-work-no-scope", "https://127.0.0.1:1/my-org/as-work-no-scope.git", workarea, 1L, Instant.now());
+
+        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            service.createRepoAndPush(project, "my-org", true, Optional.of("work"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        // The chosen account's token was stored, and it is the one the gate judged.
+        assertThat(tokenCipher(tmp).decrypt(repository.findGithubToken(project.id()).orElseThrow()))
+                .isEqualTo("work-token");
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("the stored per-project token")
+                    .contains(ProjectCheckoutService.WORKFLOW_SCOPE);
+        });
+        // Refused before `gh repo create`: nothing was created on GitHub or on disk.
+        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("auth token --user work\n");
+        assertThat(ghLog.resolve("repo-create-env")).doesNotExist();
+        assertThat(workarea).doesNotExist();
+    }
+
+    @Test
+    void createRepoAndPushWithoutALoginRunsGhAsTheHostsActiveAccount(@TempDir Path tmp) throws Exception {
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("ambient");
+        ProjectRecord project = repository.create("ambient", bareRemote.toString(), workarea, 1L, Instant.now());
+
+        service.createRepoAndPush(project, "my-org", false, Optional.empty());
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.READY);
+        assertThat(repository.findGithubToken(project.id())).isEmpty();
+        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("repo create my-org/ambient --private\n");
+        // No GH_TOKEN was injected: gh ran as whatever the host has active, as before #532.
+        assertThat(Files.readString(ghLog.resolve("repo-create-env"))).isEqualTo("<unset>");
+    }
+
+    /**
+     * A stub {@code gh} for #532's tests (shared with {@code ProjectControllerTest}):
+     * knows one account, {@code work} → {@code work-token}; records every invocation
+     * in {@code <log>/calls}, and {@code repo create}'s {@code GH_TOKEN} in
+     * {@code <log>/repo-create-env}. Returns the script's absolute path.
+     */
+    static String stubGh(Path tmp, Path log) throws IOException {
+        Path script = tmp.resolve("stub-gh");
+        Files.writeString(script, """
+                #!/usr/bin/env bash
+                log=%s
+                printf '%%s\\n' "$*" >> "$log/calls"
+                case "$1 $2" in
+                  "auth token")
+                    if [ "$3" = "--user" ] && [ "$4" = "work" ]; then
+                      echo work-token
+                    else
+                      echo "no oauth token found for github.com account $4" >&2
+                      exit 1
+                    fi
+                    ;;
+                  "repo create")
+                    printf '%%s' "${GH_TOKEN-<unset>}" > "$log/repo-create-env"
+                    ;;
+                  *)
+                    echo "stub gh: unexpected invocation: $*" >&2
+                    exit 2
+                    ;;
+                esac
+                """.formatted(log));
+        script.toFile().setExecutable(true);
+        return script.toString();
+    }
+
+    /**
+     * Like {@link #service(Path)}, but with {@code ghExecutable} standing in for the real
+     * gh (#532); the #531 scope lookup reports "unknown", which that gate lets through.
+     */
+    private static ProjectCheckoutService serviceWithStubGh(Path tmp, String ghExecutable) {
+        return serviceWithStubGh(tmp, ghExecutable, token -> Optional.empty());
+    }
+
+    /** Same, with the #531 scope lookup substituted too, so both gates can be exercised on one token. */
+    private static ProjectCheckoutService serviceWithStubGh(Path tmp, String ghExecutable,
+            Function<String, Optional<Set<String>>> tokenScopes) {
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
+                Optional::empty, "exit 1", tokenScopes, ghExecutable);
     }
 
     private static ProjectCheckoutService service(Path tmp) {

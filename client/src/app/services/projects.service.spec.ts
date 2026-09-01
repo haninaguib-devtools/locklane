@@ -57,6 +57,45 @@ describe('ProjectsService', () => {
     req.flush(project);
   });
 
+  it('creates a project as a chosen gh account by adding githubLogin to the body (#532)', () => {
+    service.create('url', 'bar', 'hani-thyme').subscribe();
+
+    const req = httpMock.expectOne('/api/projects');
+    expect(req.request.body).toEqual({ gitUrl: 'url', name: 'bar', githubLogin: 'hani-thyme' });
+    req.flush({});
+  });
+
+  it('creates a new repository via POST /api/projects/new, with githubLogin only when one was chosen (#532)', () => {
+    service.createNew('my-org', 'my-project', true).subscribe();
+    const plain = httpMock.expectOne('/api/projects/new');
+    expect(plain.request.body).toEqual({ org: 'my-org', name: 'my-project', bootstrapTWorkflow: true });
+    plain.flush({});
+
+    service.createNew('my-org', 'my-project', false, 'haninaguib').subscribe();
+    const asAccount = httpMock.expectOne('/api/projects/new');
+    expect(asAccount.request.body).toEqual({
+      org: 'my-org',
+      name: 'my-project',
+      bootstrapTWorkflow: false,
+      githubLogin: 'haninaguib',
+    });
+    asAccount.flush({});
+  });
+
+  it('lists the host gh accounts from GET /api/github/accounts (#532)', () => {
+    let result: unknown;
+    service.githubAccounts().subscribe((accounts) => (result = accounts));
+
+    const req = httpMock.expectOne('/api/github/accounts');
+    expect(req.request.method).toBe('GET');
+    req.flush({ accounts: [{ login: 'haninaguib', active: true }, { login: 'hani-thyme', active: false }] });
+
+    expect(result).toEqual([
+      { login: 'haninaguib', active: true },
+      { login: 'hani-thyme', active: false },
+    ]);
+  });
+
   it('retries a failed project via POST /api/projects/{id}/retry', () => {
     service.retry(1).subscribe();
 

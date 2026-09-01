@@ -31,6 +31,15 @@ import java.util.regex.Pattern;
  * outcome is asserted without polling). {@link #createNewProject} (#491) is the same
  * idea for a repository that doesn't exist yet: it creates one on GitHub via {@code gh}
  * first, then runs the same local-checkout-and-push shape.
+ *
+ * <p>Either path may name a {@code githubLogin} (#532): one of the accounts {@code gh}
+ * is logged into on this host. When it does, that account's token
+ * ({@code gh auth token --user <login>}) is stored encrypted as the project's own
+ * token (#81) before anything else happens, so the project's issue/PR fetches act as
+ * that identity from the first fetch; on the create path {@code gh repo create} and
+ * the first push additionally run with {@code GH_TOKEN} set to it, so the host's
+ * active {@code gh} account is never switched. With no login, behaviour is exactly the
+ * pre-#532 one.
  */
 @Service
 public class ProjectCheckoutService {
@@ -79,6 +88,7 @@ public class ProjectCheckoutService {
     private final Supplier<Optional<String>> ambientGithubToken;
     private final String installCommand;
     private final Function<String, Optional<Set<String>>> tokenScopes;
+    private final String ghExecutable;
 
     @Autowired
     public ProjectCheckoutService(ProjectRepository repository,
@@ -113,7 +123,7 @@ public class ProjectCheckoutService {
             IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher,
             Supplier<Optional<String>> ambientGithubToken, String installCommand) {
         this(repository, workareaRoot, cloneExecutor, issueWorktreeService, tokenCipher, ambientGithubToken,
-                installCommand, ProjectCheckoutService::ghTokenScopes);
+                installCommand, ProjectCheckoutService::ghTokenScopes, "gh");
     }
 
     /**
@@ -126,6 +136,21 @@ public class ProjectCheckoutService {
             IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher,
             Supplier<Optional<String>> ambientGithubToken, String installCommand,
             Function<String, Optional<Set<String>>> tokenScopes) {
+        this(repository, workareaRoot, cloneExecutor, issueWorktreeService, tokenCipher, ambientGithubToken,
+                installCommand, tokenScopes, "gh");
+    }
+
+    /**
+     * Test-only: additionally substitutes the {@code gh} executable (#532) — a path to
+     * a stub script standing in for the real CLI — so the per-login token lookup
+     * ({@code gh auth token --user}) and {@code gh repo create} can be exercised
+     * without ever invoking the real {@code gh}, the same way {@code installCommand}
+     * stands in for the real installer.
+     */
+    ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
+            IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher,
+            Supplier<Optional<String>> ambientGithubToken, String installCommand,
+            Function<String, Optional<Set<String>>> tokenScopes, String ghExecutable) {
         this.repository = repository;
         this.workareaRoot = Path.of(workareaRoot).normalize();
         this.cloneExecutor = cloneExecutor;
@@ -134,6 +159,7 @@ public class ProjectCheckoutService {
         this.ambientGithubToken = ambientGithubToken;
         this.installCommand = installCommand;
         this.tokenScopes = tokenScopes;
+        this.ghExecutable = ghExecutable;
     }
 
     /**
@@ -146,13 +172,24 @@ public class ProjectCheckoutService {
      * only, never itself the authorization boundary.
      */
     public ProjectRecord createProject(String gitUrl, String requestedName, long ownerUserId) {
+        return createProject(gitUrl, requestedName, ownerUserId, null);
+    }
+
+    /**
+     * Same as {@link #createProject(String, String, long)}, acting as {@code githubLogin}
+     * (#532): that account's {@code gh} token is stored as the project's own before the
+     * clone, which itself is unchanged (the URL, SSH alias and key decide the clone's
+     * identity). {@code null}/blank means no account was chosen.
+     */
+    public ProjectRecord createProject(String gitUrl, String requestedName, long ownerUserId, String githubLogin) {
         String trimmedUrl = gitUrl.strip();
         String name = (requestedName == null || requestedName.isBlank())
                 ? deriveName(trimmedUrl) : requestedName.strip();
         Path workareaPath = uniqueWorkareaPath(ownerUserId, slug(name));
+        Optional<String> login = normalizeLogin(githubLogin);
 
         ProjectRecord project = repository.create(name, trimmedUrl, workareaPath, ownerUserId, Instant.now());
-        cloneExecutor.execute(() -> clone(project));
+        cloneExecutor.execute(() -> clone(project, login));
         return project;
     }
 
@@ -166,13 +203,25 @@ public class ProjectCheckoutService {
      * unlike {@link #createProject}, there is no URL to derive a name from.
      */
     public ProjectRecord createNewProject(String org, String name, boolean bootstrapTWorkflow, long ownerUserId) {
+        return createNewProject(org, name, bootstrapTWorkflow, ownerUserId, null);
+    }
+
+    /**
+     * Same as {@link #createNewProject(String, String, boolean, long)}, acting as
+     * {@code githubLogin} (#532): that account's {@code gh} token is stored as the
+     * project's own and {@code gh repo create} plus the first push run with it as
+     * {@code GH_TOKEN}. {@code null}/blank means no account was chosen.
+     */
+    public ProjectRecord createNewProject(String org, String name, boolean bootstrapTWorkflow, long ownerUserId,
+            String githubLogin) {
         String trimmedOrg = org.strip();
         String trimmedName = name.strip();
         String gitUrl = "https://github.com/" + trimmedOrg + "/" + trimmedName + ".git";
         Path workareaPath = uniqueWorkareaPath(ownerUserId, slug(trimmedName));
+        Optional<String> login = normalizeLogin(githubLogin);
 
         ProjectRecord project = repository.create(trimmedName, gitUrl, workareaPath, ownerUserId, Instant.now());
-        cloneExecutor.execute(() -> createRepoAndPush(project, trimmedOrg, bootstrapTWorkflow));
+        cloneExecutor.execute(() -> createRepoAndPush(project, trimmedOrg, bootstrapTWorkflow, login));
         return project;
     }
 
@@ -185,7 +234,8 @@ public class ProjectCheckoutService {
         deleteDirectoryQuietly(existing.get().workareaPath());
         repository.markCloning(id);
         ProjectRecord cloning = repository.findById(id).orElseThrow();
-        cloneExecutor.execute(() -> clone(cloning));
+        // Any per-login token (#532) is already stored on the row, so no login here.
+        cloneExecutor.execute(() -> clone(cloning, Optional.empty()));
         return Optional.of(cloning);
     }
 
@@ -231,8 +281,11 @@ public class ProjectCheckoutService {
         deleteDirectoryQuietly(existing.get().workareaPath());
     }
 
-    private void clone(ProjectRecord project) {
+    private void clone(ProjectRecord project, Optional<String> githubLogin) {
         try {
+            if (githubLogin.isPresent() && storeTokenForLogin(project, githubLogin.get()).isEmpty()) {
+                return;
+            }
             Files.createDirectories(project.workareaPath().getParent());
             ProcessResult cloneResult = run("git", "clone", project.gitUrl(), project.workareaPath().toString());
             if (cloneResult.exitCode() != 0) {
@@ -252,9 +305,28 @@ public class ProjectCheckoutService {
         }
     }
 
-    private void createRepoAndPush(ProjectRecord project, String org, boolean bootstrapTWorkflow) {
+    /**
+     * The whole create-new sequence after the row exists: the optional per-login token
+     * (#532), {@code gh repo create}, then {@link #setUpLocalRepoAndPush}. Package-private
+     * so a test can drive it with a stub {@code gh} and a project whose
+     * {@code gitUrl} is a throwaway local bare repo, never the real GitHub.
+     */
+    void createRepoAndPush(ProjectRecord project, String org, boolean bootstrapTWorkflow,
+            Optional<String> githubLogin) {
         String repoSpec = org + "/" + project.name();
         try {
+            // With a chosen account (#532), gh acts as it through GH_TOKEN in the
+            // environment (never on the command line) -- the host's active account is
+            // left alone. Its token is stored on the row first, so the scope check below
+            // examines exactly the token the bootstrap push will use.
+            Map<String, String> ghEnv = Map.of();
+            if (githubLogin.isPresent()) {
+                Optional<String> token = storeTokenForLogin(project, githubLogin.get());
+                if (token.isEmpty()) {
+                    return;
+                }
+                ghEnv = Map.of("GH_TOKEN", token.get());
+            }
             // Checked before the repository is even created, so a token that could
             // never complete the bootstrap push leaves no empty repository behind on
             // GitHub to clean up (#531).
@@ -262,14 +334,14 @@ public class ProjectCheckoutService {
                 repository.markFailed(project.id());
                 return;
             }
-            ProcessResult createResult = run("gh", "repo", "create", repoSpec, "--private");
+            ProcessResult createResult = run(null, ghEnv, ghExecutable, "repo", "create", repoSpec, "--private");
             if (createResult.exitCode() != 0) {
                 log.warn("gh repo create {} failed for project {} (exit {}): {}", repoSpec, project.id(),
                         createResult.exitCode(), createResult.stderr().strip());
                 repository.markFailed(project.id());
                 return;
             }
-            setUpLocalRepoAndPush(project, bootstrapTWorkflow);
+            setUpLocalRepoAndPush(project, bootstrapTWorkflow, ghEnv);
         } catch (RuntimeException | IOException e) {
             log.warn("Failed to create new project {} ({})", project.id(), repoSpec, e);
             repository.markFailed(project.id());
@@ -285,6 +357,18 @@ public class ProjectCheckoutService {
      * GitHub remote, without ever invoking {@code gh} itself.
      */
     void setUpLocalRepoAndPush(ProjectRecord project, boolean bootstrapTWorkflow) throws IOException {
+        setUpLocalRepoAndPush(project, bootstrapTWorkflow, Map.of());
+    }
+
+    /**
+     * Same as {@link #setUpLocalRepoAndPush(ProjectRecord, boolean)}, with
+     * {@code pushEnv} added to the first push's environment — {@code GH_TOKEN} for the
+     * chosen account (#532), so a host whose git credential helper is {@code gh}
+     * authenticates the push as that account too, on top of the token already embedded
+     * in the remote URL.
+     */
+    void setUpLocalRepoAndPush(ProjectRecord project, boolean bootstrapTWorkflow, Map<String, String> pushEnv)
+            throws IOException {
         Path workarea = project.workareaPath();
 
         if (bootstrapTWorkflow) {
@@ -362,7 +446,7 @@ public class ProjectCheckoutService {
             repository.markFailed(project.id());
             return;
         }
-        ProcessResult pushResult = run(workarea, "git", "push", "-u", "origin", branch);
+        ProcessResult pushResult = run(workarea, pushEnv, "git", "push", "-u", "origin", branch);
         if (pushResult.exitCode() != 0) {
             log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(), describe(pushResult));
             repository.markFailed(project.id());
@@ -457,6 +541,40 @@ public class ProjectCheckoutService {
             return scopes.isEmpty() ? Optional.empty() : Optional.of(scopes);
         }
         return Optional.empty();
+    }
+
+    /**
+     * Resolves the token of one of the accounts {@code gh} is logged into on this host
+     * ({@code gh auth token --user <login>}, #532) and stores it encrypted as the
+     * project's own token (#81), so every later issue/PR fetch and push acts as that
+     * account. Empty — with the project marked FAILED and a WARN naming the login — when
+     * {@code gh} knows no such account; nothing has been created or cloned by then, so
+     * there is nothing to clean up. The token itself never reaches a log line.
+     */
+    private Optional<String> storeTokenForLogin(ProjectRecord project, String login) {
+        ProcessResult result;
+        try {
+            result = run(ghExecutable, "auth", "token", "--user", login);
+        } catch (ProjectCheckoutException e) {
+            log.warn("Could not run gh to look up the token for GitHub account '{}' (project {})", login,
+                    project.id(), e);
+            repository.markFailed(project.id());
+            return Optional.empty();
+        }
+        String token = result.stdout().strip();
+        if (result.exitCode() != 0 || token.isEmpty()) {
+            log.warn("gh has no token for GitHub account '{}' (project {}, exit {}): {}", login, project.id(),
+                    result.exitCode(), result.stderr().strip());
+            repository.markFailed(project.id());
+            return Optional.empty();
+        }
+        repository.setGithubToken(project.id(), tokenCipher.encrypt(token));
+        return Optional.of(token);
+    }
+
+    /** A chosen account's login, or empty for {@code null}/blank — the request's "no account chosen". */
+    private static Optional<String> normalizeLogin(String githubLogin) {
+        return (githubLogin == null || githubLogin.isBlank()) ? Optional.empty() : Optional.of(githubLogin.strip());
     }
 
     /**
@@ -567,9 +685,9 @@ public class ProjectCheckoutService {
             return new ProcessResult(exit, out, err);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ProjectCheckoutException("Interrupted while running git", e);
+            throw new ProjectCheckoutException("Interrupted while running " + command[0], e);
         } catch (IOException e) {
-            throw new ProjectCheckoutException("Could not run git — is it installed and on PATH?", e);
+            throw new ProjectCheckoutException("Could not run " + command[0] + " — is it installed and on PATH?", e);
         }
     }
 
