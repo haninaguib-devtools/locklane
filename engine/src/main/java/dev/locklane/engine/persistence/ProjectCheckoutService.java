@@ -217,8 +217,14 @@ public class ProjectCheckoutService {
         Files.createDirectories(workarea);
 
         if (bootstrapTWorkflow) {
-            ProcessResult install =
-                    run(workarea, "bash", "-c", "curl -fsSL " + T_WORKFLOW_INSTALL_URL + " | bash");
+            // A flag placed after a plain `| bash` is swallowed by bash itself rather than
+            // forwarded to the script (install.sh --help) -- `bash -s --` is what actually
+            // hands `--name` to the installer. The URL and project name ride as $1/$2
+            // rather than being interpolated into the script text, so a name containing
+            // shell metacharacters can't inject into the invocation.
+            ProcessResult install = run(workarea, "bash", "-c",
+                    "curl -fsSL \"$1\" | bash -s -- --name \"$2\"",
+                    "install-t-workflow", T_WORKFLOW_INSTALL_URL, project.name());
             if (install.exitCode() != 0) {
                 log.warn("t-workflow install failed for project {} (exit {}): {}", project.id(),
                         install.exitCode(), install.stderr().strip());
