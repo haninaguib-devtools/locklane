@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -293,18 +294,55 @@ class ProjectCheckoutServiceTest {
         assertThat(found.gitUrl()).isEqualTo("https://127.0.0.1:1/org/token-project.git");
     }
 
+    // #513: with no per-project token stored yet (a freshly created project), the push
+    // falls back to whatever identity `gh` is already logged in as on this host --
+    // exactly the identity that just created the repository -- instead of going out
+    // unauthenticated and hitting git's opaque interactive-prompt failure.
+
     @Test
-    void setUpLocalRepoAndPushLeavesTheUrlAloneWithNoStoredToken(@TempDir Path tmp) throws Exception {
-        ProjectCheckoutService service = service(tmp);
+    void setUpLocalRepoAndPushFallsBackToGhAuthTokenWhenNoStoredToken(@TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = serviceWithAmbientToken(tmp, () -> Optional.of("gh-cli-token"));
         ProjectRepository repository = repositoryOver(tmp);
-        Path workarea = tmp.resolve("workarea").resolve("1").resolve("no-token-project");
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("ambient-token-project");
         ProjectRecord project = repository.create(
-                "no-token-project", "https://127.0.0.1:1/org/no-token-project.git", workarea, 1L, Instant.now());
+                "ambient-token-project", "https://127.0.0.1:1/org/ambient-token-project.git", workarea, 1L,
+                Instant.now());
 
         service.setUpLocalRepoAndPush(project, false);
 
         String configuredUrl = run(workarea, "git", "remote", "get-url", "origin").strip();
-        assertThat(configuredUrl).isEqualTo("https://127.0.0.1:1/org/no-token-project.git");
+        assertThat(configuredUrl)
+                .isEqualTo("https://x-access-token:gh-cli-token@127.0.0.1:1/org/ambient-token-project.git");
+    }
+
+    @Test
+    void setUpLocalRepoAndPushFailsClearlyWithNoCredentialsAtAll(@TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = serviceWithAmbientToken(tmp, Optional::empty);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("no-credentials-project");
+        ProjectRecord project = repository.create(
+                "no-credentials-project", "https://127.0.0.1:1/org/no-credentials-project.git", workarea, 1L,
+                Instant.now());
+
+        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            service.setUpLocalRepoAndPush(project, false);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("No GitHub credentials available");
+        });
+        // Bails before even configuring a remote -- no unauthenticated push is attempted.
+        assertThat(Files.readString(workarea.resolve(".git").resolve("config")))
+                .doesNotContain("[remote \"origin\"]");
     }
 
     @Test
@@ -335,6 +373,14 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp));
+    }
+
+    /** Like {@link #service(Path)}, but with a fake stand-in for `gh auth token` (#513) instead of the real CLI. */
+    private static ProjectCheckoutService serviceWithAmbientToken(Path tmp, Supplier<Optional<String>> ambientToken) {
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
+                ambientToken);
     }
 
     private static ProjectRepository repositoryOver(Path tmp) {

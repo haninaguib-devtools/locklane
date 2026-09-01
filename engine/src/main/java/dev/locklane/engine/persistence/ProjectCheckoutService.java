@@ -3,6 +3,7 @@ package dev.locklane.engine.persistence;
 import dev.locklane.engine.security.TokenCipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -15,6 +16,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -41,17 +43,32 @@ public class ProjectCheckoutService {
     private final Executor cloneExecutor;
     private final IssueWorktreeService issueWorktreeService;
     private final TokenCipher tokenCipher;
+    private final Supplier<Optional<String>> ambientGithubToken;
 
+    @Autowired
     public ProjectCheckoutService(ProjectRepository repository,
             @Value("${locklane.workarea-root}") String workareaRoot,
             @Qualifier("projectCloneExecutor") Executor cloneExecutor,
             IssueWorktreeService issueWorktreeService,
             TokenCipher tokenCipher) {
+        this(repository, workareaRoot, cloneExecutor, issueWorktreeService, tokenCipher,
+                ProjectCheckoutService::ghAuthToken);
+    }
+
+    /**
+     * Test-only: lets a test substitute a fake "gh auth token" result instead of
+     * shelling out to the real {@code gh} CLI (#513) — mirrors the existing contract
+     * that {@link #setUpLocalRepoAndPush}'s own tests never invoke {@code gh}.
+     */
+    ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
+            IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher,
+            Supplier<Optional<String>> ambientGithubToken) {
         this.repository = repository;
         this.workareaRoot = Path.of(workareaRoot).normalize();
         this.cloneExecutor = cloneExecutor;
         this.issueWorktreeService = issueWorktreeService;
         this.tokenCipher = tokenCipher;
+        this.ambientGithubToken = ambientGithubToken;
     }
 
     /**
@@ -232,7 +249,20 @@ public class ProjectCheckoutService {
             return;
         }
 
-        ProcessResult remoteAddResult = run(workarea, "git", "remote", "add", "origin", authenticatedUrl(project));
+        String remoteUrl = project.gitUrl();
+        if (remoteUrl.startsWith("https://")) {
+            Optional<String> token = resolveGithubToken(project);
+            if (token.isEmpty()) {
+                log.warn("No GitHub credentials available for project {} ({}) — no per-project token stored "
+                                + "and `gh auth token` returned none; set a token for this project before retrying",
+                        project.id(), remoteUrl);
+                repository.markFailed(project.id());
+                return;
+            }
+            remoteUrl = "https://x-access-token:" + token.get() + "@" + remoteUrl.substring("https://".length());
+        }
+
+        ProcessResult remoteAddResult = run(workarea, "git", "remote", "add", "origin", remoteUrl);
         if (remoteAddResult.exitCode() != 0) {
             log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(),
                     describe(remoteAddResult));
@@ -250,21 +280,32 @@ public class ProjectCheckoutService {
     }
 
     /**
-     * {@code project.gitUrl()} with its stored GitHub token (#81), if any, embedded as
-     * HTTPS Basic-auth credentials — {@code x-access-token} is the conventional
-     * username GitHub accepts alongside a PAT/installation token as the password — so
-     * the push authenticates on its own rather than depending on whatever git/SSH
-     * credential setup happens to already exist on the host (#505). Left unchanged
-     * when no token is stored yet, or the URL isn't HTTPS to begin with.
+     * The GitHub token to embed as HTTPS Basic-auth credentials in the push URL —
+     * {@code x-access-token} is the conventional username GitHub accepts alongside a
+     * PAT/installation token as the password — so the push authenticates on its own
+     * rather than depending on whatever git/SSH credential setup happens to already
+     * exist on the host (#505). Prefers the per-project token (#81) when one is
+     * stored; a freshly created project has none yet, so it falls back to whatever
+     * identity {@code gh} is already logged in as on this host (#513) — the same
+     * identity {@link #createRepoAndPush} just rode on to create the repository.
      */
-    private String authenticatedUrl(ProjectRecord project) {
-        String url = project.gitUrl();
-        if (!url.startsWith("https://")) {
-            return url;
+    private Optional<String> resolveGithubToken(ProjectRecord project) {
+        Optional<String> stored = repository.findGithubToken(project.id()).map(tokenCipher::decrypt);
+        return stored.isPresent() ? stored : ambientGithubToken.get();
+    }
+
+    /** The token behind {@code gh}'s own logged-in identity, or empty if there isn't one. */
+    private static Optional<String> ghAuthToken() {
+        try {
+            ProcessResult result = run("gh", "auth", "token");
+            if (result.exitCode() != 0) {
+                return Optional.empty();
+            }
+            String token = result.stdout().strip();
+            return token.isEmpty() ? Optional.empty() : Optional.of(token);
+        } catch (ProjectCheckoutException e) {
+            return Optional.empty();
         }
-        Optional<String> token = repository.findGithubToken(project.id()).map(tokenCipher::decrypt);
-        return token.map(t -> "https://x-access-token:" + t + "@" + url.substring("https://".length()))
-                .orElse(url);
     }
 
     /** Both streams of a failed command, for a log line that can actually explain why (#505). */
