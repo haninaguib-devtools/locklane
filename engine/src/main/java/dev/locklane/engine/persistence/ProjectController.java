@@ -73,6 +73,26 @@ public class ProjectController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ProjectView.from(project));
     }
 
+    /**
+     * The "Create new" side of the Add Project dialog (#491): creates a brand-new
+     * GitHub repository at {@code org/name} via {@code gh} instead of importing one
+     * that already exists, then registers it through the same async, status-tracked
+     * flow as {@link #create}.
+     */
+    @PostMapping("/new")
+    public ResponseEntity<?> createNew(@RequestBody CreateNewProjectRequest request, Authentication authentication) {
+        if (request.org() == null || request.org().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "org is required"));
+        }
+        if (request.name() == null || request.name().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "name is required"));
+        }
+        UserRecord caller = currentUser(authentication);
+        ProjectRecord project = checkoutService.createNewProject(
+                request.org(), request.name(), request.bootstrapTWorkflow(), caller.id());
+        return ResponseEntity.status(HttpStatus.CREATED).body(ProjectView.from(project));
+    }
+
     /** Re-clones a failed project from scratch. 404 if it doesn't exist, isn't the caller's, or isn't currently failed. */
     @PostMapping("/{id}/retry")
     public ResponseEntity<ProjectView> retry(@PathVariable long id, Authentication authentication) {
@@ -163,6 +183,9 @@ public class ProjectController {
     }
 
     public record CreateProjectRequest(String gitUrl, String name) {
+    }
+
+    public record CreateNewProjectRequest(String org, String name, boolean bootstrapTWorkflow) {
     }
 
     public record SetGithubTokenRequest(String token) {

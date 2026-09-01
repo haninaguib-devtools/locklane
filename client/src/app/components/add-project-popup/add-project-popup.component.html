@@ -4,40 +4,102 @@
       <span>add project</span>
       <button type="button" class="close" (click)="closed.emit()" aria-label="Close">×</button>
     </div>
-    <form (ngSubmit)="submit()">
-      <label>
-        git repo URL
-        <input
-          type="text"
-          name="gitUrl"
-          placeholder="https://github.com/org/repo.git"
-          [(ngModel)]="gitUrl"
-          (ngModelChange)="onUrlChange()"
-          [disabled]="submitting"
-          autofocus
-        />
-      </label>
-      <label>
-        name (optional)
-        <input
-          type="text"
-          name="name"
-          placeholder="derived from the URL"
-          [(ngModel)]="name"
-          (ngModelChange)="onNameChange()"
-          [disabled]="submitting"
-        />
-      </label>
 
-      @if (error) {
-        <p class="error">{{ error }}</p>
-      }
+    <div class="mode-tabs">
+      <button
+        type="button"
+        class="mode-tab"
+        [class.active]="mode === 'import'"
+        [disabled]="submitting"
+        (click)="setMode('import')"
+      >
+        import existing
+      </button>
+      <button
+        type="button"
+        class="mode-tab"
+        [class.active]="mode === 'create'"
+        [disabled]="submitting"
+        (click)="setMode('create')"
+      >
+        create new
+      </button>
+    </div>
 
-      <div class="actions">
-        <button type="submit" [disabled]="!gitUrl.trim() || submitting">
-          {{ submitting ? 'adding…' : 'add project' }}
-        </button>
-      </div>
-    </form>
+    @if (mode === 'import') {
+      <form (ngSubmit)="submit()">
+        <label>
+          git repo URL
+          <input
+            type="text"
+            name="gitUrl"
+            placeholder="https://github.com/org/repo.git"
+            [(ngModel)]="gitUrl"
+            (ngModelChange)="onUrlChange()"
+            [disabled]="submitting"
+            autofocus
+          />
+        </label>
+        <label>
+          name (optional)
+          <input
+            type="text"
+            name="name"
+            placeholder="derived from the URL"
+            [(ngModel)]="name"
+            (ngModelChange)="onNameChange()"
+            [disabled]="submitting"
+          />
+        </label>
+
+        @if (error) {
+          <p class="error">{{ error }}</p>
+        }
+
+        <div class="actions">
+          <button type="submit" [disabled]="!gitUrl.trim() || submitting">
+            {{ submitting ? 'adding…' : 'add project' }}
+          </button>
+        </div>
+      </form>
+    } @else {
+      <form (ngSubmit)="submit()">
+        <label>
+          GitHub org
+          <input
+            type="text"
+            name="org"
+            placeholder="your-org"
+            [(ngModel)]="org"
+            [disabled]="submitting"
+            autofocus
+          />
+        </label>
+        <label>
+          project name
+          <input
+            type="text"
+            name="newRepoName"
+            placeholder="my-project"
+            [(ngModel)]="newRepoName"
+            [disabled]="submitting"
+          />
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" name="bootstrapTWorkflow" [(ngModel)]="bootstrapTWorkflow" [disabled]="submitting" />
+          bootstrap with t-workflow
+        </label>
+
+        @if (error) {
+          <p class="error">{{ error }}</p>
+        }
+
+        <div class="actions">
+          <button type="submit" [disabled]="!org.trim() || !newRepoName.trim() || submitting">
+            {{ submitting ? 'creating…' : 'create project' }}
+          </button>
+        </div>
+      </form>
+    }
   </div>
 </div>
