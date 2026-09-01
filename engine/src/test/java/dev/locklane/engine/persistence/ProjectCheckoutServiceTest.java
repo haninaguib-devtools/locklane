@@ -253,6 +253,117 @@ class ProjectCheckoutServiceTest {
         assertThat(Files.readString(workarea.resolve("README.md"))).contains("new-project");
     }
 
+    // #525: the t-workflow installer's contract is to create the project at
+    // <cwd>/<name> -- a subdirectory of wherever it runs, refusing when that path
+    // already exists -- never at the working directory itself. The engine must
+    // therefore run it somewhere scratch and move the produced tree to the workarea
+    // root (whose slugged directory name can differ from the raw project name). This
+    // stub honours that contract without the network fetch the real command does; it
+    // receives the same $1 (installer URL) / $2 (project name) arguments.
+
+    private static final String STUB_INSTALLER = """
+            set -e
+            [ ! -e "$2" ]
+            git init --quiet -b main "$2"
+            echo hello > "$2/README.md"
+            git -C "$2" add -A
+            git -C "$2" commit --quiet -m "Bootstrap"
+            """;
+
+    @Test
+    void setUpLocalRepoAndPushWithBootstrapBuildsTheCheckoutAtTheWorkareaRoot(@TempDir Path tmp) throws Exception {
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        ProjectCheckoutService service = serviceWithInstallCommand(tmp, STUB_INSTALLER);
+        ProjectRepository repository = repositoryOver(tmp);
+        // The raw name ("Boot.Project") deliberately differs from the workarea
+        // directory name ("boot-project"), the way createNewProject's slugging makes
+        // them differ -- the installer builds under the raw name and the engine must
+        // still land the tree at the reserved workarea path.
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("boot-project");
+        ProjectRecord project =
+                repository.create("Boot.Project", bareRemote.toString(), workarea, 1L, Instant.now());
+
+        service.setUpLocalRepoAndPush(project, true);
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        assertThat(found.defaultBranch()).isEqualTo("main");
+        assertThat(workarea.resolve(".git")).isDirectory();
+        assertThat(workarea.resolve("README.md")).exists();
+        // The bootstrap commit was made under the engine-supplied identity -- proof the
+        // installer ran with GIT_AUTHOR_*/GIT_COMMITTER_* set, so a host whose git has
+        // no global identity can still make the first commit.
+        assertThat(run(workarea, "git", "log", "-1", "--format=%an %ae").strip())
+                .isEqualTo("locklane locklane@local");
+        // The commit reached the remote.
+        assertThat(run(bareRemote, "git", "log", "-1", "--format=%s", "main").strip()).isEqualTo("Bootstrap");
+        // No scratch directory is left behind next to the workarea.
+        try (var siblings = Files.list(workarea.getParent())) {
+            assertThat(siblings).containsExactly(workarea);
+        }
+    }
+
+    @Test
+    void setUpLocalRepoAndPushWithBootstrapMarksFailedWhenTheInstallerFails(@TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = serviceWithInstallCommand(tmp, "echo boom >&2; exit 7");
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("boot-fail");
+        ProjectRecord project =
+                repository.create("boot-fail", "https://127.0.0.1:1/org/boot-fail.git", workarea, 1L, Instant.now());
+
+        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            service.setUpLocalRepoAndPush(project, true);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("t-workflow install failed").contains("boom");
+        });
+        assertThat(workarea).doesNotExist();
+        try (var siblings = Files.list(workarea.getParent())) {
+            assertThat(siblings).isEmpty();
+        }
+    }
+
+    @Test
+    void setUpLocalRepoAndPushWithBootstrapMarksFailedWhenNoCheckoutIsProduced(@TempDir Path tmp) throws Exception {
+        // Exits 0 without building anything -- a contract violation (the shape of the
+        // #525 defect itself) must fail loudly, not surface as a push error later.
+        ProjectCheckoutService service = serviceWithInstallCommand(tmp, "true");
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("boot-empty");
+        ProjectRecord project = repository.create(
+                "boot-empty", "https://127.0.0.1:1/org/boot-empty.git", workarea, 1L, Instant.now());
+
+        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            service.setUpLocalRepoAndPush(project, true);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("did not produce a git checkout");
+        });
+        assertThat(workarea).doesNotExist();
+        try (var siblings = Files.list(workarea.getParent())) {
+            assertThat(siblings).isEmpty();
+        }
+    }
+
     @Test
     void setUpLocalRepoAndPushMarksFailedWhenThePushFails(@TempDir Path tmp) throws Exception {
         ProjectCheckoutService service = service(tmp);
@@ -381,6 +492,14 @@ class ProjectCheckoutServiceTest {
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
                 ambientToken);
+    }
+
+    /** Like {@link #service(Path)}, but substituting the t-workflow install command (#525) — see STUB_INSTALLER. */
+    private static ProjectCheckoutService serviceWithInstallCommand(Path tmp, String installCommand) {
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
+                Optional::empty, installCommand);
     }
 
     private static ProjectRepository repositoryOver(Path tmp) {
