@@ -16,6 +16,11 @@ export class ProjectsService {
     return this.http.post<Project>('/api/projects', { gitUrl, name });
   }
 
+  /** Creates a brand-new GitHub repository and registers it, async like `create` (#491). */
+  createNew(org: string, name: string, bootstrapTWorkflow: boolean): Observable<Project> {
+    return this.http.post<Project>('/api/projects/new', { org, name, bootstrapTWorkflow });
+  }
+
   /** Re-clones a failed project from scratch (#42). */
   retry(id: number): Observable<Project> {
     return this.http.post<Project>(`/api/projects/${id}/retry`, {});

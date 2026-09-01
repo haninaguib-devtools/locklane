@@ -1,5 +1,7 @@
 package dev.locklane.engine.persistence;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -18,12 +20,20 @@ import java.util.regex.Pattern;
  * Creates projects and clones them into their own workarea directory (#42), off the
  * request thread — {@code cloneExecutor} runs the actual {@code git clone} (a
  * virtual-thread executor in production; tests inject a same-thread one so the
- * outcome is asserted without polling).
+ * outcome is asserted without polling). {@link #createNewProject} (#491) is the same
+ * idea for a repository that doesn't exist yet: it creates one on GitHub via {@code gh}
+ * first, then runs the same local-checkout-and-push shape.
  */
 @Service
 public class ProjectCheckoutService {
 
+    private static final Logger log = LoggerFactory.getLogger(ProjectCheckoutService.class);
+
     private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
+
+    /** #491's "bootstrap with t-workflow" checkbox — t-workflow's own one-command installer. */
+    private static final String T_WORKFLOW_INSTALL_URL =
+            "https://raw.githubusercontent.com/haninaguib-devtools/t-workflow/main/installer/install.sh";
 
     private final ProjectRepository repository;
     private final Path workareaRoot;
@@ -57,6 +67,26 @@ public class ProjectCheckoutService {
 
         ProjectRecord project = repository.create(name, trimmedUrl, workareaPath, ownerUserId, Instant.now());
         cloneExecutor.execute(() -> clone(project));
+        return project;
+    }
+
+    /**
+     * Persists a new project in {@link ProjectStatus#CLONING} and, asynchronously,
+     * creates the GitHub repository at {@code org/name} via {@code gh} (private by
+     * default), builds a local checkout for it in the project's workarea, and pushes
+     * (#491) — {@code bootstrapTWorkflow} runs t-workflow's installer (which performs
+     * its own {@code git init} and first commit) instead of a bare {@code git init}
+     * plus a minimal {@code README.md}. {@code org} and {@code name} are both required:
+     * unlike {@link #createProject}, there is no URL to derive a name from.
+     */
+    public ProjectRecord createNewProject(String org, String name, boolean bootstrapTWorkflow, long ownerUserId) {
+        String trimmedOrg = org.strip();
+        String trimmedName = name.strip();
+        String gitUrl = "https://github.com/" + trimmedOrg + "/" + trimmedName + ".git";
+        Path workareaPath = uniqueWorkareaPath(ownerUserId, slug(trimmedName));
+
+        ProjectRecord project = repository.create(trimmedName, gitUrl, workareaPath, ownerUserId, Instant.now());
+        cloneExecutor.execute(() -> createRepoAndPush(project, trimmedOrg, bootstrapTWorkflow));
         return project;
     }
 
@@ -136,6 +166,78 @@ public class ProjectCheckoutService {
         }
     }
 
+    private void createRepoAndPush(ProjectRecord project, String org, boolean bootstrapTWorkflow) {
+        String repoSpec = org + "/" + project.name();
+        try {
+            ProcessResult createResult = run("gh", "repo", "create", repoSpec, "--private");
+            if (createResult.exitCode() != 0) {
+                log.warn("gh repo create {} failed for project {} (exit {}): {}", repoSpec, project.id(),
+                        createResult.exitCode(), createResult.stderr().strip());
+                repository.markFailed(project.id());
+                return;
+            }
+            setUpLocalRepoAndPush(project, bootstrapTWorkflow);
+        } catch (RuntimeException | IOException e) {
+            log.warn("Failed to create new project {} ({})", project.id(), repoSpec, e);
+            repository.markFailed(project.id());
+        }
+    }
+
+    /**
+     * Everything after the GitHub repository itself exists: a local checkout in
+     * {@code project.workareaPath()} — either bootstrapped with t-workflow or a plain
+     * {@code git init} plus a minimal README — pushed to {@code project.gitUrl()} as
+     * {@code origin} (#491). Package-private so a test can exercise this whole local
+     * sequence against a throwaway local bare repo standing in for the just-created
+     * GitHub remote, without ever invoking {@code gh} itself.
+     */
+    void setUpLocalRepoAndPush(ProjectRecord project, boolean bootstrapTWorkflow) throws IOException {
+        Path workarea = project.workareaPath();
+        Files.createDirectories(workarea);
+
+        if (bootstrapTWorkflow) {
+            ProcessResult install =
+                    run(workarea, "bash", "-c", "curl -fsSL " + T_WORKFLOW_INSTALL_URL + " | bash");
+            if (install.exitCode() != 0) {
+                log.warn("t-workflow install failed for project {} (exit {}): {}", project.id(),
+                        install.exitCode(), install.stderr().strip());
+                repository.markFailed(project.id());
+                return;
+            }
+        } else {
+            Files.writeString(workarea.resolve("README.md"), "# " + project.name() + "\n");
+            // Nothing guarantees the host's git has a global user.email/user.name
+            // configured -- this is the first place the engine ever runs `git commit`
+            // itself, so it sets its own local identity rather than assume one.
+            if (run(workarea, "git", "init").exitCode() != 0
+                    || run(workarea, "git", "config", "user.email", "locklane@local").exitCode() != 0
+                    || run(workarea, "git", "config", "user.name", "locklane").exitCode() != 0
+                    || run(workarea, "git", "add", "README.md").exitCode() != 0
+                    || run(workarea, "git", "commit", "-m", "Initial commit").exitCode() != 0) {
+                log.warn("Local git init/commit failed for project {}", project.id());
+                repository.markFailed(project.id());
+                return;
+            }
+        }
+
+        ProcessResult branchResult = run(workarea, "git", "branch", "--show-current");
+        String branch = branchResult.stdout().strip();
+        if (branchResult.exitCode() != 0 || branch.isBlank()) {
+            log.warn("Could not determine the default branch for project {}", project.id());
+            repository.markFailed(project.id());
+            return;
+        }
+
+        if (run(workarea, "git", "remote", "add", "origin", project.gitUrl()).exitCode() != 0
+                || run(workarea, "git", "push", "-u", "origin", branch).exitCode() != 0) {
+            log.warn("Push failed for project {} to {}", project.id(), project.gitUrl());
+            repository.markFailed(project.id());
+            return;
+        }
+
+        repository.markReady(project.id(), branch);
+    }
+
     private Path uniqueWorkareaPath(long ownerUserId, String slug) {
         Path ownerRoot = workareaRoot.resolve(String.valueOf(ownerUserId));
         Path candidate = ownerRoot.resolve(slug);
@@ -179,8 +281,17 @@ public class ProjectCheckoutService {
     }
 
     private static ProcessResult run(String... command) {
+        return run(null, command);
+    }
+
+    /** Same as {@link #run(String...)}, run in {@code cwd} instead of the engine's own working directory. */
+    private static ProcessResult run(Path cwd, String... command) {
         try {
-            Process process = new ProcessBuilder(command).start();
+            ProcessBuilder builder = new ProcessBuilder(command);
+            if (cwd != null) {
+                builder.directory(cwd.toFile());
+            }
+            Process process = builder.start();
             String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             String err = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
             int exit = process.waitFor();

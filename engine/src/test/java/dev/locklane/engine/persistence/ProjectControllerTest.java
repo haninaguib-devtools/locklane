@@ -103,6 +103,56 @@ class ProjectControllerTest {
                 .containsExactly(ProjectStatus.FAILED.name());
     }
 
+    // #491's "create new" path. createNew's success case shells out to `gh repo
+    // create` for real via ProjectCheckoutService.createNewProject -- never exercised
+    // here (a genuine network call regardless of authentication); the record notes it
+    // as manually checked instead. Only the validation that returns before reaching
+    // the checkout service is covered.
+
+    @Test
+    void createNewWithABlankOrgIsABadRequest(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
+
+        ResponseEntity<?> response = controller.createNew(
+                new ProjectController.CreateNewProjectRequest("  ", "name", false), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void createNewWithANullOrgIsABadRequest(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
+
+        ResponseEntity<?> response = controller.createNew(
+                new ProjectController.CreateNewProjectRequest(null, "name", false), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void createNewWithABlankNameIsABadRequest(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
+
+        ResponseEntity<?> response = controller.createNew(
+                new ProjectController.CreateNewProjectRequest("org", "  ", false), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void createNewWithANullNameIsABadRequest(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
+
+        ResponseEntity<?> response = controller.createNew(
+                new ProjectController.CreateNewProjectRequest("org", null, false), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
     @Test
     void retryOnAnUnknownProjectIsNotFound(@TempDir Path tmp) throws IOException {
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);

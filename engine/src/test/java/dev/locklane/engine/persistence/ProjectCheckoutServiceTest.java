@@ -199,6 +199,65 @@ class ProjectCheckoutServiceTest {
         assertThat(repositoryOver(tmp).findById(999)).isEmpty();
     }
 
+    // #491's "create new" flow. createNewProject/createRepoAndPush themselves run
+    // `gh repo create` for real -- never exercised here, since that would be a genuine
+    // network call regardless of authentication (the record notes it as manually
+    // checked instead). What's covered below: createNewProject's synchronous part
+    // (never letting its async task run at all, so `gh` is never invoked), and
+    // setUpLocalRepoAndPush -- everything *after* the GitHub repo exists -- against a
+    // throwaway local bare repo standing in for it, exactly like the import tests
+    // above use one to stand in for an existing GitHub remote.
+
+    @Test
+    void createNewProjectPersistsCloningWithADerivedGitUrlAndWorkareaPath(@TempDir Path tmp) {
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
+                tmp.resolve("workarea").toString(), command -> { /* never run -- would shell out to gh for real */ },
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()));
+
+        ProjectRecord project = service.createNewProject("my-org", "my-project", false, 1L);
+
+        assertThat(project.name()).isEqualTo("my-project");
+        assertThat(project.gitUrl()).isEqualTo("https://github.com/my-org/my-project.git");
+        assertThat(project.ownerUserId()).isEqualTo(1L);
+        assertThat(project.status()).isEqualTo(ProjectStatus.CLONING);
+        assertThat(project.workareaPath())
+                .isEqualTo(tmp.resolve("workarea").resolve("1").resolve("my-project"));
+    }
+
+    @Test
+    void setUpLocalRepoAndPushWithoutBootstrapInitsCommitsAndPushes(@TempDir Path tmp) throws Exception {
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("new-project");
+        ProjectRecord project =
+                repository.create("new-project", bareRemote.toString(), workarea, 1L, Instant.now());
+
+        service.setUpLocalRepoAndPush(project, false);
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        assertThat(found.defaultBranch()).isNotBlank();
+        assertThat(workarea.resolve("README.md")).exists();
+        assertThat(Files.readString(workarea.resolve("README.md"))).contains("new-project");
+    }
+
+    @Test
+    void setUpLocalRepoAndPushMarksFailedWhenThePushFails(@TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("broken-project");
+        ProjectRecord project =
+                repository.create("broken-project", "/does/not/exist", workarea, 1L, Instant.now());
+
+        service.setUpLocalRepoAndPush(project, false);
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
+    }
+
     private static ProjectCheckoutService service(Path tmp) {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,

@@ -5,8 +5,11 @@ import { Project } from '../../models/issue.model';
 import { ProjectsService } from '../../services/projects.service';
 import { deriveProjectName } from './derive-project-name';
 
-// The "Add Project" popup (#45): collects a git URL and an optional name, which
-// prefills from the URL until the user edits it directly.
+export type AddProjectMode = 'import' | 'create';
+
+// The "Add Project" popup (#45, #491): either imports an existing repo from a git URL
+// (name prefills from the URL until the user edits it directly), or creates a brand-new
+// GitHub repository from an org and a name, optionally bootstrapped with t-workflow.
 @Component({
   selector: 'app-add-project-popup',
   standalone: true,
@@ -20,12 +23,28 @@ export class AddProjectPopupComponent {
   @Output() created = new EventEmitter<Project>();
   @Output() closed = new EventEmitter<void>();
 
+  mode: AddProjectMode = 'import';
+
+  // Import existing
   gitUrl = '';
   name = '';
   private nameManuallyEdited = false;
 
+  // Create new
+  org = '';
+  newRepoName = '';
+  bootstrapTWorkflow = false;
+
   submitting = false;
   error: string | null = null;
+
+  setMode(mode: AddProjectMode): void {
+    if (this.submitting) {
+      return;
+    }
+    this.mode = mode;
+    this.error = null;
+  }
 
   onUrlChange(): void {
     if (!this.nameManuallyEdited) {
@@ -38,12 +57,41 @@ export class AddProjectPopupComponent {
   }
 
   submit(): void {
-    if (!this.gitUrl.trim() || this.submitting) {
+    if (this.submitting) {
+      return;
+    }
+    if (this.mode === 'import') {
+      this.submitImport();
+    } else {
+      this.submitCreate();
+    }
+  }
+
+  private submitImport(): void {
+    if (!this.gitUrl.trim()) {
       return;
     }
     this.submitting = true;
     this.error = null;
     this.projectsService.create(this.gitUrl.trim(), this.name.trim()).subscribe({
+      next: (project) => {
+        this.submitting = false;
+        this.created.emit(project);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting = false;
+        this.error = err.error?.error ?? 'could not create project';
+      },
+    });
+  }
+
+  private submitCreate(): void {
+    if (!this.org.trim() || !this.newRepoName.trim()) {
+      return;
+    }
+    this.submitting = true;
+    this.error = null;
+    this.projectsService.createNew(this.org.trim(), this.newRepoName.trim(), this.bootstrapTWorkflow).subscribe({
       next: (project) => {
         this.submitting = false;
         this.created.emit(project);

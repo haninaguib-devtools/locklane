@@ -114,4 +114,65 @@ describe('AddProjectPopupComponent', () => {
 
     expect(fixture.componentInstance.error).toBe('could not create project');
   });
+
+  describe('create new mode (#491)', () => {
+    it('submits org, name, and the bootstrap flag to /api/projects/new', () => {
+      const fixture = create();
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = ' my-org ';
+      fixture.componentInstance.newRepoName = ' my-project ';
+      fixture.componentInstance.bootstrapTWorkflow = true;
+
+      let emitted: Project | undefined;
+      fixture.componentInstance.created.subscribe((p) => (emitted = p));
+      fixture.componentInstance.submit();
+
+      expect(fixture.componentInstance.submitting).toBeTrue();
+      const req = httpMock.expectOne('/api/projects/new');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ org: 'my-org', name: 'my-project', bootstrapTWorkflow: true });
+      req.flush({ ...PROJECT, name: 'my-project' });
+
+      expect(fixture.componentInstance.submitting).toBeFalse();
+      expect(emitted).toEqual({ ...PROJECT, name: 'my-project' });
+    });
+
+    it('does nothing when the org or the name is blank', () => {
+      const fixture = create();
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = '  ';
+      fixture.componentInstance.newRepoName = 'my-project';
+
+      fixture.componentInstance.submit();
+
+      httpMock.expectNone('/api/projects/new');
+    });
+
+    it('shows the backend error message and clears submitting on failure', () => {
+      const fixture = create();
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+
+      fixture.componentInstance.submit();
+      httpMock
+        .expectOne('/api/projects/new')
+        .flush({ error: 'org is required' }, { status: 400, statusText: 'Bad Request' });
+
+      expect(fixture.componentInstance.submitting).toBeFalse();
+      expect(fixture.componentInstance.error).toBe('org is required');
+    });
+
+    it('switching modes clears any error from the other mode', () => {
+      const fixture = create();
+      fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
+      fixture.componentInstance.submit();
+      httpMock.expectOne('/api/projects').flush({ error: 'gitUrl is required' }, { status: 400, statusText: 'Bad Request' });
+      expect(fixture.componentInstance.error).toBe('gitUrl is required');
+
+      fixture.componentInstance.setMode('create');
+
+      expect(fixture.componentInstance.error).toBeNull();
+    });
+  });
 });
