@@ -45,9 +45,16 @@ jobs:
     name: checks
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # Real work here is seconds; ten minutes is a generous bound so a hang fails loudly
+    # instead of running to GitHub's 6-hour default (#113). The line itself is a
+    # docs/architecture/local-slots.md slot: a consumer with its own, slower build/test
+    # step (added in the trailing slot below) raises this value inside the markers, and
+    # a template sync never overwrites that override (#118).
+    # <!-- local -->
     # 20, not the template's 10: this consumer's build step below runs a full
     # Maven + frontend build, and a cold-cache run needs the headroom.
     timeout-minutes: 20
+    # <!-- /local -->
     steps:
       # fetch-depth: 0 for record and plan-gate below, which diff against
       # origin/$BASE_REF; the other steps don't need full history but aren't harmed by
@@ -204,6 +211,13 @@ jobs:
         if: "!cancelled()"
         run: ./.t-workflow/scripts/plumbing-test.sh
 
+      # Add the project's build/test command here as a step once the stack exists —
+      # AGENTS.md §Checks item 1 is the single place that names it. A consumer's own
+      # steps (its build/test step, its own CI-lock manifest-check step —
+      # docs/architecture/manifest.md §The CI lock) live inside the markers below, a
+      # docs/architecture/local-slots.md slot: a template sync copies everything outside
+      # the markers and carries this region forward unchanged (#118).
+      # <!-- local -->
       # This repo's own addition, not template content: the template carries no
       # .template-manifest.json (it is not a pinned consumer) — docs/architecture/
       # manifest.md §The CI lock says each consumer wires this in itself. Task #192,
@@ -222,3 +236,4 @@ jobs:
       - name: Build and test every module
         if: "!cancelled()"
         run: ./mvnw -B test
+      # <!-- /local -->
