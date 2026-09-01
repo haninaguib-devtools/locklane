@@ -38,9 +38,9 @@ Skills outside the `t-*` namespace are the consumer's own; each gets a row in it
 table below.
 
 <!-- local -->
-*(reserved: consumer-local skills — e.g. locklane-style `l-*` skills — get a row here,
-in a small table with its own header row, once a consumer adds one. Row shape mirrors
-the table above: `| \`/l-example\` | One-line stage description. |`.)*
+| Skill | Stage |
+|---|---|
+| `/l-release` | Cut a release with one command — gates on the version, drives the release-notes task to a merge-and-dispatch confirmation, publishes the release, then drives a follow-up snapshot-bump task (ADR-106). |
 <!-- /local -->
 
 ## Conventions
