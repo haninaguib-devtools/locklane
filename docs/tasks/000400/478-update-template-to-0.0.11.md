@@ -45,3 +45,13 @@ v0.0.10), applying the one pending migration.
   customizations, unchanged, into the new slots. Confirmed nothing landed outside the
   markers: `check-manifest.sh --hash-file` on the spliced file matches the same
   script's hash on a copy with both slots stripped to empty.
+- **Process deviation (caught by `/t-review`'s independent pass, PR #479, review
+  5073652995):** the sync above landed on protected surfaces
+  (`AGENTS.md`, `.github/workflows/ci.yml`, `docs/architecture/local-slots.md`,
+  `.claude/skills/t-update/SKILL.md`, three `.t-workflow/scripts/*.sh`) without a
+  `## Plan` section on issue #478 first — `CONSTITUTION.md` §3 and the `/t-update`
+  skill's own "no fast path" clause both require one. `/t-plan 478` was run
+  retroactively after the review flagged it, writing a plan whose Allowed paths
+  transcribe the diff PR #479 already contains rather than proposing scope ahead of the
+  work. No file content changed as a result; `/t-review` re-runs against the now-planned
+  issue.
