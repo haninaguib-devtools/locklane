@@ -8,6 +8,14 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.1.8 — 2026-09-01
+
+### Features
+- Bump revision to 0.1.8-SNAPSHOT for next development cycle (#523, #524)
+
+### Fixes
+- Fix t-workflow bootstrap: build the checkout at the workarea root, not a subdirectory (#525, #526)
+
 ## v0.1.7 — 2026-09-01
 
 ### Features
