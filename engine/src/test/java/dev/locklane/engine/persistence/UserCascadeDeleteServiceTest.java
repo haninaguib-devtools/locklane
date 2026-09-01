@@ -1,8 +1,12 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.security.EncryptionKeyProvider;
+import dev.locklane.engine.security.TokenCipher;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -23,7 +27,8 @@ class UserCascadeDeleteServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         IssueWorktreeService issueWorktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(
-                projectRepository, tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService);
+                projectRepository, tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService,
+                tokenCipher(tmp));
         UserCascadeDeleteService cascadeDeleteService =
                 new UserCascadeDeleteService(projectRepository, checkoutService);
 
@@ -44,7 +49,8 @@ class UserCascadeDeleteServiceTest {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(projectRepository,
                 tmp.resolve("workarea").toString(), Runnable::run,
-                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()));
+                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()),
+                tokenCipher(tmp));
         UserCascadeDeleteService cascadeDeleteService =
                 new UserCascadeDeleteService(projectRepository, checkoutService);
 
@@ -60,12 +66,21 @@ class UserCascadeDeleteServiceTest {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(projectRepository,
                 tmp.resolve("workarea").toString(), Runnable::run,
-                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()));
+                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()),
+                tokenCipher(tmp));
         UserCascadeDeleteService cascadeDeleteService =
                 new UserCascadeDeleteService(projectRepository, checkoutService);
 
         cascadeDeleteService.deleteEverythingOwnedBy(999L);
 
         assertThat(projectRepository.findAll()).isEmpty();
+    }
+
+    private static TokenCipher tokenCipher(Path dataDir) {
+        try {
+            return new TokenCipher(new EncryptionKeyProvider(dataDir.toString()));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }
