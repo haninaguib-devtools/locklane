@@ -8,6 +8,14 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.1.6 — 2026-09-01
+
+### Features
+- Bump revision to 0.1.6-SNAPSHOT for next development cycle (#511, #512)
+
+### Fixes
+- Fix push failure on newly created projects (no GitHub credentials yet) (#513, #514)
+
 ## v0.1.5 — 2026-09-01
 
 ### Features
