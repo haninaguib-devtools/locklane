@@ -85,4 +85,6 @@ export interface Project {
   status: 'CLONING' | 'READY' | 'FAILED';
   createdAt: string;
   accentColor: string | null;
+  /** The project template this project was created from (#536), or null for none. */
+  template: string | null;
 }

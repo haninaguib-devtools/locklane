@@ -104,6 +104,18 @@
           />
         </label>
         <ng-container *ngTemplateOutlet="accountPicker" />
+        <label>
+          template
+          <select name="template" class="template" [(ngModel)]="template" [disabled]="submitting">
+            <option [ngValue]="null">none</option>
+            @for (t of templates; track t.name) {
+              <option [ngValue]="t.name" [title]="t.description">{{ t.title }}</option>
+            }
+          </select>
+        </label>
+        @if (templateDescription) {
+          <p class="hint template-description">{{ templateDescription }}</p>
+        }
         <label class="checkbox-label">
           <input type="checkbox" name="bootstrapTWorkflow" [(ngModel)]="bootstrapTWorkflow" [disabled]="submitting" />
           bootstrap with t-workflow

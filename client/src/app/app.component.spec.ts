@@ -23,6 +23,7 @@ describe('AppComponent', () => {
     workareaPath: '/tmp/proj',
     defaultBranch: 'main',
     accentColor: null,
+    template: null,
     status: 'READY',
     createdAt: '',
   };
@@ -273,8 +274,9 @@ describe('AppComponent', () => {
     compiled.querySelector<HTMLButtonElement>('.zero-cta')!.click();
     fixture.detectChanges();
     expect(compiled.querySelector('app-add-project-popup')).toBeTruthy();
-    // The popup asks for the host's gh accounts on mount (#532).
+    // The popup asks for the host's gh accounts (#532) and project templates (#536) on mount.
     httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
+    httpMock.expectOne('/api/templates').flush({ templates: [] });
 
     fixture.componentInstance.onProjectCreated();
     fixture.detectChanges();
@@ -735,16 +737,18 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     expect(compiled.querySelector('app-add-project-popup')).toBeTruthy();
-    // The popup asks for the host's gh accounts on mount (#532).
+    // The popup asks for the host's gh accounts (#532) and project templates (#536) on mount.
     httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
+    httpMock.expectOne('/api/templates').flush({ templates: [] });
   }));
 
   it('creating a project from the header popup closes it and refreshes the sidenav (#227)', fakeAsync(() => {
     const fixture = openedApp();
     fixture.componentInstance.openAddProject();
     fixture.detectChanges();
-    // The popup asks for the host's gh accounts on mount (#532).
+    // The popup asks for the host's gh accounts (#532) and project templates (#536) on mount.
     httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
+    httpMock.expectOne('/api/templates').flush({ templates: [] });
 
     fixture.componentInstance.onProjectCreated();
     fixture.detectChanges();

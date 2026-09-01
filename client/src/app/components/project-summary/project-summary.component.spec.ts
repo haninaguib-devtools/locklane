@@ -19,6 +19,7 @@ describe('ProjectSummaryComponent', () => {
     workareaPath: '/tmp/a',
     defaultBranch: 'main',
     accentColor: null,
+    template: null,
     status: 'READY',
     createdAt: '2026-08-26T10:00:00Z',
   };

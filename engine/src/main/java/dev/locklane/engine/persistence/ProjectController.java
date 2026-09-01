@@ -3,6 +3,8 @@ package dev.locklane.engine.persistence;
 import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.security.SecurityConfig;
 import dev.locklane.engine.security.TokenCipher;
+import dev.locklane.engine.template.ProjectTemplate;
+import dev.locklane.engine.template.TemplateStore;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -47,14 +49,17 @@ public class ProjectController {
     private final TokenCipher tokenCipher;
     private final ProjectGhResources ghResources;
     private final UserRepository userRepository;
+    private final TemplateStore templateStore;
 
     public ProjectController(ProjectRepository repository, ProjectCheckoutService checkoutService,
-            TokenCipher tokenCipher, ProjectGhResources ghResources, UserRepository userRepository) {
+            TokenCipher tokenCipher, ProjectGhResources ghResources, UserRepository userRepository,
+            TemplateStore templateStore) {
         this.repository = repository;
         this.checkoutService = checkoutService;
         this.tokenCipher = tokenCipher;
         this.ghResources = ghResources;
         this.userRepository = userRepository;
+        this.templateStore = templateStore;
     }
 
     @GetMapping
@@ -80,7 +85,10 @@ public class ProjectController {
      * that already exists, then registers it through the same async, status-tracked
      * flow as {@link #create}. Both accept an optional {@code githubLogin} (#532), one
      * of the accounts {@code gh} is logged into on this host, for the project to act
-     * as; absent, the engine behaves exactly as before.
+     * as; absent, the engine behaves exactly as before. This one also accepts an
+     * optional {@code template} (#536): the name of a project template on this host,
+     * resolved only through {@link TemplateStore#find} — never joined onto a path —
+     * and rejected with 400 before any row or repository exists when it is not listed.
      */
     @PostMapping("/new")
     public ResponseEntity<?> createNew(@RequestBody CreateNewProjectRequest request, Authentication authentication) {
@@ -90,9 +98,19 @@ public class ProjectController {
         if (request.name() == null || request.name().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "name is required"));
         }
+        ProjectTemplate template = null;
+        if (request.template() != null && !request.template().isBlank()) {
+            Optional<ProjectTemplate> found = templateStore.find(request.template().strip());
+            if (found.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error",
+                        "template '" + request.template().strip() + "' is not one of the templates on this host"));
+            }
+            template = found.get();
+        }
         UserRecord caller = currentUser(authentication);
         ProjectRecord project = checkoutService.createNewProject(
-                request.org(), request.name(), request.bootstrapTWorkflow(), caller.id(), request.githubLogin());
+                request.org(), request.name(), request.bootstrapTWorkflow(), caller.id(), request.githubLogin(),
+                template);
         return ResponseEntity.status(HttpStatus.CREATED).body(ProjectView.from(project));
     }
 
@@ -189,8 +207,12 @@ public class ProjectController {
     public record CreateProjectRequest(String gitUrl, String name, String githubLogin) {
     }
 
-    /** {@code githubLogin} (#532) is optional — {@code null} when the client chose no account. */
-    public record CreateNewProjectRequest(String org, String name, boolean bootstrapTWorkflow, String githubLogin) {
+    /**
+     * {@code githubLogin} (#532) is optional — {@code null} when the client chose no
+     * account; so is {@code template} (#536) — {@code null} when the client chose none.
+     */
+    public record CreateNewProjectRequest(String org, String name, boolean bootstrapTWorkflow, String githubLogin,
+            String template) {
     }
 
     public record SetGithubTokenRequest(String token) {
@@ -202,10 +224,10 @@ public class ProjectController {
     /** JSON shape for a project — {@code workareaPath} as a plain string, unlike the persisted {@link ProjectRecord}. */
     public record ProjectView(
             long id, long ownerUserId, String name, String gitUrl, String workareaPath, String defaultBranch,
-            String status, String createdAt, String accentColor) {
+            String status, String createdAt, String accentColor, String template) {
         static ProjectView from(ProjectRecord r) {
             return new ProjectView(r.id(), r.ownerUserId(), r.name(), r.gitUrl(), r.workareaPath().toString(),
-                    r.defaultBranch(), r.status().name(), r.createdAt().toString(), r.accentColor());
+                    r.defaultBranch(), r.status().name(), r.createdAt().toString(), r.accentColor(), r.template());
         }
     }
 }

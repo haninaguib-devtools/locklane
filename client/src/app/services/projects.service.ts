@@ -9,6 +9,13 @@ export interface GithubAccount {
   active: boolean;
 }
 
+/** One project template on the engine host (#536): its directory name, and the frontmatter's title and description. */
+export interface ProjectTemplate {
+  name: string;
+  title: string;
+  description: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProjectsService {
   private readonly http = inject(HttpClient);
@@ -26,9 +33,27 @@ export class ProjectsService {
     return this.http.post<Project>('/api/projects', withLogin({ gitUrl, name }, githubLogin));
   }
 
-  /** Creates a brand-new GitHub repository and registers it, async like `create` (#491); `githubLogin` as there. */
-  createNew(org: string, name: string, bootstrapTWorkflow: boolean, githubLogin?: string): Observable<Project> {
-    return this.http.post<Project>('/api/projects/new', withLogin({ org, name, bootstrapTWorkflow }, githubLogin));
+  /**
+   * Creates a brand-new GitHub repository and registers it, async like `create` (#491);
+   * `githubLogin` as there. `template` (#536) names a project template on the engine
+   * host to commit into the new repository; omitted, the request carries no such field.
+   */
+  createNew(
+    org: string,
+    name: string,
+    bootstrapTWorkflow: boolean,
+    githubLogin?: string,
+    template?: string,
+  ): Observable<Project> {
+    const body = withLogin({ org, name, bootstrapTWorkflow }, githubLogin);
+    return this.http.post<Project>('/api/projects/new', template ? { ...body, template } : body);
+  }
+
+  /** The project templates on the engine host (#536), sorted by title; empty when there are none. */
+  templates(): Observable<ProjectTemplate[]> {
+    return this.http
+      .get<{ templates: ProjectTemplate[] }>('/api/templates')
+      .pipe(map((response) => response.templates ?? []));
   }
 
   /** The `gh` accounts on the engine host (#532), in gh's own order; empty when there are none or gh is missing. */

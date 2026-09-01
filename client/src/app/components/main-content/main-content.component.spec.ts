@@ -67,6 +67,7 @@ describe('MainContentComponent', () => {
         workareaPath: '/tmp/repo',
         defaultBranch: 'main',
         accentColor: null,
+        template: null,
         status: 'READY',
         createdAt: '',
       },
