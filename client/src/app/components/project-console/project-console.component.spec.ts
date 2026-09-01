@@ -80,6 +80,13 @@ describe('ProjectConsoleComponent', () => {
     confirmButton!.click();
   }
 
+  /** Opens the nth tab's overflow menu (#480), exposing its Shell/Folder/Close items. */
+  function openTabMenu(fixture: ReturnType<typeof TestBed.createComponent<ProjectConsoleComponent>>, index = 0): void {
+    const compiled = fixture.nativeElement as HTMLElement;
+    compiled.querySelectorAll<HTMLButtonElement>('.tab-menu-trigger')[index].click();
+    fixture.detectChanges();
+  }
+
   it('attaches straight to an existing session, skipping the agent picker', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
@@ -283,7 +290,8 @@ describe('ProjectConsoleComponent', () => {
     TestBed.inject(ConsolesService).onClosed.subscribe(closed);
 
     const compiled = fixture.nativeElement as HTMLElement;
-    compiled.querySelectorAll<HTMLButtonElement>('.tab-close')[1].click();
+    openTabMenu(fixture, 1);
+    compiled.querySelectorAll<HTMLButtonElement>('.tab-close')[0].click();
     fixture.detectChanges();
     confirmCloseDialog(compiled);
     fixture.detectChanges();
@@ -306,6 +314,7 @@ describe('ProjectConsoleComponent', () => {
     spyOn(router, 'navigate');
 
     const compiled = fixture.nativeElement as HTMLElement;
+    openTabMenu(fixture);
     compiled.querySelector<HTMLButtonElement>('.tab-close')!.click();
     fixture.detectChanges();
     confirmCloseDialog(compiled);
@@ -322,6 +331,7 @@ describe('ProjectConsoleComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
+    openTabMenu(fixture);
     compiled.querySelector<HTMLButtonElement>('.tab-close')!.click();
     fixture.detectChanges();
     confirmCloseDialog(compiled);
@@ -341,6 +351,7 @@ describe('ProjectConsoleComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
+    openTabMenu(fixture);
     compiled.querySelector<HTMLButtonElement>('.tab-reveal')!.click();
     fixture.detectChanges();
 

@@ -42,65 +42,62 @@
   color: var(--text);
 }
 
-.tab-close {
+/* #480: the single overflow trigger replacing the three separate hover-revealed
+   icons -- same fade-in-on-hover treatment those had, so the tab strip stays quiet
+   until a tab is hovered or focused. */
+.tab-menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tab-menu-trigger {
   border: none;
   background: none;
-  padding: 2px 8px 2px 0;
-  font-size: 14px;
+  padding: 2px 6px 2px 0;
+  font-size: 13px;
   line-height: 1;
   color: var(--faint);
   cursor: pointer;
-}
-
-.tab-close:hover {
-  color: var(--text);
-}
-
-/* #441: fades in on hover/focus of the tab, like the close button sitting next to
-   it -- but starts invisible rather than absent, so revealing it never shifts the
-   tab strip's layout. */
-.tab-reveal {
-  display: flex;
-  align-items: center;
-  border: none;
-  background: none;
-  padding: 2px 4px 2px 0;
-  color: var(--faint);
-  cursor: pointer;
   opacity: 0;
   transition: opacity 0.1s ease;
 }
 
-.tab-wrap:hover .tab-reveal,
-.tab-wrap:focus-within .tab-reveal {
+.tab-wrap:hover .tab-menu-trigger,
+.tab-wrap:focus-within .tab-menu-trigger {
   opacity: 1;
 }
 
-.tab-reveal:hover {
+.tab-menu-trigger:hover {
   color: var(--text);
 }
 
-/* The open-a-shell icon (#447) — the same hover-revealed treatment as the
-   reveal-in-file-manager icon it sits next to. */
-.tab-shell {
-  display: flex;
-  align-items: center;
+.tab-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(53, 50, 44, 0.15);
+  min-width: 90px;
+}
+
+.tab-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
   border: none;
   background: none;
-  padding: 2px 4px 2px 0;
-  color: var(--faint);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-
-.tab-wrap:hover .tab-shell,
-.tab-wrap:focus-within .tab-shell {
-  opacity: 1;
-}
-
-.tab-shell:hover {
+  font-size: 12px;
   color: var(--text);
+  cursor: pointer;
+}
+
+.tab-menu button:hover {
+  background: var(--bg);
 }
 
 .shell-error {

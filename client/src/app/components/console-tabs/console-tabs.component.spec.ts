@@ -53,8 +53,9 @@ describe('ConsoleTabsComponent', () => {
     expect(c.showOpenButton).toBeTrue();
   });
 
-  it('closeTab stops propagation and awaits confirmation before emitting', () => {
+  it('closeTab stops propagation, closes the menu, and awaits confirmation before emitting', () => {
     const c = new ConsoleTabsComponent();
+    c.openMenuId = '7-rename-toggle';
     let emitted: string | undefined;
     c.close.subscribe((id) => (emitted = id));
     const event = new Event('click');
@@ -63,6 +64,7 @@ describe('ConsoleTabsComponent', () => {
     c.closeTab('7-rename-toggle', event);
 
     expect(stopSpy).toHaveBeenCalled();
+    expect(c.openMenuId).toBeNull();
     expect(c.pendingCloseId).toBe('7-rename-toggle');
     expect(emitted).toBeUndefined();
   });
@@ -91,8 +93,9 @@ describe('ConsoleTabsComponent', () => {
     expect(c.pendingCloseId).toBeNull();
   });
 
-  it('revealTab stops propagation and emits the console id immediately, with no confirmation (#441)', () => {
+  it('revealTab stops propagation, closes the menu, and emits the console id immediately, with no confirmation (#441, #480)', () => {
     const c = new ConsoleTabsComponent();
+    c.openMenuId = '7-rename-toggle';
     let emitted: string | undefined;
     c.reveal.subscribe((id) => (emitted = id));
     const event = new Event('click');
@@ -101,10 +104,29 @@ describe('ConsoleTabsComponent', () => {
     c.revealTab('7-rename-toggle', event);
 
     expect(stopSpy).toHaveBeenCalled();
+    expect(c.openMenuId).toBeNull();
     expect(emitted).toBe('7-rename-toggle');
   });
 
-  it('renders the reveal icon on a live console tab but not on the pinned Overview tab (#441)', () => {
+  it('opens one tab menu at a time, closes on an outside click (#480)', () => {
+    const c = new ConsoleTabsComponent();
+
+    c.toggleMenu('7-rename-toggle', new Event('click'));
+    expect(c.isMenuOpen('7-rename-toggle')).toBeTrue();
+
+    c.toggleMenu('7-other-tab', new Event('click'));
+    expect(c.isMenuOpen('7-rename-toggle')).toBeFalse();
+    expect(c.isMenuOpen('7-other-tab')).toBeTrue();
+
+    c.toggleMenu('7-other-tab', new Event('click'));
+    expect(c.isMenuOpen('7-other-tab')).toBeFalse();
+
+    c.openMenuId = '7-rename-toggle';
+    c.closeMenu();
+    expect(c.openMenuId).toBeNull();
+  });
+
+  it('renders the overflow trigger and, once opened, a Folder menu item on a live console tab but not on the pinned Overview tab (#441, #480)', () => {
     // The http providers exist for the open-a-shell control's services (#447),
     // constructed with the component; this test itself never talks HTTP.
     TestBed.configureTestingModule({
@@ -117,7 +139,13 @@ describe('ConsoleTabsComponent', () => {
 
     const tabWraps = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.tab-wrap'));
     expect(tabWraps.length).toBe(2); // the pinned Overview tab, plus the one console tab
-    expect(tabWraps[0].querySelector('.tab-reveal')).toBeNull();
+    expect(tabWraps[0].querySelector('.tab-menu-trigger')).toBeNull();
+    expect(tabWraps[1].querySelector('.tab-menu-trigger')).not.toBeNull();
+    expect(tabWraps[1].querySelector('.tab-reveal')).toBeNull(); // menu closed
+
+    (tabWraps[1].querySelector('.tab-menu-trigger') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
     expect(tabWraps[1].querySelector('.tab-reveal')).not.toBeNull();
   });
   it('does not start a rename where renaming is not enabled (#393: the issue page)', () => {
@@ -202,23 +230,34 @@ describe('ConsoleTabsComponent open-a-shell (#447)', () => {
     return fixture;
   }
 
-  it('shows the icon on a live console tab and never on the Overview pseudo-tab', () => {
+  // The Shell menu item only exists once its tab's overflow menu is open (#480).
+  function openMenu(fixture: ReturnType<typeof render>, tabWrapIndex = 0): void {
+    const wraps = fixture.nativeElement.querySelectorAll('.tab-wrap');
+    (wraps[tabWrapIndex].querySelector('.tab-menu-trigger') as HTMLButtonElement).click();
+    fixture.detectChanges();
+  }
+
+  it('shows the Shell item once its tab menu is open, and never on the Overview pseudo-tab (#480)', () => {
     const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
 
-    // One icon for the one real tab; the Overview tab renders first with none.
+    // The Overview tab renders first with no overflow trigger at all.
+    const overviewWrap = fixture.nativeElement.querySelector('.tab-wrap');
+    expect(overviewWrap.querySelector('.tab-menu-trigger')).toBeNull();
+
+    openMenu(fixture, 1);
+
     const icons = fixture.nativeElement.querySelectorAll('.tab-shell');
     expect(icons.length).toBe(1);
-    const overviewWrap = fixture.nativeElement.querySelector('.tab-wrap');
-    expect(overviewWrap.querySelector('.tab-shell')).toBeNull();
   });
 
-  it('clicking mints a shell at the tab-carried directory and opens the singleton window', () => {
+  it('clicking Shell mints a shell at the tab-carried directory and opens the singleton window', () => {
     // The project-console page's tabs carry their directory (#447).
     const openSpy = spyOn(window, 'open');
     const fixture = render(
       [{ id: '1-console-aaaa0001', agent: 'shell', label: 'console', dir: '/repo-console-aaaa0001' }],
       false,
     );
+    openMenu(fixture);
 
     (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
 
@@ -232,6 +271,7 @@ describe('ConsoleTabsComponent open-a-shell (#447)', () => {
   it('an issue tab with no carried directory resolves it from the project worktree list', () => {
     const openSpy = spyOn(window, 'open');
     const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+    openMenu(fixture, 1);
 
     (fixture.nativeElement.querySelectorAll('.tab-shell')[0] as HTMLButtonElement).click();
 
@@ -256,13 +296,16 @@ describe('ConsoleTabsComponent open-a-shell (#447)', () => {
       [{ id: '1-console-aaaa0001', agent: 'shell', label: 'console', dir: '/repo-console-aaaa0001' }],
       false,
     );
-    const icon = fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement;
 
-    icon.click();
+    openMenu(fixture);
+    (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
     httpMock
       .expectOne('/api/projects/1/shells')
       .flush({ sessionId: '1-shell-main-cccc0001', workingDirectory: '/repo-console-aaaa0001' });
-    icon.click();
+
+    // Selecting the item closed the menu (#480); reopen it for the second click.
+    openMenu(fixture);
+    (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
     httpMock
       .expectOne('/api/projects/1/shells')
       .flush({ sessionId: '1-shell-main-cccc0002', workingDirectory: '/repo-console-aaaa0001' });
@@ -277,6 +320,7 @@ describe('ConsoleTabsComponent open-a-shell (#447)', () => {
       [{ id: '1-console-aaaa0001', agent: 'shell', label: 'console', dir: '/repo-console-aaaa0001' }],
       false,
     );
+    openMenu(fixture);
 
     (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
     httpMock.expectOne('/api/projects/1/shells').flush(null, { status: 404, statusText: 'Not Found' });
