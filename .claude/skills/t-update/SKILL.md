@@ -73,18 +73,27 @@ to update — this skill exists for the repos generated from it.
      `docs/tasks/TEMPLATE.md`.
 
 7. **Apply the sync** (the work, now that a task branch exists to hold it):
-   - for each changed or added file that carries no local-slot markers, copy the
-     target tag's version in directly (a real copy from the scratch clone, preserving
-     symlinks as symlinks — `CLAUDE.md`, `GEMINI.md`,
+   - for each changed or added file whose **current** (pre-sync) content carries no
+     `<!-- local -->` marker, copy the target tag's version in directly (a real copy
+     from the scratch clone, preserving symlinks as symlinks — `CLAUDE.md`, `GEMINI.md`,
      `.github/copilot-instructions.md`, `.agents/skills` are recreated as the same
      symlink, never as separate file content);
-   - for `CONSTITUTION.md` and `AGENTS.md` (the two files
-     `docs/architecture/local-slots.md` marks today), splice: take the target tag's
-     file whole, but replace its `<!-- local -->…<!-- /local -->` region(s) with this
-     repo's *current* content for the same region(s) before writing;
+   - for each changed or added file whose current content *does* carry a
+     `<!-- local -->` marker (`CONSTITUTION.md`, `AGENTS.md`, and `.github/workflows/ci.yml`
+     today — `docs/architecture/local-slots.md` names the current set, and this rule
+     applies to whatever it names next without a further edit here), splice: take the
+     target tag's file whole, but replace its `<!-- local -->…<!-- /local -->` region(s)
+     with this repo's *current* content for the same region(s) before writing;
    - apply each pending migration in order (step 4's list), running its own
      Done-when check immediately after and stopping the whole update where it is if one
-     fails — reported, not worked around, the same as a dirty-file refusal.
+     fails — reported, not worked around, the same as a dirty-file refusal. **A
+     migration that moves a file from no-markers to markers for the first time must
+     capture that file's pre-sync content before the two bullets above touch it** — by
+     the time migrations run, an unmarked file has already been overwritten wholesale by
+     the first bullet, so the migration's own instructions are what is responsible for
+     reading the *original* pre-sync content (`git show <the pre-update HEAD>:<path>`,
+     or a copy taken before step 7 began) rather than assuming anything of the old
+     content survives in the working tree by the time it runs.
 
 8. **Write the new manifest**: target tag, the new file list with each file's
    normalized hash (`.t-workflow/scripts/check-manifest.sh --hash-file`), and `migrations_applied`

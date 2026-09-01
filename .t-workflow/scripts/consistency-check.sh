@@ -111,6 +111,17 @@ for d in .claude/skills/*/; do
   s=$(basename "$d")
   grep -qE "^\| \`/$s\`" AGENTS.md || err ".claude/skills/$s exists but AGENTS.md's pipeline table has no /$s row"
 done
+# A consumer's own local-skill rows (docs/architecture/local-slots.md) get the same
+# staleness check as the /t-* rows above: a stale row with no matching directory fails
+# the same way. Scoped to the "## The pipeline" section specifically — AGENTS.md carries
+# a second, unrelated <!-- local --> pair under "## Checks" that this must not read from.
+pipeline_section=$(awk '/^## The pipeline/{f=1;next} /^## /{f=0} f' AGENTS.md)
+for s in $(printf '%s\n' "$pipeline_section" \
+             | awk '/^<!-- local -->$/{f=1;next} /^<!-- \/local -->$/{f=0} f' \
+             | grep -oE '^\| `/[a-z][a-z0-9-]*`' | grep -oE '/[a-z0-9-]+' | tr -d '/'); do
+  [ -f ".claude/skills/$s/SKILL.md" ] \
+    || err "AGENTS.md's local-skill slot (§The pipeline) names /$s but .claude/skills/$s/SKILL.md is missing"
+done
 
 # --- 4. Load-bearing phrase present where the no-issue fix path was defined -----
 # ADR-001 §D2 is historical (the path it defined is removed, ADR-002); the phrase is

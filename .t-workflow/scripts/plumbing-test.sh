@@ -237,6 +237,22 @@ else bad "an edit outside a real slot changes the hash"; fi
 if [ "$h_prose" != "$h_prose_edited" ]; then ok "an edit after a prose mention of the markers still changes the hash"
 else bad "an edit after a prose mention of the markers still changes the hash"; fi
 
+# A comment-syntax file (ci.yml's YAML) writes its markers as indented line-comments,
+# never a bare marker line — a bare one is not valid YAML (issue #118). The regex must
+# strip a comment-prefixed, indented region the same way it strips a bare one.
+printf 'a: 1\n    # <!-- local -->\n    secret: 1\n    # <!-- /local -->\nb: 2\n' > "$work/slot-yaml.yml"
+printf 'a: 1\n    # <!-- local -->\n    secret: 2\n    # <!-- /local -->\nb: 2\n' > "$work/slot-yaml-editedinside.yml"
+printf 'a: 1\n    # <!-- local -->\n    secret: 1\n    # <!-- /local -->\nb: 3\n' > "$work/slot-yaml-editedoutside.yml"
+
+h_yaml=$(.t-workflow/scripts/check-manifest.sh --hash-file "$work/slot-yaml.yml")
+h_yaml_inside=$(.t-workflow/scripts/check-manifest.sh --hash-file "$work/slot-yaml-editedinside.yml")
+h_yaml_outside=$(.t-workflow/scripts/check-manifest.sh --hash-file "$work/slot-yaml-editedoutside.yml")
+
+if [ "$h_yaml" = "$h_yaml_inside" ]; then ok "an edit inside a comment-prefixed YAML slot does not change the hash"
+else bad "an edit inside a comment-prefixed YAML slot does not change the hash"; fi
+if [ "$h_yaml" != "$h_yaml_outside" ]; then ok "an edit outside a comment-prefixed YAML slot changes the hash"
+else bad "an edit outside a comment-prefixed YAML slot changes the hash"; fi
+
 expect_rc "--hash-file on a symlink-to-directory does not error" \
   0 bash -c 'ln -sfn ../x "$1/link-to-dir" && .t-workflow/scripts/check-manifest.sh --hash-file "$1/link-to-dir"' _ "$work"
 h_link1=$(.t-workflow/scripts/check-manifest.sh --hash-file "$work/link-to-dir")
@@ -286,6 +302,52 @@ expect_rc "a non-numeric task-id is a usage error, no gh call reached" \
   2 .t-workflow/scripts/review-snapshot.sh abc 5
 expect_rc "a non-numeric pr is a usage error, no gh call reached" \
   2 .t-workflow/scripts/review-snapshot.sh 73 abc
+echo
+
+# --- 11. consistency-check.sh: local-skill row symmetry (issue #120) ------------
+# check 3's first loop now walks AGENTS.md's local-skill slot (docs/architecture/
+# local-slots.md) the same way it walks the /t-* rows: a stale row with no matching
+# SKILL.md fails. A full copy of the working tree gives every *other* check in
+# consistency-check.sh something real to pass against, so only the mutation under
+# test can make it fail — a bare-bones fixture repo would fail on unrelated grounds
+# (missing CONSTITUTION.md sections, protected-paths.sh absent, etc).
+echo "consistency-check.sh (local-skill row symmetry)"
+
+make_fixture_repo() {
+  # $1 = destination dir
+  mkdir -p "$1"
+  git -C "$root" ls-files -z | tar -C "$root" --null -T - -cf - | tar -xf - -C "$1"
+}
+
+insert_local_skill_row() {
+  # $1 = AGENTS.md path, $2 = row text to insert into the pipeline-section slot
+  awk -v row="$2" '
+    /^## The pipeline/ { inpipe=1 }
+    /^## / && $0 !~ /^## The pipeline/ { inpipe=0 }
+    { print }
+    inpipe && /^<!-- local -->$/ && !inserted { print row; inserted=1 }
+  ' "$1" > "$1.new" && mv "$1.new" "$1"
+}
+
+fixture_ok="$work/fixture-ok"
+make_fixture_repo "$fixture_ok"
+mkdir -p "$fixture_ok/.claude/skills/l-example"
+printf '# /l-example\nAn example consumer skill.\n' > "$fixture_ok/.claude/skills/l-example/SKILL.md"
+insert_local_skill_row "$fixture_ok/AGENTS.md" '| `/l-example` | An example consumer skill. |'
+expect_rc "a local-skill row with a matching SKILL.md: passes" \
+  0 .t-workflow/scripts/consistency-check.sh "$fixture_ok"
+
+fixture_stale="$work/fixture-stale"
+make_fixture_repo "$fixture_stale"
+insert_local_skill_row "$fixture_stale/AGENTS.md" '| `/l-missing` | A skill with no directory. |'
+out=$(.t-workflow/scripts/consistency-check.sh "$fixture_stale" 2>&1)
+rc=$?
+if [ "$rc" -ne 0 ]; then ok "a local-skill row with no matching SKILL.md: fails (rc=$rc)"
+else bad "a local-skill row with no matching SKILL.md: fails (rc=$rc)"; fi
+case "$out" in
+  *"local-skill slot"*"/l-missing"*) ok "the failure names the missing skill by row" ;;
+  *) bad "the failure names the missing skill by row (got: $out)" ;;
+esac
 echo
 
 echo "$pass passed, $fail failed"

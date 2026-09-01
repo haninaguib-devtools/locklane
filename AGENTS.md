@@ -34,6 +34,15 @@ only). Plain `git` is never abstracted.
 | `/t-update` | For a repo generated from this template. Syncs its template-owned files to a pinned release, preserving local slots and applying pending migrations, as one ordinary task. |
 | `/t-status` | Read-only pipeline overview. |
 
+Skills outside the `t-*` namespace are the consumer's own; each gets a row in its own
+table below.
+
+<!-- local -->
+*(reserved: consumer-local skills — e.g. locklane-style `l-*` skills — get a row here,
+in a small table with its own header row, once a consumer adds one. Row shape mirrors
+the table above: `| \`/l-example\` | One-line stage description. |`.)*
+<!-- /local -->
+
 ## Conventions
 
 - **All changes go through the pipeline.** A request to change anything — code, config,

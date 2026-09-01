@@ -36,9 +36,14 @@ normalized_hash() {
   # per line"), never one that merely mentions "<!-- local -->" in prose — a doc
   # discussing the convention (this repo's own manifest.md, local-slots.md) would
   # otherwise trip skip mode on its own description and strip everything after it.
+  # Leading whitespace and an optional "#" (with optional whitespace after it) are
+  # tolerated so the same marker can sit at any indentation as a line-comment in a
+  # comment-syntax file (ci.yml's YAML) as well as bare at column 0 in a markdown file
+  # (CONSTITUTION.md, AGENTS.md) — a bare marker line is not valid YAML (confirmed:
+  # PyYAML rejects it), so ci.yml's markers are written `# <!-- local -->`.
   awk '
-    /^<!-- local -->[[:space:]]*$/    { print; skip=1; next }
-    /^<!-- \/local -->[[:space:]]*$/  { skip=0; print; next }
+    /^[[:space:]]*#?[[:space:]]*<!-- local -->[[:space:]]*$/    { print; skip=1; next }
+    /^[[:space:]]*#?[[:space:]]*<!-- \/local -->[[:space:]]*$/  { skip=0; print; next }
     skip                { next }
     { print }
   ' "$f" | sha256sum | cut -d' ' -f1
