@@ -224,10 +224,11 @@ public class ProjectController {
     /** JSON shape for a project — {@code workareaPath} as a plain string, unlike the persisted {@link ProjectRecord}. */
     public record ProjectView(
             long id, long ownerUserId, String name, String gitUrl, String workareaPath, String defaultBranch,
-            String status, String createdAt, String accentColor, String template) {
+            String status, String createdAt, String accentColor, String template, String templateSeededAt) {
         static ProjectView from(ProjectRecord r) {
             return new ProjectView(r.id(), r.ownerUserId(), r.name(), r.gitUrl(), r.workareaPath().toString(),
-                    r.defaultBranch(), r.status().name(), r.createdAt().toString(), r.accentColor(), r.template());
+                    r.defaultBranch(), r.status().name(), r.createdAt().toString(), r.accentColor(), r.template(),
+                    r.templateSeededAt() == null ? null : r.templateSeededAt().toString());
         }
     }
 }

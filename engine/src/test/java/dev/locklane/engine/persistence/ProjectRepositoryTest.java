@@ -143,6 +143,21 @@ class ProjectRepositoryTest {
     }
 
     @Test
+    void markTemplateSeededRecordsTheInstantOnce(@TempDir Path dbDir) {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
+        ProjectRecord created = repository.create("foo", "url", dbDir.resolve("foo"), 1L, Instant.now(),
+                "springboot-angular");
+        assertThat(created.templateSeededAt()).isNull();
+
+        repository.markTemplateSeeded(created.id(), Instant.parse("2026-09-01T12:00:00Z"));
+
+        assertThat(repository.findById(created.id())).isPresent().get()
+                .extracting(ProjectRecord::templateSeededAt).isEqualTo(Instant.parse("2026-09-01T12:00:00Z"));
+        assertThat(repository.findAllOwnedBy(1L)).extracting(ProjectRecord::templateSeededAt)
+                .containsExactly(Instant.parse("2026-09-01T12:00:00Z"));
+    }
+
+    @Test
     void aCreatedProjectStartsWithNoAccentColor(@TempDir Path dbDir) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
 

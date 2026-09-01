@@ -32,6 +32,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() cmd: string | null = null;
   /** Past-conversation id (#103): a brand-new claude/codex session resumes it. */
   @Input() resume: string | null = null;
+  /** 'template' (#537): a brand-new agent session starts with the engine's seeded first prompt. */
+  @Input() seed: string | null = null;
   /**
    * Whether this tab is the selected one. Sizing no longer depends on it (#375: a hidden
    * tab keeps a layout box, so every tab measures itself at mount); it decides only who
@@ -373,6 +375,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       this.term?.cols ?? null,
       this.term?.rows ?? null,
       this.active,
+      this.seed,
     );
     this.session.connect(
       (text) => this.term?.write(text),

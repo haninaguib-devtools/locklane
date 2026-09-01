@@ -23,6 +23,12 @@ import java.time.Instant;
  * created from — {@code null} for an imported repository, for a project created with
  * no template, and for every row that predates templates. Set once at creation and
  * never edited.
+ *
+ * <p>{@code templateSeededAt} (#537) is when that template's one seeded console was
+ * launched — the agent started with the engine-composed first prompt — and
+ * {@code null} until then. A READY project with a {@code template} and a
+ * {@code null} {@code templateSeededAt} still owes its first console; the launch
+ * that sets this is what turns that rule off.
  */
 public record ProjectRecord(
         long id,
@@ -34,5 +40,6 @@ public record ProjectRecord(
         ProjectStatus status,
         Instant createdAt,
         String accentColor,
-        String template) {
+        String template,
+        Instant templateSeededAt) {
 }

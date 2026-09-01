@@ -226,6 +226,21 @@ class ProjectControllerTest {
         ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
         assertThat(body.template()).isEqualTo("custom");
         assertThat(repository.findById(body.id()).orElseThrow().template()).isEqualTo("custom");
+        // #537: not yet seeded -- reported as null until the seeded console launches.
+        assertThat(body.templateSeededAt()).isNull();
+    }
+
+    @Test
+    void listReportsWhenATemplatedProjectsSeededConsoleWasLaunched(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now(),
+                "springboot-angular");
+        repository.markTemplateSeeded(created.id(), Instant.parse("2026-09-01T12:00:00Z"));
+        ProjectController controller = controller(tmp, repository);
+
+        assertThat(controller.list(alice.authentication()))
+                .extracting(ProjectController.ProjectView::templateSeededAt).containsExactly("2026-09-01T12:00:00Z");
     }
 
     @Test

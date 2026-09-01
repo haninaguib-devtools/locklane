@@ -59,6 +59,11 @@ export class TerminalSession {
     // it connects since #375, and the size is re-asserted on every open below, so there
     // is nothing left for it to gate.
     initiallyFocused: boolean = false,
+    // 'template' asks the engine to start a brand-new agent session with its
+    // engine-composed first prompt (#537); the engine decides whether it applies. Sent
+    // on every open like the other launch params -- harmless on a reattach, where the
+    // engine ignores every launch parameter for an already-running process.
+    private readonly seed: string | null = null,
   ) {
     this.cols = cols;
     this.rows = rows;
@@ -83,6 +88,9 @@ export class TerminalSession {
     }
     if (this.resume) {
       params.set('resume', this.resume);
+    }
+    if (this.seed) {
+      params.set('seed', this.seed);
     }
     // The size as it is *now*, not as it was when this session was constructed -- a
     // reconnect that makes the engine create the PTY (after an engine restart, say)

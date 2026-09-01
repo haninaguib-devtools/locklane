@@ -15,7 +15,13 @@ import {
 import { ConsoleTab, labelProjectConsoles } from '../console-tabs/console-labels';
 import { SessionListComponent } from '../session-list/session-list.component';
 import { TerminalComponent } from '../terminal/terminal.component';
-import { ResumeSession } from '../../models/issue.model';
+import { Project, ResumeSession } from '../../models/issue.model';
+import { ProjectsService } from '../../services/projects.service';
+
+// How often to re-read the project while it is still CLONING (#537) -- the same
+// cadence as the sidenav's own cloning poll, run here too because nothing shares the
+// sidenav's list with this page.
+const CLONE_POLL_MS = 3000;
 
 // One open console's client-side state. `dir` comes from the engine either way;
 // `agent` is only known when this browser launched the session (AgentStore).
@@ -28,6 +34,8 @@ interface OpenConsole {
   resume: string | null;
   /** The name the user gave this tab (#393), or null for the auto-generated label. */
   name: string | null;
+  /** 'template' for the one seeded console of a templated project (#537), null otherwise. */
+  seed: string | null;
 }
 
 // The project-level console page (#140, part of #138): lets a user start a
@@ -45,6 +53,13 @@ interface OpenConsole {
 // list is read when that disclosure is first opened rather than on mount, so simply
 // landing on a console costs no extra request; the trade-off is that the collapsed
 // label cannot carry a count.
+// Since #537 the page first looks the project up: while it is still CLONING (the
+// add-project popup navigates here the moment a create succeeds) it waits, re-reading
+// every few seconds, instead of asking for a console the engine would refuse; once
+// READY, a project created from a template whose seeded console has not been launched
+// yet gets one opened here, without a click, attached with `seed=template` so the
+// engine starts the default agent on its own first prompt -- once per page instance,
+// and never again once the engine has recorded the launch.
 @Component({
   selector: 'app-project-console',
   standalone: true,
@@ -54,6 +69,7 @@ interface OpenConsole {
 })
 export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   private readonly service = inject(ProjectConsoleService);
+  private readonly projectsService = inject(ProjectsService);
   private readonly consolesService = inject(ConsolesService);
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
@@ -79,6 +95,17 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   pastLoading = false;
   /** Whether the list below is a real answer yet -- false until the first read returns. */
   pastLoaded = false;
+
+  /** The project as last read (#537); null until the first read, or when it is not in the caller's list. */
+  project: Project | null = null;
+  /** True while the project is still CLONING (#537) -- no console is asked for until it is READY. */
+  cloning = false;
+  /** True when the project's creation FAILED (#537) -- nothing is started; retry lives on the project page. */
+  failed = false;
+  private clonePollTimer: ReturnType<typeof setTimeout> | null = null;
+  // The project id whose seeded console this page instance has already opened (#537):
+  // the guard against opening a second one before the engine's own record lands.
+  private seededFor: number | null = null;
 
   private queryParamsSub: Subscription | null = null;
   // Set when a `?new` request arrives while the open-console list is still in
@@ -165,10 +192,65 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   // opened one via `gh` before the engine's own 30s poll would notice (#140).
   ngOnDestroy(): void {
     this.queryParamsSub?.unsubscribe();
+    this.stopClonePoll();
     this.issuesService.notifyProjectStale(this.projectId);
   }
 
+  // The project first (#537): its status decides whether a console may be asked for
+  // at all, and whether the one being opened is the template's seeded console. A
+  // project the list does not carry (or a failed read) falls through to the
+  // pre-#537 behaviour, so nothing this page did before depends on the lookup.
   private load(projectId: number): void {
+    this.loading = true;
+    this.cloning = false;
+    this.failed = false;
+    this.project = null;
+    this.stopClonePoll();
+    this.projectsService.list().subscribe({
+      next: (projects) => {
+        const project = projects.find((p) => p.id === projectId) ?? null;
+        this.project = project;
+        if (project?.status === 'CLONING') {
+          this.loading = false;
+          this.cloning = true;
+          this.clonePollTimer = setTimeout(() => {
+            this.clonePollTimer = null;
+            this.load(projectId);
+          }, CLONE_POLL_MS);
+          return;
+        }
+        if (project?.status === 'FAILED') {
+          this.loading = false;
+          this.failed = true;
+          return;
+        }
+        this.loadConsoles(projectId);
+      },
+      error: () => this.loadConsoles(projectId),
+    });
+  }
+
+  private stopClonePoll(): void {
+    if (this.clonePollTimer !== null) {
+      clearTimeout(this.clonePollTimer);
+      this.clonePollTimer = null;
+    }
+  }
+
+  /** Whether this render owes the project its one seeded console (#537). */
+  private owesSeededConsole(projectId: number): boolean {
+    const project = this.project;
+    return (
+      project !== null &&
+      project.id === projectId &&
+      project.status === 'READY' &&
+      project.template !== null &&
+      (project.templateSeededAt ?? null) === null &&
+      this.seededFor !== projectId
+    );
+  }
+
+  private loadConsoles(projectId: number): void {
     this.loading = true;
     this.consoles = [];
     this.tabs = [];
@@ -194,8 +276,16 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
           agent: this.agentStore.get(s.sessionId),
           resume: null,
           name: s.displayName ?? null,
+          seed: null,
         }));
         this.relabel();
+        if (this.owesSeededConsole(projectId)) {
+          // #537: the template's one seeded console, alongside whatever is already
+          // open. Marked before the request so a slow answer cannot open two.
+          this.seededFor = projectId;
+          this.start(this.defaultAgentStore.agent(), 'template');
+          return;
+        }
         if (this.takePendingNewConsole()) {
           // The sidenav's "+" (#370): the project's existing consoles stay in the
           // strip, with the brand-new one added alongside them and selected.
@@ -293,6 +383,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
             agent: session.tool,
             resume: session.resumeId,
             name: null,
+            seed: null,
           },
         ];
         this.relabel();
@@ -338,7 +429,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  private start(agent: Agent): void {
+  private start(agent: Agent, seed: string | null = null): void {
     this.starting = true;
     this.startError = false;
     this.service.start(this.projectId).subscribe({
@@ -346,7 +437,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
         this.agentStore.set(session.sessionId, agent);
         this.consoles = [
           ...this.consoles,
-          { id: session.sessionId, dir: session.workingDirectory, agent, resume: null, name: null },
+          { id: session.sessionId, dir: session.workingDirectory, agent, resume: null, name: null, seed },
         ];
         this.relabel();
         this.selectConsole(session.sessionId);

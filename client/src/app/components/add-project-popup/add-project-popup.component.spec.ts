@@ -1,11 +1,13 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Router, provideRouter } from '@angular/router';
 import { AddProjectPopupComponent } from './add-project-popup.component';
 import { Project } from '../../models/issue.model';
 
 describe('AddProjectPopupComponent', () => {
   let httpMock: HttpTestingController;
+  let navigate: jasmine.Spy;
 
   const PROJECT: Project = {
     id: 1,
@@ -22,9 +24,12 @@ describe('AddProjectPopupComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [AddProjectPopupComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     });
     httpMock = TestBed.inject(HttpTestingController);
+    // A successful create navigates to the new project's console page (#537); the
+    // route table is the app's business, so the navigation itself is stubbed here.
+    navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
   });
 
   afterEach(() => httpMock.verify());
@@ -53,6 +58,15 @@ describe('AddProjectPopupComponent', () => {
     fixture.componentInstance.onUrlChange();
 
     expect(fixture.componentInstance.name).toBe('my custom name');
+  });
+
+  it('importing an existing repository never navigates -- the dialog closes and the sidenav refreshes as before (#537)', () => {
+    const fixture = create();
+    fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
+    fixture.componentInstance.submit();
+    httpMock.expectOne('/api/projects').flush(PROJECT);
+
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('submits the URL and name, emitting the created project', () => {
@@ -384,6 +398,51 @@ describe('AddProjectPopupComponent', () => {
 
       expect(fixture.componentInstance.submitting).toBeFalse();
       expect(emitted).toEqual({ ...PROJECT, name: 'my-project' });
+    });
+
+    it('navigates to the new project\'s console page as soon as the create succeeds, before emitting (#537)', () => {
+      const fixture = create();
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+      const order: string[] = [];
+      navigate.and.callFake(() => {
+        order.push('navigate');
+        return Promise.resolve(true);
+      });
+      fixture.componentInstance.created.subscribe(() => order.push('created'));
+      fixture.componentInstance.submit();
+
+      httpMock.expectOne('/api/projects/new').flush({ ...PROJECT, id: 7, status: 'CLONING' });
+
+      expect(navigate).toHaveBeenCalledWith(['/projects', 7, 'console']);
+      expect(order).toEqual(['navigate', 'created']);
+    });
+
+    it('navigates there for a create with no template too (#537)', () => {
+      const fixture = create();
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+      fixture.componentInstance.template = null;
+      fixture.componentInstance.submit();
+
+      httpMock.expectOne('/api/projects/new').flush({ ...PROJECT, id: 8, template: null });
+
+      expect(navigate).toHaveBeenCalledWith(['/projects', 8, 'console']);
+    });
+
+    it('does not navigate when the create fails (#537)', () => {
+      const fixture = create();
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+      fixture.componentInstance.submit();
+
+      httpMock.expectOne('/api/projects/new').flush({ error: 'nope' }, { status: 400, statusText: 'Bad Request' });
+
+      expect(navigate).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.error).toBe('nope');
     });
 
     it('does nothing when the org or the name is blank', () => {
