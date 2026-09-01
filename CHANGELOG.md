@@ -8,6 +8,15 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.1.9 — 2026-09-01
+
+### Features
+- Let both add-project forms choose which gh account a project acts as (#532, #538)
+- Bump revision to 0.1.9-SNAPSHOT for next development cycle (#529, #530)
+
+### Fixes
+- Fail project bootstrap early when the GitHub token lacks the workflow scope (#531, #534)
+
 ## v0.1.8 — 2026-09-01
 
 ### Features
