@@ -18,6 +18,18 @@
 </div>
 @if (loading) {
   <div class="loading">loading…</div>
+} @else if (cloning) {
+  <!-- #537: the add-project popup lands here while the engine is still creating the
+       project; the console opens itself once it is READY. -->
+  <div class="loading cloning">creating the project… the console will open when it is ready</div>
+} @else if (failed) {
+  <div class="starter failed">
+    <p class="hint">
+      This project's creation failed, so no console can be opened here. Retry it from the
+      project page; if it was created from a template, the seeded console opens on its own
+      once the retry succeeds.
+    </p>
+  </div>
 } @else if (consoles.length) {
   <app-console-tabs
     [tabs]="tabs"
@@ -54,6 +66,7 @@
         [dir]="console.dir"
         [cmd]="console.agent"
         [resume]="console.resume"
+        [seed]="console.seed"
         [active]="console.id === selected"
       />
     }

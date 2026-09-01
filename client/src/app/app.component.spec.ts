@@ -429,8 +429,10 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
 
+    // sidenav + the header's app-console-indicator + the console page's own project
+    // read (#537), which decides whether the project is READY before asking for a console.
     const lists = httpMock.match('/api/projects');
-    expect(lists.length).toBe(2);
+    expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([TINTED_PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
@@ -548,10 +550,10 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.onProjectConsole()).toBeTrue();
-    // sidenav + the header's app-console-indicator (#290) -- ProjectConsoleComponent
-    // itself never calls /api/projects.
+    // sidenav + the header's app-console-indicator (#290) + ProjectConsoleComponent's
+    // own project read (#537): it looks the project up before asking for a console.
     const lists = httpMock.match('/api/projects');
-    expect(lists.length).toBe(2);
+    expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
@@ -581,9 +583,10 @@ describe('AppComponent', () => {
     // sidenav (restricted to project 1 by focus mode) + the header's
     // app-console-indicator, now narrowed to project 1 too (#309) since the
     // route carries a projectId -- a focus window is always a single-project
-    // window, so it only ever fans consoles+issues calls out to project 1.
+    // window, so it only ever fans consoles+issues calls out to project 1. Plus the
+    // console page's own project read (#537).
     const lists = httpMock.match('/api/projects');
-    expect(lists.length).toBe(2);
+    expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT, PROJECT2]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
     flushUsageWidget();
@@ -627,8 +630,10 @@ describe('AppComponent', () => {
     button.click();
     tick();
     fixture.detectChanges();
-    // The console page re-fetches the same already-open session (#256: an empty
-    // list here would auto-start a redundant one).
+    // The console page reads the project first (#537: it waits for READY and decides
+    // whether a seeded console is owed), then re-fetches the same already-open session
+    // (#256: an empty list here would auto-start a redundant one).
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
     httpMock.expectOne('/api/projects/1/console/sessions').flush([
       {
         sessionId: 'proj-1-console-abc',

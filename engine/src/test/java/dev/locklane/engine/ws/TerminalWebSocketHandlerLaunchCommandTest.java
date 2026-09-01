@@ -47,6 +47,28 @@ class TerminalWebSocketHandlerLaunchCommandTest {
                 .containsExactly("claude");
     }
 
+    // #537: the seeded first prompt rides as one argv element in each agent's own
+    // "start with this prompt" shape; anything that is not one of the three agents
+    // gets no seeded command at all.
+
+    @Test
+    void aSeededLaunchUsesEachAgentsOwnInitialPromptShape() {
+        assertThat(TerminalWebSocketHandler.seededLaunchCommand("claude", "do it"))
+                .containsExactly("claude", "do it");
+        assertThat(TerminalWebSocketHandler.seededLaunchCommand("codex", "do it"))
+                .containsExactly("codex", "do it");
+        assertThat(TerminalWebSocketHandler.seededLaunchCommand("opencode", "do it"))
+                .containsExactly("opencode", "--prompt", "do it");
+    }
+
+    @Test
+    void aSeededLaunchForAnythingElseIsNull() {
+        assertThat(TerminalWebSocketHandler.seededLaunchCommand("shell", "do it")).isNull();
+        assertThat(TerminalWebSocketHandler.seededLaunchCommand("vim", "do it")).isNull();
+        assertThat(TerminalWebSocketHandler.seededLaunchCommand(null, "do it")).isNull();
+        assertThat(TerminalWebSocketHandler.seededLaunchCommand("claude", null)).isNull();
+    }
+
     @Test
     void aResumeIdWithACmdThatIsNeitherToolIsIgnored() {
         assertThat(TerminalWebSocketHandler.resolveLaunchCommand("vim", UUID)).containsExactly("vim");

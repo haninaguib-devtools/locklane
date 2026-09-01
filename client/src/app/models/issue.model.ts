@@ -87,4 +87,10 @@ export interface Project {
   accentColor: string | null;
   /** The project template this project was created from (#536), or null for none. */
   template: string | null;
+  /**
+   * When the template's one seeded console was launched (#537), or null while the
+   * project still owes it (and always null with no template). Optional so the many
+   * spec fixtures that build a Project literal need not all name it.
+   */
+  templateSeededAt?: string | null;
 }

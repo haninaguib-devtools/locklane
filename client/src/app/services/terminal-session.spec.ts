@@ -94,6 +94,23 @@ describe('TerminalSession', () => {
     expect(socket.url).toContain('resume=abc-123');
   });
 
+  it('includes seed=template in the connect URL when given (#537)', () => {
+    const session = new TerminalSession('7-console-a1b2c3d4', '/repo', 'claude', null, null, null, false, 'template');
+    session.connect(
+      () => {},
+      () => {},
+    );
+    const socket = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+
+    expect(socket.url).toContain('seed=template');
+  });
+
+  it('omits the seed param from the connect URL when not given (#537)', () => {
+    const { socket } = connect();
+
+    expect(socket.url).not.toContain('seed=');
+  });
+
   it('omits the resume param from the connect URL when not given (#103)', () => {
     const { socket } = connect();
 

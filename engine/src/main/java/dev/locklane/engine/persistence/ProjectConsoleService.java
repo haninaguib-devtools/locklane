@@ -255,6 +255,80 @@ public class ProjectConsoleService {
                         WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix)));
     }
 
+    /**
+     * The file #536 commits a chosen template's body to, in the new repository's root
+     * — what the seeded first prompt below tells the agent to read (#537).
+     */
+    static final String TEMPLATE_FILE = "PROJECT_TEMPLATE.md";
+
+    /** Marks a checkout bootstrapped with t-workflow (#491): its own rules forbid changing the tree outside a task. */
+    static final String T_WORKFLOW_MARKER = ".t-workflow";
+
+    /**
+     * The seeded first prompt for a plain (non-t-workflow) checkout (#537). A console
+     * runs in a detached worktree, so a scaffold merely left there would never be
+     * seen — the preface says to push it to {@code main} when done.
+     */
+    public static final String PLAIN_SEED_PROMPT =
+            "This repository was just created from a project template. Read " + TEMPLATE_FILE
+                    + " in the repository root and build the project it describes, working in the current"
+                    + " worktree: implement it step by step, commit as you go, and push the result to main when"
+                    + " it builds and its checks pass. Ask before anything destructive.";
+
+    /**
+     * The seeded first prompt for a t-workflow checkout (#537): that repository's
+     * AGENTS.md forbids editing the tree outside a task, so the agent is told to open
+     * one and drive it rather than build in place.
+     */
+    public static final String T_WORKFLOW_SEED_PROMPT =
+            "This repository was just created from a project template and is governed by t-workflow: its"
+                    + " AGENTS.md forbids changing the tree outside a task. Read " + TEMPLATE_FILE
+                    + " in the repository root, then open a task with /t-open that asks for the scaffold it"
+                    + " describes, and drive that task through the pipeline with /t-drive so the scaffold lands"
+                    + " on main through a pull request. Ask before anything destructive.";
+
+    /**
+     * The engine-composed first prompt for a project console's seeded launch (#537),
+     * or empty when this attach must not seed: {@code sessionId} is not a project
+     * console's, its project is unknown, has no {@code template} (#536), or already
+     * had its seeded console ({@code templateSeededAt} set). The preface is chosen from
+     * the checkout itself — {@code workingDirectory} (the console's worktree, a
+     * checkout of the project) carrying a {@link #T_WORKFLOW_MARKER} directory means a
+     * t-workflow bootstrap — never from stored state. The template body is never part
+     * of the prompt; the agent reads {@link #TEMPLATE_FILE} itself.
+     */
+    public Optional<String> templateSeedPrompt(String sessionId, Path workingDirectory) {
+        return seedableProject(sessionId)
+                .map(project -> Files.isDirectory(workingDirectory.resolve(T_WORKFLOW_MARKER))
+                        ? T_WORKFLOW_SEED_PROMPT : PLAIN_SEED_PROMPT);
+    }
+
+    /**
+     * Records that {@code sessionId}'s project just had its seeded console launched
+     * (#537), at {@code now} — the write that turns {@link #templateSeedPrompt} off for
+     * that project from here on. False, and nothing written, when the project was not
+     * seedable in the first place (the same conditions as {@link #templateSeedPrompt}),
+     * so a stray {@code seed} parameter can never stamp an unrelated project.
+     */
+    public boolean markTemplateSeeded(String sessionId, Instant now) {
+        Optional<ProjectRecord> project = seedableProject(sessionId);
+        if (project.isEmpty()) {
+            return false;
+        }
+        projectRepository.markTemplateSeeded(project.get().id(), now);
+        return true;
+    }
+
+    /** The project behind a console session id, if it still owes its seeded console (#537). */
+    private Optional<ProjectRecord> seedableProject(String sessionId) {
+        Matcher matcher = CONSOLE_SESSION_ID.matcher(sessionId);
+        if (!matcher.matches()) {
+            return Optional.empty();
+        }
+        return projectRepository.findById(Long.parseLong(matcher.group(1)))
+                .filter(project -> project.template() != null && project.templateSeededAt() == null);
+    }
+
     /** The longest tab name accepted (#393) — long enough to be useful, short enough not to break the strip. */
     public static final int MAX_DISPLAY_NAME_LENGTH = 60;
 
