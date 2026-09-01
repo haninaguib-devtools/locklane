@@ -14,9 +14,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
@@ -46,6 +50,16 @@ public class ProjectCheckoutService {
     // shell metacharacters can't inject into the invocation.
     private static final String T_WORKFLOW_INSTALL_COMMAND = "curl -fsSL \"$1\" | bash -s -- --name \"$2\"";
 
+    /**
+     * The classic OAuth scope GitHub demands of any token that creates or updates a
+     * file under {@code .github/workflows/} -- which a t-workflow bootstrap's first push
+     * always does ({@code ci.yml}). A token without it is rejected at the push (#531).
+     */
+    static final String WORKFLOW_SCOPE = "workflow";
+
+    /** The operator's fix when the host's gh login lacks {@link #WORKFLOW_SCOPE}; quoted verbatim in the log. */
+    static final String GRANT_WORKFLOW_SCOPE_COMMAND = "gh auth refresh -h github.com -s workflow";
+
     // The installer's bootstrap.sh refuses to make the project's first commit when git
     // has no committer identity, and nothing guarantees the host's git has a global
     // one -- the same reason the plain-init path sets a local identity before its
@@ -64,6 +78,7 @@ public class ProjectCheckoutService {
     private final TokenCipher tokenCipher;
     private final Supplier<Optional<String>> ambientGithubToken;
     private final String installCommand;
+    private final Function<String, Optional<Set<String>>> tokenScopes;
 
     @Autowired
     public ProjectCheckoutService(ProjectRepository repository,
@@ -97,6 +112,20 @@ public class ProjectCheckoutService {
     ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
             IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher,
             Supplier<Optional<String>> ambientGithubToken, String installCommand) {
+        this(repository, workareaRoot, cloneExecutor, issueWorktreeService, tokenCipher, ambientGithubToken,
+                installCommand, ProjectCheckoutService::ghTokenScopes);
+    }
+
+    /**
+     * Test-only: additionally substitutes the "which scopes does this token carry"
+     * lookup (#531) -- in production a {@code gh api} call over the network -- so a
+     * test can stand in a token whose reported scopes lack {@code workflow} (or report
+     * none at all) without a real GitHub round trip.
+     */
+    ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
+            IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher,
+            Supplier<Optional<String>> ambientGithubToken, String installCommand,
+            Function<String, Optional<Set<String>>> tokenScopes) {
         this.repository = repository;
         this.workareaRoot = Path.of(workareaRoot).normalize();
         this.cloneExecutor = cloneExecutor;
@@ -104,6 +133,7 @@ public class ProjectCheckoutService {
         this.tokenCipher = tokenCipher;
         this.ambientGithubToken = ambientGithubToken;
         this.installCommand = installCommand;
+        this.tokenScopes = tokenScopes;
     }
 
     /**
@@ -225,6 +255,13 @@ public class ProjectCheckoutService {
     private void createRepoAndPush(ProjectRecord project, String org, boolean bootstrapTWorkflow) {
         String repoSpec = org + "/" + project.name();
         try {
+            // Checked before the repository is even created, so a token that could
+            // never complete the bootstrap push leaves no empty repository behind on
+            // GitHub to clean up (#531).
+            if (bootstrapTWorkflow && !tokenCanPushWorkflows(project)) {
+                repository.markFailed(project.id());
+                return;
+            }
             ProcessResult createResult = run("gh", "repo", "create", repoSpec, "--private");
             if (createResult.exitCode() != 0) {
                 log.warn("gh repo create {} failed for project {} (exit {}): {}", repoSpec, project.id(),
@@ -333,6 +370,93 @@ public class ProjectCheckoutService {
         }
 
         repository.markReady(project.id(), branch);
+    }
+
+    /**
+     * Whether the token the bootstrap push will authenticate with -- resolved exactly
+     * as {@link #resolveGithubToken} resolves it, so the answer does not depend on which
+     * credential source wins -- carries the {@link #WORKFLOW_SCOPE} that pushing
+     * {@code .github/workflows/ci.yml} requires (#531). Logs the one WARN an operator
+     * needs, naming the missing scope and the command that grants it, when it does not.
+     * <p>
+     * Deliberately fails <em>open</em> when the answer is unknowable: no token at all is
+     * left to {@link #setUpLocalRepoAndPush}'s existing "No GitHub credentials" path,
+     * and a token whose scopes cannot be determined (the {@code gh api} call failed, or
+     * GitHub reported no scope header -- fine-grained PATs and GitHub App tokens carry
+     * no classic scopes) proceeds exactly as before this check existed. Only a
+     * positively reported scope list that lacks {@code workflow} refuses. Package-private
+     * so a test can drive each branch directly without reaching {@code gh repo create}.
+     */
+    boolean tokenCanPushWorkflows(ProjectRecord project) {
+        Optional<String> stored = repository.findGithubToken(project.id()).map(tokenCipher::decrypt);
+        Optional<String> token = stored.isPresent() ? stored : ambientGithubToken.get();
+        if (token.isEmpty()) {
+            return true;
+        }
+        Optional<Set<String>> scopes = tokenScopes.apply(token.get());
+        if (scopes.isEmpty()) {
+            log.info("Could not determine the scopes of the GitHub token for project {} ({}); proceeding with the "
+                    + "t-workflow bootstrap without checking for the `{}` scope", project.id(), project.name(),
+                    WORKFLOW_SCOPE);
+            return true;
+        }
+        if (scopes.get().contains(WORKFLOW_SCOPE)) {
+            return true;
+        }
+        String source = stored.isPresent() ? "the stored per-project token" : "the host's `gh` login";
+        log.warn("Refusing to bootstrap project {} ({}) with t-workflow: {} lacks the `{}` scope that pushing "
+                        + ".github/workflows/ci.yml requires (its scopes: {}). Grant it with `{}`{} and create the "
+                        + "project again",
+                project.id(), project.name(), source, WORKFLOW_SCOPE, String.join(", ", scopes.get()),
+                GRANT_WORKFLOW_SCOPE_COMMAND,
+                stored.isPresent() ? " -- or store a per-project token that has it --" : "");
+        return false;
+    }
+
+    /**
+     * The classic OAuth scopes GitHub reports for {@code token}, or empty when they
+     * cannot be determined -- {@code gh api} failed (unreachable, invalid token), or the
+     * response carried no {@code X-OAuth-Scopes} header at all (fine-grained PATs and
+     * GitHub App tokens have no classic scopes to report). {@code GH_TOKEN} in the
+     * child's environment makes gh authenticate as exactly this token rather than
+     * whatever login it would otherwise pick, the same way {@code CliGhClient} does.
+     */
+    private static Optional<Set<String>> ghTokenScopes(String token) {
+        try {
+            ProcessResult result = run(null, Map.of("GH_TOKEN", token), "gh", "api", "-i", "user");
+            if (result.exitCode() != 0) {
+                return Optional.empty();
+            }
+            return parseOauthScopes(result.stdout());
+        } catch (ProjectCheckoutException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * The {@code X-OAuth-Scopes} header of a raw HTTP response as {@code gh api -i}
+     * prints it (status line, headers, blank line, body), split into whole scope
+     * tokens -- so {@code repo} never matches inside {@code public_repo}. Empty when
+     * the header is absent or blank, which callers treat as "unknown", never as "none".
+     */
+    static Optional<Set<String>> parseOauthScopes(String rawResponse) {
+        for (String line : rawResponse.split("\\r?\\n")) {
+            if (line.isBlank()) {
+                break; // end of the headers; the body never carries scopes
+            }
+            int colon = line.indexOf(':');
+            if (colon < 0 || !line.substring(0, colon).strip().toLowerCase(Locale.ROOT).equals("x-oauth-scopes")) {
+                continue;
+            }
+            Set<String> scopes = new LinkedHashSet<>();
+            for (String scope : line.substring(colon + 1).split(",")) {
+                if (!scope.isBlank()) {
+                    scopes.add(scope.strip());
+                }
+            }
+            return scopes.isEmpty() ? Optional.empty() : Optional.of(scopes);
+        }
+        return Optional.empty();
     }
 
     /**
