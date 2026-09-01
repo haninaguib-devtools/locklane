@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.security.TokenCipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -39,15 +40,18 @@ public class ProjectCheckoutService {
     private final Path workareaRoot;
     private final Executor cloneExecutor;
     private final IssueWorktreeService issueWorktreeService;
+    private final TokenCipher tokenCipher;
 
     public ProjectCheckoutService(ProjectRepository repository,
             @Value("${locklane.workarea-root}") String workareaRoot,
             @Qualifier("projectCloneExecutor") Executor cloneExecutor,
-            IssueWorktreeService issueWorktreeService) {
+            IssueWorktreeService issueWorktreeService,
+            TokenCipher tokenCipher) {
         this.repository = repository;
         this.workareaRoot = Path.of(workareaRoot).normalize();
         this.cloneExecutor = cloneExecutor;
         this.issueWorktreeService = issueWorktreeService;
+        this.tokenCipher = tokenCipher;
     }
 
     /**
@@ -228,14 +232,52 @@ public class ProjectCheckoutService {
             return;
         }
 
-        if (run(workarea, "git", "remote", "add", "origin", project.gitUrl()).exitCode() != 0
-                || run(workarea, "git", "push", "-u", "origin", branch).exitCode() != 0) {
-            log.warn("Push failed for project {} to {}", project.id(), project.gitUrl());
+        ProcessResult remoteAddResult = run(workarea, "git", "remote", "add", "origin", authenticatedUrl(project));
+        if (remoteAddResult.exitCode() != 0) {
+            log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(),
+                    describe(remoteAddResult));
+            repository.markFailed(project.id());
+            return;
+        }
+        ProcessResult pushResult = run(workarea, "git", "push", "-u", "origin", branch);
+        if (pushResult.exitCode() != 0) {
+            log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(), describe(pushResult));
             repository.markFailed(project.id());
             return;
         }
 
         repository.markReady(project.id(), branch);
+    }
+
+    /**
+     * {@code project.gitUrl()} with its stored GitHub token (#81), if any, embedded as
+     * HTTPS Basic-auth credentials — {@code x-access-token} is the conventional
+     * username GitHub accepts alongside a PAT/installation token as the password — so
+     * the push authenticates on its own rather than depending on whatever git/SSH
+     * credential setup happens to already exist on the host (#505). Left unchanged
+     * when no token is stored yet, or the URL isn't HTTPS to begin with.
+     */
+    private String authenticatedUrl(ProjectRecord project) {
+        String url = project.gitUrl();
+        if (!url.startsWith("https://")) {
+            return url;
+        }
+        Optional<String> token = repository.findGithubToken(project.id()).map(tokenCipher::decrypt);
+        return token.map(t -> "https://x-access-token:" + t + "@" + url.substring("https://".length()))
+                .orElse(url);
+    }
+
+    /** Both streams of a failed command, for a log line that can actually explain why (#505). */
+    private static String describe(ProcessResult result) {
+        String out = result.stdout().strip();
+        String err = result.stderr().strip();
+        if (out.isEmpty()) {
+            return err;
+        }
+        if (err.isEmpty()) {
+            return out;
+        }
+        return out + " | " + err;
     }
 
     private Path uniqueWorkareaPath(long ownerUserId, String slug) {

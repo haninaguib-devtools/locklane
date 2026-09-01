@@ -17,6 +17,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -151,12 +153,21 @@ class AdminUserControllerTest {
     private static AdminUserController controller(Path tmp, UserRepository userRepository,
             ProjectRepository projectRepository, WorktreeSessionRepository sessions) {
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(projectRepository,
-                tmp.resolve("workarea").toString(), Runnable::run, new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()));
+                tmp.resolve("workarea").toString(), Runnable::run,
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp));
         UserCascadeDeleteService cascadeDeleteService = new UserCascadeDeleteService(projectRepository, checkoutService);
         return new AdminUserController(userRepository, cascadeDeleteService, new BCryptPasswordEncoder());
     }
 
     private static Authentication adminAuthentication(String username) {
         return new UsernamePasswordAuthenticationToken(username, null, List.of());
+    }
+
+    private static TokenCipher tokenCipher(Path dataDir) {
+        try {
+            return new TokenCipher(new EncryptionKeyProvider(dataDir.toString()));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }

@@ -400,9 +400,9 @@ class ProjectControllerTest {
 
     private static ProjectController controller(Path tmp, ProjectRepository repository,
             IssueWorktreeService issueWorktreeService) throws IOException {
-        ProjectCheckoutService checkoutService = new ProjectCheckoutService(repository,
-                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService);
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
+        ProjectCheckoutService checkoutService = new ProjectCheckoutService(repository,
+                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService, tokenCipher);
         ProjectGhResources ghResources = new ProjectGhResources(repository, tokenCipher, (path, token) -> {
             throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
         });

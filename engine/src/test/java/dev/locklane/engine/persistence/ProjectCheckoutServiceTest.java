@@ -1,9 +1,17 @@
 package dev.locklane.engine.persistence;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import dev.locklane.engine.security.EncryptionKeyProvider;
+import dev.locklane.engine.security.TokenCipher;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -160,7 +168,7 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         IssueWorktreeService worktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
-                tmp.resolve("workarea").toString(), Runnable::run, worktreeService);
+                tmp.resolve("workarea").toString(), Runnable::run, worktreeService, tokenCipher(tmp));
         ProjectRecord project = service.createProject(origin.toString(), "still-open", 1L);
         sessions.recordAttach(project.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
 
@@ -177,7 +185,7 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         IssueWorktreeService issueWorktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
-                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService);
+                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService, tokenCipher(tmp));
         ProjectRecord project = service.createProject(origin.toString(), "force-delete-me", 1L);
         sessions.recordAttach(project.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
 
@@ -213,7 +221,7 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
                 tmp.resolve("workarea").toString(), command -> { /* never run -- would shell out to gh for real */ },
-                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()));
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp));
 
         ProjectRecord project = service.createNewProject("my-org", "my-project", false, 1L);
 
@@ -258,14 +266,87 @@ class ProjectCheckoutServiceTest {
         assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
     }
 
+    // #505: a headless push can't fall back on interactive credential prompting, so a
+    // user whose only GitHub credential is SSH-based (no HTTPS credential helper on the
+    // host) needs the push itself to authenticate — with the per-project token already
+    // stored for the project, over HTTPS (the non-goal that rules out an SSH remote).
+
+    @Test
+    void setUpLocalRepoAndPushAuthenticatesWithTheStoredGithubTokenWhenPresent(@TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("token-project");
+        // A host+port nothing listens on: `git remote add` (no network) still succeeds,
+        // and the subsequent `git push` fails fast (connection refused) rather than
+        // hanging — real network access isn't needed to prove the token was wired in.
+        ProjectRecord project = repository.create(
+                "token-project", "https://127.0.0.1:1/org/token-project.git", workarea, 1L, Instant.now());
+        repository.setGithubToken(project.id(), tokenCipher(tmp).encrypt("secret-token"));
+
+        service.setUpLocalRepoAndPush(project, false);
+
+        String configuredUrl = run(workarea, "git", "remote", "get-url", "origin").strip();
+        assertThat(configuredUrl)
+                .isEqualTo("https://x-access-token:secret-token@127.0.0.1:1/org/token-project.git");
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(found.gitUrl()).isEqualTo("https://127.0.0.1:1/org/token-project.git");
+    }
+
+    @Test
+    void setUpLocalRepoAndPushLeavesTheUrlAloneWithNoStoredToken(@TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("no-token-project");
+        ProjectRecord project = repository.create(
+                "no-token-project", "https://127.0.0.1:1/org/no-token-project.git", workarea, 1L, Instant.now());
+
+        service.setUpLocalRepoAndPush(project, false);
+
+        String configuredUrl = run(workarea, "git", "remote", "get-url", "origin").strip();
+        assertThat(configuredUrl).isEqualTo("https://127.0.0.1:1/org/no-token-project.git");
+    }
+
+    @Test
+    void setUpLocalRepoAndPushLogsTheCapturedOutputOnFailure(@TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("broken-project");
+        ProjectRecord project =
+                repository.create("broken-project", "/does/not/exist", workarea, 1L, Instant.now());
+
+        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            service.setUpLocalRepoAndPush(project, false);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("does not appear to be a git repository");
+        });
+    }
+
     private static ProjectCheckoutService service(Path tmp) {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
-                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()));
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp));
     }
 
     private static ProjectRepository repositoryOver(Path tmp) {
         return TestSqliteDatabases.newProjectRepository(tmp);
+    }
+
+    private static TokenCipher tokenCipher(Path dataDir) {
+        try {
+            return new TokenCipher(new EncryptionKeyProvider(dataDir.toString()));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /** A minimal local bare repo with a controllable default branch name — no network. */
@@ -287,12 +368,13 @@ class ProjectCheckoutServiceTest {
         return bare;
     }
 
-    private static void run(Path cwd, String... command) throws IOException, InterruptedException {
+    private static String run(Path cwd, String... command) throws IOException, InterruptedException {
         Process process = new ProcessBuilder(command).directory(cwd.toFile()).redirectErrorStream(true).start();
         String output = new String(process.getInputStream().readAllBytes());
         int exit = process.waitFor();
         if (exit != 0) {
             throw new AssertionError("Command failed (" + exit + "): " + String.join(" ", command) + "\n" + output);
         }
+        return output;
     }
 }
