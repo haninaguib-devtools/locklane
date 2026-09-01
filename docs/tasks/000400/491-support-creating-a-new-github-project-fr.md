@@ -52,8 +52,14 @@ a brand-new project without leaving Locklane or using a terminal.
 - `ProjectCheckoutService.setUpLocalRepoAndPush` (everything after the GitHub repo
   itself exists) is package-private specifically so a test can exercise the whole local
   init/bootstrap/push sequence against a throwaway local bare repo standing in for the
-  just-created GitHub remote, without ever invoking `gh` — `gh repo create` itself has
-  no automated coverage; verified manually instead (Hani, 2026-08-31).
+  just-created GitHub remote, without ever invoking `gh` (Hani, 2026-08-31).
 
 ## Deviations / notes
-- none
+- `gh repo create` itself, and the t-workflow-bootstrap branch (the piped `curl | bash`
+  installer), have **no automated coverage and were not manually verified either** —
+  doing so means actually creating a real GitHub repository, which this session did not
+  take on its own initiative. `ProjectCheckoutServiceTest` covers everything after the
+  GitHub repo exists (local init/commit/push, and its failure path) against a throwaway
+  local bare repo, but the `gh repo create` call and the bootstrap installer path remain
+  genuinely unverified. Flagged for the human to check by hand (or ask for it to be
+  driven live against a real throwaway org) before shipping.
