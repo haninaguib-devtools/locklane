@@ -59,7 +59,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("/does/not/exist", "mine"), alice.authentication());
+                new ProjectController.CreateProjectRequest("/does/not/exist", "mine", null), alice.authentication());
 
         ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
         assertThat(body.ownerUserId()).isEqualTo(alice.id());
@@ -71,7 +71,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("  ", "name"), alice.authentication());
+                new ProjectController.CreateProjectRequest("  ", "name", null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -82,7 +82,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest(null, "name"), alice.authentication());
+                new ProjectController.CreateProjectRequest(null, "name", null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -93,7 +93,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("/does/not/exist", "broken"), alice.authentication());
+                new ProjectController.CreateProjectRequest("/does/not/exist", "broken", null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
@@ -115,7 +115,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest("  ", "name", false), alice.authentication());
+                new ProjectController.CreateNewProjectRequest("  ", "name", false, null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -126,7 +126,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest(null, "name", false), alice.authentication());
+                new ProjectController.CreateNewProjectRequest(null, "name", false, null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -137,7 +137,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest("org", "  ", false), alice.authentication());
+                new ProjectController.CreateNewProjectRequest("org", "  ", false, null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -148,9 +148,47 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest("org", null, false), alice.authentication());
+                new ProjectController.CreateNewProjectRequest("org", null, false, null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    // #532: both create endpoints forward the optional githubLogin to the checkout
+    // service, which resolves it through gh -- a stub here (see
+    // ProjectCheckoutServiceTest.stubGh), so no real gh and no network.
+
+    @Test
+    void createForwardsTheGithubLoginSoItsTokenIsStoredOnTheProject(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controllerWithStubGh(tmp, repository);
+
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("/does/not/exist", "mine", "work"), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
+        TokenCipher cipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
+        assertThat(cipher.decrypt(repository.findGithubToken(body.id()).orElseThrow())).isEqualTo("work-token");
+    }
+
+    @Test
+    void createNewForwardsTheGithubLoginAndAnUnknownOneFailsTheProject(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controllerWithStubGh(tmp, repository);
+
+        ResponseEntity<?> response = controller.createNew(
+                new ProjectController.CreateNewProjectRequest("my-org", "new-one", false, "nobody"),
+                alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
+        // Failed at the token lookup, before any `gh repo create` -- the stub never saw one.
+        assertThat(repository.findById(body.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(repository.findGithubToken(body.id())).isEmpty();
+        assertThat(java.nio.file.Files.readString(tmp.resolve("gh-log").resolve("calls")))
+                .isEqualTo("auth token --user nobody\n");
     }
 
     @Test
@@ -403,6 +441,22 @@ class ProjectControllerTest {
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(repository,
                 tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService, tokenCipher);
+        ProjectGhResources ghResources = new ProjectGhResources(repository, tokenCipher, (path, token) -> {
+            throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
+        });
+        return new ProjectController(repository, checkoutService, tokenCipher, ghResources,
+                TestSqliteDatabases.newUserRepository(tmp));
+    }
+
+    /** Like {@link #controller(Path, ProjectRepository)}, with the #532 stub gh in place of the real CLI. */
+    private static ProjectController controllerWithStubGh(Path tmp, ProjectRepository repository) throws IOException {
+        TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
+        Path ghLog = java.nio.file.Files.createDirectories(tmp.resolve("gh-log"));
+        ProjectCheckoutService checkoutService = new ProjectCheckoutService(repository,
+                tmp.resolve("workarea").toString(), Runnable::run,
+                new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()),
+                tokenCipher, java.util.Optional::empty, "exit 1", token -> java.util.Optional.empty(),
+                ProjectCheckoutServiceTest.stubGh(tmp, ghLog));
         ProjectGhResources ghResources = new ProjectGhResources(repository, tokenCipher, (path, token) -> {
             throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
         });

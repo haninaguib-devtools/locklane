@@ -115,6 +115,149 @@ describe('AddProjectPopupComponent', () => {
     expect(fixture.componentInstance.error).toBe('could not create project');
   });
 
+  describe('GitHub account picker (#532)', () => {
+    const TWO_ACCOUNTS = [
+      { login: 'haninaguib', active: true },
+      { login: 'hani-thyme', active: false },
+    ];
+
+    // Rendering runs ngOnInit, which asks the engine for the host's gh accounts.
+    function render(): ReturnType<typeof create> {
+      const fixture = create();
+      fixture.detectChanges();
+      return fixture;
+    }
+
+    function flushAccounts(accounts: { login: string; active: boolean }[]): void {
+      const req = httpMock.expectOne('/api/github/accounts');
+      expect(req.request.method).toBe('GET');
+      req.flush({ accounts });
+    }
+
+    function optionLabels(fixture: ReturnType<typeof create>): string[] {
+      return Array.from(fixture.nativeElement.querySelectorAll('select.github-login option') as NodeListOf<HTMLOptionElement>)
+        .map((option) => option.textContent?.trim() ?? '');
+    }
+
+    function submitButton(fixture: ReturnType<typeof create>): HTMLButtonElement {
+      return fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
+    }
+
+    it('lists every account in both forms, preselecting the active login', () => {
+      const fixture = render();
+      flushAccounts(TWO_ACCOUNTS);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.githubLogin).toBe('haninaguib');
+      expect(optionLabels(fixture)).toEqual(['haninaguib (active)', 'hani-thyme']);
+      expect(fixture.nativeElement.querySelector('.no-accounts')).toBeNull();
+
+      fixture.componentInstance.setMode('create');
+      fixture.detectChanges();
+
+      expect(optionLabels(fixture)).toEqual(['haninaguib (active)', 'hani-thyme']);
+      expect(fixture.nativeElement.querySelector('.no-accounts')).toBeNull();
+    });
+
+    it('still shows the select with exactly one login', () => {
+      const fixture = render();
+      flushAccounts([{ login: 'solo', active: true }]);
+      fixture.detectChanges();
+
+      expect(optionLabels(fixture)).toEqual(['solo (active)']);
+      expect(fixture.componentInstance.githubLogin).toBe('solo');
+    });
+
+    it('with zero logins shows the gh auth login hint, disables create, and keeps import enabled without a login', () => {
+      const fixture = render();
+      flushAccounts([]);
+      fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('select.github-login')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('gh auth login');
+      expect(submitButton(fixture).disabled).toBeFalse();
+
+      fixture.componentInstance.submit();
+      const importReq = httpMock.expectOne('/api/projects');
+      expect(importReq.request.body).toEqual({ gitUrl: 'https://github.com/foo/bar.git', name: '' });
+      importReq.flush(PROJECT);
+
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('gh auth login');
+      expect(submitButton(fixture).disabled).toBeTrue();
+    });
+
+    it('holds the create button disabled until the accounts have loaded', () => {
+      const fixture = render();
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+      fixture.detectChanges();
+
+      expect(submitButton(fixture).disabled).toBeTrue();
+      expect(fixture.nativeElement.querySelector('.no-accounts')).toBeNull();
+
+      flushAccounts(TWO_ACCOUNTS);
+      fixture.detectChanges();
+
+      expect(submitButton(fixture).disabled).toBeFalse();
+    });
+
+    it('sends the chosen login with an import', () => {
+      const fixture = render();
+      flushAccounts(TWO_ACCOUNTS);
+      fixture.componentInstance.gitUrl = 'git@thyme.github.com:hani-thyme/ideation_1.git';
+      fixture.componentInstance.githubLogin = 'hani-thyme';
+
+      fixture.componentInstance.submit();
+
+      const req = httpMock.expectOne('/api/projects');
+      expect(req.request.body).toEqual({
+        gitUrl: 'git@thyme.github.com:hani-thyme/ideation_1.git',
+        name: '',
+        githubLogin: 'hani-thyme',
+      });
+      req.flush(PROJECT);
+    });
+
+    it('sends the chosen login with a create', () => {
+      const fixture = render();
+      flushAccounts(TWO_ACCOUNTS);
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+
+      fixture.componentInstance.submit();
+
+      const req = httpMock.expectOne('/api/projects/new');
+      expect(req.request.body).toEqual({
+        org: 'my-org',
+        name: 'my-project',
+        bootstrapTWorkflow: false,
+        githubLogin: 'haninaguib',
+      });
+      req.flush({ ...PROJECT, name: 'my-project' });
+    });
+
+    it('treats a failed accounts request as no accounts', () => {
+      const fixture = render();
+      httpMock.expectOne('/api/github/accounts').flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.githubLogin).toBeNull();
+      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('gh auth login');
+      expect(submitButton(fixture).disabled).toBeTrue();
+    });
+  });
+
   describe('create new mode (#491)', () => {
     it('submits org, name, and the bootstrap flag to /api/projects/new', () => {
       const fixture = create();

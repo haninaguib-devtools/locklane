@@ -273,6 +273,8 @@ describe('AppComponent', () => {
     compiled.querySelector<HTMLButtonElement>('.zero-cta')!.click();
     fixture.detectChanges();
     expect(compiled.querySelector('app-add-project-popup')).toBeTruthy();
+    // The popup asks for the host's gh accounts on mount (#532).
+    httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
 
     fixture.componentInstance.onProjectCreated();
     fixture.detectChanges();
@@ -733,12 +735,16 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     expect(compiled.querySelector('app-add-project-popup')).toBeTruthy();
+    // The popup asks for the host's gh accounts on mount (#532).
+    httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
   }));
 
   it('creating a project from the header popup closes it and refreshes the sidenav (#227)', fakeAsync(() => {
     const fixture = openedApp();
     fixture.componentInstance.openAddProject();
     fixture.detectChanges();
+    // The popup asks for the host's gh accounts on mount (#532).
+    httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
 
     fixture.componentInstance.onProjectCreated();
     fixture.detectChanges();
