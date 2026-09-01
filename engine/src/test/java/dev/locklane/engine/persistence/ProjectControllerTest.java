@@ -3,6 +3,7 @@ package dev.locklane.engine.persistence;
 import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
+import dev.locklane.engine.template.TemplateStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
@@ -115,7 +116,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest("  ", "name", false, null), alice.authentication());
+                new ProjectController.CreateNewProjectRequest("  ", "name", false, null, null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -126,7 +127,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest(null, "name", false, null), alice.authentication());
+                new ProjectController.CreateNewProjectRequest(null, "name", false, null, null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -137,7 +138,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest("org", "  ", false, null), alice.authentication());
+                new ProjectController.CreateNewProjectRequest("org", "  ", false, null, null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -148,7 +149,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest("org", null, false, null), alice.authentication());
+                new ProjectController.CreateNewProjectRequest("org", null, false, null, null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -179,7 +180,7 @@ class ProjectControllerTest {
         ProjectController controller = controllerWithStubGh(tmp, repository);
 
         ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest("my-org", "new-one", false, "nobody"),
+                new ProjectController.CreateNewProjectRequest("my-org", "new-one", false, "nobody", null),
                 alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -189,6 +190,72 @@ class ProjectControllerTest {
         assertThat(repository.findGithubToken(body.id())).isEmpty();
         assertThat(java.nio.file.Files.readString(tmp.resolve("gh-log").resolve("calls")))
                 .isEqualTo("auth token --user nobody\n");
+    }
+
+    // #536: an optional template name on createNew is resolved only through the
+    // TemplateStore's listing; an unlisted name is a 400 before any row exists, a
+    // listed one is recorded on the project row at creation.
+
+    @Test
+    void createNewWithAnUnknownTemplateIsABadRequestBeforeAnyRowExists(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.createNew(
+                new ProjectController.CreateNewProjectRequest("my-org", "new-one", false, null, "../../etc"),
+                alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(((Map<?, ?>) response.getBody()).get("error").toString()).contains("../../etc");
+        assertThat(repository.findAllOwnedBy(alice.id())).isEmpty();
+    }
+
+    @Test
+    void createNewWithAListedTemplateRecordsItsNameOnTheProject(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        seedTemplate(tmp);
+        ProjectController controller = controllerWithStubGh(tmp, repository);
+
+        ResponseEntity<?> response = controller.createNew(
+                new ProjectController.CreateNewProjectRequest("my-org", "new-one", false, null, " custom "),
+                alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
+        assertThat(body.template()).isEqualTo("custom");
+        assertThat(repository.findById(body.id()).orElseThrow().template()).isEqualTo("custom");
+        // #537: not yet seeded -- reported as null until the seeded console launches.
+        assertThat(body.templateSeededAt()).isNull();
+    }
+
+    @Test
+    void listReportsWhenATemplatedProjectsSeededConsoleWasLaunched(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now(),
+                "springboot-angular");
+        repository.markTemplateSeeded(created.id(), Instant.parse("2026-09-01T12:00:00Z"));
+        ProjectController controller = controller(tmp, repository);
+
+        assertThat(controller.list(alice.authentication()))
+                .extracting(ProjectController.ProjectView::templateSeededAt).containsExactly("2026-09-01T12:00:00Z");
+    }
+
+    @Test
+    void createNewWithABlankTemplateMeansNone(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controllerWithStubGh(tmp, repository);
+
+        ResponseEntity<?> response = controller.createNew(
+                new ProjectController.CreateNewProjectRequest("my-org", "new-one", false, null, "  "),
+                alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
+        assertThat(body.template()).isNull();
     }
 
     @Test
@@ -445,7 +512,7 @@ class ProjectControllerTest {
             throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
         });
         return new ProjectController(repository, checkoutService, tokenCipher, ghResources,
-                TestSqliteDatabases.newUserRepository(tmp));
+                TestSqliteDatabases.newUserRepository(tmp), templateStore(tmp));
     }
 
     /** Like {@link #controller(Path, ProjectRepository)}, with the #532 stub gh in place of the real CLI. */
@@ -461,7 +528,22 @@ class ProjectControllerTest {
             throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
         });
         return new ProjectController(repository, checkoutService, tokenCipher, ghResources,
-                TestSqliteDatabases.newUserRepository(tmp));
+                TestSqliteDatabases.newUserRepository(tmp), templateStore(tmp));
+    }
+
+    /**
+     * A template store (#536) over {@code <tmp>/templates}, holding one host template
+     * named {@code custom} when that directory has been seeded by {@link #seedTemplate}.
+     */
+    private static TemplateStore templateStore(Path tmp) {
+        // The production constructor takes the data dir and looks under <data-dir>/templates.
+        return new TemplateStore(tmp.toString());
+    }
+
+    private static void seedTemplate(Path tmp) throws IOException {
+        Path dir = java.nio.file.Files.createDirectories(tmp.resolve("templates").resolve("custom"));
+        java.nio.file.Files.writeString(dir.resolve("template.md"),
+                "---\ntitle: Custom\ndescription: a host template\n---\n# Custom\n");
     }
 
     /** A real {@code users} row (so {@link ProjectController} can resolve it) plus a matching {@link Authentication}. */

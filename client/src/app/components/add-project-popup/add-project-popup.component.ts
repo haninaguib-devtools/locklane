@@ -2,8 +2,9 @@ import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, EventEmitter, OnInit, Output, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { Project } from '../../models/issue.model';
-import { GithubAccount, ProjectsService } from '../../services/projects.service';
+import { GithubAccount, ProjectTemplate, ProjectsService } from '../../services/projects.service';
 import { deriveProjectName } from './derive-project-name';
 
 export type AddProjectMode = 'import' | 'create';
@@ -13,6 +14,12 @@ export type AddProjectMode = 'import' | 'create';
 // GitHub repository from an org and a name, optionally bootstrapped with t-workflow.
 // Both forms carry a "GitHub account" picker (#532) listing the accounts `gh` is logged
 // into on the engine host, so the project acts as the chosen one from its first fetch.
+// The create form alone carries a "template" pull-down (#536) listing the project
+// templates on the engine host, defaulting to none; the chosen one is committed into
+// the new repository by the engine. A successful create also navigates straight to
+// the new project's console page (#537), while it is still cloning -- that page waits
+// for READY and, for a templated project, opens the seeded console itself. Import
+// keeps today's behaviour: the dialog closes and the sidenav refreshes.
 @Component({
   selector: 'app-add-project-popup',
   standalone: true,
@@ -22,6 +29,7 @@ export type AddProjectMode = 'import' | 'create';
 })
 export class AddProjectPopupComponent implements OnInit {
   private readonly projectsService = inject(ProjectsService);
+  private readonly router = inject(Router);
 
   @Output() created = new EventEmitter<Project>();
   @Output() closed = new EventEmitter<void>();
@@ -46,10 +54,20 @@ export class AddProjectPopupComponent implements OnInit {
   accountsLoaded = false;
   githubLogin: string | null = null;
 
+  // Template pull-down (#536), create tab only. `null` is the "none" option and the
+  // default, so creating without a template is exactly the pre-#536 request; a failed
+  // listing counts as "no templates", leaving the select with just "none".
+  templates: ProjectTemplate[] = [];
+  template: string | null = null;
+
   submitting = false;
   error: string | null = null;
 
   ngOnInit(): void {
+    this.projectsService.templates().subscribe({
+      next: (templates) => (this.templates = templates),
+      error: () => (this.templates = []),
+    });
     this.projectsService.githubAccounts().subscribe({
       next: (accounts) => {
         this.accounts = accounts;
@@ -67,6 +85,11 @@ export class AddProjectPopupComponent implements OnInit {
   /** Creating needs an account to create as; the template disables the create button on this (#532). */
   get canCreate(): boolean {
     return this.accountsLoaded && this.accounts.length > 0;
+  }
+
+  /** The chosen template's one-line description (#536), shown under the select; empty for "none". */
+  get templateDescription(): string {
+    return this.templates.find((t) => t.name === this.template)?.description ?? '';
   }
 
   setMode(mode: AddProjectMode): void {
@@ -123,10 +146,19 @@ export class AddProjectPopupComponent implements OnInit {
     this.submitting = true;
     this.error = null;
     this.projectsService
-      .createNew(this.org.trim(), this.newRepoName.trim(), this.bootstrapTWorkflow, this.chosenLogin())
+      .createNew(
+        this.org.trim(),
+        this.newRepoName.trim(),
+        this.bootstrapTWorkflow,
+        this.chosenLogin(),
+        this.template ?? undefined,
+      )
       .subscribe({
         next: (project) => {
           this.submitting = false;
+          // Navigate before emitting: the host closes the popup on `created`, and the
+          // console page should already be the destination when it does (#537).
+          this.router.navigate(['/projects', project.id, 'console']);
           this.created.emit(project);
         },
         error: (err: HttpErrorResponse) => {

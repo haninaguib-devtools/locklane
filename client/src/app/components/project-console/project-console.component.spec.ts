@@ -10,6 +10,7 @@ import { DefaultAgentStore } from '../../services/default-agent-store';
 import { IssuesService } from '../../services/issues.service';
 import { LastConsoleStore } from '../../services/last-console-store';
 import { TerminalComponent } from '../terminal/terminal.component';
+import { Project } from '../../models/issue.model';
 
 describe('ProjectConsoleComponent', () => {
   let httpMock: HttpTestingController;
@@ -40,11 +41,40 @@ describe('ProjectConsoleComponent', () => {
     localStorage.removeItem('locklane.defaultAgent');
   });
 
-  function init(projectId = 1): ReturnType<typeof TestBed.createComponent<ProjectConsoleComponent>> {
+  /** A project row as `/api/projects` returns it; READY with no template unless overridden (#537). */
+  function project(overrides: Partial<Project> & { id: number }): Project {
+    return {
+      name: 'proj',
+      gitUrl: 'url',
+      workareaPath: '/repo',
+      defaultBranch: 'main',
+      status: 'READY',
+      createdAt: '',
+      accentColor: null,
+      template: null,
+      templateSeededAt: null,
+      ...overrides,
+    };
+  }
+
+  // Since #537 the page reads the project before its consoles. `projects` is what that
+  // read answers; the default (an empty list, the project unknown) leaves every
+  // pre-#537 behaviour exactly as it was, which is what the older specs below rely on.
+  function init(
+    projectId = 1,
+    projects: Project[] = [],
+  ): ReturnType<typeof TestBed.createComponent<ProjectConsoleComponent>> {
     const fixture = TestBed.createComponent(ProjectConsoleComponent);
     fixture.componentRef.setInput('projectId', projectId);
     fixture.detectChanges();
+    flushProjects(projects);
     return fixture;
+  }
+
+  function flushProjects(projects: Project[]): void {
+    const req = httpMock.expectOne('/api/projects');
+    expect(req.request.method).toBe('GET');
+    req.flush(projects);
   }
 
   function row(sessionId: string, lastAttachedAt = '2026-08-27T10:00:00Z', displayName: string | null = null) {
@@ -531,6 +561,7 @@ describe('ProjectConsoleComponent', () => {
 
     fixture.componentRef.setInput('projectId', 2);
     fixture.detectChanges();
+    flushProjects([]);
     httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
     fixture.detectChanges();
     httpMock
@@ -592,6 +623,171 @@ describe('ProjectConsoleComponent', () => {
     expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
   }));
 
+  // #537: a project created from a template gets its one seeded console opened by
+  // this page, without a click, once it is READY -- and never again after the engine
+  // has recorded the launch.
+
+  describe('seeded console for a templated project (#537)', () => {
+    const TEMPLATED = { id: 1, template: 'springboot-angular', templateSeededAt: null };
+
+    it('waits while the project is CLONING, then opens the seeded console once it turns READY', fakeAsync(() => {
+      TestBed.inject(DefaultAgentStore).set('codex');
+      const fixture = init(1, [project({ ...TEMPLATED, status: 'CLONING' })]);
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(fixture.componentInstance.cloning).toBeTrue();
+      expect(compiled.querySelector('.cloning')?.textContent).toContain('creating the project');
+      expect(compiled.querySelector('app-terminal')).toBeFalsy();
+      // Nothing is asked of the console endpoints while the project is not READY.
+      httpMock.expectNone('/api/projects/1/console/sessions');
+      httpMock.expectNone('/api/projects/1/console');
+
+      // Still cloning on the next read: keep waiting.
+      tick(3000);
+      flushProjects([project({ ...TEMPLATED, status: 'CLONING' })]);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.cloning).toBeTrue();
+      httpMock.expectNone('/api/projects/1/console/sessions');
+
+      // READY now: the open-console list is read, then the seeded console is minted.
+      tick(3000);
+      flushProjects([project(TEMPLATED)]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      fixture.detectChanges();
+      const start = httpMock.expectOne('/api/projects/1/console');
+      expect(start.request.method).toBe('POST');
+      start.flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo-console-a1b2c3d4' });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.cloning).toBeFalse();
+      expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
+      const terminal = fixture.debugElement.query(By.directive(TerminalComponent));
+      expect(terminal.componentInstance.cmd).toBe('codex');
+      expect(terminal.componentInstance.seed).toBe('template');
+      expect(terminal.componentInstance.dir).toBe('/repo-console-a1b2c3d4');
+    }));
+
+    it('opens the seeded console on a later visit while the project still owes it, alongside consoles already open', () => {
+      const fixture = init(1, [project(TEMPLATED)]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-11111111')]);
+      fixture.detectChanges();
+
+      httpMock
+        .expectOne('/api/projects/1/console')
+        .flush({ sessionId: '1-console-22222222', workingDirectory: '/repo-console-22222222' });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.consoles.map((c) => [c.id, c.seed])).toEqual([
+        ['1-console-11111111', null],
+        ['1-console-22222222', 'template'],
+      ]);
+      expect(fixture.componentInstance.selected).toBe('1-console-22222222');
+    });
+
+    it('opens it at most once per page instance, even if the project is re-read before the engine recorded the launch', () => {
+      const fixture = init(1, [project(TEMPLATED)]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      fixture.detectChanges();
+      httpMock
+        .expectOne('/api/projects/1/console')
+        .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+      fixture.detectChanges();
+
+      // A second load of the same project (e.g. the input re-set) sees the project
+      // still unrecorded -- this instance must not mint another seeded console.
+      fixture.componentRef.setInput('projectId', 2);
+      fixture.detectChanges();
+      flushProjects([]);
+      httpMock.expectOne('/api/projects/2/console/sessions').flush([row('2-console-a1b2c3d4')]);
+      fixture.detectChanges();
+      fixture.componentRef.setInput('projectId', 1);
+      fixture.detectChanges();
+      flushProjects([project(TEMPLATED)]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      fixture.detectChanges();
+
+      httpMock.expectNone('/api/projects/1/console');
+      expect(fixture.componentInstance.consoles.map((c) => c.seed)).toEqual([null]);
+    });
+
+    it('does not open another seeded console once the engine has recorded the launch', () => {
+      const fixture = init(1, [project({ ...TEMPLATED, templateSeededAt: '2026-09-01T12:00:00Z' })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      fixture.detectChanges();
+
+      httpMock.expectNone('/api/projects/1/console');
+      expect(fixture.componentInstance.consoles.map((c) => c.seed)).toEqual([null]);
+      expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
+    });
+
+    it('a READY project without a template is never seeded -- the ordinary auto-start runs instead', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      fixture.detectChanges();
+
+      httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+      fixture.detectChanges();
+
+      const terminal = fixture.debugElement.query(By.directive(TerminalComponent));
+      expect(terminal.componentInstance.seed).toBeNull();
+    });
+
+    it('does nothing for a FAILED project, and seeds once a retry brings it to READY', fakeAsync(() => {
+      const fixture = init(1, [project({ ...TEMPLATED, status: 'FAILED' })]);
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(fixture.componentInstance.failed).toBeTrue();
+      expect(compiled.querySelector('.failed')?.textContent).toContain('creation failed');
+      httpMock.expectNone('/api/projects/1/console/sessions');
+      httpMock.expectNone('/api/projects/1/console');
+      // A FAILED project is not polled: only CLONING re-reads.
+      tick(3000);
+      httpMock.expectNone('/api/projects');
+
+      // The operator retried it from the project page; coming back here re-reads.
+      fixture.componentRef.setInput('projectId', 2);
+      fixture.detectChanges();
+      flushProjects([]);
+      httpMock.expectOne('/api/projects/2/console/sessions').flush([row('2-console-a1b2c3d4')]);
+      fixture.detectChanges();
+      fixture.componentRef.setInput('projectId', 1);
+      fixture.detectChanges();
+      flushProjects([project(TEMPLATED)]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      fixture.detectChanges();
+
+      httpMock
+        .expectOne('/api/projects/1/console')
+        .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+      fixture.detectChanges();
+      expect(fixture.debugElement.query(By.directive(TerminalComponent)).componentInstance.seed).toBe('template');
+    }));
+
+    it('stops the cloning poll when the page is left', fakeAsync(() => {
+      const fixture = init(1, [project({ ...TEMPLATED, status: 'CLONING' })]);
+      fixture.detectChanges();
+
+      fixture.destroy();
+      tick(3000);
+
+      httpMock.expectNone('/api/projects');
+      // ngOnDestroy still tells the sidenav the issue list may be stale (#140).
+    }));
+
+    it('falls back to the pre-#537 flow when the project read fails', () => {
+      const fixture = TestBed.createComponent(ProjectConsoleComponent);
+      fixture.componentRef.setInput('projectId', 1);
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects').flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
+    });
+  });
+
   it('reloads when the project id changes', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
@@ -599,6 +795,7 @@ describe('ProjectConsoleComponent', () => {
 
     fixture.componentRef.setInput('projectId', 2);
     fixture.detectChanges();
+    flushProjects([]);
     httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
     fixture.detectChanges();
 

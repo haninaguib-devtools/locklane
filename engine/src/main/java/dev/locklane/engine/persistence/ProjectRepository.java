@@ -27,11 +27,23 @@ public class ProjectRepository {
      * requested it — {@link ProjectController} never lets it be anyone else's id.
      */
     public ProjectRecord create(String name, String gitUrl, Path workareaPath, long ownerUserId, Instant now) {
+        return create(name, gitUrl, workareaPath, ownerUserId, now, null);
+    }
+
+    /**
+     * Same as {@link #create(String, String, Path, long, Instant)}, recording the name of
+     * the project template (#536) the project is being created from — {@code null} when
+     * there is none. The only place the column is ever written.
+     */
+    public ProjectRecord create(String name, String gitUrl, Path workareaPath, long ownerUserId, Instant now,
+            String template) {
         jdbcTemplate.update("""
-                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at, owner_user_id)
-                VALUES (?, ?, ?, NULL, ?, ?, ?)
+                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at, owner_user_id,
+                                      template)
+                VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
                 """,
-                name, gitUrl, workareaPath.toString(), ProjectStatus.CLONING.name(), now.toString(), ownerUserId);
+                name, gitUrl, workareaPath.toString(), ProjectStatus.CLONING.name(), now.toString(), ownerUserId,
+                template);
         return findByWorkareaPath(workareaPath).orElseThrow();
     }
 
@@ -55,7 +67,7 @@ public class ProjectRepository {
     public Optional<ProjectRecord> findById(long id) {
         return jdbcTemplate.query(
                 "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
-                        + "accent_color FROM projects WHERE id = ?",
+                        + "accent_color, template, template_seeded_at FROM projects WHERE id = ?",
                 (rs, rowNum) -> toRecord(rs),
                 id
         ).stream().findFirst();
@@ -64,7 +76,7 @@ public class ProjectRepository {
     public Optional<ProjectRecord> findByWorkareaPath(Path workareaPath) {
         return jdbcTemplate.query(
                 "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
-                        + "accent_color FROM projects WHERE workarea_path = ?",
+                        + "accent_color, template, template_seeded_at FROM projects WHERE workarea_path = ?",
                 (rs, rowNum) -> toRecord(rs),
                 workareaPath.toString()
         ).stream().findFirst();
@@ -74,7 +86,7 @@ public class ProjectRepository {
     public List<ProjectRecord> findAll() {
         return jdbcTemplate.query(
                 "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
-                        + "accent_color FROM projects",
+                        + "accent_color, template, template_seeded_at FROM projects",
                 (rs, rowNum) -> toRecord(rs));
     }
 
@@ -82,7 +94,7 @@ public class ProjectRepository {
     public List<ProjectRecord> findAllOwnedBy(long ownerUserId) {
         return jdbcTemplate.query(
                 "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
-                        + "accent_color FROM projects WHERE owner_user_id = ?",
+                        + "accent_color, template, template_seeded_at FROM projects WHERE owner_user_id = ?",
                 (rs, rowNum) -> toRecord(rs),
                 ownerUserId);
     }
@@ -131,6 +143,15 @@ public class ProjectRepository {
         jdbcTemplate.update("UPDATE projects SET accent_color = ? WHERE id = ?", accentColor, id);
     }
 
+    /**
+     * Records that the project's one seeded console has been launched (#537), at
+     * {@code now}. Written exactly once per project, by the WebSocket attach that
+     * performed the launch; never cleared.
+     */
+    public void markTemplateSeeded(long id, Instant now) {
+        jdbcTemplate.update("UPDATE projects SET template_seeded_at = ? WHERE id = ?", now.toString(), id);
+    }
+
     private static ProjectRecord toRecord(ResultSet rs) throws SQLException {
         return new ProjectRecord(
                 rs.getLong("id"),
@@ -141,6 +162,8 @@ public class ProjectRepository {
                 rs.getString("default_branch"),
                 ProjectStatus.valueOf(rs.getString("status")),
                 Instant.parse(rs.getString("created_at")),
-                rs.getString("accent_color"));
+                rs.getString("accent_color"),
+                rs.getString("template"),
+                Optional.ofNullable(rs.getString("template_seeded_at")).map(Instant::parse).orElse(null));
     }
 }

@@ -28,6 +28,7 @@ describe('SidenavComponent', () => {
     workareaPath: '/tmp/a',
     defaultBranch: 'main',
     accentColor: null,
+    template: null,
     status: 'READY',
     createdAt: '',
   };

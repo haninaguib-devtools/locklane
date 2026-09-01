@@ -27,6 +27,7 @@ describe('ProjectsService', () => {
         workareaPath: '/tmp/proj',
         defaultBranch: 'main',
         accentColor: null,
+        template: null,
         status: 'READY',
         createdAt: '',
       },
@@ -46,6 +47,7 @@ describe('ProjectsService', () => {
       workareaPath: '/tmp/bar',
       defaultBranch: null,
       accentColor: null,
+      template: null,
       status: 'CLONING',
       createdAt: '',
     };
@@ -80,6 +82,42 @@ describe('ProjectsService', () => {
       githubLogin: 'haninaguib',
     });
     asAccount.flush({});
+  });
+
+  it('creates a new repository from a template by adding template to the body (#536)', () => {
+    service.createNew('my-org', 'my-project', false, undefined, 'springboot-angular').subscribe();
+    const templated = httpMock.expectOne('/api/projects/new');
+    expect(templated.request.body).toEqual({
+      org: 'my-org',
+      name: 'my-project',
+      bootstrapTWorkflow: false,
+      template: 'springboot-angular',
+    });
+    templated.flush({});
+
+    service.createNew('my-org', 'my-project', true, 'haninaguib', 'springboot-angular').subscribe();
+    const both = httpMock.expectOne('/api/projects/new');
+    expect(both.request.body).toEqual({
+      org: 'my-org',
+      name: 'my-project',
+      bootstrapTWorkflow: true,
+      githubLogin: 'haninaguib',
+      template: 'springboot-angular',
+    });
+    both.flush({});
+  });
+
+  it('lists the host project templates from GET /api/templates (#536)', () => {
+    let result: unknown;
+    service.templates().subscribe((templates) => (result = templates));
+
+    const req = httpMock.expectOne('/api/templates');
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      templates: [{ name: 'springboot-angular', title: 'Spring Boot + Angular', description: 'One jar' }],
+    });
+
+    expect(result).toEqual([{ name: 'springboot-angular', title: 'Spring Boot + Angular', description: 'One jar' }]);
   });
 
   it('lists the host gh accounts from GET /api/github/accounts (#532)', () => {

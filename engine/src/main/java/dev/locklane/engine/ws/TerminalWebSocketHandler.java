@@ -19,13 +19,15 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
  * Attaches a browser client to a session's {@link PtySession} over WebSocket:
- * {@code /ws/sessions/{sessionId}[?dir=<path>][&cmd=<claude|codex|shell>][&resume=<id>][&cols=<n>&rows=<n>]}.
+ * {@code /ws/sessions/{sessionId}[?dir=<path>][&cmd=<claude|codex|shell>][&resume=<id>][&seed=template][&cols=<n>&rows=<n>]}.
  * {@code dir} is required only the first time a session is seen; after that its working
  * directory is already known (in-memory if the session is still live, or from SQLite via
  * {@link SessionRegistry#lastKnownWorkingDirectory} after a restart). {@code cmd}
@@ -41,6 +43,14 @@ import java.util.regex.Pattern;
  * session whose process did not survive an engine restart resumes on its own (#173):
  * with no explicit {@code resume} and no live process, the most recently captured resume
  * id for that session and tool fills in automatically.
+ * {@code seed=template} (#537) makes a brand-new {@code claude}/{@code codex}/{@code
+ * opencode} project-console session start with the engine-composed first prompt that
+ * tells the agent to read the template #536 committed and build the project — composed
+ * by {@link ProjectConsoleService#templateSeedPrompt}, never taken from the client —
+ * and records the launch on the project so it happens exactly once; ignored for a
+ * shell, for a session that is not a project console's, for a project with no template
+ * or one already seeded, for a reattach to a live process, and whenever a
+ * {@code resume} is also given (a resumed conversation already has its history).
  * {@code cols}/{@code rows} size a brand-new session's PTY to the browser terminal's
  * actual size instead of a hardcoded default (#62); once attached, later size changes
  * arrive as resize messages (see below), not new query parameters. A brand-new
@@ -120,15 +130,20 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        String[] launchCommand = resolveLaunchCommand(sessionId, queryParam(wsSession, "cmd"),
-                queryParam(wsSession, "resume"));
+        Launch launch = resolveLaunch(sessionId, queryParam(wsSession, "cmd"), queryParam(wsSession, "resume"),
+                queryParam(wsSession, "seed"), workingDirectory);
         Integer columns = parseIntParam(wsSession, "cols");
         Integer rows = parseIntParam(wsSession, "rows");
         // Empty for anything that isn't a project console's session id (#139) — a
         // no-op merge for every ordinary worktree/main-checkout session.
         Map<String, String> extraEnvironment = projectConsoleService.environmentFor(sessionId);
-        PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launchCommand, username, columns,
+        PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launch.command(), username, columns,
                 rows, extraEnvironment);
+        if (launch.seeded()) {
+            // The launch just happened (resolveLaunch only seeds when no live process
+            // existed), so this is the one write that turns the seed rule off (#537).
+            projectConsoleService.markTemplateSeeded(sessionId, Instant.now());
+        }
 
         // Replay everything produced so far before subscribing, so nothing produced
         // between the snapshot and the subscription taking effect is lost or
@@ -251,6 +266,57 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             resume = sessionRegistry.latestResumeId(sessionId, cmd).orElse(null);
         }
         return resolveLaunchCommand(cmd, resume);
+    }
+
+    /** The accepted value of the {@code seed} query parameter (#537). */
+    static final String SEED_TEMPLATE = "template";
+
+    /**
+     * As {@link #resolveLaunchCommand(String, String, String)}, plus #537's seeded
+     * launch: when {@code seed} is {@link #SEED_TEMPLATE}, {@code cmd} is an agent, no
+     * {@code resume} was given, no live process exists for this session, and
+     * {@link ProjectConsoleService#templateSeedPrompt} says this project still owes its
+     * seeded console, the command carries the engine-composed prompt and the result is
+     * flagged {@code seeded} so the caller records the launch. Anything else resolves
+     * exactly as before, with {@code seeded} false. Package-visible for tests.
+     */
+    Launch resolveLaunch(String sessionId, String cmd, String resume, String seed, Path workingDirectory) {
+        if (SEED_TEMPLATE.equals(seed) && resume == null && isAgent(cmd)
+                && sessionRegistry.find(sessionId).isEmpty() && projectConsoleService != null) {
+            Optional<String> prompt = projectConsoleService.templateSeedPrompt(sessionId, workingDirectory);
+            if (prompt.isPresent()) {
+                return new Launch(seededLaunchCommand(cmd, prompt.get()), true);
+            }
+        }
+        return new Launch(resolveLaunchCommand(sessionId, cmd, resume), false);
+    }
+
+    /** A resolved launch: the command (or {@code null} for the default shell) and whether it was seeded (#537). */
+    record Launch(String[] command, boolean seeded) {
+    }
+
+    private static boolean isAgent(String cmd) {
+        return cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode"));
+    }
+
+    /**
+     * The agent's own "start interactively with this first prompt" shape (#537):
+     * {@code claude <prompt>} and {@code codex <prompt>} take it positionally,
+     * {@code opencode --prompt <prompt>} by flag (confirmed against opencode 1.18.25).
+     * The prompt travels as one argv element — never through a shell — and is always
+     * engine text, so nothing the client sends reaches the process. {@code null} for
+     * anything that is not one of the three agents. Package-visible for tests.
+     */
+    static String[] seededLaunchCommand(String cmd, String prompt) {
+        if (cmd == null || prompt == null) {
+            return null;
+        }
+        return switch (cmd) {
+            case "claude" -> new String[] {"claude", prompt};
+            case "codex" -> new String[] {"codex", prompt};
+            case "opencode" -> new String[] {"opencode", "--prompt", prompt};
+            default -> null;
+        };
     }
 
     /** {@code null} (absent or "shell") defers to {@link SessionRegistry}'s default shell. Package-visible for tests. */

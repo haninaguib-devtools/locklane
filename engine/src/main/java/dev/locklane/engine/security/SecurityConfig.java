@@ -43,7 +43,9 @@ import org.springframework.http.HttpStatus;
  * widget above), the host's logged-in GitHub accounts backing the Add Project
  * dialog's account picker ({@code /api/github/accounts}, #532 — the same again: it
  * describes this host's {@code gh} logins, so it is gated exactly like the two
- * before it), and the WebSocket session endpoint itself (every path under
+ * before it), the project templates on this host backing the same dialog's template
+ * pull-down ({@code /api/templates}, #536 — host-scoped like the three before it, so
+ * gated the same way), and the WebSocket session endpoint itself (every path under
  * {@code /ws/sessions/}, #50) — its origin
  * restriction lives in {@code WebSocketConfig}, but authentication is enforced
  * here like every other endpoint. Issue/PR reads themselves stay open (no
@@ -99,6 +101,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/usage").authenticated()
                         .requestMatchers("/api/agents/**").authenticated()
                         .requestMatchers("/api/github/**").authenticated()
+                        .requestMatchers("/api/templates").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll())

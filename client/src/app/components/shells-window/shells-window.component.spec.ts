@@ -43,8 +43,8 @@ describe('ShellsWindowComponent', () => {
     httpMock
       .expectOne('/api/projects')
       .flush([
-        { id: 1, name: 'alpha', gitUrl: 'u', workareaPath: '/w', defaultBranch: 'main', status: 'READY', createdAt: '', accentColor: null },
-        { id: 2, name: 'beta', gitUrl: 'u', workareaPath: '/w2', defaultBranch: 'main', status: 'READY', createdAt: '', accentColor: null },
+        { id: 1, name: 'alpha', gitUrl: 'u', workareaPath: '/w', defaultBranch: 'main', status: 'READY', createdAt: '', accentColor: null, template: null },
+        { id: 2, name: 'beta', gitUrl: 'u', workareaPath: '/w2', defaultBranch: 'main', status: 'READY', createdAt: '', accentColor: null, template: null },
       ]);
     httpMock.expectOne('/api/shells').flush(shells);
     fixture.detectChanges();
