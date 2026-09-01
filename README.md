@@ -21,6 +21,16 @@ Everything lands in `~/.locklane`. Two scripts live there afterwards:
   holds the login accounts, the projects, and the database, so deleting it needs a typed
   confirmation and is never the default.
 
+Locklane acts on GitHub through the host's own `gh` login, so that login needs the `repo`
+scope — and the `workflow` scope too if you create projects bootstrapped with t-workflow:
+their first push carries `.github/workflows/ci.yml`, and GitHub refuses that push from a
+token without `workflow`. Check with `gh auth status`, and add the scope to an existing
+login with:
+
+```
+gh auth refresh -h github.com -s workflow
+```
+
 ## Read first
 
 - `CONSTITUTION.md` — the invariants. Binding on every task.

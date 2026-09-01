@@ -15,10 +15,16 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 /**
  * Exercises real {@code git clone} against a throwaway local repository (no
@@ -480,6 +486,152 @@ class ProjectCheckoutServiceTest {
         });
     }
 
+    // #531: a t-workflow bootstrap's first push carries .github/workflows/ci.yml, which
+    // GitHub refuses from a token without the `workflow` scope. Rather than let that
+    // surface as a raw push rejection after the repo was created and the installer
+    // ran, the engine checks the token's scopes first -- before `gh repo create`, so
+    // nothing is left behind -- and fails with the one message an operator needs.
+    //
+    // These tests never reach the real `gh`: the scope lookup and the ambient token
+    // are stubbed, and the end-to-end ones name an org that cannot exist and assert
+    // exactly one WARN, so a gate that leaked through to `gh repo create` would fail
+    // the test (a second WARN, from the 404 or from gh being absent) instead of
+    // creating anything.
+
+    private static final String NO_SUCH_ORG = "locklane-531-no-such-org";
+
+    @Test
+    void createNewProjectWithBootstrapFailsEarlyWhenTheTokenLacksTheWorkflowScope(@TempDir Path tmp) {
+        Path installerRan = tmp.resolve("installer-ran");
+        ProjectCheckoutService service = serviceWithScopes(tmp, Runnable::run, () -> Optional.of("gh-cli-token"),
+                "touch " + installerRan, token -> Optional.of(Set.of("repo", "read:org")));
+
+        List<ILoggingEvent> events = capturingLogs(
+                () -> service.createNewProject(NO_SUCH_ORG, "scoped-out", true, 1L));
+
+        ProjectRecord found = repositoryOver(tmp).findAll().get(0);
+        assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
+        List<ILoggingEvent> warnings = events.stream().filter(e -> e.getLevel() == Level.WARN).toList();
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0).getFormattedMessage())
+                .contains("scoped-out")
+                .contains(String.valueOf(found.id()))
+                .contains("`workflow` scope")
+                .contains("gh auth refresh -h github.com -s workflow");
+        // Neither the installer nor any git step ran: no marker, no workarea.
+        assertThat(installerRan).doesNotExist();
+        assertThat(found.workareaPath()).doesNotExist();
+    }
+
+    @Test
+    void createNewProjectWithBootstrapChecksTheStoredTokenTheSameWay(@TempDir Path tmp) {
+        // The executor queues instead of running, so the per-project token can be
+        // stored between createNewProject's synchronous part and the async work --
+        // the way a project that already has a token stored would look.
+        List<Runnable> queued = new ArrayList<>();
+        List<String> lookedUp = new ArrayList<>();
+        ProjectCheckoutService service = serviceWithScopes(tmp, queued::add, () -> Optional.of("gh-cli-token"),
+                "true", token -> {
+                    lookedUp.add(token);
+                    return Optional.of(Set.of("repo"));
+                });
+        ProjectRepository repository = repositoryOver(tmp);
+
+        ProjectRecord project = service.createNewProject(NO_SUCH_ORG, "stored-scoped-out", true, 1L);
+        repository.setGithubToken(project.id(), tokenCipher(tmp).encrypt("stored-token"));
+        List<ILoggingEvent> events = capturingLogs(() -> queued.forEach(Runnable::run));
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        // The stored token is what the push would use, so it is what gets checked --
+        // never the ambient gh login behind it.
+        assertThat(lookedUp).containsExactly("stored-token");
+        List<ILoggingEvent> warnings = events.stream().filter(e -> e.getLevel() == Level.WARN).toList();
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0).getFormattedMessage())
+                .contains("stored per-project token")
+                .contains("gh auth refresh -h github.com -s workflow");
+    }
+
+    @Test
+    void tokenCanPushWorkflowsWhenTheReportedScopesIncludeWorkflow(@TempDir Path tmp) {
+        ProjectCheckoutService service = serviceWithScopes(tmp, Runnable::run, () -> Optional.of("gh-cli-token"),
+                "true", token -> Optional.of(Set.of("repo", "workflow")));
+        ProjectRecord project = newProjectRecord(tmp, "has-workflow");
+
+        assertThat(service.tokenCanPushWorkflows(project)).isTrue();
+    }
+
+    @Test
+    void tokenCanPushWorkflowsFailsOpenWhenTheScopesCannotBeDetermined(@TempDir Path tmp) {
+        // A fine-grained PAT or a GitHub App token reports no classic scopes at all,
+        // and `gh api` itself can fail -- neither may block a bootstrap that would have
+        // succeeded before this check existed. Likewise with no token at all: that is
+        // the existing "No GitHub credentials available" path's call, not this one's.
+        ProjectCheckoutService unknownScopes = serviceWithScopes(tmp, Runnable::run,
+                () -> Optional.of("fine-grained-token"), "true", token -> Optional.empty());
+        ProjectCheckoutService noToken = serviceWithScopes(tmp, Runnable::run, Optional::empty, "true",
+                token -> fail("no token to look up"));
+        ProjectRecord project = newProjectRecord(tmp, "unknown-scopes");
+
+        assertThat(unknownScopes.tokenCanPushWorkflows(project)).isTrue();
+        assertThat(noToken.tokenCanPushWorkflows(project)).isTrue();
+    }
+
+    @Test
+    void setUpLocalRepoAndPushWithoutBootstrapNeverConsultsTheScopeLookup(@TempDir Path tmp) throws Exception {
+        // A plain project has no workflow file to push, so a token with only `repo`
+        // is all it needs -- the scope lookup must not even be asked.
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        ProjectCheckoutService service = serviceWithScopes(tmp, Runnable::run, () -> Optional.of("gh-cli-token"),
+                "true", token -> fail("the plain path must not check scopes"));
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("plain-project");
+        ProjectRecord project =
+                repository.create("plain-project", bareRemote.toString(), workarea, 1L, Instant.now());
+
+        service.setUpLocalRepoAndPush(project, false);
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        // Whatever branch name the host's `git init` chose, the commit reached the remote.
+        assertThat(run(bareRemote, "git", "log", "-1", "--format=%s", found.defaultBranch()).strip())
+                .isEqualTo("Initial commit");
+    }
+
+    @Test
+    void parseOauthScopesReadsTheHeaderAsGhApiPrintsIt() {
+        String response = """
+                HTTP/2.0 200 OK
+                Content-Type: application/json; charset=utf-8
+                X-Accepted-Oauth-Scopes:\s
+                X-Oauth-Scopes: admin:public_key, gist, read:org, repo
+
+                {"login":"someone"}
+                X-Oauth-Scopes: workflow
+                """;
+
+        assertThat(ProjectCheckoutService.parseOauthScopes(response))
+                .contains(Set.of("admin:public_key", "gist", "read:org", "repo"));
+    }
+
+    @Test
+    void parseOauthScopesMatchesTheHeaderNameCaseInsensitively() {
+        assertThat(ProjectCheckoutService.parseOauthScopes("HTTP/1.1 200 OK\r\nx-oauth-scopes: repo, workflow\r\n\r\n"))
+                .contains(Set.of("repo", "workflow"));
+    }
+
+    @Test
+    void parseOauthScopesIsEmptyWhenTheHeaderIsAbsentOrBlank() {
+        // Absent or blank means "this token has no classic scopes to report" (a
+        // fine-grained PAT, an App token) -- unknown, which the gate must not treat as
+        // "lacks workflow".
+        assertThat(ProjectCheckoutService.parseOauthScopes("HTTP/2.0 200 OK\nContent-Type: text/plain\n\nbody"))
+                .isEmpty();
+        assertThat(ProjectCheckoutService.parseOauthScopes("HTTP/2.0 200 OK\nX-Oauth-Scopes: \n\n")).isEmpty();
+        assertThat(ProjectCheckoutService.parseOauthScopes("")).isEmpty();
+    }
+
     private static ProjectCheckoutService service(Path tmp) {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
@@ -500,6 +652,35 @@ class ProjectCheckoutServiceTest {
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
                 Optional::empty, installCommand);
+    }
+
+    /** Like {@link #service(Path)}, with every collaborator the #531 scope gate touches substituted. */
+    private static ProjectCheckoutService serviceWithScopes(Path tmp, Executor executor,
+            Supplier<Optional<String>> ambientToken, String installCommand,
+            Function<String, Optional<Set<String>>> tokenScopes) {
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), executor,
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
+                ambientToken, installCommand, tokenScopes);
+    }
+
+    private static ProjectRecord newProjectRecord(Path tmp, String name) {
+        return repositoryOver(tmp).create(name, "https://github.com/" + NO_SUCH_ORG + "/" + name + ".git",
+                tmp.resolve("workarea").resolve("1").resolve(name), 1L, Instant.now());
+    }
+
+    /** Everything {@code ProjectCheckoutService} logged while {@code action} ran. */
+    private static List<ILoggingEvent> capturingLogs(Runnable action) {
+        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            action.run();
+        } finally {
+            logger.detachAppender(appender);
+        }
+        return appender.list;
     }
 
     private static ProjectRepository repositoryOver(Path tmp) {
