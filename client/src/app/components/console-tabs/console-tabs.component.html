@@ -45,58 +45,44 @@
           {{ tabText(tab) }}
         </button>
       }
-      <button
-        type="button"
-        class="tab-shell"
-        aria-label="open a shell at this console's worktree"
-        (click)="openShellAt(tab, $event)"
-      >
-        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-          <rect
-            x="1.5"
-            y="2.5"
-            width="13"
-            height="11"
-            rx="1.5"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.2"
-          />
-          <path
-            d="M4 6l2.5 2L4 10"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <path d="M8 10.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        class="tab-reveal"
-        aria-label="reveal in file manager"
-        (click)="revealTab(tab.id, $event)"
-      >
-        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-          <path
-            d="M1.5 4a1 1 0 0 1 1-1h3.379a1 1 0 0 1 .707.293L7.914 4.5H13.5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4z"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.2"
-            stroke-linejoin="round"
-          />
-        </svg>
-      </button>
-      <button
-        type="button"
-        class="tab-close"
-        aria-label="close console tab"
-        (click)="closeTab(tab.id, $event)"
-      >
-        ×
-      </button>
+      <div class="tab-menu-wrap">
+        <button
+          type="button"
+          class="tab-menu-trigger"
+          aria-label="tab actions"
+          (click)="toggleMenu(tab.id, $event)"
+        >
+          ⋮
+        </button>
+        @if (isMenuOpen(tab.id)) {
+          <div class="tab-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              class="tab-shell"
+              (click)="openShellAt(tab, $event)"
+            >
+              Shell
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="tab-reveal"
+              (click)="revealTab(tab.id, $event)"
+            >
+              Folder
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="tab-close"
+              (click)="closeTab(tab.id, $event)"
+            >
+              Close
+            </button>
+          </div>
+        }
+      </div>
     </span>
   }
   @if (showOpenButton) {

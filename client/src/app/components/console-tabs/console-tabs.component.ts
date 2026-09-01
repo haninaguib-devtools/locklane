@@ -1,4 +1,4 @@
-import { Component, ElementRef, EventEmitter, Input, Optional, Output, ViewChild } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, Input, Optional, Output, ViewChild } from '@angular/core';
 import { Observable, map, of, switchMap } from 'rxjs';
 import { Agent } from '../../services/agent-store';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
@@ -135,13 +135,38 @@ export class ConsoleTabsComponent {
     this.draftName = value;
   }
 
+  // The tab whose overflow menu is open, or null when none is (#480). At most one is
+  // ever open at a time -- opening another closes whichever was open, matching the
+  // sidenav's own kebab menu (isMenuOpen/toggleMenu below).
+  openMenuId: string | null = null;
+
+  isMenuOpen(id: string): boolean {
+    return this.openMenuId === id;
+  }
+
+  toggleMenu(id: string, event: Event): void {
+    event.stopPropagation();
+    this.openMenuId = this.openMenuId === id ? null : id;
+  }
+
+  // Closes any open menu on a click anywhere else in the document -- the same
+  // outside-click convention the sidenav's kebab menu already uses. A click on the
+  // trigger or a menu item stops propagation before this fires, so it never fights
+  // the toggle above.
+  @HostListener('document:click')
+  closeMenu(): void {
+    this.openMenuId = null;
+  }
+
   closeTab(id: string, event: Event): void {
     event.stopPropagation();
+    this.openMenuId = null;
     this.pendingCloseId = id;
   }
 
   revealTab(id: string, event: Event): void {
     event.stopPropagation();
+    this.openMenuId = null;
     this.reveal.emit(id);
   }
 
@@ -157,6 +182,7 @@ export class ConsoleTabsComponent {
    */
   openShellAt(tab: ConsoleTab, event: Event): void {
     event.stopPropagation();
+    this.openMenuId = null;
     const shells = this.shellsService;
     const projectId = projectIdOf(tab.id);
     if (shells === null || this.worktreesService === null || projectId === null) {
