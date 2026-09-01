@@ -144,6 +144,18 @@ export class ConsoleTabsComponent {
     return this.openMenuId === id;
   }
 
+  // Revealing a worktree in the OS file manager only makes sense against a local
+  // install (#497) -- an engine reached over the network has no file manager to open.
+  get isLocalHost(): boolean {
+    return this.currentHostname() === 'localhost';
+  }
+
+  // Indirection for testability (#497): most browsers refuse to let a spy override
+  // window.location.hostname, since it is not a configurable property.
+  protected currentHostname(): string {
+    return window.location.hostname;
+  }
+
   toggleMenu(id: string, event: Event): void {
     event.stopPropagation();
     this.openMenuId = this.openMenuId === id ? null : id;

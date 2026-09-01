@@ -42,9 +42,26 @@
   color: var(--text);
 }
 
+/* The always-visible quick-close button (#497, restoring #71's original) sits
+   next to the overflow trigger so closing a tab never requires opening the menu;
+   the "Close" item stays in the menu too (#480) for parity with Shell/Folder. */
+.tab-close-quick {
+  border: none;
+  background: none;
+  padding: 2px 8px 2px 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.tab-close-quick:hover {
+  color: var(--text);
+}
+
 /* #480: the single overflow trigger replacing the three separate hover-revealed
-   icons -- same fade-in-on-hover treatment those had, so the tab strip stays quiet
-   until a tab is hovered or focused. */
+   icons. #497: always visible, like the quick-close button next to it, rather
+   than fading in only on hover/focus. */
 .tab-menu-wrap {
   position: relative;
   display: flex;
@@ -59,13 +76,6 @@
   line-height: 1;
   color: var(--faint);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-
-.tab-wrap:hover .tab-menu-trigger,
-.tab-wrap:focus-within .tab-menu-trigger {
-  opacity: 1;
 }
 
 .tab-menu-trigger:hover {
