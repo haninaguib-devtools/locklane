@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
@@ -38,12 +39,31 @@ public class ProjectCheckoutService {
     private static final String T_WORKFLOW_INSTALL_URL =
             "https://raw.githubusercontent.com/haninaguib-devtools/t-workflow/main/installer/install.sh";
 
+    // A flag placed after a plain `| bash` is swallowed by bash itself rather than
+    // forwarded to the script (install.sh --help) -- `bash -s --` is what actually
+    // hands `--name` to the installer. The URL and project name ride as $1/$2
+    // rather than being interpolated into the script text, so a name containing
+    // shell metacharacters can't inject into the invocation.
+    private static final String T_WORKFLOW_INSTALL_COMMAND = "curl -fsSL \"$1\" | bash -s -- --name \"$2\"";
+
+    // The installer's bootstrap.sh refuses to make the project's first commit when git
+    // has no committer identity, and nothing guarantees the host's git has a global
+    // one -- the same reason the plain-init path sets a local identity before its
+    // commit. git reads these over any config, so the bootstrap commit is always able
+    // to happen, under the same identity the plain path uses.
+    private static final Map<String, String> BOOTSTRAP_GIT_IDENTITY = Map.of(
+            "GIT_AUTHOR_NAME", "locklane",
+            "GIT_AUTHOR_EMAIL", "locklane@local",
+            "GIT_COMMITTER_NAME", "locklane",
+            "GIT_COMMITTER_EMAIL", "locklane@local");
+
     private final ProjectRepository repository;
     private final Path workareaRoot;
     private final Executor cloneExecutor;
     private final IssueWorktreeService issueWorktreeService;
     private final TokenCipher tokenCipher;
     private final Supplier<Optional<String>> ambientGithubToken;
+    private final String installCommand;
 
     @Autowired
     public ProjectCheckoutService(ProjectRepository repository,
@@ -63,12 +83,27 @@ public class ProjectCheckoutService {
     ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
             IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher,
             Supplier<Optional<String>> ambientGithubToken) {
+        this(repository, workareaRoot, cloneExecutor, issueWorktreeService, tokenCipher, ambientGithubToken,
+                T_WORKFLOW_INSTALL_COMMAND);
+    }
+
+    /**
+     * Test-only: additionally substitutes the t-workflow install command (#525), so a
+     * test can exercise the whole bootstrap sequence against a local stub honouring
+     * the real installer's contract instead of fetching the real one over the network.
+     * The stub receives the same {@code $1} (installer URL) / {@code $2} (project
+     * name) arguments the real command does.
+     */
+    ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
+            IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher,
+            Supplier<Optional<String>> ambientGithubToken, String installCommand) {
         this.repository = repository;
         this.workareaRoot = Path.of(workareaRoot).normalize();
         this.cloneExecutor = cloneExecutor;
         this.issueWorktreeService = issueWorktreeService;
         this.tokenCipher = tokenCipher;
         this.ambientGithubToken = ambientGithubToken;
+        this.installCommand = installCommand;
     }
 
     /**
@@ -214,24 +249,39 @@ public class ProjectCheckoutService {
      */
     void setUpLocalRepoAndPush(ProjectRecord project, boolean bootstrapTWorkflow) throws IOException {
         Path workarea = project.workareaPath();
-        Files.createDirectories(workarea);
 
         if (bootstrapTWorkflow) {
-            // A flag placed after a plain `| bash` is swallowed by bash itself rather than
-            // forwarded to the script (install.sh --help) -- `bash -s --` is what actually
-            // hands `--name` to the installer. The URL and project name ride as $1/$2
-            // rather than being interpolated into the script text, so a name containing
-            // shell metacharacters can't inject into the invocation.
-            ProcessResult install = run(workarea, "bash", "-c",
-                    "curl -fsSL \"$1\" | bash -s -- --name \"$2\"",
-                    "install-t-workflow", T_WORKFLOW_INSTALL_URL, project.name());
-            if (install.exitCode() != 0) {
-                log.warn("t-workflow install failed for project {} (exit {}): {}", project.id(),
-                        install.exitCode(), install.stderr().strip());
-                repository.markFailed(project.id());
-                return;
+            // The installer never builds into its working directory: its contract is to
+            // create the project at <cwd>/<name> (--dir defaults to the cwd), refusing
+            // when that path already exists. So it runs in a scratch directory next to
+            // the workarea (same filesystem, so the move below is a rename), and the
+            // tree it produces is moved to the reserved workarea path -- whose slugged,
+            // possibly suffix-disambiguated name can differ from the raw project name,
+            // which is why the installer can't simply be pointed at the parent.
+            Files.createDirectories(workarea.getParent());
+            Path scratch = Files.createTempDirectory(workarea.getParent(), ".bootstrap-" + project.id() + "-");
+            try {
+                ProcessResult install = run(scratch, BOOTSTRAP_GIT_IDENTITY, "bash", "-c", installCommand,
+                        "install-t-workflow", T_WORKFLOW_INSTALL_URL, project.name());
+                if (install.exitCode() != 0) {
+                    log.warn("t-workflow install failed for project {} (exit {}): {}", project.id(),
+                            install.exitCode(), install.stderr().strip());
+                    repository.markFailed(project.id());
+                    return;
+                }
+                Path produced = scratch.resolve(project.name());
+                if (!Files.isDirectory(produced.resolve(".git"))) {
+                    log.warn("t-workflow install for project {} did not produce a git checkout at {}",
+                            project.id(), produced);
+                    repository.markFailed(project.id());
+                    return;
+                }
+                Files.move(produced, workarea);
+            } finally {
+                deleteDirectoryQuietly(scratch);
             }
         } else {
+            Files.createDirectories(workarea);
             Files.writeString(workarea.resolve("README.md"), "# " + project.name() + "\n");
             // Nothing guarantees the host's git has a global user.email/user.name
             // configured -- this is the first place the engine ever runs `git commit`
@@ -375,11 +425,17 @@ public class ProjectCheckoutService {
 
     /** Same as {@link #run(String...)}, run in {@code cwd} instead of the engine's own working directory. */
     private static ProcessResult run(Path cwd, String... command) {
+        return run(cwd, Map.of(), command);
+    }
+
+    /** Same as {@link #run(Path, String...)}, with {@code env} added to the child's environment. */
+    private static ProcessResult run(Path cwd, Map<String, String> env, String... command) {
         try {
             ProcessBuilder builder = new ProcessBuilder(command);
             if (cwd != null) {
                 builder.directory(cwd.toFile());
             }
+            builder.environment().putAll(env);
             Process process = builder.start();
             String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             String err = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
