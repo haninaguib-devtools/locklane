@@ -45,6 +45,14 @@
           {{ tabText(tab) }}
         </button>
       }
+      <button
+        type="button"
+        class="tab-close-quick"
+        aria-label="close console tab"
+        (click)="closeTab(tab.id, $event)"
+      >
+        ×
+      </button>
       <div class="tab-menu-wrap">
         <button
           type="button"
@@ -64,14 +72,16 @@
             >
               Shell
             </button>
-            <button
-              type="button"
-              role="menuitem"
-              class="tab-reveal"
-              (click)="revealTab(tab.id, $event)"
-            >
-              Folder
-            </button>
+            @if (isLocalHost) {
+              <button
+                type="button"
+                role="menuitem"
+                class="tab-reveal"
+                (click)="revealTab(tab.id, $event)"
+              >
+                Folder
+              </button>
+            }
             <button
               type="button"
               role="menuitem"

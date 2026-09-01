@@ -108,6 +108,16 @@ describe('ConsoleTabsComponent', () => {
     expect(emitted).toBe('7-rename-toggle');
   });
 
+  it('offers the Folder menu item only when reached at localhost (#497)', () => {
+    const c = new ConsoleTabsComponent();
+
+    // Karma itself serves specs from localhost, so the default reads true.
+    expect(c.isLocalHost).toBeTrue();
+
+    spyOn<any>(c, 'currentHostname').and.returnValue('example.com');
+    expect(c.isLocalHost).toBeFalse();
+  });
+
   it('opens one tab menu at a time, closes on an outside click (#480)', () => {
     const c = new ConsoleTabsComponent();
 
@@ -148,6 +158,46 @@ describe('ConsoleTabsComponent', () => {
 
     expect(tabWraps[1].querySelector('.tab-reveal')).not.toBeNull();
   });
+
+  it('shows a quick close button on every live console tab, without opening the overflow menu (#497)', () => {
+    TestBed.configureTestingModule({
+      imports: [ConsoleTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const fixture = TestBed.createComponent(ConsoleTabsComponent);
+    fixture.componentInstance.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
+    fixture.detectChanges();
+
+    const tabWraps = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.tab-wrap'));
+    expect(tabWraps[0].querySelector('.tab-close-quick')).toBeNull(); // the pinned Overview tab
+    const quickClose = tabWraps[1].querySelector('.tab-close-quick') as HTMLButtonElement;
+    expect(quickClose).not.toBeNull();
+
+    quickClose.click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.pendingCloseId).toBe('7-rename-toggle');
+  });
+
+  it('omits the Folder menu item once the overflow menu opens away from localhost, keeping Shell and Close (#497)', () => {
+    TestBed.configureTestingModule({
+      imports: [ConsoleTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const fixture = TestBed.createComponent(ConsoleTabsComponent);
+    spyOn<any>(fixture.componentInstance, 'currentHostname').and.returnValue('example.com');
+    fixture.componentInstance.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
+    fixture.detectChanges();
+
+    const tabWrap = fixture.nativeElement.querySelectorAll('.tab-wrap')[1] as HTMLElement;
+    (tabWrap.querySelector('.tab-menu-trigger') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(tabWrap.querySelector('.tab-reveal')).toBeNull();
+    expect(tabWrap.querySelector('.tab-shell')).not.toBeNull();
+    expect(tabWrap.querySelector('.tab-close')).not.toBeNull();
+  });
+
   it('does not start a rename where renaming is not enabled (#393: the issue page)', () => {
     const c = new ConsoleTabsComponent();
     c.startRename({ id: '7-console-aaaaaaaa', agent: 'claude', label: 'console' }, new Event('dblclick'));
