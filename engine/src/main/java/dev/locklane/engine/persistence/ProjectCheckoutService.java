@@ -1,6 +1,7 @@
 package dev.locklane.engine.persistence;
 
 import dev.locklane.engine.security.TokenCipher;
+import dev.locklane.engine.template.ProjectTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +41,13 @@ import java.util.regex.Pattern;
  * the first push additionally run with {@code GH_TOKEN} set to it, so the host's
  * active {@code gh} account is never switched. With no login, behaviour is exactly the
  * pre-#532 one.
+ *
+ * <p>The create path may also name a {@link ProjectTemplate} (#536). Its name is stored
+ * on the project row and its body is committed as {@link #TEMPLATE_FILE} in the
+ * checkout root before the first push — inside the initial commit on the plain
+ * {@code git init} path, as one extra commit on top of the t-workflow installer's tree
+ * on the bootstrap path. Nothing here reads or runs the template; #537 hands it to an
+ * agent in a console later. With no template, both paths are byte-for-byte unchanged.
  */
 @Service
 public class ProjectCheckoutService {
@@ -68,6 +76,12 @@ public class ProjectCheckoutService {
 
     /** The operator's fix when the host's gh login lacks {@link #WORKFLOW_SCOPE}; quoted verbatim in the log. */
     static final String GRANT_WORKFLOW_SCOPE_COMMAND = "gh auth refresh -h github.com -s workflow";
+
+    /** Where a chosen template's body lands in a new repository (#536) — the file the seeded agent reads (#537). */
+    static final String TEMPLATE_FILE = "PROJECT_TEMPLATE.md";
+
+    /** The subject of the extra commit carrying {@link #TEMPLATE_FILE} on the bootstrap path (#536). */
+    static final String TEMPLATE_COMMIT_SUBJECT = "Add project template";
 
     // The installer's bootstrap.sh refuses to make the project's first commit when git
     // has no committer identity, and nothing guarantees the host's git has a global
@@ -214,14 +228,28 @@ public class ProjectCheckoutService {
      */
     public ProjectRecord createNewProject(String org, String name, boolean bootstrapTWorkflow, long ownerUserId,
             String githubLogin) {
+        return createNewProject(org, name, bootstrapTWorkflow, ownerUserId, githubLogin, null);
+    }
+
+    /**
+     * Same as {@link #createNewProject(String, String, boolean, long, String)}, created
+     * from {@code template} (#536): its name is stored on the row and its body is
+     * committed as {@link #TEMPLATE_FILE} before the first push. {@code null} means no
+     * template was chosen. The caller ({@code ProjectController}) has already resolved
+     * the name through the template listing — nothing from the request reaches a path.
+     */
+    public ProjectRecord createNewProject(String org, String name, boolean bootstrapTWorkflow, long ownerUserId,
+            String githubLogin, ProjectTemplate template) {
         String trimmedOrg = org.strip();
         String trimmedName = name.strip();
         String gitUrl = "https://github.com/" + trimmedOrg + "/" + trimmedName + ".git";
         Path workareaPath = uniqueWorkareaPath(ownerUserId, slug(trimmedName));
         Optional<String> login = normalizeLogin(githubLogin);
+        Optional<ProjectTemplate> chosen = Optional.ofNullable(template);
 
-        ProjectRecord project = repository.create(trimmedName, gitUrl, workareaPath, ownerUserId, Instant.now());
-        cloneExecutor.execute(() -> createRepoAndPush(project, trimmedOrg, bootstrapTWorkflow, login));
+        ProjectRecord project = repository.create(trimmedName, gitUrl, workareaPath, ownerUserId, Instant.now(),
+                chosen.map(ProjectTemplate::name).orElse(null));
+        cloneExecutor.execute(() -> createRepoAndPush(project, trimmedOrg, bootstrapTWorkflow, login, chosen));
         return project;
     }
 
@@ -313,6 +341,12 @@ public class ProjectCheckoutService {
      */
     void createRepoAndPush(ProjectRecord project, String org, boolean bootstrapTWorkflow,
             Optional<String> githubLogin) {
+        createRepoAndPush(project, org, bootstrapTWorkflow, githubLogin, Optional.empty());
+    }
+
+    /** Same, created from {@code template} (#536) when present — see {@link #setUpLocalRepoAndPush}. */
+    void createRepoAndPush(ProjectRecord project, String org, boolean bootstrapTWorkflow,
+            Optional<String> githubLogin, Optional<ProjectTemplate> template) {
         String repoSpec = org + "/" + project.name();
         try {
             // With a chosen account (#532), gh acts as it through GH_TOKEN in the
@@ -341,7 +375,7 @@ public class ProjectCheckoutService {
                 repository.markFailed(project.id());
                 return;
             }
-            setUpLocalRepoAndPush(project, bootstrapTWorkflow, ghEnv);
+            setUpLocalRepoAndPush(project, bootstrapTWorkflow, ghEnv, template);
         } catch (RuntimeException | IOException e) {
             log.warn("Failed to create new project {} ({})", project.id(), repoSpec, e);
             repository.markFailed(project.id());
@@ -369,6 +403,19 @@ public class ProjectCheckoutService {
      */
     void setUpLocalRepoAndPush(ProjectRecord project, boolean bootstrapTWorkflow, Map<String, String> pushEnv)
             throws IOException {
+        setUpLocalRepoAndPush(project, bootstrapTWorkflow, pushEnv, Optional.empty());
+    }
+
+    /**
+     * Same as {@link #setUpLocalRepoAndPush(ProjectRecord, boolean, Map)}, committing
+     * {@code template}'s body as {@link #TEMPLATE_FILE} (#536) before the push when one
+     * was chosen: in the initial commit on the plain path, as one extra
+     * {@link #TEMPLATE_COMMIT_SUBJECT} commit on top of the installer's output on the
+     * bootstrap path — the installer owns its own first commit, and its tree is only
+     * ever appended to, never rewritten.
+     */
+    void setUpLocalRepoAndPush(ProjectRecord project, boolean bootstrapTWorkflow, Map<String, String> pushEnv,
+            Optional<ProjectTemplate> template) throws IOException {
         Path workarea = project.workareaPath();
 
         if (bootstrapTWorkflow) {
@@ -401,9 +448,25 @@ public class ProjectCheckoutService {
             } finally {
                 deleteDirectoryQuietly(scratch);
             }
+            if (template.isPresent()) {
+                // The installer's checkout carries no local committer identity of its
+                // own (the installer ran under BOOTSTRAP_GIT_IDENTITY), so this commit
+                // runs under the same environment for the same reason.
+                Files.writeString(workarea.resolve(TEMPLATE_FILE), template.get().body(), StandardCharsets.UTF_8);
+                if (run(workarea, BOOTSTRAP_GIT_IDENTITY, "git", "add", TEMPLATE_FILE).exitCode() != 0
+                        || run(workarea, BOOTSTRAP_GIT_IDENTITY, "git", "commit", "-m", TEMPLATE_COMMIT_SUBJECT)
+                                .exitCode() != 0) {
+                    log.warn("Committing {} failed for project {}", TEMPLATE_FILE, project.id());
+                    repository.markFailed(project.id());
+                    return;
+                }
+            }
         } else {
             Files.createDirectories(workarea);
             Files.writeString(workarea.resolve("README.md"), "# " + project.name() + "\n");
+            if (template.isPresent()) {
+                Files.writeString(workarea.resolve(TEMPLATE_FILE), template.get().body(), StandardCharsets.UTF_8);
+            }
             // Nothing guarantees the host's git has a global user.email/user.name
             // configured -- this is the first place the engine ever runs `git commit`
             // itself, so it sets its own local identity rather than assume one.
@@ -411,6 +474,7 @@ public class ProjectCheckoutService {
                     || run(workarea, "git", "config", "user.email", "locklane@local").exitCode() != 0
                     || run(workarea, "git", "config", "user.name", "locklane").exitCode() != 0
                     || run(workarea, "git", "add", "README.md").exitCode() != 0
+                    || (template.isPresent() && run(workarea, "git", "add", TEMPLATE_FILE).exitCode() != 0)
                     || run(workarea, "git", "commit", "-m", "Initial commit").exitCode() != 0) {
                 log.warn("Local git init/commit failed for project {}", project.id());
                 repository.markFailed(project.id());

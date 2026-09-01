@@ -21,6 +21,7 @@ describe('ConsoleIndicatorComponent', () => {
     workareaPath: '/tmp/a',
     defaultBranch: 'main',
     accentColor: null,
+    template: null,
     status: 'READY',
     createdAt: '',
   };
@@ -384,6 +385,7 @@ describe('ConsoleIndicatorComponent, inside a focused project window (#286, #449
     workareaPath: '/tmp/a',
     defaultBranch: 'main',
     accentColor: null,
+    template: null,
     status: 'READY',
     createdAt: '',
   };

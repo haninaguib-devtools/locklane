@@ -14,6 +14,7 @@ describe('AddProjectPopupComponent', () => {
     workareaPath: '/tmp/bar',
     defaultBranch: null,
     accentColor: null,
+    template: null,
     status: 'CLONING',
     createdAt: '',
   };
@@ -132,6 +133,8 @@ describe('AddProjectPopupComponent', () => {
       const req = httpMock.expectOne('/api/github/accounts');
       expect(req.request.method).toBe('GET');
       req.flush({ accounts });
+      // Mounting also asks for the host's project templates (#536); none here.
+      httpMock.expectOne('/api/templates').flush({ templates: [] });
     }
 
     function optionLabels(fixture: ReturnType<typeof create>): string[] {
@@ -247,6 +250,7 @@ describe('AddProjectPopupComponent', () => {
     it('treats a failed accounts request as no accounts', () => {
       const fixture = render();
       httpMock.expectOne('/api/github/accounts').flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
+      httpMock.expectOne('/api/templates').flush({ templates: [] });
       fixture.componentInstance.setMode('create');
       fixture.componentInstance.org = 'my-org';
       fixture.componentInstance.newRepoName = 'my-project';
@@ -255,6 +259,108 @@ describe('AddProjectPopupComponent', () => {
       expect(fixture.componentInstance.githubLogin).toBeNull();
       expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('gh auth login');
       expect(submitButton(fixture).disabled).toBeTrue();
+    });
+  });
+
+  describe('template pull-down (#536)', () => {
+    const TWO_TEMPLATES = [
+      { name: 'node-server', title: 'A Node server', description: 'Express and a Dockerfile' },
+      { name: 'springboot-angular', title: 'Spring Boot + Angular', description: 'One runnable jar' },
+    ];
+
+    // Rendering runs ngOnInit, which asks for the templates and the gh accounts.
+    function render(): ReturnType<typeof create> {
+      const fixture = create();
+      fixture.detectChanges();
+      httpMock.expectOne('/api/github/accounts').flush({ accounts: [{ login: 'haninaguib', active: true }] });
+      return fixture;
+    }
+
+    function flushTemplates(templates: { name: string; title: string; description: string }[]): void {
+      const req = httpMock.expectOne('/api/templates');
+      expect(req.request.method).toBe('GET');
+      req.flush({ templates });
+    }
+
+    function templateOptionLabels(fixture: ReturnType<typeof create>): string[] {
+      return Array.from(fixture.nativeElement.querySelectorAll('select.template option') as NodeListOf<HTMLOptionElement>)
+        .map((option) => option.textContent?.trim() ?? '');
+    }
+
+    it('lists the templates on the create tab with "none" first and selected, and never on the import tab', async () => {
+      const fixture = render();
+      flushTemplates(TWO_TEMPLATES);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('select.template')).toBeNull();
+
+      fixture.componentInstance.setMode('create');
+      fixture.detectChanges();
+      // ngModel writes the select's value on a resolved microtask, so settle before
+      // reading the DOM selection.
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(templateOptionLabels(fixture)).toEqual(['none', 'A Node server', 'Spring Boot + Angular']);
+      expect(fixture.componentInstance.template).toBeNull();
+      expect((fixture.nativeElement.querySelector('select.template') as HTMLSelectElement).selectedIndex).toBe(0);
+      expect(fixture.nativeElement.querySelector('.template-description')).toBeNull();
+    });
+
+    it('shows the chosen template description and sends its name as template on create', () => {
+      const fixture = render();
+      flushTemplates(TWO_TEMPLATES);
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+      fixture.componentInstance.template = 'node-server';
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('.template-description')?.textContent).toContain('Express and a Dockerfile');
+
+      fixture.componentInstance.submit();
+
+      const req = httpMock.expectOne('/api/projects/new');
+      expect(req.request.body).toEqual({
+        org: 'my-org',
+        name: 'my-project',
+        bootstrapTWorkflow: false,
+        githubLogin: 'haninaguib',
+        template: 'node-server',
+      });
+      req.flush(PROJECT);
+    });
+
+    it('with zero templates shows only "none" and sends no template', () => {
+      const fixture = render();
+      flushTemplates([]);
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
+      fixture.detectChanges();
+
+      expect(templateOptionLabels(fixture)).toEqual(['none']);
+
+      fixture.componentInstance.submit();
+
+      const req = httpMock.expectOne('/api/projects/new');
+      expect(req.request.body).toEqual({
+        org: 'my-org',
+        name: 'my-project',
+        bootstrapTWorkflow: false,
+        githubLogin: 'haninaguib',
+      });
+      req.flush(PROJECT);
+    });
+
+    it('treats a failed templates request as no templates', () => {
+      const fixture = render();
+      httpMock.expectOne('/api/templates').flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
+      fixture.componentInstance.setMode('create');
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.templates).toEqual([]);
+      expect(templateOptionLabels(fixture)).toEqual(['none']);
     });
   });
 

@@ -241,6 +241,29 @@ class SchemaMigrationTest {
     }
 
     @Test
+    void anExistingProjectsTableGainsTemplateWithoutLosingRows(@TempDir Path dbDir) {
+        // V12 predates template (#536); V13 adds it.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "12");
+        new JdbcTemplate(oldShape).update("""
+                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at, owner_user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                "locklane", "git@example.com:x/locklane.git", "/work/locklane", "main", "READY",
+                "2026-01-01T00:00:00Z", 1L);
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+        ProjectRepository repository = new ProjectRepository(oldShape);
+
+        ProjectRecord found = repository.findByWorkareaPath(Path.of("/work/locklane")).orElseThrow();
+        assertThat(found.template()).isNull();
+
+        ProjectRecord created = repository.create("templated", "url", Path.of("/work/templated"), 1L, Instant.now(),
+                "springboot-angular");
+        assertThat(repository.findById(created.id())).isPresent().get()
+                .extracting(ProjectRecord::template).isEqualTo("springboot-angular");
+    }
+
+    @Test
     void anExistingProjectsTableGainsAccentColorWithoutLosingRows(@TempDir Path dbDir) {
         // V11 predates accent_color (#427); V12 adds it.
         DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "11");

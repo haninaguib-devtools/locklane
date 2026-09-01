@@ -16,6 +16,7 @@ describe('CurrentProjectService', () => {
     workareaPath: '/tmp/proj',
     defaultBranch: 'main',
     accentColor: null,
+    template: null,
     status: 'READY',
     createdAt: '',
   };

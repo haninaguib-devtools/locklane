@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
+import dev.locklane.engine.template.ProjectTemplate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
@@ -17,6 +18,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -308,6 +310,94 @@ class ProjectCheckoutServiceTest {
         try (var siblings = Files.list(workarea.getParent())) {
             assertThat(siblings).containsExactly(workarea);
         }
+    }
+
+    // #536: a chosen template's body is committed as PROJECT_TEMPLATE.md before the
+    // push -- inside the initial commit on the plain path, as one extra commit on top
+    // of the installer's tree on the bootstrap path -- and the pushed branch carries it.
+
+    private static final ProjectTemplate TEMPLATE =
+            new ProjectTemplate("node-server", "Node server", "Express", "# Node server\n\nBuild it.\n");
+
+    @Test
+    void createNewProjectRecordsTheTemplateNameOnTheRow(@TempDir Path tmp) {
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
+                tmp.resolve("workarea").toString(), command -> { /* never run -- would shell out to gh for real */ },
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp));
+
+        ProjectRecord withTemplate = service.createNewProject("my-org", "templated", false, 1L, null, TEMPLATE);
+        ProjectRecord without = service.createNewProject("my-org", "plain", false, 1L, null, null);
+
+        assertThat(withTemplate.template()).isEqualTo("node-server");
+        assertThat(repositoryOver(tmp).findById(withTemplate.id()).orElseThrow().template()).isEqualTo("node-server");
+        assertThat(without.template()).isNull();
+    }
+
+    @Test
+    void setUpLocalRepoAndPushWithoutBootstrapCommitsTheTemplateInTheInitialCommit(@TempDir Path tmp)
+            throws Exception {
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("templated");
+        ProjectRecord project = repository.create("templated", bareRemote.toString(), workarea, 1L, Instant.now(),
+                TEMPLATE.name());
+
+        service.setUpLocalRepoAndPush(project, false, Map.of(), Optional.of(TEMPLATE));
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        assertThat(Files.readString(workarea.resolve("PROJECT_TEMPLATE.md"))).isEqualTo(TEMPLATE.body());
+        // One commit only -- the template rode in the initial commit -- and the pushed
+        // branch's tree carries the file with the body text.
+        assertThat(run(bareRemote, "git", "rev-list", "--count", found.defaultBranch()).strip()).isEqualTo("1");
+        assertThat(run(bareRemote, "git", "show", found.defaultBranch() + ":PROJECT_TEMPLATE.md"))
+                .isEqualTo(TEMPLATE.body());
+        assertThat(run(bareRemote, "git", "show", found.defaultBranch() + ":README.md")).contains("templated");
+    }
+
+    @Test
+    void setUpLocalRepoAndPushWithBootstrapAddsOneTemplateCommitOnTopOfTheInstallersTree(@TempDir Path tmp)
+            throws Exception {
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        ProjectCheckoutService service = serviceWithInstallCommand(tmp, STUB_INSTALLER);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("boot-templated");
+        ProjectRecord project = repository.create("boot-templated", bareRemote.toString(), workarea, 1L,
+                Instant.now(), TEMPLATE.name());
+
+        service.setUpLocalRepoAndPush(project, true, Map.of(), Optional.of(TEMPLATE));
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        // The installer's own commit is untouched underneath; the template is one extra
+        // commit above it, made under the same engine identity the installer ran with.
+        assertThat(run(bareRemote, "git", "log", "--format=%s", "main").strip().lines().toList())
+                .containsExactly("Add project template", "Bootstrap");
+        assertThat(run(workarea, "git", "log", "-1", "--format=%an %ae").strip()).isEqualTo("locklane locklane@local");
+        assertThat(run(bareRemote, "git", "show", "main:PROJECT_TEMPLATE.md")).isEqualTo(TEMPLATE.body());
+        assertThat(run(bareRemote, "git", "show", "main:README.md")).isEqualTo("hello\n");
+    }
+
+    @Test
+    void setUpLocalRepoAndPushWithoutATemplateWritesNoTemplateFile(@TempDir Path tmp) throws Exception {
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("plain");
+        ProjectRecord project = repository.create("plain", bareRemote.toString(), workarea, 1L, Instant.now());
+
+        service.setUpLocalRepoAndPush(project, false, Map.of(), Optional.empty());
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        assertThat(workarea.resolve("PROJECT_TEMPLATE.md")).doesNotExist();
+        assertThat(run(bareRemote, "git", "ls-tree", "--name-only", found.defaultBranch()).strip())
+                .isEqualTo("README.md");
     }
 
     @Test

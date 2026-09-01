@@ -3,7 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, EventEmitter, OnInit, Output, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Project } from '../../models/issue.model';
-import { GithubAccount, ProjectsService } from '../../services/projects.service';
+import { GithubAccount, ProjectTemplate, ProjectsService } from '../../services/projects.service';
 import { deriveProjectName } from './derive-project-name';
 
 export type AddProjectMode = 'import' | 'create';
@@ -13,6 +13,9 @@ export type AddProjectMode = 'import' | 'create';
 // GitHub repository from an org and a name, optionally bootstrapped with t-workflow.
 // Both forms carry a "GitHub account" picker (#532) listing the accounts `gh` is logged
 // into on the engine host, so the project acts as the chosen one from its first fetch.
+// The create form alone carries a "template" pull-down (#536) listing the project
+// templates on the engine host, defaulting to none; the chosen one is committed into
+// the new repository by the engine.
 @Component({
   selector: 'app-add-project-popup',
   standalone: true,
@@ -46,10 +49,20 @@ export class AddProjectPopupComponent implements OnInit {
   accountsLoaded = false;
   githubLogin: string | null = null;
 
+  // Template pull-down (#536), create tab only. `null` is the "none" option and the
+  // default, so creating without a template is exactly the pre-#536 request; a failed
+  // listing counts as "no templates", leaving the select with just "none".
+  templates: ProjectTemplate[] = [];
+  template: string | null = null;
+
   submitting = false;
   error: string | null = null;
 
   ngOnInit(): void {
+    this.projectsService.templates().subscribe({
+      next: (templates) => (this.templates = templates),
+      error: () => (this.templates = []),
+    });
     this.projectsService.githubAccounts().subscribe({
       next: (accounts) => {
         this.accounts = accounts;
@@ -67,6 +80,11 @@ export class AddProjectPopupComponent implements OnInit {
   /** Creating needs an account to create as; the template disables the create button on this (#532). */
   get canCreate(): boolean {
     return this.accountsLoaded && this.accounts.length > 0;
+  }
+
+  /** The chosen template's one-line description (#536), shown under the select; empty for "none". */
+  get templateDescription(): string {
+    return this.templates.find((t) => t.name === this.template)?.description ?? '';
   }
 
   setMode(mode: AddProjectMode): void {
@@ -123,7 +141,13 @@ export class AddProjectPopupComponent implements OnInit {
     this.submitting = true;
     this.error = null;
     this.projectsService
-      .createNew(this.org.trim(), this.newRepoName.trim(), this.bootstrapTWorkflow, this.chosenLogin())
+      .createNew(
+        this.org.trim(),
+        this.newRepoName.trim(),
+        this.bootstrapTWorkflow,
+        this.chosenLogin(),
+        this.template ?? undefined,
+      )
       .subscribe({
         next: (project) => {
           this.submitting = false;

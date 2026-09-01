@@ -31,6 +31,16 @@ login with:
 gh auth refresh -h github.com -s workflow
 ```
 
+Project templates live on the host too, one directory per template at
+`~/.locklane/templates/<name>/template.md`, where `<name>` is lowercase letters, digits
+and dashes. The file opens with a YAML frontmatter block carrying `title` (what the Add
+Project dialog's template pull-down shows) and `description` (one line, shown as that
+option's hint); everything after the frontmatter is the template itself — plain
+markdown describing how that kind of project should be built, which the engine commits
+as `PROJECT_TEMPLATE.md` into a project created from it and never runs. A few built-in
+templates ship inside the engine; a host directory with the same `<name>` as a built-in
+replaces it in the listing.
+
 ## Read first
 
 - `CONSTITUTION.md` — the invariants. Binding on every task.
