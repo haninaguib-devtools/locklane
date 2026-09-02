@@ -23,6 +23,23 @@ reimplements either, and it never touches `.github/workflows/release.yml` or
 
 ## Procedure
 
+0. **Ask, before anything else, if either argument is missing.** `<version>` is
+   required and `<next-version>` is optional — but "optional" means the human may
+   leave it off to accept the default, never that the skill fills either in on its own
+   guess:
+   - `<version>` missing → stop and ask for it. Reading `pom.xml`'s `<revision>` and
+     suggesting the version it implies (stripping `-SNAPSHOT`) as a default to
+     *confirm* is fine; treating that suggestion as given and proceeding without the
+     human confirming it is not.
+   - `<next-version>` not given → ask whether the human wants the default patch bump
+     or a specific override, and confirm the answer here — the same "suggestion, not a
+     silent decision" principle `docs/architecture/releasing.md` § Non-goals already
+     states for the bump default, applied at the entry point instead of only once
+     Step 5 is reached.
+
+   Both arguments resolved — given directly, or confirmed here — before continuing to
+   Step 1.
+
 1. **Gate, before any write.** Read `pom.xml`'s `<revision>` and confirm it equals
    `<version>-SNAPSHOT` exactly. Check `v<version>` does not already exist as a tag
    (`git tag -l v<version>`) or a release (`gh release view v<version>`). Either check
