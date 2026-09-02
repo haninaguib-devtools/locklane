@@ -4,6 +4,7 @@ import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.persistence.TestSqliteDatabases;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
+import dev.locklane.engine.ws.EventBroadcaster;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
@@ -13,9 +14,14 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class IssueControllerTest {
 
@@ -106,7 +112,7 @@ class IssueControllerTest {
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
         ProjectGhResources resources = new ProjectGhResources(projectRepository,
                 TestSqliteDatabases.newGhAccountRepository(root), tokenCipher, (path, token) -> client);
-        IssueController controller = new IssueController(resources);
+        IssueController controller = new IssueController(resources, mock(EventBroadcaster.class));
         // Warms the cache with the initial issue list.
         controller.tree(projectId, false);
 
@@ -116,6 +122,46 @@ class IssueControllerTest {
 
         assertThat(controller.tree(projectId, false).getBody()).extracting(TreeNode::number).containsExactly(1);
         assertThat(controller.tree(projectId, true).getBody()).extracting(TreeNode::number).containsExactlyInAnyOrder(1, 2);
+    }
+
+    @Test
+    void treeWithFreshTrueBroadcastsWhenTheRefreshChangesTheCache(@TempDir Path root) throws IOException {
+        long projectId = readyProject(root);
+        MutableGhClient client = new MutableGhClient(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
+        ProjectGhResources resources = new ProjectGhResources(projectRepository,
+                TestSqliteDatabases.newGhAccountRepository(root), tokenCipher, (path, token) -> client);
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        IssueController controller = new IssueController(resources, broadcaster);
+        // Warms the cache with the initial issue list.
+        controller.tree(projectId, false);
+
+        client.setIssues(List.of(
+                new GhIssue(1, "First", "OPEN", List.of(), "", "", ""),
+                new GhIssue(2, "Second", "OPEN", List.of(), "", "", "")));
+        controller.tree(projectId, true);
+
+        verify(broadcaster, times(1)).broadcast("issuesChanged", Map.of("projectId", projectId));
+    }
+
+    @Test
+    void treeWithFreshTrueDoesNotBroadcastWhenTheRefreshFindsNoChange(@TempDir Path root) throws IOException {
+        long projectId = readyProject(root);
+        FixedGhClient client = new FixedGhClient(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
+        ProjectGhResources resources = new ProjectGhResources(projectRepository,
+                TestSqliteDatabases.newGhAccountRepository(root), tokenCipher, (path, token) -> client);
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        IssueController controller = new IssueController(resources, broadcaster);
+        // Warms the cache with the initial issue list -- the forced refresh below fetches
+        // the exact same issues, so GhIssueCache.refresh() reports no change.
+        controller.tree(projectId, false);
+
+        controller.tree(projectId, true);
+
+        verifyNoInteractions(broadcaster);
     }
 
     private static long readyProject(Path root) {
@@ -129,7 +175,7 @@ class IssueControllerTest {
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
         ProjectGhResources resources = new ProjectGhResources(projectRepository,
                 TestSqliteDatabases.newGhAccountRepository(root), tokenCipher, (path, token) -> fake);
-        return new IssueController(resources);
+        return new IssueController(resources, mock(EventBroadcaster.class));
     }
 
     private static final class FixedGhClient implements GhClient {

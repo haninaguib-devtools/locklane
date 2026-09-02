@@ -102,8 +102,10 @@ describe('SidenavComponent', () => {
     return fixture;
   }
 
-  function flushTree(projectId: number, nodes: TreeNode[]): void {
-    httpMock.expectOne(`/api/projects/${projectId}/issues/tree`).flush(nodes);
+  function flushTree(projectId: number, nodes: TreeNode[], fresh = false): void {
+    httpMock
+      .expectOne(`/api/projects/${projectId}/issues/tree${fresh ? '?fresh=true' : ''}`)
+      .flush(nodes);
     flushConsoles();
   }
 
@@ -418,11 +420,31 @@ describe('SidenavComponent', () => {
       ...tree(),
       { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ];
-    flushTree(1, updated);
+    flushTree(1, updated, true);
 
     expect(fixture.componentInstance.refreshing).toBeFalse();
     const section = fixture.componentInstance.projectSections[0];
     expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 4, 5]);
+  });
+
+  it('refresh() requests the tree with fresh=true, bypassing the engine cache (#545)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/tree');
+    expect(req.request.params.get('fresh')).toBe('true');
+    req.flush(tree());
+    flushConsoles();
+  });
+
+  it('the initial load does not request fresh=true (#545)', () => {
+    init();
+    const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/tree');
+    expect(req.request.params.has('fresh')).toBeFalse();
+    req.flush(tree());
+    flushConsoles();
   });
 
   it('refresh() is a no-op while a refresh is already in flight', () => {
@@ -434,7 +456,7 @@ describe('SidenavComponent', () => {
 
     // Only one in-flight request pair: the second refresh() call was a no-op.
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
-    flushTree(1, tree());
+    flushTree(1, tree(), true);
     expect(fixture.componentInstance.refreshing).toBeFalse();
   });
 
@@ -444,7 +466,7 @@ describe('SidenavComponent', () => {
 
     fixture.componentInstance.refresh();
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
-    httpMock.expectOne('/api/projects/1/issues/tree').error(new ProgressEvent('network error'));
+    httpMock.expectOne('/api/projects/1/issues/tree?fresh=true').error(new ProgressEvent('network error'));
 
     expect(fixture.componentInstance.refreshing).toBeFalse();
     expect(fixture.componentInstance.error).toBeTrue();
@@ -503,7 +525,7 @@ describe('SidenavComponent', () => {
 
     httpMock.expectOne('/api/projects/1/retry').flush({ ...PROJECT_A });
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
-    flushTree(1, tree());
+    flushTree(1, tree(), true);
   });
 
   it('deleteProject awaits confirmation in the dialog before calling delete', () => {

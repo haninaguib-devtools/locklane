@@ -1,5 +1,6 @@
 package dev.locklane.engine.github;
 
+import dev.locklane.engine.ws.EventBroadcaster;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -27,9 +28,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>Since #81, {@link IssueController} resolves everything through
  * {@link ProjectGhResources} rather than injecting {@code GhIssueCache} et al.
- * directly (they are no longer Spring beans, built per project instead) — so that
- * is the one thing this slice mocks, with real per-project services wired to a
- * {@link FixedGhClient} behind it.
+ * directly (they are no longer Spring beans, built per project instead) — so that,
+ * plus {@link EventBroadcaster} (a plain {@code @Component} a {@code @WebMvcTest}
+ * slice does not pull in on its own), is what this slice mocks, with real
+ * per-project services wired to a {@link FixedGhClient} behind it.
  */
 @WebMvcTest(IssueController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -40,6 +42,9 @@ class IssueControllerRoutingTest {
 
     @MockitoBean
     private ProjectGhResources resources;
+
+    @MockitoBean
+    private EventBroadcaster eventBroadcaster;
 
     @Test
     void treeRouteResolvesToTheTreeEndpoint() throws Exception {
