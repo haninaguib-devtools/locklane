@@ -1,6 +1,7 @@
 package dev.locklane.engine.github;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.persistence.GhAccountRepository;
 import dev.locklane.engine.persistence.ProjectRecord;
 import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.persistence.TestSqliteDatabases;
@@ -16,6 +17,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,9 +66,12 @@ class ProjectGhResourcesTest {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
         ProjectRecord project = readyProject(repository, dataDir, "myproj");
         TokenCipher cipher = new TokenCipher(new EncryptionKeyProvider(dataDir.toString()));
-        repository.setGithubToken(project.id(), cipher.encrypt("ghp_secret"));
+        GhAccountRepository ghAccountRepository = TestSqliteDatabases.newGhAccountRepository(dataDir);
+        GhAccount account = ghAccountRepository.insert(1L, "work", cipher.encrypt("ghp_secret"), Set.of("repo"),
+                Instant.now());
+        repository.setGithubAccountId(project.id(), account.id());
         RecordingFactory factory = new RecordingFactory();
-        ProjectGhResources resources = new ProjectGhResources(repository, cipher, factory);
+        ProjectGhResources resources = new ProjectGhResources(repository, ghAccountRepository, cipher, factory);
 
         resources.forProject(project.id());
 
@@ -137,7 +142,7 @@ class ProjectGhResourcesTest {
         ProjectRecord project = readyProject(repository, dataDir, "myproj");
         VariableGhClient client = new VariableGhClient();
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
-        ProjectGhResources resources = new ProjectGhResources(repository,
+        ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
                 new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> client);
         resources.forProject(project.id());
         resources.refreshAll(); // warms the cache -- moving from unknown to known always "changes"
@@ -155,7 +160,7 @@ class ProjectGhResourcesTest {
         VariableGhClient client = new VariableGhClient();
         client.setIssues(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
-        ProjectGhResources resources = new ProjectGhResources(repository,
+        ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
                 new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> client);
         resources.forProject(project.id());
         resources.refreshAll(); // warms the cache
@@ -169,7 +174,7 @@ class ProjectGhResourcesTest {
     void refreshAllNeverBroadcastsForAProjectThatWasNeverLookedUp(@TempDir Path dataDir) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
-        ProjectGhResources resources = new ProjectGhResources(repository,
+        ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
                 new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> new VariableGhClient());
 
         resources.refreshAll();
@@ -183,7 +188,8 @@ class ProjectGhResourcesTest {
 
     private static ProjectGhResources resources(Path dataDir, ProjectRepository repository,
             java.util.function.BiFunction<Path, String, GhClient> factory) throws IOException {
-        return new ProjectGhResources(repository, new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), factory);
+        return new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), factory);
     }
 
     private static GhClient failIfCalled() {

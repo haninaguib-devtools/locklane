@@ -776,7 +776,7 @@ describe('AppComponent', () => {
     const items = Array.from(compiled.querySelectorAll('.account-item')).map((el) =>
       el.textContent?.trim(),
     );
-    expect(items).toEqual(['Settings', 'Sign out']);
+    expect(items).toEqual(['Settings', 'GitHub accounts', 'Sign out']);
 
     compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
     fixture.detectChanges();
@@ -793,7 +793,7 @@ describe('AppComponent', () => {
     const items = Array.from(compiled.querySelectorAll('.account-item')).map((el) =>
       el.textContent?.trim(),
     );
-    expect(items).toEqual(['Settings', 'Manage users', 'Sign out']);
+    expect(items).toEqual(['Settings', 'GitHub accounts', 'Manage users', 'Sign out']);
   }));
 
   it('opens the admin-users panel from the menu and closes it again (#240)', fakeAsync(() => {
@@ -802,7 +802,7 @@ describe('AppComponent', () => {
 
     compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
     fixture.detectChanges();
-    compiled.querySelectorAll<HTMLButtonElement>('.account-item')[1].click();
+    compiled.querySelectorAll<HTMLButtonElement>('.account-item')[2].click();
     fixture.detectChanges();
 
     expect(compiled.querySelector('app-admin-users')).toBeTruthy();
@@ -815,6 +815,27 @@ describe('AppComponent', () => {
     fixture.componentInstance.closeAdminUsers();
     fixture.detectChanges();
     expect(compiled.querySelector('app-admin-users')).toBeFalsy();
+  }));
+
+  it('opens the GitHub accounts panel from the menu and closes it again (#550)', fakeAsync(() => {
+    const fixture = openedApp();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
+    fixture.detectChanges();
+    compiled.querySelectorAll<HTMLButtonElement>('.account-item')[1].click();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-github-accounts')).toBeTruthy();
+    // Opening the panel closes the menu behind it, same as Settings.
+    expect(compiled.querySelector('.account-menu')).toBeFalsy();
+
+    httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
+    fixture.detectChanges();
+
+    fixture.componentInstance.closeGithubAccounts();
+    fixture.detectChanges();
+    expect(compiled.querySelector('app-github-accounts')).toBeFalsy();
   }));
 
   it('dismisses the account menu on an outside click', fakeAsync(() => {
@@ -858,7 +879,7 @@ describe('AppComponent', () => {
 
     compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
     fixture.detectChanges();
-    compiled.querySelectorAll<HTMLButtonElement>('.account-item')[1].click();
+    compiled.querySelectorAll<HTMLButtonElement>('.account-item')[2].click();
 
     httpMock.expectOne('/api/auth/logout').flush(null);
     fixture.detectChanges();

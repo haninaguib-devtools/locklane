@@ -1,54 +1,199 @@
 package dev.locklane.engine.github;
 
+import dev.locklane.engine.persistence.TestSqliteDatabases;
+import dev.locklane.engine.persistence.UserRecord;
+import dev.locklane.engine.persistence.UserRepository;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Security filters are off here (like {@code InstalledAgentsControllerTest}) — this
- * slice checks routing and the JSON shape; {@link GhAccountsRouteIntegrationTest}
- * covers the authentication gate over the real filter chain.
+ * Plain calls into {@link GhAccountsController}, the same style
+ * {@code ProjectControllerTest} uses — no MockMvc, so no need for the security
+ * filter chain (that gate is {@link GhAccountsRouteIntegrationTest}'s job) or for a
+ * populated {@code SecurityContext}; the caller's identity is passed directly as an
+ * {@link Authentication}, resolved to a real row so {@code currentUser} can find it.
  */
-@WebMvcTest(GhAccountsController.class)
-@AutoConfigureMockMvc(addFilters = false)
 class GhAccountsControllerTest {
 
-    @Autowired
-    private MockMvc mockMvc;
-
-    @MockitoBean
-    private GhAccountsService service;
+    private static final GhAccount ACCOUNT = new GhAccount(7, 1, "haninaguib", Set.of("repo", "workflow"),
+            Instant.parse("2026-08-01T00:00:00Z"));
 
     @Test
-    void servesTheAccountsAsJsonInOrderWithTheActiveFlag() throws Exception {
-        when(service.accounts()).thenReturn(List.of(
-                new GhAccount("haninaguib", true), new GhAccount("hani-thyme", false)));
+    void listsTheCallersAccountsAsJson(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        when(service.accountsFor(1L)).thenReturn(List.of(ACCOUNT));
+        Caller caller = user(tmp, "alice");
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
 
-        mockMvc.perform(get("/api/github/accounts"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accounts.length()").value(2))
-                .andExpect(jsonPath("$.accounts[0].login").value("haninaguib"))
-                .andExpect(jsonPath("$.accounts[0].active").value(true))
-                .andExpect(jsonPath("$.accounts[1].login").value("hani-thyme"))
-                .andExpect(jsonPath("$.accounts[1].active").value(false));
+        GhAccountsController.AccountsResponse response = controller.list(caller.authentication());
+
+        assertThat(response.accounts()).hasSize(1);
+        assertThat(response.accounts().get(0).login()).isEqualTo("haninaguib");
+        assertThat(response.accounts().get(0).hasWorkflowScope()).isTrue();
+        assertThat(response.accounts().get(0).scopes()).containsExactlyInAnyOrder("repo", "workflow");
     }
 
     @Test
-    void servesAnEmptyListWhenThereAreNoAccounts() throws Exception {
-        when(service.accounts()).thenReturn(List.of());
+    void addByTokenReturns201WithTheAccount(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.addByToken(caller.id(), "ghp_pasted")).thenReturn(new GhAccountsService.AddResult.Added(ACCOUNT));
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
 
-        mockMvc.perform(get("/api/github/accounts"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accounts.length()").value(0));
+        ResponseEntity<?> response = controller.addByToken(
+                new GhAccountsController.AddTokenRequest("ghp_pasted"), caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(((GhAccountsController.AccountView) response.getBody()).login()).isEqualTo("haninaguib");
+    }
+
+    @Test
+    void addByTokenReturns400WhenInvalid(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.addByToken(caller.id(), "bad")).thenReturn(
+                new GhAccountsService.AddResult.Invalid("could not verify this token with GitHub"));
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        ResponseEntity<?> response = controller.addByToken(
+                new GhAccountsController.AddTokenRequest("bad"), caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(((Map<?, ?>) response.getBody()).get("error")).isEqualTo("could not verify this token with GitHub");
+    }
+
+    @Test
+    void startDeviceFlowReturns201WithTheCode(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.startDeviceFlow(caller.id())).thenReturn(new GhAccountsService.DeviceFlowStartResult.Started(
+                "flow-1", "ABCD-1234", "https://github.com/login/device", 900));
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        ResponseEntity<?> response = controller.startDeviceFlow(caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        GhAccountsController.DeviceFlowStartedView body = (GhAccountsController.DeviceFlowStartedView) response.getBody();
+        assertThat(body.flowId()).isEqualTo("flow-1");
+        assertThat(body.userCode()).isEqualTo("ABCD-1234");
+    }
+
+    @Test
+    void startDeviceFlowReturns501WhenNotConfigured(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.startDeviceFlow(caller.id())).thenReturn(new GhAccountsService.DeviceFlowStartResult.NotConfigured());
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        ResponseEntity<?> response = controller.startDeviceFlow(caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_IMPLEMENTED);
+    }
+
+    @Test
+    void startDeviceFlowReturns502WhenGitHubCannotBeReached(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.startDeviceFlow(caller.id())).thenReturn(
+                new GhAccountsService.DeviceFlowStartResult.Failed("could not reach GitHub to start sign-in"));
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        ResponseEntity<?> response = controller.startDeviceFlow(caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+    }
+
+    @Test
+    void deviceFlowStatusReturnsTheCurrentState(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.statusOf(caller.id(), "flow-1")).thenReturn(Optional.of(new GhAccountsService.DeviceFlowStatus(
+                GhAccountsService.DeviceFlowStatus.Status.COMPLETE, ACCOUNT, null)));
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        ResponseEntity<?> response = controller.deviceFlowStatus("flow-1", caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        GhAccountsController.DeviceFlowStatusView body = (GhAccountsController.DeviceFlowStatusView) response.getBody();
+        assertThat(body.status()).isEqualTo("COMPLETE");
+        assertThat(body.account().login()).isEqualTo("haninaguib");
+    }
+
+    @Test
+    void deviceFlowStatusOnAnUnknownFlowIsNotFound(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.statusOf(caller.id(), "unknown")).thenReturn(Optional.empty());
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        ResponseEntity<?> response = controller.deviceFlowStatus("unknown", caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void removeIsNoContentOnSuccess(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.remove(caller.id(), 7L)).thenReturn(new GhAccountsService.RemoveResult.Removed());
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        ResponseEntity<?> response = controller.remove(7L, caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    void removeIsNotFoundForAnUnknownAccount(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.remove(caller.id(), 999L)).thenReturn(new GhAccountsService.RemoveResult.NotFound());
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        ResponseEntity<?> response = controller.remove(999L, caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void removeIsConflictWhenStillInUse(@TempDir Path tmp) throws Exception {
+        GhAccountsService service = mock(GhAccountsService.class);
+        Caller caller = user(tmp, "alice");
+        when(service.remove(caller.id(), 7L)).thenReturn(new GhAccountsService.RemoveResult.InUse(List.of("my-project")));
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        ResponseEntity<?> response = controller.remove(7L, caller.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(((Map<?, ?>) response.getBody()).get("error").toString()).contains("my-project");
+    }
+
+    private static UserRepository userRepository(Path tmp) {
+        return TestSqliteDatabases.newUserRepository(tmp);
+    }
+
+    private static Caller user(Path tmp, String username) {
+        UserRecord created =
+                TestSqliteDatabases.newUserRepository(tmp).create(username, "bcrypt-hash", Instant.now(), UserRecord.Role.USER);
+        Authentication authentication = new UsernamePasswordAuthenticationToken(username, null, List.of());
+        return new Caller(created.id(), authentication);
+    }
+
+    private record Caller(long id, Authentication authentication) {
     }
 }

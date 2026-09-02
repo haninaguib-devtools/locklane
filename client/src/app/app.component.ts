@@ -13,6 +13,7 @@ import { ProjectConsoleComponent } from './components/project-console/project-co
 import { ShellsWindowComponent } from './components/shells-window/shells-window.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
 import { AdminUsersComponent } from './components/admin-users/admin-users.component';
+import { GithubAccountsComponent } from './components/github-accounts/github-accounts.component';
 import { AddProjectPopupComponent } from './components/add-project-popup/add-project-popup.component';
 import { UpdateBannerComponent } from './components/update-banner/update-banner.component';
 import { ReleaseBannerComponent } from './components/release-banner/release-banner.component';
@@ -38,6 +39,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     ConsoleIndicatorComponent,
     SettingsDialogComponent,
     AdminUsersComponent,
+    GithubAccountsComponent,
     ProjectConsoleComponent,
     ShellsWindowComponent,
     AddProjectPopupComponent,
@@ -77,12 +79,13 @@ export class AppComponent {
   // enforced server-side regardless of what this signal says.
   readonly isAdmin = this.auth.isAdmin;
 
-  // The header's account menu (#90) and the settings/admin-users dialogs it opens.
-  // All plain fields rather than signals: nothing derives from them, and the
-  // template reads them directly.
+  // The header's account menu (#90) and the settings/admin-users/github-accounts
+  // dialogs it opens. All plain fields rather than signals: nothing derives from
+  // them, and the template reads them directly.
   menuOpen = false;
   settingsOpen = false;
   adminUsersOpen = false;
+  githubAccountsOpen = false;
 
   // The add-project popup (#227) can be opened from the header button or from the
   // overview's zero-project CTA, so its state lives here rather than in either opener.
@@ -237,6 +240,15 @@ export class AppComponent {
 
   closeAdminUsers(): void {
     this.adminUsersOpen = false;
+  }
+
+  openGithubAccounts(): void {
+    this.menuOpen = false;
+    this.githubAccountsOpen = true;
+  }
+
+  closeGithubAccounts(): void {
+    this.githubAccountsOpen = false;
   }
 
   openAddProject(): void {

@@ -436,13 +436,22 @@ class WorktreeCreationServiceTest {
         IssueWorktreeService worktreeService =
                 new IssueWorktreeService(repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources ghResources =
-                new ProjectGhResources(projectRepository, tokenCipher(), (path, token) -> new FixedGhClient(issues));
+                new ProjectGhResources(projectRepository, ghAccountRepository(), tokenCipher(),
+                        (path, token) -> new FixedGhClient(issues));
         return new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository);
     }
 
     private static TokenCipher tokenCipher() {
         try {
             return new TokenCipher(new EncryptionKeyProvider(Files.createTempDirectory("gh-key").toString()));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static GhAccountRepository ghAccountRepository() {
+        try {
+            return TestSqliteDatabases.newGhAccountRepository(Files.createTempDirectory("gh-accounts"));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

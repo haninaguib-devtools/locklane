@@ -251,7 +251,7 @@ class ProjectWorktreesServiceTest {
         GhIssue issue = new GhIssue(issueNumber, title, "OPEN", List.of(), "", "", "");
         IssueWorktreeService worktreeService =
                 new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
-        ProjectGhResources creationGhResources = new ProjectGhResources(fx.projectRepository, tokenCipher(),
+        ProjectGhResources creationGhResources = new ProjectGhResources(fx.projectRepository, ghAccountRepository(), tokenCipher(),
                 (path, token) -> new FixedGhClient(List.of(issue)));
         WorktreeCreationService creationService =
                 new WorktreeCreationService(creationGhResources, worktreeService, fx.projectRepository, fx.repository);
@@ -277,7 +277,8 @@ class ProjectWorktreesServiceTest {
         IssueWorktreeService worktreeService =
                 new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources ghResources =
-                new ProjectGhResources(fx.projectRepository, tokenCipher(), (path, token) -> new FixedGhClient(issues));
+                new ProjectGhResources(fx.projectRepository, ghAccountRepository(), tokenCipher(),
+                (path, token) -> new FixedGhClient(issues));
         WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, fx.projectRepository, ghResources, sessionRegistry);
         return new ProjectWorktreesService(worktreeService, sweeper, sessionRegistry);
     }
@@ -285,6 +286,14 @@ class ProjectWorktreesServiceTest {
     private static TokenCipher tokenCipher() {
         try {
             return new TokenCipher(new EncryptionKeyProvider(Files.createTempDirectory("gh-key").toString()));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static GhAccountRepository ghAccountRepository() {
+        try {
+            return TestSqliteDatabases.newGhAccountRepository(Files.createTempDirectory("gh-accounts"));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

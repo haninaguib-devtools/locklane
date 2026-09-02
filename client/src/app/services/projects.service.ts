@@ -3,10 +3,13 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { Project } from '../models/issue.model';
 
-/** One GitHub account `gh` is logged into on the engine host (#532), and whether it is the active one. */
+/** One GitHub account the caller has signed in to Locklane (#550) — never carries its token. */
 export interface GithubAccount {
+  id: number;
   login: string;
-  active: boolean;
+  scopes: string[];
+  hasWorkflowScope: boolean;
+  createdAt: string;
 }
 
 /** One project template on the engine host (#536): its directory name, and the frontmatter's title and description. */
@@ -26,26 +29,28 @@ export class ProjectsService {
 
   /**
    * Creates a project and kicks off its async clone (#42); a blank name is derived
-   * server-side. `githubLogin` (#532) names the host `gh` account the project acts
-   * as; omitted, the request carries no such field and the engine behaves as before.
+   * server-side. `githubAccountId` (#550) names one of the caller's own GitHub
+   * accounts for the project to act as; omitted, the request carries no such field
+   * and the project has no GitHub credentials of its own.
    */
-  create(gitUrl: string, name: string, githubLogin?: string): Observable<Project> {
-    return this.http.post<Project>('/api/projects', withLogin({ gitUrl, name }, githubLogin));
+  create(gitUrl: string, name: string, githubAccountId?: number): Observable<Project> {
+    return this.http.post<Project>('/api/projects', withAccount({ gitUrl, name }, githubAccountId));
   }
 
   /**
    * Creates a brand-new GitHub repository and registers it, async like `create` (#491);
-   * `githubLogin` as there. `template` (#536) names a project template on the engine
-   * host to commit into the new repository; omitted, the request carries no such field.
+   * `githubAccountId` as there. `template` (#536) names a project template on the
+   * engine host to commit into the new repository; omitted, the request carries no
+   * such field.
    */
   createNew(
     org: string,
     name: string,
     bootstrapTWorkflow: boolean,
-    githubLogin?: string,
+    githubAccountId?: number,
     template?: string,
   ): Observable<Project> {
-    const body = withLogin({ org, name, bootstrapTWorkflow }, githubLogin);
+    const body = withAccount({ org, name, bootstrapTWorkflow }, githubAccountId);
     return this.http.post<Project>('/api/projects/new', template ? { ...body, template } : body);
   }
 
@@ -56,7 +61,7 @@ export class ProjectsService {
       .pipe(map((response) => response.templates ?? []));
   }
 
-  /** The `gh` accounts on the engine host (#532), in gh's own order; empty when there are none or gh is missing. */
+  /** The caller's own GitHub accounts (#550), newest first; empty when they have added none. */
   githubAccounts(): Observable<GithubAccount[]> {
     return this.http
       .get<{ accounts: GithubAccount[] }>('/api/github/accounts')
@@ -78,7 +83,10 @@ export class ProjectsService {
   }
 }
 
-/** The request body with `githubLogin` added only when one was chosen — never as an empty string. */
-function withLogin<T extends object>(body: T, githubLogin: string | undefined): T & { githubLogin?: string } {
-  return githubLogin ? { ...body, githubLogin } : body;
+/** The request body with `githubAccountId` added only when one was chosen. */
+function withAccount<T extends object>(
+  body: T,
+  githubAccountId: number | undefined,
+): T & { githubAccountId?: number } {
+  return githubAccountId ? { ...body, githubAccountId } : body;
 }

@@ -8,7 +8,9 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -17,10 +19,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * #532's "authenticated endpoint" done-when over the real security filter chain:
- * {@code SecurityConfig} ends in {@code permitAll}, so this is the test that proves the
- * {@code /api/github/**} matcher exists — without it the host's list of GitHub logins
- * would be served to anyone. The service is mocked so no real {@code gh} runs.
+ * #550's "authenticated endpoint" done-when over the real security filter chain:
+ * {@code SecurityConfig} ends in {@code permitAll}, so this is the test that proves
+ * the {@code /api/github/accounts/**} matcher exists — without it a caller's GitHub
+ * accounts would be served to anyone. The service is mocked so no real GitHub or
+ * {@code gh} is ever reached.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -38,8 +41,14 @@ class GhAccountsRouteIntegrationTest {
     }
 
     @Test
-    void aLoggedInCallerGetsTheAccounts() throws Exception {
-        when(service.accounts()).thenReturn(List.of(new GhAccount("haninaguib", true)));
+    void anUnauthenticatedCallerCannotStartADeviceFlow() throws Exception {
+        mockMvc.perform(post("/api/github/accounts/device/start")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aLoggedInCallerGetsTheirAccounts() throws Exception {
+        when(service.accountsFor(org.mockito.ArgumentMatchers.anyLong())).thenReturn(List.of(
+                new GhAccount(1, 1, "haninaguib", Set.of("repo"), Instant.parse("2026-08-01T00:00:00Z"))));
         var loginResult = mockMvc.perform(post("/api/auth/login")
                         .param("username", "test-user")
                         .param("password", "test-password"))
@@ -49,7 +58,6 @@ class GhAccountsRouteIntegrationTest {
         mockMvc.perform(get("/api/github/accounts")
                         .session((MockHttpSession) loginResult.getRequest().getSession(false)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accounts[0].login").value("haninaguib"))
-                .andExpect(jsonPath("$.accounts[0].active").value(true));
+                .andExpect(jsonPath("$.accounts[0].login").value("haninaguib"));
     }
 }

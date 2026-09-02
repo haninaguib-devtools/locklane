@@ -1,33 +1,123 @@
 package dev.locklane.engine.github;
 
+import dev.locklane.engine.persistence.UserRecord;
+import dev.locklane.engine.persistence.UserRepository;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
- * Serves the Add Project dialog's "GitHub account" picker (#532) the accounts
- * {@code gh} is logged into on the engine host, with which one is active. Gated as
- * authenticated in {@code SecurityConfig} — account-scoped like
- * {@code /api/agents/installed}, not project-scoped: it describes the host, not a
- * project.
+ * The GitHub accounts page (#550): list the accounts the caller has signed in to
+ * Locklane, add one by pasting a token or by GitHub's OAuth device flow, remove
+ * one. Gated as authenticated in {@code SecurityConfig} — account-scoped, not
+ * project-scoped, like {@code /api/agents/installed}; every method below is further
+ * scoped to the caller's own accounts (ADR-105), the same shape
+ * {@code ProjectController} uses.
  */
 @RestController
-@RequestMapping("/api/github")
+@RequestMapping("/api/github/accounts")
 public class GhAccountsController {
 
     private final GhAccountsService service;
+    private final UserRepository userRepository;
 
-    public GhAccountsController(GhAccountsService service) {
+    public GhAccountsController(GhAccountsService service, UserRepository userRepository) {
         this.service = service;
+        this.userRepository = userRepository;
     }
 
-    @GetMapping("/accounts")
-    public GhAccountsResponse accounts() {
-        return new GhAccountsResponse(service.accounts());
+    @GetMapping
+    public AccountsResponse list(Authentication authentication) {
+        List<AccountView> accounts = service.accountsFor(currentUser(authentication).id()).stream()
+                .map(AccountView::from).toList();
+        return new AccountsResponse(accounts);
     }
 
-    record GhAccountsResponse(List<GhAccount> accounts) {
+    @PostMapping("/token")
+    public ResponseEntity<?> addByToken(@RequestBody AddTokenRequest request, Authentication authentication) {
+        GhAccountsService.AddResult result = service.addByToken(currentUser(authentication).id(), request.token());
+        return switch (result) {
+            case GhAccountsService.AddResult.Added added ->
+                    ResponseEntity.status(HttpStatus.CREATED).body(AccountView.from(added.account()));
+            case GhAccountsService.AddResult.Invalid invalid ->
+                    ResponseEntity.badRequest().body(Map.of("error", invalid.message()));
+        };
+    }
+
+    @PostMapping("/device/start")
+    public ResponseEntity<?> startDeviceFlow(Authentication authentication) {
+        GhAccountsService.DeviceFlowStartResult result = service.startDeviceFlow(currentUser(authentication).id());
+        return switch (result) {
+            case GhAccountsService.DeviceFlowStartResult.Started started -> ResponseEntity.status(HttpStatus.CREATED)
+                    .body(new DeviceFlowStartedView(started.flowId(), started.userCode(), started.verificationUri(),
+                            started.expiresInSeconds()));
+            case GhAccountsService.DeviceFlowStartResult.NotConfigured ignored -> ResponseEntity
+                    .status(HttpStatus.NOT_IMPLEMENTED)
+                    .body(Map.of("error", "no GitHub OAuth App is configured on this host "
+                            + "(locklane.github.oauth-client-id) — paste a token instead, or ask the operator to "
+                            + "set one up"));
+            case GhAccountsService.DeviceFlowStartResult.Failed failed ->
+                    ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", failed.message()));
+        };
+    }
+
+    @GetMapping("/device/{flowId}")
+    public ResponseEntity<?> deviceFlowStatus(@PathVariable String flowId, Authentication authentication) {
+        return service.statusOf(currentUser(authentication).id(), flowId)
+                .map(status -> ResponseEntity.ok(DeviceFlowStatusView.from(status)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> remove(@PathVariable long id, Authentication authentication) {
+        GhAccountsService.RemoveResult result = service.remove(currentUser(authentication).id(), id);
+        return switch (result) {
+            case GhAccountsService.RemoveResult.Removed ignored -> ResponseEntity.noContent().build();
+            case GhAccountsService.RemoveResult.NotFound ignored -> ResponseEntity.notFound().build();
+            case GhAccountsService.RemoveResult.InUse inUse -> ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    Map.of("error", "still used by " + String.join(", ", inUse.projectNames())
+                            + " — pick a different account for " + (inUse.projectNames().size() == 1 ? "it" : "them")
+                            + " first"));
+        };
+    }
+
+    private UserRecord currentUser(Authentication authentication) {
+        return userRepository.findByUsername(authentication.getName())
+                .orElseThrow(() -> new IllegalStateException(
+                        "authenticated as '" + authentication.getName() + "' but no such user row exists"));
+    }
+
+    record AccountsResponse(List<AccountView> accounts) {
+    }
+
+    record AddTokenRequest(String token) {
+    }
+
+    /** The API shape of a {@link GhAccount} — never its token. */
+    record AccountView(long id, String login, List<String> scopes, boolean hasWorkflowScope, String createdAt) {
+        static AccountView from(GhAccount account) {
+            return new AccountView(account.id(), account.login(), List.copyOf(account.scopes()),
+                    account.hasWorkflowScope(), account.createdAt().toString());
+        }
+    }
+
+    record DeviceFlowStartedView(String flowId, String userCode, String verificationUri, int expiresInSeconds) {
+    }
+
+    record DeviceFlowStatusView(String status, AccountView account, String errorMessage) {
+        static DeviceFlowStatusView from(GhAccountsService.DeviceFlowStatus status) {
+            return new DeviceFlowStatusView(status.status().name(),
+                    status.account() == null ? null : AccountView.from(status.account()), status.errorMessage());
+        }
     }
 }
