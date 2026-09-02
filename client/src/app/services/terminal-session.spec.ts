@@ -277,6 +277,26 @@ describe('TerminalSession', () => {
     expect(latestSocket().sent).toEqual(['1200x50']);
   });
 
+  it('resends the size it already holds on resendSize(), even though nothing changed (#574)', () => {
+    const { session, socket } = connect(80, 24);
+    socket.onopen?.();
+    socket.sent = [];
+
+    session.resendSize();
+
+    expect(socket.sent).toEqual(['180x24']);
+  });
+
+  it('resends nothing when it holds no size yet (#574)', () => {
+    const { session, socket } = connect();
+    socket.onopen?.();
+    socket.sent = [];
+
+    session.resendSize();
+
+    expect(socket.sent).toEqual([]);
+  });
+
   it('tags a focus notification with the focus type and no body (#130)', () => {
     const { session, socket } = connect();
 

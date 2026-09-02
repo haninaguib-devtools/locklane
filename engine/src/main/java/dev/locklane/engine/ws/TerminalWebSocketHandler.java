@@ -69,6 +69,10 @@ import java.util.regex.Pattern;
  * '2'} for a focus notification (#130, carries no body) — so a keystroke's own bytes
  * are never mistaken for the tag: the client wraps every message it sends rather than
  * ever forwarding raw terminal bytes on their own.
+ *
+ * <p>With several clients attached to one session, the PTY's size follows the client
+ * that most recently reported focus (#574) — see {@link AttachmentSizeArbiter}; a
+ * resize from any other attachment is held until that attachment reports focus.
  */
 @Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
@@ -83,6 +87,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     private final ProjectConsoleService projectConsoleService;
     private final WorktreeSessionAuthorization authorization;
     private final TerminalHeartbeat heartbeat;
+    private final AttachmentSizeArbiter sizeArbiter = new AttachmentSizeArbiter();
     private final Map<String, AutoCloseable> subscriptions = new ConcurrentHashMap<>();
 
     @Autowired
@@ -191,26 +196,32 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             if (type == INPUT) {
                 session.write(body);
             } else if (type == RESIZE) {
-                resize(session, body);
+                parseSize(body).flatMap(size -> sizeArbiter.resized(sessionId, wsSession.getId(), size))
+                        .ifPresent(size -> session.resize(size.columns(), size.rows()));
             } else if (type == FOCUS) {
                 session.markFocused();
+                // This attachment is the one the user is looking at now (#574): the
+                // PTY takes its size, even one it reported while unfocused.
+                sizeArbiter.focused(sessionId, wsSession.getId())
+                        .ifPresent(size -> session.resize(size.columns(), size.rows()));
             }
         });
     }
 
-    /** {@code body} is {@code "<columns>x<rows>"} (e.g. {@code "120x40"}); malformed is ignored. */
-    private static void resize(PtySession session, String body) {
+    /** {@code body} is {@code "<columns>x<rows>"} (e.g. {@code "120x40"}); malformed is empty. */
+    private static Optional<AttachmentSizeArbiter.Size> parseSize(String body) {
         int separator = body.indexOf('x');
         if (separator < 0) {
-            return;
+            return Optional.empty();
         }
         try {
             int columns = Integer.parseInt(body.substring(0, separator));
             int rows = Integer.parseInt(body.substring(separator + 1));
-            session.resize(columns, rows);
+            return Optional.of(new AttachmentSizeArbiter.Size(columns, rows));
         } catch (NumberFormatException ignored) {
             // silent: not a resize this handler can act on; nothing productive to do
             // with it.
+            return Optional.empty();
         }
     }
 
@@ -221,6 +232,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             subscription.close();
         }
         heartbeat.untrack(wsSession);
+        sizeArbiter.detached(sessionId(wsSession), wsSession.getId());
         // No call into SessionRegistry/PtySession here, deliberately: this connection
         // closing must never stop the session itself.
     }

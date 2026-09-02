@@ -177,6 +177,16 @@ export class TerminalSession {
     this.sendSize();
   }
 
+  /**
+   * Re-asserts the size the terminal already holds (#574) -- for a window coming back
+   * to the foreground, whose size may have been overridden on the engine by another
+   * attached client while it was away. xterm's onResize only fires on a *change*, so
+   * a size that is still correct locally would otherwise never be sent again.
+   */
+  resendSize(): void {
+    this.sendSize();
+  }
+
   /** Tells the engine the size the browser terminal is at, if one is known yet. */
   private sendSize(): void {
     if (this.cols === null || this.rows === null) {
