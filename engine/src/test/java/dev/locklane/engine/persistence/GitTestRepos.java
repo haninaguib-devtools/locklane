@@ -19,22 +19,40 @@ final class GitTestRepos {
 
     /** A minimal local repo with an "origin" remote and a main branch — no network. */
     static Path initTestRepo(Path dir) throws IOException, InterruptedException {
+        return initTestRepo(dir, "main");
+    }
+
+    /**
+     * Same, with the trunk named {@code trunk} instead of {@code main} — no {@code main}
+     * exists anywhere in it, locally or on origin (#582): what a project created by a
+     * plain {@code git init} on a host with no {@code init.defaultBranch} looks like
+     * ({@code master}), or an imported repository with any other trunk name.
+     */
+    static Path initTestRepo(Path dir, String trunk) throws IOException, InterruptedException {
         Files.createDirectories(dir);
         Path bare = dir.resolve("origin.git");
         Path work = dir.resolve("work");
         Files.createDirectories(work);
 
-        run(dir, "git", "init", "--bare", "-b", "main", bare.toString());
-        run(dir, "git", "init", "-b", "main", work.toString());
+        run(dir, "git", "init", "--bare", "-b", trunk, bare.toString());
+        run(dir, "git", "init", "-b", trunk, work.toString());
         run(work, "git", "config", "user.email", "test@example.com");
         run(work, "git", "config", "user.name", "Test");
         Files.writeString(work.resolve("README.md"), "test repo");
         run(work, "git", "add", "README.md");
         run(work, "git", "commit", "-m", "initial commit");
         run(work, "git", "remote", "add", "origin", bare.toString());
-        run(work, "git", "push", "origin", "main");
-        run(work, "git", "branch", "--set-upstream-to=origin/main", "main");
+        run(work, "git", "push", "origin", trunk);
+        run(work, "git", "branch", "--set-upstream-to=origin/" + trunk, trunk);
         return work;
+    }
+
+    /** The commit a ref ({@code "origin/master"}, say) points at in {@code repo}. */
+    static String commitOf(Path repo, String ref) throws IOException, InterruptedException {
+        Process p = new ProcessBuilder("git", "-C", repo.toString(), "rev-parse", "--verify", ref).start();
+        String out = new String(p.getInputStream().readAllBytes()).strip();
+        p.waitFor();
+        return out;
     }
 
     static String currentBranch(Path worktree) throws IOException, InterruptedException {

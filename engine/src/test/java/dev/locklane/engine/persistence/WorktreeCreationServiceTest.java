@@ -370,6 +370,112 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
+    void trunkRefIsTheRecordedDefaultBranchOnOriginFallingBackToMain() {
+        // #582: the ref every worktree is created from follows the branch the project
+        // recorded at checkout time; a record with none behaves exactly as before.
+        assertThat(WorktreeCreationService.trunkRef("master")).isEqualTo("origin/master");
+        assertThat(WorktreeCreationService.trunkRef("  develop ")).isEqualTo("origin/develop");
+        assertThat(WorktreeCreationService.trunkRef((String) null)).isEqualTo("origin/main");
+        assertThat(WorktreeCreationService.trunkRef("   ")).isEqualTo("origin/main");
+        assertThat(WorktreeCreationService.trunkRef(new ProjectRecord(1, 1, "p", "url", Path.of("/p"), null,
+                ProjectStatus.READY, Instant.now(), null, null, null, 0))).isEqualTo("origin/main");
+        assertThat(WorktreeCreationService.trunkRef(new ProjectRecord(1, 1, "p", "url", Path.of("/p"), "master",
+                ProjectStatus.READY, Instant.now(), null, null, null, 0))).isEqualTo("origin/master");
+    }
+
+    @Test
+    void createsAnIssueWorktreeFromTheRecordedTrunkWhenTheProjectHasNoMainBranch(@TempDir Path tmp)
+            throws Exception {
+        // #582: a project created by plain `git init` on a host with no
+        // init.defaultBranch has `master` and nothing called `main` anywhere. Before
+        // this task, the worktree add named origin/main literally and failed with
+        // "fatal: invalid reference: origin/main".
+        Path projectRoot = GitTestRepos.initTestRepo(tmp, "master");
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot, "master").id();
+        GhIssue issue = new GhIssue(50, "On a master project", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> result = service.startSession(projectId, 50);
+
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-50");
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .contains(worktreePath.toString());
+        assertThat(worktreePath).isDirectory();
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEmpty();
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(GitTestRepos.commitOf(projectRoot, "origin/master"));
+        assertThat(GitTestRepos.localBranches(projectRoot)).noneMatch(b -> b.startsWith("wip/50-"));
+    }
+
+    @Test
+    void reopeningAnIdleWorktreeOnAMasterProjectFastForwardsItToOriginMaster(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp, "master");
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot, "master").id();
+        GhIssue issue = new GhIssue(51, "Idle on master", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        service.startSession(projectId, 51);
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-51");
+        String staleCommit = GitTestRepos.headCommit(worktreePath);
+
+        // origin/master moves on without the worktree.
+        GitTestRepos.commitAndPush(projectRoot, "second commit on master");
+        String freshCommit = GitTestRepos.commitOf(projectRoot, "origin/master");
+        assertThat(freshCommit).isNotEqualTo(staleCommit);
+
+        service.startSession(projectId, 51);
+
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(freshCommit);
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEmpty();
+    }
+
+    @Test
+    void reopeningAConsoleRecreatesAGoneWorktreeFromTheRecordedTrunk(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp, "master");
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot, "master").id();
+        GhIssue issue = new GhIssue(52, "Reopen on master", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> result =
+                service.reopenSession(projectId, 52, projectId + "-52-reopen-on-master");
+
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-52");
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .contains(worktreePath.toString());
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(GitTestRepos.commitOf(projectRoot, "origin/master"));
+    }
+
+    @Test
+    void createsADetachedWorktreeAtTheGivenTrunkRefWhenTheProjectHasNoMainBranch(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp, "master");
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-console-0582cafe");
+
+        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot, "origin/master", GitCredential.NONE);
+
+        assertThat(worktreePath).isDirectory();
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEmpty();
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(GitTestRepos.commitOf(projectRoot, "origin/master"));
+        assertThat(GitTestRepos.localBranches(projectRoot)).containsExactly("master");
+    }
+
+    @Test
+    void createsAWipBranchWorktreeFromTheGivenTrunkRef(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp, "master");
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-53");
+
+        WorktreeCreationService.createWorktree("wip/53-from-master", worktreePath, projectRoot, "origin/master",
+                GitCredential.NONE);
+
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/53-from-master");
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(GitTestRepos.commitOf(projectRoot, "origin/master"));
+    }
+
+    @Test
     void createsADetachedWorktreeAtOriginMainWithNoBranch(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-console-abcd1234");
@@ -428,7 +534,14 @@ class WorktreeCreationServiceTest {
     }
 
     private static ProjectRecord readyProject(ProjectRepository projectRepository, Path projectRoot) {
-        return projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", 1L, Instant.now());
+        return readyProject(projectRepository, projectRoot, "main");
+    }
+
+    /** A READY project whose recorded default branch is {@code defaultBranch} (#582). */
+    private static ProjectRecord readyProject(ProjectRepository projectRepository, Path projectRoot,
+            String defaultBranch) {
+        return projectRepository.createReady("proj", projectRoot.toString(), projectRoot, defaultBranch, 1L,
+                Instant.now());
     }
 
     private static WorktreeCreationService service(WorktreeSessionRepository repository,
