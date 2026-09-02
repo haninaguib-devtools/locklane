@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import dev.locklane.engine.github.GhAccount;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
 import dev.locklane.engine.template.ProjectTemplate;
@@ -16,17 +17,11 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.Executor;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
 
 /**
  * Exercises real {@code git clone} against a throwaway local repository (no
@@ -140,7 +135,7 @@ class ProjectCheckoutServiceTest {
         assertThat(events).anySatisfy(event -> {
             assertThat(event.getLevel()).isEqualTo(Level.INFO);
             assertThat(event.getFormattedMessage()).contains("Importing project").contains(origin.toString())
-                    .contains("default");
+                    .contains("none chosen");
         });
         assertThat(events).anySatisfy(event -> {
             assertThat(event.getLevel()).isEqualTo(Level.INFO);
@@ -234,7 +229,7 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         IssueWorktreeService worktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
-                tmp.resolve("workarea").toString(), Runnable::run, worktreeService, tokenCipher(tmp));
+                tmp.resolve("workarea").toString(), Runnable::run, worktreeService, tokenCipher(tmp), ghAccounts(tmp));
         ProjectRecord project = service.createProject(origin.toString(), "still-open", 1L);
         sessions.recordAttach(project.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
 
@@ -251,7 +246,7 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         IssueWorktreeService issueWorktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
-                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService, tokenCipher(tmp));
+                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService, tokenCipher(tmp), ghAccounts(tmp));
         ProjectRecord project = service.createProject(origin.toString(), "force-delete-me", 1L);
         sessions.recordAttach(project.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
 
@@ -287,7 +282,8 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
                 tmp.resolve("workarea").toString(), command -> { /* never run -- would shell out to gh for real */ },
-                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp));
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
+                ghAccounts(tmp));
 
         ProjectRecord project = service.createNewProject("my-org", "my-project", false, 1L);
 
@@ -381,7 +377,8 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
                 tmp.resolve("workarea").toString(), command -> { /* never run -- would shell out to gh for real */ },
-                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp));
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
+                ghAccounts(tmp));
 
         ProjectRecord withTemplate = service.createNewProject("my-org", "templated", false, 1L, null, TEMPLATE);
         ProjectRecord without = service.createNewProject("my-org", "plain", false, 1L, null, null);
@@ -402,7 +399,7 @@ class ProjectCheckoutServiceTest {
         ProjectRecord project = repository.create("templated", bareRemote.toString(), workarea, 1L, Instant.now(),
                 TEMPLATE.name());
 
-        service.setUpLocalRepoAndPush(project, false, Map.of(), Optional.of(TEMPLATE));
+        service.setUpLocalRepoAndPush(project, false, java.util.Map.of(), Optional.of(TEMPLATE));
 
         ProjectRecord found = repository.findById(project.id()).orElseThrow();
         assertThat(found.status()).isEqualTo(ProjectStatus.READY);
@@ -426,7 +423,7 @@ class ProjectCheckoutServiceTest {
         ProjectRecord project = repository.create("boot-templated", bareRemote.toString(), workarea, 1L,
                 Instant.now(), TEMPLATE.name());
 
-        service.setUpLocalRepoAndPush(project, true, Map.of(), Optional.of(TEMPLATE));
+        service.setUpLocalRepoAndPush(project, true, java.util.Map.of(), Optional.of(TEMPLATE));
 
         ProjectRecord found = repository.findById(project.id()).orElseThrow();
         assertThat(found.status()).isEqualTo(ProjectStatus.READY);
@@ -448,7 +445,7 @@ class ProjectCheckoutServiceTest {
         Path workarea = tmp.resolve("workarea").resolve("1").resolve("plain");
         ProjectRecord project = repository.create("plain", bareRemote.toString(), workarea, 1L, Instant.now());
 
-        service.setUpLocalRepoAndPush(project, false, Map.of(), Optional.empty());
+        service.setUpLocalRepoAndPush(project, false, java.util.Map.of(), Optional.empty());
 
         ProjectRecord found = repository.findById(project.id()).orElseThrow();
         assertThat(found.status()).isEqualTo(ProjectStatus.READY);
@@ -533,11 +530,12 @@ class ProjectCheckoutServiceTest {
 
     // #505: a headless push can't fall back on interactive credential prompting, so a
     // user whose only GitHub credential is SSH-based (no HTTPS credential helper on the
-    // host) needs the push itself to authenticate — with the per-project token already
-    // stored for the project, over HTTPS (the non-goal that rules out an SSH remote).
+    // host) needs the push itself to authenticate — with the project's chosen
+    // account's token (#550) already stored, over HTTPS (the non-goal that rules out
+    // an SSH remote).
 
     @Test
-    void setUpLocalRepoAndPushAuthenticatesWithTheStoredGithubTokenWhenPresent(@TempDir Path tmp) throws Exception {
+    void setUpLocalRepoAndPushAuthenticatesWithTheChosenAccountsTokenWhenPresent(@TempDir Path tmp) throws Exception {
         ProjectCheckoutService service = service(tmp);
         ProjectRepository repository = repositoryOver(tmp);
         Path workarea = tmp.resolve("workarea").resolve("1").resolve("token-project");
@@ -546,7 +544,8 @@ class ProjectCheckoutServiceTest {
         // hanging — real network access isn't needed to prove the token was wired in.
         ProjectRecord project = repository.create(
                 "token-project", "https://127.0.0.1:1/org/token-project.git", workarea, 1L, Instant.now());
-        repository.setGithubToken(project.id(), tokenCipher(tmp).encrypt("secret-token"));
+        GhAccount account = seedAccount(tmp, 1L, "work", "secret-token", Set.of("repo"));
+        repository.setGithubAccountId(project.id(), account.id());
 
         service.setUpLocalRepoAndPush(project, false);
 
@@ -562,13 +561,14 @@ class ProjectCheckoutServiceTest {
     // even on a failing push that used one.
 
     @Test
-    void aFailingPushWithAStoredTokenNeverLogsTheTokenItself(@TempDir Path tmp) throws Exception {
+    void aFailingPushWithAChosenAccountNeverLogsTheTokenItself(@TempDir Path tmp) throws Exception {
         ProjectCheckoutService service = service(tmp);
         ProjectRepository repository = repositoryOver(tmp);
         Path workarea = tmp.resolve("workarea").resolve("1").resolve("token-project");
         ProjectRecord project = repository.create(
                 "token-project", "https://127.0.0.1:1/org/token-project.git", workarea, 1L, Instant.now());
-        repository.setGithubToken(project.id(), tokenCipher(tmp).encrypt("secret-token"));
+        GhAccount account = seedAccount(tmp, 1L, "work", "secret-token", Set.of("repo"));
+        repository.setGithubAccountId(project.id(), account.id());
 
         List<ILoggingEvent> events = capturingLogs(() -> {
             try {
@@ -582,30 +582,13 @@ class ProjectCheckoutServiceTest {
         assertThat(events).noneSatisfy(event -> assertThat(event.getFormattedMessage()).contains("secret-token"));
     }
 
-    // #513: with no per-project token stored yet (a freshly created project), the push
-    // falls back to whatever identity `gh` is already logged in as on this host --
-    // exactly the identity that just created the repository -- instead of going out
-    // unauthenticated and hitting git's opaque interactive-prompt failure.
+    // #550: with no chosen account, there is no fallback of any kind (the old
+    // #513/#532 "fall back to the host's own gh login" behaviour is gone) -- a push
+    // that needs credentials and has none fails clearly.
 
     @Test
-    void setUpLocalRepoAndPushFallsBackToGhAuthTokenWhenNoStoredToken(@TempDir Path tmp) throws Exception {
-        ProjectCheckoutService service = serviceWithAmbientToken(tmp, () -> Optional.of("gh-cli-token"));
-        ProjectRepository repository = repositoryOver(tmp);
-        Path workarea = tmp.resolve("workarea").resolve("1").resolve("ambient-token-project");
-        ProjectRecord project = repository.create(
-                "ambient-token-project", "https://127.0.0.1:1/org/ambient-token-project.git", workarea, 1L,
-                Instant.now());
-
-        service.setUpLocalRepoAndPush(project, false);
-
-        String configuredUrl = run(workarea, "git", "remote", "get-url", "origin").strip();
-        assertThat(configuredUrl)
-                .isEqualTo("https://x-access-token:gh-cli-token@127.0.0.1:1/org/ambient-token-project.git");
-    }
-
-    @Test
-    void setUpLocalRepoAndPushFailsClearlyWithNoCredentialsAtAll(@TempDir Path tmp) throws Exception {
-        ProjectCheckoutService service = serviceWithAmbientToken(tmp, Optional::empty);
+    void setUpLocalRepoAndPushFailsClearlyWithNoAccountChosen(@TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = service(tmp);
         ProjectRepository repository = repositoryOver(tmp);
         Path workarea = tmp.resolve("workarea").resolve("1").resolve("no-credentials-project");
         ProjectRecord project = repository.create(
@@ -626,7 +609,8 @@ class ProjectCheckoutServiceTest {
         assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
         assertThat(appender.list).anySatisfy(event -> {
             assertThat(event.getLevel()).isEqualTo(Level.WARN);
-            assertThat(event.getFormattedMessage()).contains("No GitHub credentials available");
+            assertThat(event.getFormattedMessage()).contains("No GitHub credentials available")
+                    .contains("no GitHub account chosen");
         });
         // Bails before even configuring a remote -- no unauthenticated push is attempted.
         assertThat(Files.readString(workarea.resolve(".git").resolve("config")))
@@ -657,105 +641,188 @@ class ProjectCheckoutServiceTest {
         });
     }
 
-    // #531: a t-workflow bootstrap's first push carries .github/workflows/ci.yml, which
-    // GitHub refuses from a token without the `workflow` scope. Rather than let that
-    // surface as a raw push rejection after the repo was created and the installer
-    // ran, the engine checks the token's scopes first -- before `gh repo create`, so
-    // nothing is left behind -- and fails with the one message an operator needs.
-    //
-    // These tests never reach the real `gh`: the scope lookup and the ambient token
-    // are stubbed, and the end-to-end ones name an org that cannot exist and assert
-    // exactly one WARN, so a gate that leaked through to `gh repo create` would fail
-    // the test (a second WARN, from the 404 or from gh being absent) instead of
-    // creating anything.
-
-    private static final String NO_SUCH_ORG = "locklane-531-no-such-org";
+    // #550: a project may act as one of the accounts the caller has signed in to
+    // Locklane. Each test below seeds a real GhAccountRepository row and references
+    // it by id -- no `gh` stub is needed any more, since the engine no longer shells
+    // out to look a token up: it is already stored, encrypted, on the account row.
 
     @Test
-    void createNewProjectWithBootstrapFailsEarlyWhenTheTokenLacksTheWorkflowScope(@TempDir Path tmp) {
-        Path installerRan = tmp.resolve("installer-ran");
-        ProjectCheckoutService service = serviceWithScopes(tmp, Runnable::run, () -> Optional.of("gh-cli-token"),
-                "touch " + installerRan, token -> Optional.of(Set.of("repo", "read:org")));
+    void createProjectWithAnAccountStoresItsTokenBeforeCloning(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        GhAccount account = seedAccount(tmp, 1L, "work", "work-token", Set.of("repo"));
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+
+        ProjectRecord project = service.createProject(origin.toString(), "imported", 1L, account.id());
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        assertThat(found.defaultBranch()).isEqualTo("main");
+        assertThat(repository.findGithubAccountId(project.id())).contains(account.id());
+        // The clone itself is untouched: no token in the remote URL, no gh involved.
+        assertThat(run(project.workareaPath(), "git", "remote", "get-url", "origin").strip())
+                .isEqualTo(origin.toString());
+    }
+
+    @Test
+    void createProjectWithAnUnknownAccountFailsBeforeCloningAndNamesIt(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
 
         List<ILoggingEvent> events = capturingLogs(
-                () -> service.createNewProject(NO_SUCH_ORG, "scoped-out", true, 1L));
+                () -> service.createProject(origin.toString(), "unknown-account", 1L, 999L));
 
-        ProjectRecord found = repositoryOver(tmp).findAll().get(0);
+        ProjectRecord found = repository.findAll().stream()
+                .filter(p -> p.name().equals("unknown-account")).findFirst().orElseThrow();
         assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
-        List<ILoggingEvent> warnings = events.stream().filter(e -> e.getLevel() == Level.WARN).toList();
-        assertThat(warnings).hasSize(1);
-        assertThat(warnings.get(0).getFormattedMessage())
-                .contains("scoped-out")
-                .contains(String.valueOf(found.id()))
-                .contains("`workflow` scope")
-                .contains("gh auth refresh -h github.com -s workflow");
-        // Neither the installer nor any git step ran: no marker, no workarea.
-        assertThat(installerRan).doesNotExist();
+        assertThat(repository.findGithubAccountId(found.id())).isEmpty();
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("No such GitHub account 999");
+        });
+        // No clone was attempted: the workarea was never created.
         assertThat(found.workareaPath()).doesNotExist();
     }
 
     @Test
-    void createNewProjectWithBootstrapChecksTheStoredTokenTheSameWay(@TempDir Path tmp) {
-        // The executor queues instead of running, so the per-project token can be
-        // stored between createNewProject's synchronous part and the async work --
-        // the way a project that already has a token stored would look.
-        List<Runnable> queued = new ArrayList<>();
-        List<String> lookedUp = new ArrayList<>();
-        ProjectCheckoutService service = serviceWithScopes(tmp, queued::add, () -> Optional.of("gh-cli-token"),
-                "true", token -> {
-                    lookedUp.add(token);
-                    return Optional.of(Set.of("repo"));
-                });
+    void createProjectWithoutAnAccountLeavesNoAccountChosen(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        ProjectCheckoutService service = service(tmp);
+
+        ProjectRecord project = service.createProject(origin.toString(), "plain", 1L, null);
+
         ProjectRepository repository = repositoryOver(tmp);
-
-        ProjectRecord project = service.createNewProject(NO_SUCH_ORG, "stored-scoped-out", true, 1L);
-        repository.setGithubToken(project.id(), tokenCipher(tmp).encrypt("stored-token"));
-        List<ILoggingEvent> events = capturingLogs(() -> queued.forEach(Runnable::run));
-
-        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
-        // The stored token is what the push would use, so it is what gets checked --
-        // never the ambient gh login behind it.
-        assertThat(lookedUp).containsExactly("stored-token");
-        List<ILoggingEvent> warnings = events.stream().filter(e -> e.getLevel() == Level.WARN).toList();
-        assertThat(warnings).hasSize(1);
-        assertThat(warnings.get(0).getFormattedMessage())
-                .contains("stored per-project token")
-                .contains("gh auth refresh -h github.com -s workflow");
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.READY);
+        assertThat(repository.findGithubAccountId(project.id())).isEmpty();
     }
 
     @Test
-    void tokenCanPushWorkflowsWhenTheReportedScopesIncludeWorkflow(@TempDir Path tmp) {
-        ProjectCheckoutService service = serviceWithScopes(tmp, Runnable::run, () -> Optional.of("gh-cli-token"),
-                "true", token -> Optional.of(Set.of("repo", "workflow")));
-        ProjectRecord project = newProjectRecord(tmp, "has-workflow");
+    void createRepoAndPushWithAnAccountActsAsItThroughGhTokenAndStoresIt(@TempDir Path tmp) throws Exception {
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        Path envLog = tmp.resolve("push-env");
+        // A pre-receive hook sees the pushing process's environment, so it can prove
+        // the push itself ran with GH_TOKEN set -- a local bare repo can't otherwise
+        // tell one pusher from another.
+        Path hook = bareRemote.resolve("hooks").resolve("pre-receive");
+        Files.writeString(hook, "#!/usr/bin/env bash\nprintf '%s' \"${GH_TOKEN-<unset>}\" > \"" + envLog + "\"\n");
+        hook.toFile().setExecutable(true);
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        GhAccount account = seedAccount(tmp, 1L, "work", "work-token", Set.of("repo"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("as-work");
+        ProjectRecord project = repository.create("as-work", bareRemote.toString(), workarea, 1L, Instant.now());
+
+        service.createRepoAndPush(project, "my-org", false, account.id());
+
+        ProjectRecord found = repository.findById(project.id()).orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
+        assertThat(repository.findGithubAccountId(project.id())).contains(account.id());
+        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("repo create my-org/as-work --private\n");
+        assertThat(Files.readString(ghLog.resolve("repo-create-env"))).isEqualTo("work-token");
+        assertThat(Files.readString(envLog)).isEqualTo("work-token");
+        assertThat(run(bareRemote, "git", "log", "-1", "--format=%s", found.defaultBranch()).strip())
+                .isEqualTo("Initial commit");
+    }
+
+    @Test
+    void createRepoAndPushWithAnUnknownAccountCreatesNothing(@TempDir Path tmp) throws Exception {
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("as-nobody");
+        ProjectRecord project = repository.create(
+                "as-nobody", "https://127.0.0.1:1/my-org/as-nobody.git", workarea, 1L, Instant.now());
+
+        List<ILoggingEvent> events =
+                capturingLogs(() -> service.createRepoAndPush(project, "my-org", false, 999L));
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(repository.findGithubAccountId(project.id())).isEmpty();
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("No such GitHub account 999");
+        });
+        // gh was never even invoked -- nothing was created.
+        assertThat(ghLog.resolve("calls")).doesNotExist();
+        assertThat(workarea).doesNotExist();
+    }
+
+    // #531 composes with #550: the workflow-scope gate examines the chosen account's
+    // own captured scopes -- never re-queried from GitHub here -- not the host's
+    // active login.
+
+    @Test
+    void createRepoAndPushRunsTheWorkflowScopeGateOnTheChosenAccountsScopes(@TempDir Path tmp) throws Exception {
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        GhAccount account = seedAccount(tmp, 1L, "work", "work-token", Set.of("repo"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("as-work-no-scope");
+        ProjectRecord project = repository.create(
+                "as-work-no-scope", "https://127.0.0.1:1/my-org/as-work-no-scope.git", workarea, 1L, Instant.now());
+
+        List<ILoggingEvent> events =
+                capturingLogs(() -> service.createRepoAndPush(project, "my-org", true, account.id()));
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        // The chosen account's token was stored, and it is the one the gate judged.
+        assertThat(repository.findGithubAccountId(project.id())).contains(account.id());
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("work").contains(ProjectCheckoutService.WORKFLOW_SCOPE);
+        });
+        // Refused before `gh repo create`: nothing was created on GitHub or on disk.
+        assertThat(ghLog.resolve("calls")).doesNotExist();
+        assertThat(workarea).doesNotExist();
+    }
+
+    @Test
+    void createRepoAndPushWithoutAnAccountRunsGhAsTheHostsActiveAccount(@TempDir Path tmp) throws Exception {
+        Path bareRemote = tmp.resolve("origin.git");
+        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
+        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
+        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("ambient");
+        ProjectRecord project = repository.create("ambient", bareRemote.toString(), workarea, 1L, Instant.now());
+
+        service.createRepoAndPush(project, "my-org", false, null);
+
+        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.READY);
+        assertThat(repository.findGithubAccountId(project.id())).isEmpty();
+        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("repo create my-org/ambient --private\n");
+        // No GH_TOKEN was injected: gh ran as whatever the host has active, exactly as
+        // it always has when no account is chosen.
+        assertThat(Files.readString(ghLog.resolve("repo-create-env"))).isEqualTo("<unset>");
+    }
+
+    @Test
+    void tokenCanPushWorkflowsWhenTheAccountsCapturedScopesIncludeWorkflow(@TempDir Path tmp) {
+        GhAccount account = seedAccount(tmp, 1L, "work", "work-token", Set.of("repo", "workflow"));
+        ProjectCheckoutService service = service(tmp);
+        ProjectRecord project = newProjectRecordWithAccount(tmp, "has-workflow", account.id());
 
         assertThat(service.tokenCanPushWorkflows(project)).isTrue();
     }
 
     @Test
-    void tokenCanPushWorkflowsFailsOpenWhenTheScopesCannotBeDetermined(@TempDir Path tmp) {
-        // A fine-grained PAT or a GitHub App token reports no classic scopes at all,
-        // and `gh api` itself can fail -- neither may block a bootstrap that would have
-        // succeeded before this check existed. Likewise with no token at all: that is
-        // the existing "No GitHub credentials available" path's call, not this one's.
-        ProjectCheckoutService unknownScopes = serviceWithScopes(tmp, Runnable::run,
-                () -> Optional.of("fine-grained-token"), "true", token -> Optional.empty());
-        ProjectCheckoutService noToken = serviceWithScopes(tmp, Runnable::run, Optional::empty, "true",
-                token -> fail("no token to look up"));
-        ProjectRecord project = newProjectRecord(tmp, "unknown-scopes");
+    void tokenCanPushWorkflowsFailsOpenWithNoAccountChosen(@TempDir Path tmp) {
+        ProjectCheckoutService service = service(tmp);
+        ProjectRecord project = newProjectRecord(tmp, "no-account");
 
-        assertThat(unknownScopes.tokenCanPushWorkflows(project)).isTrue();
-        assertThat(noToken.tokenCanPushWorkflows(project)).isTrue();
+        assertThat(service.tokenCanPushWorkflows(project)).isTrue();
     }
 
     @Test
     void setUpLocalRepoAndPushWithoutBootstrapNeverConsultsTheScopeLookup(@TempDir Path tmp) throws Exception {
-        // A plain project has no workflow file to push, so a token with only `repo`
-        // is all it needs -- the scope lookup must not even be asked.
+        // A plain project has no workflow file to push, so an account with only `repo`
+        // is all it needs -- the scope gate isn't even involved for a non-bootstrap push.
         Path bareRemote = tmp.resolve("origin.git");
         run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
-        ProjectCheckoutService service = serviceWithScopes(tmp, Runnable::run, () -> Optional.of("gh-cli-token"),
-                "true", token -> fail("the plain path must not check scopes"));
+        ProjectCheckoutService service = service(tmp);
         ProjectRepository repository = repositoryOver(tmp);
         Path workarea = tmp.resolve("workarea").resolve("1").resolve("plain-project");
         ProjectRecord project =
@@ -770,234 +837,12 @@ class ProjectCheckoutServiceTest {
                 .isEqualTo("Initial commit");
     }
 
-    // #532: a project may act as one of the accounts `gh` is logged into on the host.
-    // The stub gh below stands in for the real CLI: `auth token --user <login>` knows
-    // exactly one account ("work", token "work-token") and answers any other login
-    // with gh 2.98.0's real wording and exit 1; `repo create` records the GH_TOKEN it
-    // was given and its arguments. Every invocation is appended to a calls log.
-
-    @Test
-    void createProjectWithALoginStoresThatAccountsTokenBeforeCloning(@TempDir Path tmp) throws Exception {
-        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
-        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
-        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
-        ProjectRepository repository = repositoryOver(tmp);
-
-        ProjectRecord project = service.createProject(origin.toString(), "imported", 1L, "work");
-
-        ProjectRecord found = repository.findById(project.id()).orElseThrow();
-        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
-        assertThat(found.defaultBranch()).isEqualTo("main");
-        String stored = repository.findGithubToken(project.id()).orElseThrow();
-        assertThat(stored).isNotEqualTo("work-token"); // encrypted at rest
-        assertThat(tokenCipher(tmp).decrypt(stored)).isEqualTo("work-token");
-        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("auth token --user work\n");
-        // The clone itself is untouched: no token in the remote URL, no gh involved.
-        assertThat(run(project.workareaPath(), "git", "remote", "get-url", "origin").strip())
-                .isEqualTo(origin.toString());
-    }
-
-    @Test
-    void createProjectWithAnUnknownLoginFailsBeforeCloningAndNamesTheLogin(@TempDir Path tmp) throws Exception {
-        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
-        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
-        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
-        ProjectRepository repository = repositoryOver(tmp);
-
-        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
-        ProjectRecord project;
-        try {
-            project = service.createProject(origin.toString(), "unknown-login", 1L, "nobody");
-        } finally {
-            logger.detachAppender(appender);
-        }
-
-        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
-        assertThat(repository.findGithubToken(project.id())).isEmpty();
-        assertThat(appender.list).anySatisfy(event -> {
-            assertThat(event.getLevel()).isEqualTo(Level.WARN);
-            assertThat(event.getFormattedMessage()).contains("'nobody'")
-                    .contains("no oauth token found for github.com account nobody");
-        });
-        // No clone was attempted: the workarea was never created.
-        assertThat(project.workareaPath()).doesNotExist();
-        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("auth token --user nobody\n");
-    }
-
-    @Test
-    void createProjectWithoutALoginNeverInvokesGh(@TempDir Path tmp) throws Exception {
-        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
-        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
-        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
-
-        ProjectRecord project = service.createProject(origin.toString(), "plain", 1L, "  ");
-
-        assertThat(repositoryOver(tmp).findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.READY);
-        assertThat(repositoryOver(tmp).findGithubToken(project.id())).isEmpty();
-        assertThat(ghLog.resolve("calls")).doesNotExist();
-    }
-
-    @Test
-    void createRepoAndPushWithALoginActsAsThatAccountThroughGhTokenAndStoresIt(@TempDir Path tmp) throws Exception {
-        Path bareRemote = tmp.resolve("origin.git");
-        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
-        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
-        // A pre-receive hook sees the pushing process's environment, so it can prove
-        // the push itself ran with GH_TOKEN set -- a local bare repo can't otherwise
-        // tell one pusher from another.
-        Path hook = bareRemote.resolve("hooks").resolve("pre-receive");
-        Files.writeString(hook, "#!/usr/bin/env bash\nprintf '%s' \"${GH_TOKEN-<unset>}\" > \""
-                + ghLog.resolve("push-env") + "\"\n");
-        hook.toFile().setExecutable(true);
-        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
-        ProjectRepository repository = repositoryOver(tmp);
-        Path workarea = tmp.resolve("workarea").resolve("1").resolve("as-work");
-        ProjectRecord project = repository.create("as-work", bareRemote.toString(), workarea, 1L, Instant.now());
-
-        service.createRepoAndPush(project, "my-org", false, Optional.of("work"));
-
-        ProjectRecord found = repository.findById(project.id()).orElseThrow();
-        assertThat(found.status()).isEqualTo(ProjectStatus.READY);
-        assertThat(tokenCipher(tmp).decrypt(repository.findGithubToken(project.id()).orElseThrow()))
-                .isEqualTo("work-token");
-        assertThat(Files.readString(ghLog.resolve("calls")))
-                .isEqualTo("auth token --user work\nrepo create my-org/as-work --private\n");
-        assertThat(Files.readString(ghLog.resolve("repo-create-env"))).isEqualTo("work-token");
-        assertThat(Files.readString(ghLog.resolve("push-env"))).isEqualTo("work-token");
-        assertThat(run(bareRemote, "git", "log", "-1", "--format=%s", found.defaultBranch()).strip())
-                .isEqualTo("Initial commit");
-    }
-
-    @Test
-    void parseOauthScopesReadsTheHeaderAsGhApiPrintsIt() {
-        String response = """
-                HTTP/2.0 200 OK
-                Content-Type: application/json; charset=utf-8
-                X-Accepted-Oauth-Scopes:\s
-                X-Oauth-Scopes: admin:public_key, gist, read:org, repo
-
-                {"login":"someone"}
-                X-Oauth-Scopes: workflow
-                """;
-
-        assertThat(ProjectCheckoutService.parseOauthScopes(response))
-                .contains(Set.of("admin:public_key", "gist", "read:org", "repo"));
-    }
-
-    @Test
-    void parseOauthScopesMatchesTheHeaderNameCaseInsensitively() {
-        assertThat(ProjectCheckoutService.parseOauthScopes("HTTP/1.1 200 OK\r\nx-oauth-scopes: repo, workflow\r\n\r\n"))
-                .contains(Set.of("repo", "workflow"));
-    }
-
-    @Test
-    void parseOauthScopesIsEmptyWhenTheHeaderIsAbsentOrBlank() {
-        // Absent or blank means "this token has no classic scopes to report" (a
-        // fine-grained PAT, an App token) -- unknown, which the gate must not treat as
-        // "lacks workflow".
-        assertThat(ProjectCheckoutService.parseOauthScopes("HTTP/2.0 200 OK\nContent-Type: text/plain\n\nbody"))
-                .isEmpty();
-        assertThat(ProjectCheckoutService.parseOauthScopes("HTTP/2.0 200 OK\nX-Oauth-Scopes: \n\n")).isEmpty();
-        assertThat(ProjectCheckoutService.parseOauthScopes("")).isEmpty();
-    }
-
-    @Test
-    void createRepoAndPushWithAnUnknownLoginCreatesNothing(@TempDir Path tmp) throws Exception {
-        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
-        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
-        ProjectRepository repository = repositoryOver(tmp);
-        Path workarea = tmp.resolve("workarea").resolve("1").resolve("as-nobody");
-        ProjectRecord project = repository.create(
-                "as-nobody", "https://127.0.0.1:1/my-org/as-nobody.git", workarea, 1L, Instant.now());
-
-        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
-        try {
-            service.createRepoAndPush(project, "my-org", false, Optional.of("nobody"));
-        } finally {
-            logger.detachAppender(appender);
-        }
-
-        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
-        assertThat(repository.findGithubToken(project.id())).isEmpty();
-        assertThat(appender.list).anySatisfy(event -> {
-            assertThat(event.getLevel()).isEqualTo(Level.WARN);
-            assertThat(event.getFormattedMessage()).contains("'nobody'");
-        });
-        // gh was asked for the token and nothing else -- no repository was created.
-        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("auth token --user nobody\n");
-        assertThat(ghLog.resolve("repo-create-env")).doesNotExist();
-        assertThat(workarea).doesNotExist();
-    }
-
-    // #531 composes with #532: the workflow-scope gate examines the token the bootstrap
-    // push will actually use -- with a chosen account, that account's token, stored on
-    // the row before the gate runs -- not the host's active login.
-
-    @Test
-    void createRepoAndPushRunsTheWorkflowScopeGateOnTheChosenAccountsToken(@TempDir Path tmp) throws Exception {
-        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
-        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog),
-                token -> token.equals("work-token") ? Optional.of(Set.of("repo")) : Optional.of(Set.of("repo", "workflow")));
-        ProjectRepository repository = repositoryOver(tmp);
-        Path workarea = tmp.resolve("workarea").resolve("1").resolve("as-work-no-scope");
-        ProjectRecord project = repository.create(
-                "as-work-no-scope", "https://127.0.0.1:1/my-org/as-work-no-scope.git", workarea, 1L, Instant.now());
-
-        Logger logger = (Logger) LoggerFactory.getLogger(ProjectCheckoutService.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
-        try {
-            service.createRepoAndPush(project, "my-org", true, Optional.of("work"));
-        } finally {
-            logger.detachAppender(appender);
-        }
-
-        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
-        // The chosen account's token was stored, and it is the one the gate judged.
-        assertThat(tokenCipher(tmp).decrypt(repository.findGithubToken(project.id()).orElseThrow()))
-                .isEqualTo("work-token");
-        assertThat(appender.list).anySatisfy(event -> {
-            assertThat(event.getLevel()).isEqualTo(Level.WARN);
-            assertThat(event.getFormattedMessage()).contains("the stored per-project token")
-                    .contains(ProjectCheckoutService.WORKFLOW_SCOPE);
-        });
-        // Refused before `gh repo create`: nothing was created on GitHub or on disk.
-        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("auth token --user work\n");
-        assertThat(ghLog.resolve("repo-create-env")).doesNotExist();
-        assertThat(workarea).doesNotExist();
-    }
-
-    @Test
-    void createRepoAndPushWithoutALoginRunsGhAsTheHostsActiveAccount(@TempDir Path tmp) throws Exception {
-        Path bareRemote = tmp.resolve("origin.git");
-        run(tmp, "git", "init", "--bare", "-b", "main", bareRemote.toString());
-        Path ghLog = Files.createDirectories(tmp.resolve("gh-log"));
-        ProjectCheckoutService service = serviceWithStubGh(tmp, stubGh(tmp, ghLog));
-        ProjectRepository repository = repositoryOver(tmp);
-        Path workarea = tmp.resolve("workarea").resolve("1").resolve("ambient");
-        ProjectRecord project = repository.create("ambient", bareRemote.toString(), workarea, 1L, Instant.now());
-
-        service.createRepoAndPush(project, "my-org", false, Optional.empty());
-
-        assertThat(repository.findById(project.id()).orElseThrow().status()).isEqualTo(ProjectStatus.READY);
-        assertThat(repository.findGithubToken(project.id())).isEmpty();
-        assertThat(Files.readString(ghLog.resolve("calls"))).isEqualTo("repo create my-org/ambient --private\n");
-        // No GH_TOKEN was injected: gh ran as whatever the host has active, as before #532.
-        assertThat(Files.readString(ghLog.resolve("repo-create-env"))).isEqualTo("<unset>");
-    }
-
     /**
-     * A stub {@code gh} for #532's tests (shared with {@code ProjectControllerTest}):
-     * knows one account, {@code work} → {@code work-token}; records every invocation
-     * in {@code <log>/calls}, and {@code repo create}'s {@code GH_TOKEN} in
-     * {@code <log>/repo-create-env}. Returns the script's absolute path.
+     * A stub {@code gh} for #550's tests (shared with {@code ProjectControllerTest}):
+     * only ever asked for {@code repo create} now (the engine no longer shells out
+     * for a token lookup) — records every invocation in {@code <log>/calls}, and its
+     * {@code GH_TOKEN} in {@code <log>/repo-create-env}. Returns the script's
+     * absolute path.
      */
     static String stubGh(Path tmp, Path log) throws IOException {
         Path script = tmp.resolve("stub-gh");
@@ -1006,14 +851,6 @@ class ProjectCheckoutServiceTest {
                 log=%s
                 printf '%%s\\n' "$*" >> "$log/calls"
                 case "$1 $2" in
-                  "auth token")
-                    if [ "$3" = "--user" ] && [ "$4" = "work" ]; then
-                      echo work-token
-                    else
-                      echo "no oauth token found for github.com account $4" >&2
-                      exit 1
-                    fi
-                    ;;
                   "repo create")
                     printf '%%s' "${GH_TOKEN-<unset>}" > "$log/repo-create-env"
                     ;;
@@ -1027,35 +864,19 @@ class ProjectCheckoutServiceTest {
         return script.toString();
     }
 
-    /**
-     * Like {@link #service(Path)}, but with {@code ghExecutable} standing in for the real
-     * gh (#532); the #531 scope lookup reports "unknown", which that gate lets through.
-     */
+    /** Like {@link #service(Path)}, but with {@code ghExecutable} standing in for the real gh (#550). */
     private static ProjectCheckoutService serviceWithStubGh(Path tmp, String ghExecutable) {
-        return serviceWithStubGh(tmp, ghExecutable, token -> Optional.empty());
-    }
-
-    /** Same, with the #531 scope lookup substituted too, so both gates can be exercised on one token. */
-    private static ProjectCheckoutService serviceWithStubGh(Path tmp, String ghExecutable,
-            Function<String, Optional<Set<String>>> tokenScopes) {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
-                Optional::empty, "exit 1", tokenScopes, ghExecutable);
+                ghAccounts(tmp), "exit 1", ghExecutable);
     }
 
     private static ProjectCheckoutService service(Path tmp) {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
-                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp));
-    }
-
-    /** Like {@link #service(Path)}, but with a fake stand-in for `gh auth token` (#513) instead of the real CLI. */
-    private static ProjectCheckoutService serviceWithAmbientToken(Path tmp, Supplier<Optional<String>> ambientToken) {
-        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
-        return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
-                ambientToken);
+                ghAccounts(tmp));
     }
 
     /** Like {@link #service(Path)}, but substituting the t-workflow install command (#525) — see STUB_INSTALLER. */
@@ -1063,22 +884,31 @@ class ProjectCheckoutServiceTest {
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
-                Optional::empty, installCommand);
-    }
-
-    /** Like {@link #service(Path)}, with every collaborator the #531 scope gate touches substituted. */
-    private static ProjectCheckoutService serviceWithScopes(Path tmp, Executor executor,
-            Supplier<Optional<String>> ambientToken, String installCommand,
-            Function<String, Optional<Set<String>>> tokenScopes) {
-        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
-        return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), executor,
-                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
-                ambientToken, installCommand, tokenScopes);
+                ghAccounts(tmp), installCommand);
     }
 
     private static ProjectRecord newProjectRecord(Path tmp, String name) {
         return repositoryOver(tmp).create(name, "https://github.com/" + NO_SUCH_ORG + "/" + name + ".git",
                 tmp.resolve("workarea").resolve("1").resolve(name), 1L, Instant.now());
+    }
+
+    private static final String NO_SUCH_ORG = "locklane-550-no-such-org";
+
+    private static ProjectRecord newProjectRecordWithAccount(Path tmp, String name, long githubAccountId) {
+        ProjectRecord project = newProjectRecord(tmp, name);
+        repositoryOver(tmp).setGithubAccountId(project.id(), githubAccountId);
+        return repositoryOver(tmp).findById(project.id()).orElseThrow();
+    }
+
+    /** Seeds a real {@code github_accounts} row (#550) — the token is stored encrypted, exactly as production does. */
+    private static GhAccount seedAccount(Path tmp, long ownerUserId, String login, String plaintextToken,
+            Set<String> scopes) {
+        return ghAccounts(tmp).insert(ownerUserId, login, tokenCipher(tmp).encrypt(plaintextToken), scopes,
+                Instant.now());
+    }
+
+    private static GhAccountRepository ghAccounts(Path tmp) {
+        return TestSqliteDatabases.newGhAccountRepository(tmp);
     }
 
     /** Everything {@code ProjectCheckoutService} logged while {@code action} ran. */

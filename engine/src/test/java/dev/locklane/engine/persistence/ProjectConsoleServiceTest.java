@@ -420,9 +420,12 @@ class ProjectConsoleServiceTest {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
         long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
         TokenCipher tokenCipher = tokenCipher(dbDir);
-        projectRepository.setGithubToken(projectId, tokenCipher.encrypt("ghp_realtoken"));
+        GhAccountRepository ghAccountRepository = TestSqliteDatabases.newGhAccountRepository(dbDir);
+        dev.locklane.engine.github.GhAccount account = ghAccountRepository.insert(1L, "work",
+                tokenCipher.encrypt("ghp_realtoken"), java.util.Set.of("repo"), Instant.now());
+        projectRepository.setGithubAccountId(projectId, account.id());
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
-        ProjectConsoleService service = new ProjectConsoleService(projectRepository, tokenCipher,
+        ProjectConsoleService service = new ProjectConsoleService(projectRepository, ghAccountRepository, tokenCipher,
                 new SessionRegistry(sessionRepository), sessionRepository,
                 new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization(dbDir, projectRepository),
                 sweeper(dbDir, sessionRepository, projectRepository));
@@ -653,7 +656,8 @@ class ProjectConsoleServiceTest {
 
     private static ProjectConsoleService service(Path dbDir, ProjectRepository projectRepository,
             WorktreeSessionRepository sessionRepository, ConsoleResumeSessionRepository resumeRepository) {
-        return new ProjectConsoleService(projectRepository, tokenCipher(dbDir), new SessionRegistry(sessionRepository),
+        return new ProjectConsoleService(projectRepository, TestSqliteDatabases.newGhAccountRepository(dbDir),
+                tokenCipher(dbDir), new SessionRegistry(sessionRepository),
                 sessionRepository, resumeRepository, authorization(dbDir, projectRepository),
                 sweeper(dbDir, sessionRepository, projectRepository));
     }
@@ -668,8 +672,9 @@ class ProjectConsoleServiceTest {
             ProjectRepository projectRepository) {
         IssueWorktreeService worktreeService =
                 new IssueWorktreeService(sessionRepository, TestSqliteDatabases.newNoopAuthorization());
-        ProjectGhResources ghResources =
-                new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient());
+        ProjectGhResources ghResources = new ProjectGhResources(projectRepository,
+                TestSqliteDatabases.newGhAccountRepository(dbDir), tokenCipher(dbDir),
+                (path, token) -> new FixedGhClient());
         return new WorktreeCleanupSweeper(worktreeService, projectRepository, ghResources,
                 new SessionRegistry(sessionRepository));
     }

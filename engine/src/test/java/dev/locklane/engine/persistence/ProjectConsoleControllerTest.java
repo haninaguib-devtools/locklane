@@ -394,14 +394,15 @@ class ProjectConsoleControllerTest {
                 new WorktreeSessionAuthorization(projectRepository, TestSqliteDatabases.newUserRepository(dbDir));
         IssueWorktreeService worktreeService =
                 new IssueWorktreeService(sessionRepository, TestSqliteDatabases.newNoopAuthorization());
-        ProjectGhResources ghResources =
-                new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient());
+        GhAccountRepository ghAccountRepository = TestSqliteDatabases.newGhAccountRepository(dbDir);
+        ProjectGhResources ghResources = new ProjectGhResources(projectRepository, ghAccountRepository,
+                tokenCipher(dbDir), (path, token) -> new FixedGhClient());
         WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, projectRepository, ghResources,
                 new SessionRegistry(sessionRepository));
         ConsoleSessionTitles titles = new ConsoleSessionTitles(dbDir.resolve("claude"), dbDir.resolve("codex"),
                 directory -> null);
-        return new ProjectConsoleController(new ProjectConsoleService(projectRepository, tokenCipher(dbDir),
-                new SessionRegistry(sessionRepository), sessionRepository,
+        return new ProjectConsoleController(new ProjectConsoleService(projectRepository, ghAccountRepository,
+                tokenCipher(dbDir), new SessionRegistry(sessionRepository), sessionRepository,
                 new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization, sweeper),
                 titles);
     }

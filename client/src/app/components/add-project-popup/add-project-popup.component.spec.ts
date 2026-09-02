@@ -130,20 +130,20 @@ describe('AddProjectPopupComponent', () => {
     expect(fixture.componentInstance.error).toBe('could not create project');
   });
 
-  describe('GitHub account picker (#532)', () => {
+  describe('GitHub account picker (#532, #550)', () => {
     const TWO_ACCOUNTS = [
-      { login: 'haninaguib', active: true },
-      { login: 'hani-thyme', active: false },
+      { id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-01T00:00:00Z' },
+      { id: 2, login: 'hani-thyme', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-02T00:00:00Z' },
     ];
 
-    // Rendering runs ngOnInit, which asks the engine for the host's gh accounts.
+    // Rendering runs ngOnInit, which asks the engine for the caller's GitHub accounts.
     function render(): ReturnType<typeof create> {
       const fixture = create();
       fixture.detectChanges();
       return fixture;
     }
 
-    function flushAccounts(accounts: { login: string; active: boolean }[]): void {
+    function flushAccounts(accounts: typeof TWO_ACCOUNTS): void {
       const req = httpMock.expectOne('/api/github/accounts');
       expect(req.request.method).toBe('GET');
       req.flush({ accounts });
@@ -160,39 +160,39 @@ describe('AddProjectPopupComponent', () => {
       return fixture.nativeElement.querySelector('button[type="submit"]') as HTMLButtonElement;
     }
 
-    it('lists every account in both forms, preselecting the active login', () => {
+    it('lists every account in both forms, preselecting the first one', () => {
       const fixture = render();
       flushAccounts(TWO_ACCOUNTS);
       fixture.detectChanges();
 
-      expect(fixture.componentInstance.githubLogin).toBe('haninaguib');
-      expect(optionLabels(fixture)).toEqual(['haninaguib (active)', 'hani-thyme']);
+      expect(fixture.componentInstance.githubAccountId).toBe(1);
+      expect(optionLabels(fixture)).toEqual(['haninaguib', 'hani-thyme']);
       expect(fixture.nativeElement.querySelector('.no-accounts')).toBeNull();
 
       fixture.componentInstance.setMode('create');
       fixture.detectChanges();
 
-      expect(optionLabels(fixture)).toEqual(['haninaguib (active)', 'hani-thyme']);
+      expect(optionLabels(fixture)).toEqual(['haninaguib', 'hani-thyme']);
       expect(fixture.nativeElement.querySelector('.no-accounts')).toBeNull();
     });
 
-    it('still shows the select with exactly one login', () => {
+    it('still shows the select with exactly one account', () => {
       const fixture = render();
-      flushAccounts([{ login: 'solo', active: true }]);
+      flushAccounts([{ id: 9, login: 'solo', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-01T00:00:00Z' }]);
       fixture.detectChanges();
 
-      expect(optionLabels(fixture)).toEqual(['solo (active)']);
-      expect(fixture.componentInstance.githubLogin).toBe('solo');
+      expect(optionLabels(fixture)).toEqual(['solo']);
+      expect(fixture.componentInstance.githubAccountId).toBe(9);
     });
 
-    it('with zero logins shows the gh auth login hint, disables create, and keeps import enabled without a login', () => {
+    it('with zero accounts shows the sign-in hint, disables create, and keeps import enabled without an account', () => {
       const fixture = render();
       flushAccounts([]);
       fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
       fixture.detectChanges();
 
       expect(fixture.nativeElement.querySelector('select.github-login')).toBeNull();
-      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('gh auth login');
+      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('GitHub accounts');
       expect(submitButton(fixture).disabled).toBeFalse();
 
       fixture.componentInstance.submit();
@@ -205,7 +205,7 @@ describe('AddProjectPopupComponent', () => {
       fixture.componentInstance.newRepoName = 'my-project';
       fixture.detectChanges();
 
-      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('gh auth login');
+      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('GitHub accounts');
       expect(submitButton(fixture).disabled).toBeTrue();
     });
 
@@ -225,11 +225,11 @@ describe('AddProjectPopupComponent', () => {
       expect(submitButton(fixture).disabled).toBeFalse();
     });
 
-    it('sends the chosen login with an import', () => {
+    it('sends the chosen account id with an import', () => {
       const fixture = render();
       flushAccounts(TWO_ACCOUNTS);
       fixture.componentInstance.gitUrl = 'git@thyme.github.com:hani-thyme/ideation_1.git';
-      fixture.componentInstance.githubLogin = 'hani-thyme';
+      fixture.componentInstance.githubAccountId = 2;
 
       fixture.componentInstance.submit();
 
@@ -237,12 +237,12 @@ describe('AddProjectPopupComponent', () => {
       expect(req.request.body).toEqual({
         gitUrl: 'git@thyme.github.com:hani-thyme/ideation_1.git',
         name: '',
-        githubLogin: 'hani-thyme',
+        githubAccountId: 2,
       });
       req.flush(PROJECT);
     });
 
-    it('sends the chosen login with a create', () => {
+    it('sends the chosen account id with a create', () => {
       const fixture = render();
       flushAccounts(TWO_ACCOUNTS);
       fixture.componentInstance.setMode('create');
@@ -256,7 +256,7 @@ describe('AddProjectPopupComponent', () => {
         org: 'my-org',
         name: 'my-project',
         bootstrapTWorkflow: false,
-        githubLogin: 'haninaguib',
+        githubAccountId: 1,
       });
       req.flush({ ...PROJECT, name: 'my-project' });
     });
@@ -270,8 +270,8 @@ describe('AddProjectPopupComponent', () => {
       fixture.componentInstance.newRepoName = 'my-project';
       fixture.detectChanges();
 
-      expect(fixture.componentInstance.githubLogin).toBeNull();
-      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('gh auth login');
+      expect(fixture.componentInstance.githubAccountId).toBeNull();
+      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('GitHub accounts');
       expect(submitButton(fixture).disabled).toBeTrue();
     });
   });
@@ -286,7 +286,9 @@ describe('AddProjectPopupComponent', () => {
     function render(): ReturnType<typeof create> {
       const fixture = create();
       fixture.detectChanges();
-      httpMock.expectOne('/api/github/accounts').flush({ accounts: [{ login: 'haninaguib', active: true }] });
+      httpMock.expectOne('/api/github/accounts').flush({
+        accounts: [{ id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-01T00:00:00Z' }],
+      });
       return fixture;
     }
 
@@ -339,7 +341,7 @@ describe('AddProjectPopupComponent', () => {
         org: 'my-org',
         name: 'my-project',
         bootstrapTWorkflow: false,
-        githubLogin: 'haninaguib',
+        githubAccountId: 1,
         template: 'node-server',
       });
       req.flush(PROJECT);
@@ -362,7 +364,7 @@ describe('AddProjectPopupComponent', () => {
         org: 'my-org',
         name: 'my-project',
         bootstrapTWorkflow: false,
-        githubLogin: 'haninaguib',
+        githubAccountId: 1,
       });
       req.flush(PROJECT);
     });

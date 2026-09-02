@@ -59,27 +59,27 @@ describe('ProjectsService', () => {
     req.flush(project);
   });
 
-  it('creates a project as a chosen gh account by adding githubLogin to the body (#532)', () => {
-    service.create('url', 'bar', 'hani-thyme').subscribe();
+  it('creates a project as a chosen gh account by adding githubAccountId to the body (#550)', () => {
+    service.create('url', 'bar', 7).subscribe();
 
     const req = httpMock.expectOne('/api/projects');
-    expect(req.request.body).toEqual({ gitUrl: 'url', name: 'bar', githubLogin: 'hani-thyme' });
+    expect(req.request.body).toEqual({ gitUrl: 'url', name: 'bar', githubAccountId: 7 });
     req.flush({});
   });
 
-  it('creates a new repository via POST /api/projects/new, with githubLogin only when one was chosen (#532)', () => {
+  it('creates a new repository via POST /api/projects/new, with githubAccountId only when one was chosen (#550)', () => {
     service.createNew('my-org', 'my-project', true).subscribe();
     const plain = httpMock.expectOne('/api/projects/new');
     expect(plain.request.body).toEqual({ org: 'my-org', name: 'my-project', bootstrapTWorkflow: true });
     plain.flush({});
 
-    service.createNew('my-org', 'my-project', false, 'haninaguib').subscribe();
+    service.createNew('my-org', 'my-project', false, 7).subscribe();
     const asAccount = httpMock.expectOne('/api/projects/new');
     expect(asAccount.request.body).toEqual({
       org: 'my-org',
       name: 'my-project',
       bootstrapTWorkflow: false,
-      githubLogin: 'haninaguib',
+      githubAccountId: 7,
     });
     asAccount.flush({});
   });
@@ -95,13 +95,13 @@ describe('ProjectsService', () => {
     });
     templated.flush({});
 
-    service.createNew('my-org', 'my-project', true, 'haninaguib', 'springboot-angular').subscribe();
+    service.createNew('my-org', 'my-project', true, 7, 'springboot-angular').subscribe();
     const both = httpMock.expectOne('/api/projects/new');
     expect(both.request.body).toEqual({
       org: 'my-org',
       name: 'my-project',
       bootstrapTWorkflow: true,
-      githubLogin: 'haninaguib',
+      githubAccountId: 7,
       template: 'springboot-angular',
     });
     both.flush({});
@@ -120,17 +120,22 @@ describe('ProjectsService', () => {
     expect(result).toEqual([{ name: 'springboot-angular', title: 'Spring Boot + Angular', description: 'One jar' }]);
   });
 
-  it('lists the host gh accounts from GET /api/github/accounts (#532)', () => {
+  it('lists the callers GitHub accounts from GET /api/github/accounts (#550)', () => {
     let result: unknown;
     service.githubAccounts().subscribe((accounts) => (result = accounts));
 
     const req = httpMock.expectOne('/api/github/accounts');
     expect(req.request.method).toBe('GET');
-    req.flush({ accounts: [{ login: 'haninaguib', active: true }, { login: 'hani-thyme', active: false }] });
+    req.flush({
+      accounts: [
+        { id: 1, login: 'haninaguib', scopes: ['repo', 'workflow'], hasWorkflowScope: true, createdAt: '2026-08-01T00:00:00Z' },
+        { id: 2, login: 'hani-thyme', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-02T00:00:00Z' },
+      ],
+    });
 
     expect(result).toEqual([
-      { login: 'haninaguib', active: true },
-      { login: 'hani-thyme', active: false },
+      { id: 1, login: 'haninaguib', scopes: ['repo', 'workflow'], hasWorkflowScope: true, createdAt: '2026-08-01T00:00:00Z' },
+      { id: 2, login: 'hani-thyme', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-02T00:00:00Z' },
     ]);
   });
 

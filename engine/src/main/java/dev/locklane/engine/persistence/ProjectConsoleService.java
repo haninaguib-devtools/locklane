@@ -70,6 +70,7 @@ public class ProjectConsoleService {
     private static final Pattern REOPENED_SUFFIX = Pattern.compile("-resume-[0-9a-f]{8}$");
 
     private final ProjectRepository projectRepository;
+    private final GhAccountRepository ghAccountRepository;
     private final TokenCipher tokenCipher;
     private final SessionRegistry sessionRegistry;
     private final WorktreeSessionRepository sessionRepository;
@@ -77,11 +78,12 @@ public class ProjectConsoleService {
     private final WorktreeSessionAuthorization authorization;
     private final WorktreeCleanupSweeper sweeper;
 
-    public ProjectConsoleService(ProjectRepository projectRepository, TokenCipher tokenCipher,
-            SessionRegistry sessionRegistry, WorktreeSessionRepository sessionRepository,
+    public ProjectConsoleService(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
+            TokenCipher tokenCipher, SessionRegistry sessionRegistry, WorktreeSessionRepository sessionRepository,
             ConsoleResumeSessionRepository resumeRepository, WorktreeSessionAuthorization authorization,
             WorktreeCleanupSweeper sweeper) {
         this.projectRepository = projectRepository;
+        this.ghAccountRepository = ghAccountRepository;
         this.tokenCipher = tokenCipher;
         this.sessionRegistry = sessionRegistry;
         this.sessionRepository = sessionRepository;
@@ -416,10 +418,10 @@ public class ProjectConsoleService {
 
     /**
      * The extra PTY environment for a session id, resolved purely from its own
-     * shape — empty for anything that isn't a project console's id. A project
-     * console with no stored GitHub token also resolves to empty: {@code gh} then
-     * falls back to whatever ambient session the host has, exactly as it does for
-     * project issue/PR fetches with no token configured (#81).
+     * shape — empty for anything that isn't a project console's id. A project with
+     * no chosen GitHub account (#550) also resolves to empty: {@code gh} then falls
+     * back to whatever ambient session the host has, exactly as it does for project
+     * issue/PR fetches with no account chosen.
      */
     public Map<String, String> environmentFor(String sessionId) {
         Matcher matcher = CONSOLE_SESSION_ID.matcher(sessionId);
@@ -427,7 +429,8 @@ public class ProjectConsoleService {
             return Map.of();
         }
         long projectId = Long.parseLong(matcher.group(1));
-        return projectRepository.findGithubToken(projectId)
+        return projectRepository.findGithubAccountId(projectId)
+                .flatMap(ghAccountRepository::findEncryptedToken)
                 .map(tokenCipher::decrypt)
                 .map(token -> Map.of("GH_TOKEN", token))
                 .orElse(Map.of());

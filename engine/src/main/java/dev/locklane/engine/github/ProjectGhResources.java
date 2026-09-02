@@ -1,6 +1,7 @@
 package dev.locklane.engine.github;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.persistence.GhAccountRepository;
 import dev.locklane.engine.persistence.ProjectRecord;
 import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.security.TokenCipher;
@@ -31,14 +32,16 @@ public class ProjectGhResources {
     private static final long REFRESH_INTERVAL_MS = 30_000;
 
     private final ProjectRepository projectRepository;
+    private final GhAccountRepository ghAccountRepository;
     private final TokenCipher tokenCipher;
     private final EventBroadcaster eventBroadcaster;
     private final BiFunction<Path, String, GhClient> clientFactory;
     private final Map<Long, ProjectGhContext> contexts = new ConcurrentHashMap<>();
 
     @Autowired
-    public ProjectGhResources(ProjectRepository projectRepository, TokenCipher tokenCipher, EventBroadcaster eventBroadcaster) {
-        this(projectRepository, tokenCipher, eventBroadcaster, CliGhClient::new);
+    public ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
+            TokenCipher tokenCipher, EventBroadcaster eventBroadcaster) {
+        this(projectRepository, ghAccountRepository, tokenCipher, eventBroadcaster, CliGhClient::new);
     }
 
     /**
@@ -48,14 +51,16 @@ public class ProjectGhResources {
      * (e.g. persistence's {@code WorktreeCreationServiceTest}) can build one
      * directly rather than needing a real {@code gh} on PATH.
      */
-    public ProjectGhResources(ProjectRepository projectRepository, TokenCipher tokenCipher,
-            BiFunction<Path, String, GhClient> clientFactory) {
-        this(projectRepository, tokenCipher, new EventBroadcaster(new ObjectMapper()), clientFactory);
+    public ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
+            TokenCipher tokenCipher, BiFunction<Path, String, GhClient> clientFactory) {
+        this(projectRepository, ghAccountRepository, tokenCipher, new EventBroadcaster(new ObjectMapper()),
+                clientFactory);
     }
 
-    public ProjectGhResources(ProjectRepository projectRepository, TokenCipher tokenCipher, EventBroadcaster eventBroadcaster,
-            BiFunction<Path, String, GhClient> clientFactory) {
+    public ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
+            TokenCipher tokenCipher, EventBroadcaster eventBroadcaster, BiFunction<Path, String, GhClient> clientFactory) {
         this.projectRepository = projectRepository;
+        this.ghAccountRepository = ghAccountRepository;
         this.tokenCipher = tokenCipher;
         this.eventBroadcaster = eventBroadcaster;
         this.clientFactory = clientFactory;
@@ -91,7 +96,10 @@ public class ProjectGhResources {
     }
 
     private ProjectGhContext build(ProjectRecord project) {
-        String token = projectRepository.findGithubToken(project.id()).map(tokenCipher::decrypt).orElse(null);
+        String token = projectRepository.findGithubAccountId(project.id())
+                .flatMap(ghAccountRepository::findEncryptedToken)
+                .map(tokenCipher::decrypt)
+                .orElse(null);
         GhClient client = clientFactory.apply(project.workareaPath(), token);
         GhIssueCache cache = new GhIssueCache(client);
         IssueDetailService detailService = new IssueDetailService(cache, client, project.workareaPath().toString());

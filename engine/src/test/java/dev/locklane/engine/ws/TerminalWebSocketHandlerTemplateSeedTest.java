@@ -1,6 +1,7 @@
 package dev.locklane.engine.ws;
 
 import dev.locklane.engine.persistence.ConsoleResumeSessionRepository;
+import dev.locklane.engine.persistence.GhAccountRepository;
 import dev.locklane.engine.persistence.ProjectConsoleService;
 import dev.locklane.engine.persistence.ProjectRecord;
 import dev.locklane.engine.persistence.ProjectRepository;
@@ -49,8 +50,8 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         registry = new SessionRegistry(sessions, new ConsoleResumeSessionRepository(dataSource));
         // Only the project lookup and the template columns matter here; the other
         // collaborators are never reached by templateSeedPrompt/markTemplateSeeded.
-        consoleService = new ProjectConsoleService(projects, new TokenCipher(new EncryptionKeyProvider(dbDir.toString())),
-                registry, sessions, null, null, null);
+        consoleService = new ProjectConsoleService(projects, new GhAccountRepository(dataSource),
+                new TokenCipher(new EncryptionKeyProvider(dbDir.toString())), registry, sessions, null, null, null);
         handler = new TerminalWebSocketHandler(registry, consoleService);
     }
 

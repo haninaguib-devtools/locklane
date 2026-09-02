@@ -93,6 +93,16 @@ public final class TestSqliteDatabases {
         return new ProjectRepository(newDataSource(dbDirectory));
     }
 
+    /**
+     * Over the same on-disk file as {@link #newProjectRepository} given the same
+     * {@code dbDirectory} — both point at {@code <dbDirectory>/locklane.db}, so a
+     * test can seed a GitHub account (#550) here and reference it by id through a
+     * {@link ProjectRepository} built the same way.
+     */
+    public static GhAccountRepository newGhAccountRepository(Path dbDirectory) {
+        return new GhAccountRepository(newDataSource(dbDirectory));
+    }
+
     public static BackupCodeRepository newBackupCodeRepository(Path dbDirectory) {
         return new BackupCodeRepository(newDataSource(dbDirectory));
     }

@@ -48,6 +48,14 @@ locklane:
   data-dir: ${user.home}/.locklane
   # Where added projects (#42) are cloned, one subfolder per project.
   workarea-root: ${locklane.data-dir}/workareas
+  github:
+    # The client id of a "Locklane" OAuth App registered with device flow enabled
+    # (#550) — required for the GitHub accounts page's "Sign in with GitHub" button;
+    # blank (the default) means device flow is unavailable and the accounts page
+    # offers only pasting a token. Override with LOCKLANE_GITHUB_OAUTH_CLIENT_ID.
+    # Never a secret itself (an OAuth App's client id is public by design), so this
+    # is safe to set in application-locklane.properties alongside everything else.
+    oauth-client-id: ""
   uploads:
     # Files dropped or pasted onto a console terminal (#436) land here, one subfolder
     # per session id, so the CLI in that session can be handed a real path. A

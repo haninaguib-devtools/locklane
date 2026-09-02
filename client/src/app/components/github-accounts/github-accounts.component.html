@@ -1,0 +1,125 @@
+<div class="backdrop" (click)="closed.emit()">
+  <div class="popup" role="dialog" aria-modal="true" aria-label="GitHub accounts" (click)="$event.stopPropagation()">
+    <div class="popup-header">
+      <span>GitHub accounts</span>
+      <button type="button" class="close" (click)="closed.emit()" aria-label="Close">×</button>
+    </div>
+    <div class="popup-body">
+      <section class="section">
+        <h2>Sign in with GitHub</h2>
+        <p class="muted">
+          Every git and gh operation for a project acts as one of these accounts, never
+          as whatever this host happens to be logged into.
+        </p>
+
+        @if (deviceFlow(); as flow) {
+          <div class="device-flow">
+            <p class="muted">
+              Go to
+              <a [href]="flow.verificationUri" target="_blank" rel="noopener">{{ flow.verificationUri }}</a>
+              and enter this code:
+            </p>
+            <p class="user-code">{{ flow.userCode }}</p>
+            <p class="muted">Waiting for approval…</p>
+            <div class="actions">
+              <button type="button" class="secondary" (click)="cancelDeviceFlow()">Cancel</button>
+            </div>
+          </div>
+        } @else {
+          @if (deviceFlowNotConfigured()) {
+            <p class="muted">
+              Device sign-in isn't set up on this host yet -- paste a token below instead.
+            </p>
+          } @else {
+            @if (deviceFlowError(); as message) {
+              <p class="error">{{ message }}</p>
+            }
+            <div class="actions">
+              <button type="button" [disabled]="deviceFlowStarting()" (click)="startDeviceFlow()">
+                {{ deviceFlowStarting() ? 'Starting…' : 'Sign in with GitHub' }}
+              </button>
+            </div>
+          }
+        }
+      </section>
+
+      <section class="section">
+        <h2>Add a token</h2>
+        <p class="muted">A personal access token with the <code>repo</code> scope.</p>
+
+        <form (ngSubmit)="addToken()">
+          <label>
+            Token
+            <input
+              type="password"
+              name="pastedToken"
+              autocomplete="off"
+              placeholder="ghp_…"
+              [(ngModel)]="pastedToken"
+              [disabled]="addingToken"
+              required
+            />
+          </label>
+
+          @if (addTokenError) {
+            <p class="error">{{ addTokenError }}</p>
+          }
+
+          <div class="actions">
+            <button type="submit" [disabled]="!pastedToken.trim() || addingToken">
+              {{ addingToken ? 'Adding…' : 'Add token' }}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="section">
+        <h2>Accounts</h2>
+
+        @if (loadError(); as message) {
+          <p class="error">{{ message }}</p>
+        } @else if (loading()) {
+          <p class="muted">Loading…</p>
+        } @else if (removeError) {
+          <p class="error">{{ removeError }}</p>
+        }
+
+        @if (!loading() && accounts().length === 0 && !loadError()) {
+          <p class="muted">No accounts yet -- sign in above.</p>
+        }
+
+        <ul class="account-list">
+          @for (account of accounts(); track account.id) {
+            <li>
+              <div class="account-info">
+                <span class="login">{{ account.login }}</span>
+                @if (!account.hasWorkflowScope) {
+                  <span class="pending" title="Cannot bootstrap t-workflow -- missing the workflow scope">
+                    no workflow scope
+                  </span>
+                }
+              </div>
+              <button type="button" class="secondary danger" (click)="requestRemove(account)">
+                Remove
+              </button>
+            </li>
+          }
+        </ul>
+      </section>
+    </div>
+  </div>
+</div>
+
+@if (removeTarget; as target) {
+  <app-confirm-dialog
+    title="Remove this account?"
+    [message]="
+      'Remove ' + target.login + '? If a project is still choosing it, the removal is refused instead ' +
+      'of leaving that project without credentials -- pick a different account for it first.'
+    "
+    confirmLabel="Remove"
+    [danger]="true"
+    (confirmed)="confirmRemove()"
+    (cancelled)="cancelRemove()"
+  />
+}

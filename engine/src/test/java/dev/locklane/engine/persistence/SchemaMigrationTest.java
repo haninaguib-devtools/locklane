@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.github.GhAccount;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -10,6 +11,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -79,24 +81,52 @@ class SchemaMigrationTest {
     }
 
     @Test
-    void anExistingProjectsTableGainsGithubTokenWithoutLosingRows(@TempDir Path dbDir) {
-        // V4 created projects; V5 (the next one) adds github_token.
-        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "4");
+    void anExistingProjectsTableGainsGithubAccountIdWithoutLosingRows(@TempDir Path dbDir) {
+        // V4 created projects; V5 added github_token (#81), later dropped by V15
+        // (#550) in favor of github_account_id -- start from the V5 shape, with a
+        // github_token value already set on the row, and confirm the upgrade both
+        // preserves the row and gains the new column.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "5");
+        new JdbcTemplate(oldShape).update("""
+                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at, github_token)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                "locklane", "git@example.com:x/locklane.git", "/work/locklane", "main", "READY",
+                "2026-01-01T00:00:00Z", "old-encrypted-token");
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+        ProjectRepository repository = new ProjectRepository(oldShape);
+        GhAccountRepository ghAccountRepository = new GhAccountRepository(oldShape);
+
+        ProjectRecord found = repository.findByWorkareaPath(Path.of("/work/locklane")).orElseThrow();
+        assertThat(found.name()).isEqualTo("locklane");
+        assertThat(repository.findGithubAccountId(found.id())).isEmpty();
+
+        GhAccount account = ghAccountRepository.insert(1L, "work", "encrypted-token", Set.of("repo"),
+                Instant.parse("2026-01-02T00:00:00Z"));
+        repository.setGithubAccountId(found.id(), account.id());
+        assertThat(repository.findGithubAccountId(found.id())).contains(account.id());
+    }
+
+    @Test
+    void anExistingProjectsTableDropsOrStopsUsingGithubTokenAfterTheUpgrade(@TempDir Path dbDir) {
+        // Whether SQLite's ALTER TABLE ... DROP COLUMN is available here or not (V15
+        // falls back gracefully either way, #550), no code path reads or writes
+        // github_token any more, and the new column always works.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "5");
         new JdbcTemplate(oldShape).update("""
                 INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                "locklane", "git@example.com:x/locklane.git", "/work/locklane", "main", "READY", "2026-01-01T00:00:00Z");
+                "second", "git@example.com:x/second.git", "/work/second", "main", "READY", "2026-01-01T00:00:00Z");
 
         TestSqliteDatabases.migrateToLatest(oldShape);
-        ProjectRepository repository = new ProjectRepository(oldShape);
 
-        ProjectRecord found = repository.findByWorkareaPath(Path.of("/work/locklane")).orElseThrow();
-        assertThat(found.name()).isEqualTo("locklane");
-        assertThat(repository.findGithubToken(found.id())).isEmpty();
-
-        repository.setGithubToken(found.id(), "encrypted-token");
-        assertThat(repository.findGithubToken(found.id())).contains("encrypted-token");
+        List<String> columns = new JdbcTemplate(oldShape).query("PRAGMA table_info(projects)",
+                (rs, rowNum) -> rs.getString("name"));
+        assertThat(columns).contains("github_account_id");
+        // github_token may or may not still be a column (SQLite-version-dependent);
+        // either way it is unused, which is the actual done-when.
     }
 
     @Test
