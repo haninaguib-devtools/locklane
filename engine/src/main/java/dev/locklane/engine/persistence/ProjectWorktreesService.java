@@ -12,9 +12,11 @@ import java.util.stream.Stream;
  * project's issues, with the clean/dirty and session-attached status a human needs to
  * judge each row, plus the manual "remove worktree" action and the on-demand "run
  * cleanup now" trigger. Deliberately thin — {@link WorktreeCleanupSweeper} already
- * owns the whole of the removal guard and the sweep itself (#319); this service reuses
- * both rather than re-deriving either, so the manual path and the periodic one can
- * never quietly drift apart.
+ * owns the whole of the removal guard, the sweep itself (#319), and both families'
+ * discovery ({@link WorktreeCleanupSweeper#allIssueWorktrees()}, git-native since
+ * #585, and {@link WorktreeCleanupSweeper#allProjectConsoleWorktrees()}); this service
+ * reuses all of it rather than re-deriving any of it, so the manual path and the
+ * periodic one can never quietly drift apart.
  *
  * <p>"Run cleanup now" calls {@link WorktreeCleanupSweeper#sweep()} unmodified — the
  * same system-wide sweep the schedule runs, not a project-scoped variant. Scoping it
@@ -37,13 +39,10 @@ import java.util.stream.Stream;
 @Service
 public class ProjectWorktreesService {
 
-    private final IssueWorktreeService worktreeService;
     private final WorktreeCleanupSweeper sweeper;
     private final SessionRegistry sessionRegistry;
 
-    public ProjectWorktreesService(IssueWorktreeService worktreeService, WorktreeCleanupSweeper sweeper,
-            SessionRegistry sessionRegistry) {
-        this.worktreeService = worktreeService;
+    public ProjectWorktreesService(WorktreeCleanupSweeper sweeper, SessionRegistry sessionRegistry) {
         this.sweeper = sweeper;
         this.sessionRegistry = sessionRegistry;
     }
@@ -54,7 +53,7 @@ public class ProjectWorktreesService {
      * {@link WorktreeRow#issueNumber()} is {@code null} — it has no issue to report.
      */
     public List<WorktreeRow> listForProject(long projectId) {
-        Stream<WorktreeRow> issueRows = worktreeService.allIssueWorktrees().stream()
+        Stream<WorktreeRow> issueRows = sweeper.allIssueWorktrees().stream()
                 .filter(worktree -> worktree.projectId() == projectId)
                 .map(worktree -> new WorktreeRow(worktree.worktreeId(), worktree.issueNumber(),
                         worktree.workingDirectory().toString(), sweeper.isClean(worktree.workingDirectory()),
@@ -76,7 +75,7 @@ public class ProjectWorktreesService {
      * WorktreeCleanupSweeper#removalRefusalReasonForProjectConsole}) before removing.
      */
     public RemovalResult remove(long projectId, String worktreeId) {
-        Optional<IssueWorktreeService.ConsoleWorktree> issueWorktree = worktreeService.allIssueWorktrees().stream()
+        Optional<WorktreeCleanupSweeper.IssueWorktree> issueWorktree = sweeper.allIssueWorktrees().stream()
                 .filter(w -> w.projectId() == projectId && w.worktreeId().equals(worktreeId))
                 .findFirst();
         if (issueWorktree.isPresent()) {
@@ -97,7 +96,7 @@ public class ProjectWorktreesService {
         return sweeper.sweep();
     }
 
-    private RemovalResult removeIssueWorktree(IssueWorktreeService.ConsoleWorktree worktree) {
+    private RemovalResult removeIssueWorktree(WorktreeCleanupSweeper.IssueWorktree worktree) {
         Optional<String> refusal = sweeper.removalRefusalReason(worktree);
         if (refusal.isPresent()) {
             return RemovalResult.refused(refusal.get());

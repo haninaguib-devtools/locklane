@@ -189,6 +189,74 @@ class WorktreeCleanupSweeperTest {
         assertThat(fx.repository.find(worktree.worktreeId())).isEmpty();
     }
 
+    // --- #585: discovery is git-native, never from a persisted session record ---
+
+    @Test
+    void sweepRemovesAClosedCleanPerIssueWorktreeWhoseSessionRecordWasAlreadyDeletedOnTabClose(@TempDir Path tmp)
+            throws Exception {
+        // The exact bug #585 fixes: closing an issue console deletes its
+        // worktree_sessions row (SessionRegistry#close) as part of ending the
+        // session, before the sweep ever runs -- discovery must find the worktree
+        // by asking git, with no row left to read.
+        Fixture fx = fixture(tmp);
+        GhIssue closed = new GhIssue(51, "Closed, tab already closed", "CLOSED", List.of(), "", "", "");
+        WorktreeAndId worktree = createWorktree(fx, 51, "Closed, tab already closed");
+        // Simulate the console's actual lifecycle: a client attaches (persisting a
+        // session row under the real, slug-bearing id) and then the tab is closed
+        // (WorktreeController#closeSession -> SessionRegistry#close), which deletes
+        // that very row -- before the sweep ever runs.
+        SessionRegistry sessionRegistry = new SessionRegistry(fx.repository);
+        sessionRegistry.attach(worktree.createdSessionId(), worktree.path());
+        sessionRegistry.close(worktree.createdSessionId());
+        assertThat(fx.repository.find(worktree.createdSessionId())).isEmpty();
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of(closed));
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).containsExactly(worktree.worktreeId());
+        assertThat(worktree.path()).doesNotExist();
+    }
+
+    @Test
+    void sweepLeavesARecordLessPerIssueWorktreeAloneWhoseIssueIsStillOpen(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        GhIssue open = new GhIssue(52, "Record-less but still open", "OPEN", List.of(), "", "", "");
+        // No session record at all -- simulating the ordinary case (tab-close already
+        // deleted it) as well as a crash where none was ever recorded.
+        WorktreeAndId worktree = createWorktree(fx, 52, "Record-less but still open");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of(open));
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).isEmpty();
+        assertThat(worktree.path()).isDirectory();
+    }
+
+    @Test
+    void sweepLeavesARecordLessDirtyPerIssueWorktreeAlone(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp);
+        GhIssue closed = new GhIssue(53, "Record-less but dirty", "CLOSED", List.of(), "", "", "");
+        WorktreeAndId worktree = createWorktree(fx, 53, "Record-less but dirty");
+        Files.writeString(worktree.path().resolve("scratch.txt"), "uncommitted work");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of(closed));
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).isEmpty();
+        assertThat(worktree.path()).isDirectory();
+    }
+
+    @Test
+    void discoveryIgnoresASameNamedDirectoryThatWasNeverRegisteredAsAPerIssueWorktree(@TempDir Path tmp)
+            throws Exception {
+        Fixture fx = fixture(tmp);
+        Path phantom = fx.projectRoot().resolveSibling(WorktreeCreationService.repoName(fx.projectRoot()) + "-99");
+        Files.createDirectories(phantom);
+        Files.writeString(phantom.resolve("not-a-worktree.txt"), "just a directory with the right name");
+
+        assertThat(sweeper(fx, List.of()).allIssueWorktrees()).isEmpty();
+    }
+
     // --- #339/ADR-104: the sweep as backstop for orphaned project-console worktrees ---
 
     @Test
@@ -356,7 +424,13 @@ class WorktreeCleanupSweeperTest {
         assertThat(sweeper(fx, List.of()).allProjectConsoleWorktrees()).isEmpty();
     }
 
-    private record WorktreeAndId(String worktreeId, Path path) {
+    /**
+     * {@code worktreeId} is the git-native discovery id {@link #sweeper}'s per-issue
+     * listing synthesizes (#585); {@code createdSessionId} is the persisted, slug-
+     * bearing id {@link WorktreeCreationService#startSession} actually mints, kept
+     * around only for a test that needs to simulate that record's own lifecycle.
+     */
+    private record WorktreeAndId(String worktreeId, String createdSessionId, Path path) {
     }
 
     private record ProjectConsoleWorktreeAndId(String worktreeId, Path path) {
@@ -417,7 +491,12 @@ class WorktreeCleanupSweeperTest {
         // /t-work step that would normally follow: check out the real
         // wip/<id>-<slug> branch a worktree carries once implementation has started.
         run(worktreePath, "git", "checkout", "-b", "wip/" + issueNumber + "-" + WorktreeCreationService.slug(title));
-        return new WorktreeAndId(started.worktreeId(), worktreePath);
+        // #585: the sweep's own per-issue discovery is git-native, and synthesizes a
+        // worktree id from the project and issue number alone -- it never reads
+        // started.worktreeId() (the persisted, slug-bearing id WorktreeCreationService
+        // minted), so every assertion below is keyed on that same synthetic id.
+        String discoveryId = fx.projectId + "-" + issueNumber + "-worktree";
+        return new WorktreeAndId(discoveryId, started.worktreeId(), worktreePath);
     }
 
     private static WorktreeCleanupSweeper sweeper(Fixture fx, List<GhIssue> issues) {
@@ -425,12 +504,10 @@ class WorktreeCleanupSweeperTest {
     }
 
     private static WorktreeCleanupSweeper sweeper(Fixture fx, SessionRegistry sessionRegistry, List<GhIssue> issues) {
-        IssueWorktreeService worktreeService =
-                new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources ghResources =
                 new ProjectGhResources(fx.projectRepository, ghAccountRepository(), tokenCipher(),
                 (path, token) -> new FixedGhClient(issues));
-        return new WorktreeCleanupSweeper(worktreeService, fx.projectRepository, ghResources, sessionRegistry,
+        return new WorktreeCleanupSweeper(fx.projectRepository, ghResources, sessionRegistry,
                 ghAccountRepository(), tokenCipher());
     }
 

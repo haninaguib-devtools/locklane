@@ -122,19 +122,21 @@ class ProjectWorktreesControllerTest {
                         ghAccountRepository(), tokenCipher());
 
         WorktreeCreationService.StartedSession started = creationService.startSession(fx.projectId, issueNumber).orElseThrow();
-        return new WorktreeAndId(started.worktreeId(), Path.of(started.workingDirectory()));
+        // #585: the sweep's per-issue discovery is git-native and synthesizes its own
+        // id from the project and issue number -- it never reads started.worktreeId()
+        // (the persisted, slug-bearing id WorktreeCreationService actually mints).
+        String discoveryId = fx.projectId + "-" + issueNumber + "-worktree";
+        return new WorktreeAndId(discoveryId, Path.of(started.workingDirectory()));
     }
 
     private static ProjectWorktreesController controller(Fixture fx, List<GhIssue> issues) {
-        IssueWorktreeService worktreeService =
-                new IssueWorktreeService(fx.repository, TestSqliteDatabases.newNoopAuthorization());
         SessionRegistry sessionRegistry = new SessionRegistry(fx.repository);
         ProjectGhResources ghResources =
                 new ProjectGhResources(fx.projectRepository, ghAccountRepository(), tokenCipher(),
                 (path, token) -> new FixedGhClient(issues));
-        WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, fx.projectRepository, ghResources,
+        WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(fx.projectRepository, ghResources,
                 sessionRegistry, ghAccountRepository(), tokenCipher());
-        ProjectWorktreesService service = new ProjectWorktreesService(worktreeService, sweeper, sessionRegistry);
+        ProjectWorktreesService service = new ProjectWorktreesService(sweeper, sessionRegistry);
         return new ProjectWorktreesController(service);
     }
 
