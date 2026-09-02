@@ -88,9 +88,11 @@ case "$mode" in
 
     run_id=""
     for _ in $(seq 1 30); do
+      # gh's --jq takes no --arg; the timestamp is interpolated into the expression
+      # (it is a fixed-format UTC string, never user input).
       run_id=$(gh run list --workflow release.yml --event workflow_dispatch --limit 5 \
-        --json databaseId,createdAt --jq --arg t "$before" \
-        '[.[] | select(.createdAt >= $t)] | sort_by(.createdAt) | last | .databaseId // empty' 2>/dev/null)
+        --json databaseId,createdAt \
+        --jq "[.[] | select(.createdAt >= \"$before\")] | sort_by(.createdAt) | last | .databaseId // empty" 2>/dev/null)
       [ -n "$run_id" ] && break
       sleep 2
     done
