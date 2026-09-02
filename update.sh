@@ -321,12 +321,10 @@ case "$service_kind" in
     ;;
 esac
 
+# gh must be installed, not logged in: the only gh call below is `gh release download`,
+# which works unauthenticated on a public repository (#610).
 if ! command -v gh >/dev/null 2>&1; then
-  echo "error: the GitHub CLI (gh) is required — install it from https://cli.github.com, then run 'gh auth login'." >&2
-  exit 1
-fi
-if ! gh auth status >/dev/null 2>&1; then
-  echo "error: gh is not logged in — run 'gh auth login' first." >&2
+  echo "error: the GitHub CLI (gh) is required — install it from https://cli.github.com." >&2
   exit 1
 fi
 
