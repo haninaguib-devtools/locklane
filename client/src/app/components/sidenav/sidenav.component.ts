@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
+import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Subscription, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
@@ -42,7 +43,7 @@ export interface ProjectIssue {
   issueNumber: number;
 }
 
-interface Section {
+export interface Section {
   project: Project;
   tree: TreeNode[];
 }
@@ -59,7 +60,7 @@ interface PinnedGroup {
 @Component({
   selector: 'app-sidenav',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet, RouterLink, ConfirmDialogComponent, UsageWidgetComponent],
+  imports: [FormsModule, NgTemplateOutlet, RouterLink, DragDropModule, ConfirmDialogComponent, UsageWidgetComponent],
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })
@@ -414,6 +415,22 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   get projectSections(): Section[] {
     return this.sections;
+  }
+
+  /**
+   * Reorders the project sections in place (#541) so the drop lands immediately,
+   * without waiting on the persist request or a reload; a failed persist re-loads to
+   * fall back to whatever order the server actually kept.
+   */
+  onProjectSectionDrop(event: CdkDragDrop<Section[]>): void {
+    if (event.previousIndex === event.currentIndex) {
+      return;
+    }
+    moveItemInArray(this.sections, event.previousIndex, event.currentIndex);
+    const orderedIds = this.sections.map((s) => s.project.id);
+    this.projectsService.setOrder(orderedIds).subscribe({
+      error: () => this.load(() => {}),
+    });
   }
 
   get pinnedGroups(): PinnedGroup[] {

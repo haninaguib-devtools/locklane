@@ -57,104 +57,109 @@
     @if (projectSections.length === 0) {
       <div class="state">no projects yet</div>
     }
-    @for (section of projectSections; track section.project.id) {
-      <div
-        class="section-header"
-        [class.active]="isProjectSelected(section.project.id)"
-        (click)="selectProject(section.project.id)"
-      >
-        <button
-          type="button"
-          class="twist"
-          [class.expanded]="!isProjectCollapsed(section.project.id)"
-          (click)="toggleProjectCollapse(section.project.id, $event)"
-          [attr.aria-label]="isProjectCollapsed(section.project.id) ? 'Expand project' : 'Collapse project'"
-        >
-          ▸
-        </button>
-        <span class="project-label">
-          {{ section.project.name }}
-          @if (section.project.status === 'READY') {
-            <span class="issue-count">({{ openIssueCount(section) }})</span>
-          }
-        </span>
-        @if (section.project.status !== 'READY') {
-          <span class="project-status" [class.failed]="section.project.status === 'FAILED'">
-            {{ section.project.status === 'CLONING' ? 'cloning…' : 'failed' }}
-          </span>
-        }
-        @if (hasOpenConsoleForProject(section.project.id)) {
-          <button
-            type="button"
-            class="project-consoles"
-            (click)="openProjectConsoles(section.project.id, $event)"
-            [attr.aria-label]="
-              hasAttentionWaitingForProject(section.project.id)
-                ? 'This project has a console waiting for you'
-                : 'This project has an open console'
-            "
-            [attr.title]="
-              hasAttentionWaitingForProject(section.project.id)
-                ? 'This project has a console waiting for you'
-                : 'This project has an open console'
-            "
+    <div cdkDropList (cdkDropListDropped)="onProjectSectionDrop($event)">
+      @for (section of projectSections; track section.project.id) {
+        <div class="project-section" cdkDrag>
+          <div
+            class="section-header"
+            cdkDragHandle
+            [class.active]="isProjectSelected(section.project.id)"
+            (click)="selectProject(section.project.id)"
           >
-            <span
-              class="console-dot"
-              [class.waiting]="hasAttentionWaitingForProject(section.project.id)"
-            ></span>
-          </button>
-        }
-        @if (section.project.status === 'READY') {
-          <button
-            type="button"
-            class="new-console"
-            (click)="openNewConsole(section.project.id, $event)"
-            aria-label="Open a new console for this project"
-            title="Open a new console for this project"
-          >
-            +
-          </button>
-        }
-        <button
-          type="button"
-          class="pop-out"
-          (click)="popOutProject(section.project.id, $event)"
-          aria-label="Open this project in its own window"
-          title="Open this project in its own window"
-        >
-          ↗
-        </button>
-      </div>
-      @if (!isProjectCollapsed(section.project.id)) {
-        @if (section.project.status === 'CLONING') {
-          <div class="state">cloning the repository…</div>
-        } @else if (section.project.status === 'FAILED') {
-          <div class="state project-failed">
-            <span>could not clone this project</span>
-            <div class="project-failed-actions">
-              <button type="button" (click)="retryProject(section.project.id, $event)">retry</button>
-              <button type="button" (click)="deleteProject(section.project.id, $event)">delete</button>
-            </div>
-            @if (deleteErrorFor(section.project.id); as message) {
-              <p class="delete-error">{{ message }}</p>
+            <button
+              type="button"
+              class="twist"
+              [class.expanded]="!isProjectCollapsed(section.project.id)"
+              (click)="toggleProjectCollapse(section.project.id, $event)"
+              [attr.aria-label]="isProjectCollapsed(section.project.id) ? 'Expand project' : 'Collapse project'"
+            >
+              ▸
+            </button>
+            <span class="project-label">
+              {{ section.project.name }}
+              @if (section.project.status === 'READY') {
+                <span class="issue-count">({{ openIssueCount(section) }})</span>
+              }
+            </span>
+            @if (section.project.status !== 'READY') {
+              <span class="project-status" [class.failed]="section.project.status === 'FAILED'">
+                {{ section.project.status === 'CLONING' ? 'cloning…' : 'failed' }}
+              </span>
             }
+            @if (hasOpenConsoleForProject(section.project.id)) {
+              <button
+                type="button"
+                class="project-consoles"
+                (click)="openProjectConsoles(section.project.id, $event)"
+                [attr.aria-label]="
+                  hasAttentionWaitingForProject(section.project.id)
+                    ? 'This project has a console waiting for you'
+                    : 'This project has an open console'
+                "
+                [attr.title]="
+                  hasAttentionWaitingForProject(section.project.id)
+                    ? 'This project has a console waiting for you'
+                    : 'This project has an open console'
+                "
+              >
+                <span
+                  class="console-dot"
+                  [class.waiting]="hasAttentionWaitingForProject(section.project.id)"
+                ></span>
+              </button>
+            }
+            @if (section.project.status === 'READY') {
+              <button
+                type="button"
+                class="new-console"
+                (click)="openNewConsole(section.project.id, $event)"
+                aria-label="Open a new console for this project"
+                title="Open a new console for this project"
+              >
+                +
+              </button>
+            }
+            <button
+              type="button"
+              class="pop-out"
+              (click)="popOutProject(section.project.id, $event)"
+              aria-label="Open this project in its own window"
+              title="Open this project in its own window"
+            >
+              ↗
+            </button>
           </div>
-        } @else {
-          @if (mainNodesFor(section).length === 0) {
-            <div class="state">no matching cases</div>
+          @if (!isProjectCollapsed(section.project.id)) {
+            @if (section.project.status === 'CLONING') {
+              <div class="state">cloning the repository…</div>
+            } @else if (section.project.status === 'FAILED') {
+              <div class="state project-failed">
+                <span>could not clone this project</span>
+                <div class="project-failed-actions">
+                  <button type="button" (click)="retryProject(section.project.id, $event)">retry</button>
+                  <button type="button" (click)="deleteProject(section.project.id, $event)">delete</button>
+                </div>
+                @if (deleteErrorFor(section.project.id); as message) {
+                  <p class="delete-error">{{ message }}</p>
+                }
+              </div>
+            } @else {
+              @if (mainNodesFor(section).length === 0) {
+                <div class="state">no matching cases</div>
+              }
+              <ul>
+                <ng-container
+                  *ngTemplateOutlet="
+                    rows;
+                    context: { nodes: mainNodesFor(section), projectId: section.project.id }
+                  "
+                />
+              </ul>
+            }
           }
-          <ul>
-            <ng-container
-              *ngTemplateOutlet="
-                rows;
-                context: { nodes: mainNodesFor(section), projectId: section.project.id }
-              "
-            />
-          </ul>
-        }
+        </div>
       }
-    }
+    </div>
   }
   </div>
   <app-usage-widget />

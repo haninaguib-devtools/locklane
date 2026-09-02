@@ -29,6 +29,11 @@ import java.time.Instant;
  * {@code null} until then. A READY project with a {@code template} and a
  * {@code null} {@code templateSeededAt} still owes its first console; the launch
  * that sets this is what turns that rule off.
+ *
+ * <p>{@code sortOrder} (#541) is the owner's chosen position for this project in their
+ * own sidenav — lower sorts first. Assigned sequentially at creation time (today's
+ * insertion order) and rewritten wholesale by {@link ProjectRepository#setOrder} the
+ * next time that owner drags a row to a new position.
  */
 public record ProjectRecord(
         long id,
@@ -41,5 +46,6 @@ public record ProjectRecord(
         Instant createdAt,
         String accentColor,
         String template,
-        Instant templateSeededAt) {
+        Instant templateSeededAt,
+        int sortOrder) {
 }
