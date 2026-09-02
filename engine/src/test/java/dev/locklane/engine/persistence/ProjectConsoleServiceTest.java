@@ -809,12 +809,10 @@ class ProjectConsoleServiceTest {
      */
     private static WorktreeCleanupSweeper sweeper(Path dbDir, WorktreeSessionRepository sessionRepository,
             ProjectRepository projectRepository) {
-        IssueWorktreeService worktreeService =
-                new IssueWorktreeService(sessionRepository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources ghResources = new ProjectGhResources(projectRepository,
                 TestSqliteDatabases.newGhAccountRepository(dbDir), tokenCipher(dbDir),
                 (path, token) -> new FixedGhClient());
-        return new WorktreeCleanupSweeper(worktreeService, projectRepository, ghResources,
+        return new WorktreeCleanupSweeper(projectRepository, ghResources,
                 new SessionRegistry(sessionRepository), TestSqliteDatabases.newGhAccountRepository(dbDir),
                 tokenCipher(dbDir));
     }

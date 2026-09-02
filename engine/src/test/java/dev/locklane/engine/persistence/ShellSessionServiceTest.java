@@ -209,7 +209,7 @@ class ShellSessionServiceTest {
                 .createReady("proj", "url", dbDir.resolve("work"), "main", aliceId, Instant.now()).id();
         WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
         ShellSessionService service = service(dbDir, projectRepository, sessionRepository);
-        String shellId = service.open(projectId, 7, dbDir.resolve("proj-7"), "alice").orElseThrow().sessionId();
+        service.open(projectId, 7, dbDir.resolve("proj-7"), "alice").orElseThrow();
         // An ordinary agent session on the same issue, for contrast.
         sessionRepository.recordAttach(projectId + "-7-do-the-thing", dbDir.resolve("proj-7"),
                 Instant.parse("2026-08-25T12:00:00Z"), "alice");
@@ -225,9 +225,6 @@ class ShellSessionServiceTest {
         // The project consoles tab strip doesn't list it either.
         assertThat(projectConsoleService(dbDir, projectRepository, sessionRepository).listOpen(projectId, "alice"))
                 .isEmpty();
-        assertThat(issueWorktreeService.allIssueWorktrees())
-                .extracting(IssueWorktreeService.ConsoleWorktree::worktreeId)
-                .doesNotContain(shellId);
     }
 
     @Test
@@ -269,7 +266,6 @@ class ShellSessionServiceTest {
         ProjectGhResources ghResources = new ProjectGhResources(projectRepository, ghAccountRepository,
                 tokenCipher(dbDir), (path, token) -> new FixedGhClient());
         WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(
-                new IssueWorktreeService(sessionRepository, TestSqliteDatabases.newNoopAuthorization()),
                 projectRepository, ghResources, new SessionRegistry(sessionRepository), ghAccountRepository,
                 tokenCipher(dbDir));
         return new ProjectConsoleService(projectRepository, ghAccountRepository, tokenCipher(dbDir),

@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Periodically deletes a console-created worktree once it is safe to do so (#319) —
@@ -33,6 +34,20 @@ import java.util.Optional;
  *   <li>no live session ({@link SessionRegistry#hasLiveSessionIn}) has a working
  *       directory inside it</li>
  * </ul>
+ *
+ * <p>#585: discovery of the worktrees this guard runs over ({@link
+ * #allIssueWorktrees()}) is git-native — {@code git worktree list --porcelain} in each
+ * project's checkout, cross-referenced against the sibling-directory naming convention
+ * {@link WorktreeCreationService#startSession} already uses ({@code
+ * <repoName>-<issueNumber>}) — never from {@link WorktreeSessionRepository}. Closing an
+ * issue console ({@code WorktreeController#closeSession} → {@link
+ * SessionRegistry#close}) deletes that very row as part of ending the session, so a
+ * worktree this guard refuses to remove would otherwise have no record left to find it
+ * by; the same reasoning #339/ADR-104 already applied to a project console's own
+ * discovery, generalized here to the per-issue case it was originally written for. A
+ * discovered worktree's id is synthesized from its project and issue number ({@code
+ * <projectId>-<issueNumber>-worktree}) rather than read from any persisted session's
+ * own id — the two need not, and generally will not, match.
  *
  * <p>{@link #sweep()} is the whole of the guard logic, callable on its own schedule
  * below or, per this task's done-when, programmatically — #320's on-demand "run
@@ -82,8 +97,8 @@ public class WorktreeCleanupSweeper {
 
     private static final Logger log = LoggerFactory.getLogger(WorktreeCleanupSweeper.class);
     private static final String CLOSED = "CLOSED";
+    private static final Pattern ISSUE_NUMBER = Pattern.compile("\\d+");
 
-    private final IssueWorktreeService issueWorktreeService;
     private final ProjectRepository projectRepository;
     private final ProjectGhResources ghResources;
     private final SessionRegistry sessionRegistry;
@@ -91,10 +106,8 @@ public class WorktreeCleanupSweeper {
     private final TokenCipher tokenCipher;
 
     @Autowired
-    public WorktreeCleanupSweeper(IssueWorktreeService issueWorktreeService, ProjectRepository projectRepository,
-            ProjectGhResources ghResources, SessionRegistry sessionRegistry, GhAccountRepository ghAccountRepository,
-            TokenCipher tokenCipher) {
-        this.issueWorktreeService = issueWorktreeService;
+    public WorktreeCleanupSweeper(ProjectRepository projectRepository, ProjectGhResources ghResources,
+            SessionRegistry sessionRegistry, GhAccountRepository ghAccountRepository, TokenCipher tokenCipher) {
         this.projectRepository = projectRepository;
         this.ghResources = ghResources;
         this.sessionRegistry = sessionRegistry;
@@ -121,7 +134,7 @@ public class WorktreeCleanupSweeper {
      */
     public List<String> sweep() {
         List<String> removed = new ArrayList<>();
-        for (IssueWorktreeService.ConsoleWorktree worktree : issueWorktreeService.allIssueWorktrees()) {
+        for (IssueWorktree worktree : allIssueWorktrees()) {
             if (isSafeToRemove(worktree) && removeWorktree(worktree)) {
                 removed.add(worktree.worktreeId());
             }
@@ -134,7 +147,50 @@ public class WorktreeCleanupSweeper {
         return removed;
     }
 
-    private boolean isSafeToRemove(IssueWorktreeService.ConsoleWorktree worktree) {
+    /**
+     * Every per-issue worktree git itself considers registered to a project's
+     * repository, across every project (#585) — {@code git worktree list --porcelain}
+     * in each project's own checkout, cross-referenced against the sibling-directory
+     * naming convention {@link WorktreeCreationService#startSession} already uses
+     * ({@code <repoName>-<issueNumber>}), never from {@link WorktreeSessionRepository}:
+     * see this class's javadoc for why a DB-record-based discovery is wrong here, the
+     * same reasoning {@link #allProjectConsoleWorktrees()} already established for the
+     * project-console family. A worktree's id is synthesized from the project and
+     * issue number alone ({@code <projectId>-<issueNumber>-worktree}) — there is no
+     * persisted slug to read back, and none is needed: every consumer of {@link
+     * IssueWorktree#worktreeId()} treats it as an opaque handle. Asking git, rather
+     * than only matching directory names on disk, means a same-named but unrelated
+     * directory is never mistaken for a real per-issue worktree. A project not found,
+     * with no matching registered worktree, or whose registered worktree's suffix is
+     * not a bare issue number (a project-console worktree, or anything else) simply
+     * contributes nothing.
+     */
+    public List<IssueWorktree> allIssueWorktrees() {
+        List<IssueWorktree> result = new ArrayList<>();
+        for (ProjectRecord project : projectRepository.findAll()) {
+            Path projectRoot = project.workareaPath();
+            if (!Files.isDirectory(projectRoot)) {
+                continue;
+            }
+            String prefix = WorktreeCreationService.repoName(projectRoot) + "-";
+            for (Path worktreePath : registeredWorktreePaths(projectRoot)) {
+                Path fileName = worktreePath.getFileName();
+                if (fileName == null || !fileName.toString().startsWith(prefix)) {
+                    continue;
+                }
+                String suffix = fileName.toString().substring(prefix.length());
+                if (!ISSUE_NUMBER.matcher(suffix).matches()) {
+                    continue;
+                }
+                int issueNumber = Integer.parseInt(suffix);
+                String worktreeId = project.id() + "-" + issueNumber + "-worktree";
+                result.add(new IssueWorktree(project.id(), issueNumber, worktreeId, worktreePath));
+            }
+        }
+        return result;
+    }
+
+    private boolean isSafeToRemove(IssueWorktree worktree) {
         return removalRefusalReason(worktree).isEmpty();
     }
 
@@ -144,7 +200,7 @@ public class WorktreeCleanupSweeper {
      * otherwise the reason the first failing one refuses, worded for a human reading
      * it on the project page (#320) rather than a log line.
      */
-    public Optional<String> removalRefusalReason(IssueWorktreeService.ConsoleWorktree worktree) {
+    public Optional<String> removalRefusalReason(IssueWorktree worktree) {
         Optional<GhIssue> issue = ghResources.forProject(worktree.projectId())
                 .flatMap(ctx -> ctx.cache().issue(worktree.issueNumber()));
         if (issue.isEmpty()) {
@@ -181,7 +237,7 @@ public class WorktreeCleanupSweeper {
      * check, only the removal, so the guard is asked exactly once per call site
      * rather than silently re-run here too.
      */
-    public boolean removeWorktree(IssueWorktreeService.ConsoleWorktree worktree) {
+    public boolean removeWorktree(IssueWorktree worktree) {
         Optional<ProjectRecord> project = projectRepository.findById(worktree.projectId());
         if (project.isEmpty()) {
             return false;
@@ -486,8 +542,16 @@ public class WorktreeCleanupSweeper {
         }
     }
 
-    /** One project-console worktree (#339) — no issue of its own, unlike {@link IssueWorktreeService.ConsoleWorktree}. */
+    /** One project-console worktree (#339) — no issue of its own, unlike {@link IssueWorktree}. */
     public record ProjectConsoleWorktree(long projectId, String worktreeId, Path workingDirectory) {
+    }
+
+    /**
+     * One per-issue console-created worktree, discovered git-natively (#585) —
+     * {@code worktreeId} is synthesized from {@code projectId} and {@code issueNumber}
+     * alone, never read from a persisted session record.
+     */
+    public record IssueWorktree(long projectId, int issueNumber, String worktreeId, Path workingDirectory) {
     }
 
     private Optional<String> run(Path workingDirectory, String... command) {
