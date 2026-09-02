@@ -8,6 +8,21 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.1.11 — 2026-09-02
+
+### Features
+- Replace the sidebar version footer with an About dialog (#575, #577)
+- Give git inside a project console session the project's GitHub token (#572, #573)
+- Allow project-console worktree removal when its branch already landed on main (#554, #567)
+- Add drag-and-drop reordering for projects in the sidenav (#541, #565)
+- Bump revision to 0.1.11-SNAPSHOT for next development cycle (#566, #568)
+
+### Fixes
+- Make the console PTY size follow the focused client (#574, #576)
+- Make /l-release ask for the version instead of guessing when omitted (#542, #571)
+- Pass the project's GitHub token to every engine git clone, fetch, and push (#569, #570)
+- Make the side nav refresh button bypass the issue cache and broadcast changes (#545, #564)
+
 ## v0.1.10 — 2026-09-01
 
 ### Features
