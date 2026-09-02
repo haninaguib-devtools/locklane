@@ -22,9 +22,12 @@ if ! command -v gh >/dev/null 2>&1; then
   echo "error: the GitHub CLI (gh) is required — install it from https://cli.github.com." >&2
   exit 1
 fi
-# gh no longer needs to be logged in on this host (#551): every project acts as one of
-# the GitHub accounts signed in through Locklane's own accounts page, not whatever
-# identity gh happens to be authenticated as here. gh itself still has to be installed
+# gh does not need to be logged in on this host (#551, made true by #610): every project
+# acts as one of the GitHub accounts signed in through Locklane's own accounts page, not
+# whatever identity gh happens to be authenticated as here, and nothing this script runs
+# through gh needs a token -- `gh release download` below works unauthenticated on a
+# public repository, and update.sh is fetched as a plain raw file rather than through
+# gh's REST API subcommand (which always needs one). gh itself still has to be installed
 # -- gh repo create and issue/PR fetches for a project with no account chosen still run
 # through it.
 # Needed by the installer itself, not just later: the seeding run below is this jar.
@@ -42,8 +45,11 @@ echo "Downloading locklane.jar (newest release of $REPO)..."
 gh release download --repo "$REPO" --pattern locklane.jar \
   --dir "$INSTALL_DIR" --clobber
 
+# A raw-file download over the same unauthenticated channel the README's install
+# one-liner uses for this script itself -- never gh's REST API subcommand, which needs a
+# token even on a public repository (#610).
 echo "Fetching update.sh..."
-gh api -H "Accept: application/vnd.github.raw" "repos/$REPO/contents/update.sh" \
+curl -fsSL "https://raw.githubusercontent.com/$REPO/main/update.sh" \
   > "$INSTALL_DIR/update.sh"
 chmod +x "$INSTALL_DIR/update.sh"
 
