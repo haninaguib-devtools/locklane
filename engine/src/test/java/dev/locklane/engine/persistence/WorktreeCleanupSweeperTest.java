@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.github.GhAccount;
 import dev.locklane.engine.github.GhClient;
 import dev.locklane.engine.github.GhIssue;
 import dev.locklane.engine.github.GhPullRequest;
@@ -18,6 +19,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -274,6 +276,31 @@ class WorktreeCleanupSweeperTest {
         assertThat(reason).contains("a branch is checked out in this worktree — it has outgrown scratch use, so it is left alone");
     }
 
+    // #551: the ancestor-check fetch carries the project's chosen account's token as
+    // GH_TOKEN. A local-path "origin" (this fixture's own shape) never actually
+    // consults credentials, so this proves the wiring runs end-to-end without
+    // regressing the existing guard, not that the token specifically reaches the
+    // subprocess -- see the task record's Deviations for why that stronger assertion
+    // isn't practical against a local-path remote.
+
+    @Test
+    void sweepRemovesAnOrphanedProjectConsoleWorktreeWhenTheProjectHasAChosenAccount(@TempDir Path tmp)
+            throws Exception {
+        Fixture fx = fixture(tmp);
+        TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
+        GhAccountRepository ghAccountRepository = TestSqliteDatabases.newGhAccountRepository(tmp);
+        GhAccount account = ghAccountRepository.insert(1L, "work", tokenCipher.encrypt("sweep-token"),
+                Set.of("repo"), Instant.now());
+        fx.projectRepository().setGithubAccountId(fx.projectId(), account.id());
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).containsExactly(console.worktreeId());
+        assertThat(console.path()).doesNotExist();
+    }
+
     @Test
     void discoveryIgnoresASameNamedDirectoryThatWasNeverRegisteredAsAWorktree(@TempDir Path tmp) throws Exception {
         // #339/ADR-104, per /t-review: discovery must ask git, not just match a
@@ -348,7 +375,8 @@ class WorktreeCleanupSweeperTest {
         ProjectGhResources ghResources =
                 new ProjectGhResources(fx.projectRepository, ghAccountRepository(), tokenCipher(),
                 (path, token) -> new FixedGhClient(issues));
-        return new WorktreeCleanupSweeper(worktreeService, fx.projectRepository, ghResources, sessionRegistry);
+        return new WorktreeCleanupSweeper(worktreeService, fx.projectRepository, ghResources, sessionRegistry,
+                ghAccountRepository(), tokenCipher());
     }
 
     private static TokenCipher tokenCipher() {

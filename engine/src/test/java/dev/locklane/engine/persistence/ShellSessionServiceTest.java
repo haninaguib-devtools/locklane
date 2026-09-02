@@ -270,7 +270,8 @@ class ShellSessionServiceTest {
                 tokenCipher(dbDir), (path, token) -> new FixedGhClient());
         WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(
                 new IssueWorktreeService(sessionRepository, TestSqliteDatabases.newNoopAuthorization()),
-                projectRepository, ghResources, new SessionRegistry(sessionRepository));
+                projectRepository, ghResources, new SessionRegistry(sessionRepository), ghAccountRepository,
+                tokenCipher(dbDir));
         return new ProjectConsoleService(projectRepository, ghAccountRepository, tokenCipher(dbDir),
                 new SessionRegistry(sessionRepository),
                 sessionRepository, new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)),

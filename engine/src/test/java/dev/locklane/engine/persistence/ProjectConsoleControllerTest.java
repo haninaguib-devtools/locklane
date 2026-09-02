@@ -398,7 +398,7 @@ class ProjectConsoleControllerTest {
         ProjectGhResources ghResources = new ProjectGhResources(projectRepository, ghAccountRepository,
                 tokenCipher(dbDir), (path, token) -> new FixedGhClient());
         WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, projectRepository, ghResources,
-                new SessionRegistry(sessionRepository));
+                new SessionRegistry(sessionRepository), ghAccountRepository, tokenCipher(dbDir));
         ConsoleSessionTitles titles = new ConsoleSessionTitles(dbDir.resolve("claude"), dbDir.resolve("codex"),
                 directory -> null);
         return new ProjectConsoleController(new ProjectConsoleService(projectRepository, ghAccountRepository,

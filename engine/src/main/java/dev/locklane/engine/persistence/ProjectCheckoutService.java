@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -75,6 +76,18 @@ public class ProjectCheckoutService {
 
     /** The operator's fix when the chosen account's token lacks {@link #WORKFLOW_SCOPE}; quoted verbatim in the log. */
     static final String GRANT_WORKFLOW_SCOPE_COMMAND = "gh auth refresh -h github.com -s workflow";
+
+    /**
+     * A git credential helper that always answers from the {@code GH_TOKEN}
+     * environment variable of whatever process consults it, rather than anything
+     * cached or typed interactively (#551) — configured repo-locally (never global)
+     * in a project's main checkout right after it exists, so {@code git remote -v}
+     * shows a plain HTTPS URL and no token is ever embedded in it or written to disk
+     * anywhere. Every worktree shares this checkout's config, so a push from inside
+     * one authenticates the same way as long as {@code GH_TOKEN} is in its own
+     * process environment.
+     */
+    static final String CREDENTIAL_HELPER_SCRIPT = "!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f";
 
     /** Where a chosen template's body lands in a new repository (#536) — the file the seeded agent reads (#537). */
     static final String TEMPLATE_FILE = "PROJECT_TEMPLATE.md";
@@ -280,16 +293,37 @@ public class ProjectCheckoutService {
         log.info("Importing project {} from {} acting as GitHub account {}", project.id(), project.gitUrl(),
                 githubAccountId == null ? "none chosen" : githubAccountId);
         try {
-            if (githubAccountId != null && storeTokenForAccount(project, githubAccountId).isEmpty()) {
-                return;
+            Optional<String> token = Optional.empty();
+            if (githubAccountId != null) {
+                token = storeTokenForAccount(project, githubAccountId);
+                if (token.isEmpty()) {
+                    return;
+                }
             }
             Files.createDirectories(project.workareaPath().getParent());
-            ProcessOutcome cloneResult = run("git", "clone", project.gitUrl(), project.workareaPath().toString());
+            // The credential helper is passed with -c rather than configured first:
+            // the destination has no .git yet for a repo-local config to live in, and
+            // -c applies for the duration of this one command regardless (#551) --
+            // enough for a private repo's clone to authenticate at all.
+            ProcessOutcome cloneResult = token.isPresent()
+                    ? run(null, tokenEnvironment(token.get()), "git", "-c",
+                            "credential.helper=" + CREDENTIAL_HELPER_SCRIPT, "clone", project.gitUrl(),
+                            project.workareaPath().toString())
+                    : run("git", "clone", project.gitUrl(), project.workareaPath().toString());
             if (cloneResult.failed()) {
                 log.warn("git clone failed for project {} from {}: {}", project.id(), project.gitUrl(),
                         cloneResult.describe());
                 repository.markFailed(project.id());
                 return;
+            }
+            if (token.isPresent()) {
+                ProcessOutcome helperResult = configureCredentialHelper(project.workareaPath());
+                if (helperResult.failed()) {
+                    log.warn("Could not configure the git credential helper for project {}: {}", project.id(),
+                            helperResult.describe());
+                    repository.markFailed(project.id());
+                    return;
+                }
             }
             ProcessOutcome branchResult =
                     run("git", "-C", project.workareaPath().toString(), "branch", "--show-current");
@@ -505,8 +539,9 @@ public class ProjectCheckoutService {
         }
 
         String remoteUrl = project.gitUrl();
+        Optional<String> token = Optional.empty();
         if (remoteUrl.startsWith("https://")) {
-            Optional<String> token = resolveGithubToken(project);
+            token = resolveGithubToken(project);
             if (token.isEmpty()) {
                 log.warn("No GitHub credentials available for project {} ({}) — no GitHub account chosen for it; "
                                 + "choose one for this project before retrying",
@@ -514,7 +549,6 @@ public class ProjectCheckoutService {
                 repository.markFailed(project.id());
                 return;
             }
-            remoteUrl = "https://x-access-token:" + token.get() + "@" + remoteUrl.substring("https://".length());
         }
 
         ProcessOutcome remoteAddResult = run(workarea, "git", "remote", "add", "origin", remoteUrl);
@@ -524,7 +558,25 @@ public class ProjectCheckoutService {
             repository.markFailed(project.id());
             return;
         }
-        ProcessOutcome pushResult = run(workarea, pushEnv, "git", "push", "-u", "origin", branch);
+
+        // The credential helper (#551), never a token embedded in remoteUrl above --
+        // git remote -v shows a plain HTTPS URL, and the token reaches this push only
+        // through its own process environment, never a file.
+        Map<String, String> effectivePushEnv = pushEnv;
+        if (token.isPresent()) {
+            ProcessOutcome helperResult = configureCredentialHelper(workarea);
+            if (helperResult.failed()) {
+                log.warn("Could not configure the git credential helper for project {}: {}", project.id(),
+                        helperResult.describe());
+                repository.markFailed(project.id());
+                return;
+            }
+            Map<String, String> merged = new LinkedHashMap<>(pushEnv);
+            merged.putAll(tokenEnvironment(token.get()));
+            effectivePushEnv = merged;
+        }
+
+        ProcessOutcome pushResult = run(workarea, effectivePushEnv, "git", "push", "-u", "origin", branch);
         if (pushResult.exitCode() != 0) {
             log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(), pushResult.describe());
             repository.markFailed(project.id());
@@ -533,6 +585,15 @@ public class ProjectCheckoutService {
 
         repository.markReady(project.id(), branch);
         log.info("Project {} ready on branch {}", project.id(), branch);
+    }
+
+    /** Configures {@link #CREDENTIAL_HELPER_SCRIPT} repo-locally in {@code workarea} (#551). */
+    private static ProcessOutcome configureCredentialHelper(Path workarea) {
+        return run(workarea, "git", "config", "credential.helper", CREDENTIAL_HELPER_SCRIPT);
+    }
+
+    private static Map<String, String> tokenEnvironment(String token) {
+        return Map.of("GH_TOKEN", token);
     }
 
     /**

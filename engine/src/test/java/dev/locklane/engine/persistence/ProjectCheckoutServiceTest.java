@@ -535,7 +535,8 @@ class ProjectCheckoutServiceTest {
     // an SSH remote).
 
     @Test
-    void setUpLocalRepoAndPushAuthenticatesWithTheChosenAccountsTokenWhenPresent(@TempDir Path tmp) throws Exception {
+    void setUpLocalRepoAndPushConfiguresACredentialHelperInsteadOfEmbeddingTheToken(@TempDir Path tmp)
+            throws Exception {
         ProjectCheckoutService service = service(tmp);
         ProjectRepository repository = repositoryOver(tmp);
         Path workarea = tmp.resolve("workarea").resolve("1").resolve("token-project");
@@ -549,9 +550,15 @@ class ProjectCheckoutServiceTest {
 
         service.setUpLocalRepoAndPush(project, false);
 
+        // #551: the plain HTTPS URL, no token embedded in it -- `git remote -v` in the
+        // real UI would show exactly this.
         String configuredUrl = run(workarea, "git", "remote", "get-url", "origin").strip();
-        assertThat(configuredUrl)
-                .isEqualTo("https://x-access-token:secret-token@127.0.0.1:1/org/token-project.git");
+        assertThat(configuredUrl).isEqualTo("https://127.0.0.1:1/org/token-project.git");
+        // The repo-local credential helper is configured either way (the push having
+        // failed afterwards, for an unrelated reason -- nothing is listening on
+        // 127.0.0.1:1 -- doesn't unwind this).
+        assertThat(run(workarea, "git", "config", "--get", "credential.helper").strip())
+                .isEqualTo(ProjectCheckoutService.CREDENTIAL_HELPER_SCRIPT);
         ProjectRecord found = repository.findById(project.id()).orElseThrow();
         assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
         assertThat(found.gitUrl()).isEqualTo("https://127.0.0.1:1/org/token-project.git");
@@ -659,9 +666,26 @@ class ProjectCheckoutServiceTest {
         assertThat(found.status()).isEqualTo(ProjectStatus.READY);
         assertThat(found.defaultBranch()).isEqualTo("main");
         assertThat(repository.findGithubAccountId(project.id())).contains(account.id());
-        // The clone itself is untouched: no token in the remote URL, no gh involved.
+        // No token in the remote URL: it clones as a plain local path, exactly as given.
         assertThat(run(project.workareaPath(), "git", "remote", "get-url", "origin").strip())
                 .isEqualTo(origin.toString());
+        // #551: the chosen account's credential helper is configured repo-locally right
+        // after the clone, so a later push or fetch from any worktree authenticates too.
+        assertThat(run(project.workareaPath(), "git", "config", "--get", "credential.helper").strip())
+                .isEqualTo(ProjectCheckoutService.CREDENTIAL_HELPER_SCRIPT);
+    }
+
+    @Test
+    void createProjectWithoutAnAccountConfiguresNoCredentialHelper(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        ProjectCheckoutService service = service(tmp);
+
+        ProjectRecord project = service.createProject(origin.toString(), "plain-no-helper", 1L, null);
+
+        // `git config --get` on an unset key exits 1 -- the run() test helper throws
+        // on that, so this goes through bash to turn "unset" into a plain empty string.
+        assertThat(run(project.workareaPath(), "bash", "-c", "git config --get credential.helper || true").strip())
+                .isEmpty();
     }
 
     @Test

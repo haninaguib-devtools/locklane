@@ -63,6 +63,11 @@ public class ProjectConsoleService {
     // The whole family: the legacy bare "<projectId>-console" plus every
     // "<projectId>-console-<suffix>" minted since #177.
     private static final Pattern CONSOLE_SESSION_ID = Pattern.compile("^(\\d+)-console(-.+)?$");
+    // An issue-worktree session id (IssueWorktreeService's own
+    // PROJECT_AND_ISSUE_PREFIXED shape, #551): "<projectId>-<issueNumber>-<slug>" --
+    // also matches the "main" and "resume" id variants, which share the same
+    // project/issue prefix.
+    private static final Pattern ISSUE_WORKTREE_SESSION_ID = Pattern.compile("^(\\d+)-\\d+-.*$");
     // The tail {@link #reopenSession} appends to a console's own suffix (#372).
     // Stripped back off when the conversation's directory is derived from the id, so
     // reopening a reopened console still lands in the one directory the conversation
@@ -418,22 +423,37 @@ public class ProjectConsoleService {
 
     /**
      * The extra PTY environment for a session id, resolved purely from its own
-     * shape — empty for anything that isn't a project console's id. A project with
-     * no chosen GitHub account (#550) also resolves to empty: {@code gh} then falls
-     * back to whatever ambient session the host has, exactly as it does for project
-     * issue/PR fetches with no account chosen.
+     * shape — empty for anything that is neither a project console's id nor an
+     * issue-worktree session's id (#551 widened this from console-only, so every
+     * agent process the engine spawns for a project carries its account's token, not
+     * only a project console's). A project with no chosen GitHub account (#550) also
+     * resolves to empty: {@code gh} then falls back to whatever ambient session the
+     * host has, exactly as it does for project issue/PR fetches with no account
+     * chosen.
      */
     public Map<String, String> environmentFor(String sessionId) {
-        Matcher matcher = CONSOLE_SESSION_ID.matcher(sessionId);
-        if (!matcher.matches()) {
+        Long projectId = projectIdFor(sessionId);
+        if (projectId == null) {
             return Map.of();
         }
-        long projectId = Long.parseLong(matcher.group(1));
         return projectRepository.findGithubAccountId(projectId)
                 .flatMap(ghAccountRepository::findEncryptedToken)
                 .map(tokenCipher::decrypt)
                 .map(token -> Map.of("GH_TOKEN", token))
                 .orElse(Map.of());
+    }
+
+    /** The project id a session id's own shape carries, or {@code null} for a shape that carries none. */
+    private static Long projectIdFor(String sessionId) {
+        Matcher console = CONSOLE_SESSION_ID.matcher(sessionId);
+        if (console.matches()) {
+            return Long.parseLong(console.group(1));
+        }
+        Matcher worktree = ISSUE_WORKTREE_SESSION_ID.matcher(sessionId);
+        if (worktree.matches()) {
+            return Long.parseLong(worktree.group(1));
+        }
+        return null;
     }
 
     private List<WorktreeSessionRecord> openRecords(long projectId, String requestingUsername) {

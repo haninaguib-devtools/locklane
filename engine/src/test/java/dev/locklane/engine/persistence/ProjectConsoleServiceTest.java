@@ -436,6 +436,43 @@ class ProjectConsoleServiceTest {
         assertThat(service.environmentFor(projectId + "-console")).isEqualTo(Map.of("GH_TOKEN", "ghp_realtoken"));
     }
 
+    // #551: every process the engine spawns for a project carries its account's token
+    // -- an issue-worktree session, not only a project console.
+
+    @Test
+    void environmentForAnIssueWorktreeSessionDecryptsTheStoredToken(@TempDir Path dbDir) throws IOException {
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        TokenCipher tokenCipher = tokenCipher(dbDir);
+        GhAccountRepository ghAccountRepository = TestSqliteDatabases.newGhAccountRepository(dbDir);
+        dev.locklane.engine.github.GhAccount account = ghAccountRepository.insert(1L, "work",
+                tokenCipher.encrypt("ghp_worktree_token"), java.util.Set.of("repo"), Instant.now());
+        projectRepository.setGithubAccountId(projectId, account.id());
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        ProjectConsoleService service = new ProjectConsoleService(projectRepository, ghAccountRepository, tokenCipher,
+                new SessionRegistry(sessionRepository), sessionRepository,
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization(dbDir, projectRepository),
+                sweeper(dbDir, sessionRepository, projectRepository));
+
+        // The ordinary worktree shape, plus the "main" and "resume" variants that
+        // share the same project/issue prefix (IssueWorktreeService.MAIN_OR_RESUME_SUFFIX).
+        assertThat(service.environmentFor(projectId + "-174-rename-toggle"))
+                .isEqualTo(Map.of("GH_TOKEN", "ghp_worktree_token"));
+        assertThat(service.environmentFor(projectId + "-174-main-abcd1234"))
+                .isEqualTo(Map.of("GH_TOKEN", "ghp_worktree_token"));
+        assertThat(service.environmentFor(projectId + "-174-resume-ef012345"))
+                .isEqualTo(Map.of("GH_TOKEN", "ghp_worktree_token"));
+    }
+
+    @Test
+    void environmentForAnIssueWorktreeSessionWithNoStoredAccountIsEmpty(@TempDir Path dbDir) {
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository.createReady("proj", "url", dbDir.resolve("work"), "main", 1L, Instant.now()).id();
+        ProjectConsoleService service = service(dbDir, projectRepository);
+
+        assertThat(service.environmentFor(projectId + "-174-rename-toggle")).isEmpty();
+    }
+
     // ---- #372: past conversations in a project's own consoles ----
 
     @Test
@@ -676,7 +713,8 @@ class ProjectConsoleServiceTest {
                 TestSqliteDatabases.newGhAccountRepository(dbDir), tokenCipher(dbDir),
                 (path, token) -> new FixedGhClient());
         return new WorktreeCleanupSweeper(worktreeService, projectRepository, ghResources,
-                new SessionRegistry(sessionRepository));
+                new SessionRegistry(sessionRepository), TestSqliteDatabases.newGhAccountRepository(dbDir),
+                tokenCipher(dbDir));
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {

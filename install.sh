@@ -19,13 +19,14 @@ REPO="haninaguib-devtools/locklane"
 INSTALL_DIR="${LOCKLANE_HOME:-$HOME/.locklane}"
 
 if ! command -v gh >/dev/null 2>&1; then
-  echo "error: the GitHub CLI (gh) is required — install it from https://cli.github.com, then run 'gh auth login'." >&2
+  echo "error: the GitHub CLI (gh) is required — install it from https://cli.github.com." >&2
   exit 1
 fi
-if ! gh auth status >/dev/null 2>&1; then
-  echo "error: gh is not logged in — run 'gh auth login' first." >&2
-  exit 1
-fi
+# gh no longer needs to be logged in on this host (#551): every project acts as one of
+# the GitHub accounts signed in through Locklane's own accounts page, not whatever
+# identity gh happens to be authenticated as here. gh itself still has to be installed
+# -- gh repo create and issue/PR fetches for a project with no account chosen still run
+# through it.
 # Needed by the installer itself, not just later: the seeding run below is this jar.
 if ! command -v java >/dev/null 2>&1; then
   echo "error: java 21 or newer is required — install a JDK, then re-run this installer." >&2

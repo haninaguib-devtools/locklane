@@ -50,7 +50,7 @@
           <input
             type="text"
             name="gitUrl"
-            placeholder="https://github.com/org/repo.git"
+            placeholder="https://github.com/org/repo.git, git@host:org/repo, or org/repo"
             [(ngModel)]="gitUrl"
             (ngModelChange)="onUrlChange()"
             [disabled]="submitting"
