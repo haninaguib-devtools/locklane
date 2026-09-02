@@ -56,10 +56,12 @@ import java.util.Optional;
  * project console (no issue of its own, {@link ProjectConsoleService}). {@link
  * #allProjectConsoleWorktrees()}/{@link #removalRefusalReasonForProjectConsole}/
  * {@link #removeProjectConsoleWorktree} are that second guard's whole shape — session
- * ended, clean, and either HEAD is detached and an ancestor of {@code origin/main}
+ * ended, clean, and either HEAD is detached and an ancestor of the project's default
+ * branch on origin ({@code origin/main} unless the project recorded a different one,
+ * #583/ADR-108, e.g. {@code origin/master})
  * (a detached worktree has no branch to preserve a commit once its reflog is deleted
  * with it, unlike the per-issue case above), or a branch is checked out whose work
- * has already landed on {@code origin/main} — even under a rewritten SHA, e.g. via
+ * has already landed there — even under a rewritten SHA, e.g. via
  * squash-merge (#554/ADR-107, see {@link #isBranchLanded}) — while a checked-out
  * branch that still carries real, un-landed work refuses removal unconditionally,
  * unchanged from before ADR-107. Checked and removed the same all-or-nothing way, by
@@ -287,16 +289,18 @@ public class WorktreeCleanupSweeper {
         if (sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())) {
             return Optional.of("a console session is still attached to this worktree — close it before removing the worktree");
         }
+        String trunkRef = trunkRef(worktree.projectId());
         Optional<String> branch = currentBranch(worktree.workingDirectory());
-        if (branch.isPresent() && !isBranchLanded(worktree.projectId(), worktree.workingDirectory())) {
+        if (branch.isPresent() && !isBranchLanded(worktree.projectId(), trunkRef, worktree.workingDirectory())) {
             return Optional.of(
-                    "a branch is checked out in this worktree, and its work has not landed on origin/main yet — it has outgrown scratch use, so it is left alone");
+                    "a branch is checked out in this worktree, and its work has not landed on " + trunkRef
+                            + " yet — it has outgrown scratch use, so it is left alone");
         }
         if (!isClean(worktree.workingDirectory())) {
             return Optional.of("the worktree has uncommitted changes — commit or discard them before removing it");
         }
-        if (branch.isEmpty() && !isAncestorOfOriginMain(worktree.projectId(), worktree.workingDirectory())) {
-            return Optional.of("this worktree has commits not yet reachable from origin/main — removing it would lose them");
+        if (branch.isEmpty() && !isAncestorOfTrunk(worktree.projectId(), trunkRef, worktree.workingDirectory())) {
+            return Optional.of("this worktree has commits not yet reachable from " + trunkRef + " — removing it would lose them");
         }
         return Optional.empty();
     }
@@ -330,12 +334,27 @@ public class WorktreeCleanupSweeper {
     }
 
     /**
+     * The remote-tracking ref this project's console worktrees are judged "landed"
+     * against (#583/ADR-108): {@link WorktreeCreationService#trunkRef(String)} applied
+     * to the project's recorded {@link ProjectRecord#defaultBranch()} — the same trunk
+     * the worktree was created from — falling back to {@code origin/main} when the
+     * project record cannot be found (a project id no longer on record is the same
+     * "not found" case {@link WorktreeCreationService#trunkRef} already treats a
+     * blank/null recorded branch as).
+     */
+    private String trunkRef(long projectId) {
+        return WorktreeCreationService.trunkRef(
+                projectRepository.findById(projectId).map(ProjectRecord::defaultBranch).orElse(null));
+    }
+
+    /**
      * Whether {@code workingDirectory}'s HEAD commit is reachable from a freshly
-     * fetched {@code origin/main} — the one guard condition #339/ADR-104 needed that
-     * ADR-102's per-issue guard never did: a detached worktree has no branch to
-     * preserve a commit once the worktree (and its reflog) is removed, unlike a
-     * per-issue worktree's named branch. Fetches first so a stale local
-     * {@code origin/main} never says yes to a commit that has since been judged not
+     * fetched {@code trunkRef} (the project's default branch on origin, #583/ADR-108;
+     * {@code origin/main} unless the project recorded a different one) — the one guard
+     * condition #339/ADR-104 needed that ADR-102's per-issue guard never did: a
+     * detached worktree has no branch to preserve a commit once the worktree (and its
+     * reflog) is removed, unlike a per-issue worktree's named branch. Fetches first so
+     * a stale local ref never says yes to a commit that has since been judged not
      * reachable; any failure along the way (no HEAD, fetch or merge-base failing) is
      * treated as "not an ancestor" — the safe direction, since it only ever keeps a
      * worktree around longer, never removes one it shouldn't. The fetch runs through
@@ -345,43 +364,44 @@ public class WorktreeCleanupSweeper {
      * does — no account chosen (or an SSH remote) leaves it to whatever ambient
      * credentials the host has, exactly as before #551.
      */
-    private boolean isAncestorOfOriginMain(long projectId, Path workingDirectory) {
+    private boolean isAncestorOfTrunk(long projectId, String trunkRef, Path workingDirectory) {
         GitCredential credential = GitCredential.forProject(projectId, projectRepository, ghAccountRepository, tokenCipher);
         run(workingDirectory, credential.environment(), credential.command("fetch", "--prune", "origin"));
         Optional<String> head = run(workingDirectory, Map.of(), "git", "rev-parse", "HEAD").map(String::strip);
         if (head.isEmpty()) {
             return false;
         }
-        return run(workingDirectory, Map.of(), "git", "merge-base", "--is-ancestor", head.get(), "origin/main")
+        return run(workingDirectory, Map.of(), "git", "merge-base", "--is-ancestor", head.get(), trunkRef)
                 .isPresent();
     }
 
     /**
      * Whether {@code workingDirectory}'s checked-out branch has already landed on a
-     * freshly fetched {@code origin/main} (#554/ADR-107) — either its tip is a
+     * freshly fetched {@code trunkRef} (the project's default branch on origin,
+     * #583/ADR-108) (#554/ADR-107) — either its tip is a
      * literal ancestor (the ordinary fast-forward/merge-commit case, the same test
-     * {@link #isAncestorOfOriginMain} uses for a detached worktree), or the whole
-     * diff the branch introduces since its merge-base with {@code origin/main} is
+     * {@link #isAncestorOfTrunk} uses for a detached worktree), or the whole
+     * diff the branch introduces since its merge-base with {@code trunkRef} is
      * content-equivalent (by {@code git patch-id --stable}) to some commit reachable
-     * only through {@code origin/main} since that same base — the squash-merge or
+     * only through {@code trunkRef} since that same base — the squash-merge or
      * rebase-merge case, where the SHA changes but the content does not. Any failure
      * along the way (fetch, merge-base, a patch-id computation) resolves to "not
-     * landed" — the same safe direction {@link #isAncestorOfOriginMain} already
+     * landed" — the same safe direction {@link #isAncestorOfTrunk} already
      * takes, since it only ever keeps a worktree around longer, never removes one it
      * shouldn't.
      */
-    private boolean isBranchLanded(long projectId, Path workingDirectory) {
+    private boolean isBranchLanded(long projectId, String trunkRef, Path workingDirectory) {
         GitCredential credential = GitCredential.forProject(projectId, projectRepository, ghAccountRepository, tokenCipher);
         run(workingDirectory, credential.environment(), credential.command("fetch", "--prune", "origin"));
         Optional<String> head = run(workingDirectory, Map.of(), "git", "rev-parse", "HEAD").map(String::strip);
         if (head.isEmpty()) {
             return false;
         }
-        if (run(workingDirectory, Map.of(), "git", "merge-base", "--is-ancestor", head.get(), "origin/main")
+        if (run(workingDirectory, Map.of(), "git", "merge-base", "--is-ancestor", head.get(), trunkRef)
                 .isPresent()) {
             return true;
         }
-        Optional<String> base = run(workingDirectory, "git", "merge-base", head.get(), "origin/main")
+        Optional<String> base = run(workingDirectory, "git", "merge-base", head.get(), trunkRef)
                 .map(String::strip);
         if (base.isEmpty()) {
             return false;
@@ -390,12 +410,12 @@ public class WorktreeCleanupSweeper {
         if (branchPatchId.isEmpty()) {
             // Either the branch introduces no diff at all (e.g. an empty commit) or
             // the patch-id computation itself failed -- either way there is no
-            // content to prove equivalent to anything on origin/main, so this stays
+            // content to prove equivalent to anything on the trunk, so this stays
             // on the safe side: not landed. An empty commit still exists only on this
             // branch; it is not proof that whatever it marks has landed anywhere.
             return false;
         }
-        Optional<String> candidates = run(workingDirectory, "git", "rev-list", base.get() + "..origin/main");
+        Optional<String> candidates = run(workingDirectory, "git", "rev-list", base.get() + ".." + trunkRef);
         if (candidates.isEmpty()) {
             return false;
         }

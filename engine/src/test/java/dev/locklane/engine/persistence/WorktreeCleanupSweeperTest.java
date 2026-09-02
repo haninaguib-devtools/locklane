@@ -35,6 +35,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Also covers #342's done-when: once a worktree is actually removed, its local
  * branch goes with it if and only if `git branch -d` (never `-D`) considers it safe to
  * delete — a fully-merged branch disappears, an unmerged one survives untouched.
+ *
+ * <p>Also covers #583/ADR-108's done-when: the project-console guard judges "landed"
+ * against the project's own recorded default branch on origin, not a hardcoded
+ * {@code origin/main} — the {@code ...OnAMasterTrunk}/{@code ...IsMaster} tests below
+ * build their fixture on a {@code master}-trunk repo (via {@link #fixture(Path,
+ * String)}) to prove that.
  */
 class WorktreeCleanupSweeperTest {
 
@@ -266,6 +272,72 @@ class WorktreeCleanupSweeperTest {
         assertThat(console.path()).isDirectory();
     }
 
+    // --- #583/ADR-108: the guard judges against the project's own recorded trunk,
+    // not a hardcoded origin/main ---
+
+    @Test
+    void sweepRemovesAnOrphanedProjectConsoleWorktreeOnAProjectWhoseTrunkIsMaster(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp, "master");
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx, "origin/master");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).containsExactly(console.worktreeId());
+        assertThat(console.path()).doesNotExist();
+    }
+
+    @Test
+    void sweepLeavesAProjectConsoleWorktreeAloneWithCommitsNotOnAMasterTrunk(@TempDir Path tmp) throws Exception {
+        Fixture fx = fixture(tmp, "master");
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx, "origin/master");
+        run(console.path(), "git", "commit", "--allow-empty", "-m", "unpushed work on detached HEAD");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).isEmpty();
+        assertThat(console.path()).isDirectory();
+    }
+
+    @Test
+    void sweepRemovesAProjectConsoleWorktreeWhoseBranchHasAlreadyLandedOnAMasterTrunk(@TempDir Path tmp)
+            throws Exception {
+        // Same #554/ADR-107 squash-merge-equivalence case as
+        // sweepRemovesAProjectConsoleWorktreeWhoseBranchHasAlreadyLandedOnOriginMain,
+        // on a project whose recorded trunk is master rather than main -- this is
+        // exactly the case that errored out (and so was silently left alone) before
+        // #583: the guard used to compare against a literal, and here nonexistent,
+        // origin/main.
+        Fixture fx = fixture(tmp, "master");
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx, "origin/master");
+        checkoutBranchWithRealCommit(console.path(), "wip/529-bump-revision", "revision.txt", "0.1.9-SNAPSHOT");
+        run(fx.projectRoot(), "git", "merge", "--squash", "wip/529-bump-revision");
+        run(fx.projectRoot(), "git", "commit", "-m", "Bump revision (#530)");
+        run(fx.projectRoot(), "git", "push", "origin", "master");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).containsExactly(console.worktreeId());
+        assertThat(console.path()).doesNotExist();
+    }
+
+    @Test
+    void removalRefusalReasonForProjectConsoleNamesOriginMasterOnAMasterTrunkProject(@TempDir Path tmp)
+            throws Exception {
+        Fixture fx = fixture(tmp, "master");
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx, "origin/master");
+        checkoutBranchWithRealCommit(console.path(), "wip/1-do-the-thing", "unshipped.txt", "not yet on master");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        Optional<String> reason = sweeper.removalRefusalReasonForProjectConsole(
+                new WorktreeCleanupSweeper.ProjectConsoleWorktree(fx.projectId, console.worktreeId(), console.path()));
+
+        assertThat(reason).contains(
+                "a branch is checked out in this worktree, and its work has not landed on origin/master yet — it has outgrown scratch use, so it is left alone");
+    }
+
     @Test
     void sweepLeavesAProjectConsoleWorktreeAloneWhileItsSessionIsLive(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
@@ -365,10 +437,16 @@ class WorktreeCleanupSweeperTest {
     /** A project-console-shaped sibling worktree (#339), detached at origin/main. */
     private static ProjectConsoleWorktreeAndId createProjectConsoleWorktree(Fixture fx)
             throws IOException, InterruptedException {
+        return createProjectConsoleWorktree(fx, "origin/main");
+    }
+
+    /** Same as {@link #createProjectConsoleWorktree(Fixture)}, detached at {@code trunkRef} instead (#583). */
+    private static ProjectConsoleWorktreeAndId createProjectConsoleWorktree(Fixture fx, String trunkRef)
+            throws IOException, InterruptedException {
         String suffix = "abcd1234";
         Path worktreePath =
                 fx.projectRoot().resolveSibling(WorktreeCreationService.repoName(fx.projectRoot()) + "-console-" + suffix);
-        WorktreeCreationService.createDetachedWorktree(worktreePath, fx.projectRoot(), GitCredential.NONE);
+        WorktreeCreationService.createDetachedWorktree(worktreePath, fx.projectRoot(), trunkRef, GitCredential.NONE);
         return new ProjectConsoleWorktreeAndId(fx.projectId + "-console-" + suffix, worktreePath);
     }
 
@@ -392,10 +470,17 @@ class WorktreeCleanupSweeperTest {
     }
 
     private static Fixture fixture(Path tmp) throws IOException, InterruptedException {
-        Path projectRoot = initTestRepo(tmp);
+        return fixture(tmp, "main");
+    }
+
+    /** Same as {@link #fixture(Path)}, on a repo whose trunk is {@code defaultBranch} instead of {@code main} (#583). */
+    private static Fixture fixture(Path tmp, String defaultBranch) throws IOException, InterruptedException {
+        Path projectRoot = initTestRepo(tmp, defaultBranch);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
-        long projectId = projectRepository.createReady("proj", projectRoot.toString(), projectRoot, "main", 1L, Instant.now()).id();
+        long projectId =
+                projectRepository.createReady("proj", projectRoot.toString(), projectRoot, defaultBranch, 1L, Instant.now())
+                        .id();
         return new Fixture(projectRoot, projectId, repository, projectRepository);
     }
 
@@ -450,23 +535,28 @@ class WorktreeCleanupSweeperTest {
         }
     }
 
-    /** A minimal local repo with an "origin" remote and a main branch — no network. */
+    /** A minimal local repo with an "origin" remote and a {@code main} trunk — no network. */
     private static Path initTestRepo(Path dir) throws IOException, InterruptedException {
+        return initTestRepo(dir, "main");
+    }
+
+    /** Same as {@link #initTestRepo(Path)}, on {@code trunk} instead of {@code main} (#583). */
+    private static Path initTestRepo(Path dir, String trunk) throws IOException, InterruptedException {
         Files.createDirectories(dir);
         Path bare = dir.resolve("origin.git");
         Path work = dir.resolve("work");
         Files.createDirectories(work);
 
-        run(dir, "git", "init", "--bare", "-b", "main", bare.toString());
-        run(dir, "git", "init", "-b", "main", work.toString());
+        run(dir, "git", "init", "--bare", "-b", trunk, bare.toString());
+        run(dir, "git", "init", "-b", trunk, work.toString());
         run(work, "git", "config", "user.email", "test@example.com");
         run(work, "git", "config", "user.name", "Test");
         Files.writeString(work.resolve("README.md"), "test repo");
         run(work, "git", "add", "README.md");
         run(work, "git", "commit", "-m", "initial commit");
         run(work, "git", "remote", "add", "origin", bare.toString());
-        run(work, "git", "push", "origin", "main");
-        run(work, "git", "branch", "--set-upstream-to=origin/main", "main");
+        run(work, "git", "push", "origin", trunk);
+        run(work, "git", "branch", "--set-upstream-to=origin/" + trunk, trunk);
         return work;
     }
 

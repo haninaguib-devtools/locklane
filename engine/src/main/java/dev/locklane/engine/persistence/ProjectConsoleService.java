@@ -35,8 +35,9 @@ import java.util.regex.Pattern;
  * closing a console tab attempts to remove its worktree too, guarded: the session
  * has just ended, HEAD is still detached (a checked-out branch means the console
  * outgrew scratch — left alone permanently, ADR-005), the worktree is clean, and its
- * HEAD is an ancestor of {@code origin/main} (so a commit made on detached HEAD is
- * never lost when the worktree's reflog goes with it). A worktree failing any of
+ * HEAD is an ancestor of the project's default branch on origin (#583/ADR-108;
+ * {@code origin/main} unless the project recorded a different one) — so a commit
+ * made on detached HEAD is never lost when the worktree's reflog goes with it. A worktree failing any of
  * those is kept — the same {@link WorktreeCleanupSweeper} guard is what
  * {@code WorktreeCleanupSweeper#sweep()} later re-checks as the backstop, and what
  * the project worktree list shows the refusal reason from. A project can have
@@ -396,7 +397,8 @@ public class ProjectConsoleService {
      * Tears down one specific console session of the project's family (#177 — the
      * per-tab close) and, once the session has ended, attempts to remove its worktree
      * (#339/ADR-104): kept, never force-removed, when HEAD is not detached, the
-     * worktree is dirty, or HEAD is not yet an ancestor of {@code origin/main} — the
+     * worktree is dirty, or HEAD is not yet an ancestor of the project's default
+     * branch on origin (#583/ADR-108) — the
      * same guard {@link WorktreeCleanupSweeper#removalRefusalReasonForProjectConsole}
      * exposes, so a refusal here and the periodic sweep's own backstop check never
      * quietly drift apart. False — nothing closed — when {@code sessionId} is not in

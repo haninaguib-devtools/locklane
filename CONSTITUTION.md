@@ -127,12 +127,12 @@ any other change to this list.
    invariant.
 4. A project-console worktree (no issue of its own) is removed on tab close, and by
    the same periodic sweep as a backstop, once its session has ended and its git
-   status is clean, and either its HEAD is detached and an ancestor of `origin/main`,
-   or a branch is checked out whose work has already landed on `origin/main` — even
-   under a rewritten SHA, e.g. via squash-merge — while a checked-out branch that
-   still carries real, un-landed work is left alone unconditionally, the same as
-   before — a second, distinct guarded exception to ADR-005, alongside point 2's
-   rather than folded into it (ADR-104, amended by ADR-107).
+   status is clean, and either its HEAD is detached and an ancestor of the project's
+   default branch on origin, or a branch is checked out whose work has already landed
+   there — even under a rewritten SHA, e.g. via squash-merge — while a checked-out
+   branch that still carries real, un-landed work is left alone unconditionally, the
+   same as before — a second, distinct guarded exception to ADR-005, alongside point
+   2's rather than folded into it (ADR-104, amended by ADR-107 and ADR-108).
 5. A project is visible and operable only to the account that owns it, and a
    worktree/console session only to the owner of its project — no role, administrator
    included, is exempt; administrators manage accounts and nothing more (ADR-105,
