@@ -40,7 +40,7 @@ table below.
 <!-- local -->
 | Skill | Stage |
 |---|---|
-| `/l-release` | Cut a release with one command — gates on the version, drives the release-notes task to a merge-and-dispatch confirmation, publishes the release, then drives a follow-up snapshot-bump task (ADR-106). |
+| `/l-release` | Cut a release with one command — gates on the version (`scripts/release.sh gate`), opens one task carrying the version's `CHANGELOG.md` section and the `<revision>` bump to the next snapshot, drives it to a single merge-and-dispatch confirmation, then dispatches and verifies the release (`scripts/release.sh dispatch`). One human stop (ADR-109, superseding ADR-106 D1/D2). |
 <!-- /local -->
 
 ## Conventions
@@ -145,7 +145,14 @@ Where a skill says "run the checks", the current check set is:
 
 <!-- local -->
 1. `./mvnw -B test` (Maven, from the repo root) — builds every module and runs its
-   test suite. Added to `.github/workflows/ci.yml`.
+   test suite. Added to `.github/workflows/ci.yml`. **Runs only when the diff touches
+   a build input** (ADR-109 D3): `scripts/build-inputs.sh origin/main` is the one
+   definition of that set — exit 0 (a build input changed) or 2 (nothing decided) →
+   run Maven; exit 1 (no build input in the diff) → skip it. CI applies the same
+   script to the PR's diff, and a push to `main` always builds. A skipped run is
+   recorded in the PR's `## Checks run` as
+   `- \`./mvnw -B test\` — SKIPPED (no build inputs in diff) — commit \`<sha>\``,
+   never as PASS: the check did not run, and `/t-review` reuses only a PASS.
 <!-- /local -->
 2. `./.t-workflow/scripts/consistency-check.sh` — cross-artifact document consistency.
 3. `git diff` review against the task's declared scope (always applicable).

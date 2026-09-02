@@ -1,16 +1,25 @@
-# Cuts a release on manual dispatch (workflow_dispatch-only since #207). `main` always
-# builds toward an `X.Y.Z-SNAPSHOT` version (#463): the maintainer picks the next
-# version by editing `<revision>` in the root pom through an ordinary PR, and this
-# workflow derives the release version by stripping the `-SNAPSHOT` suffix, builds the
-# jar as that bare version, and publishes a permanent release tagged `v<version>` that
-# never changes again (#98). That permanent release is the only channel: install.sh,
-# update.sh, and the in-app update banner all resolve the newest one (#465). The
-# release body is the version's CHANGELOG.md section, merged to main through a notes
-# PR before the dispatch and extracted verbatim here — never generated here (#464).
+# Cuts a release on manual dispatch (workflow_dispatch-only since #207). The release
+# version is the dispatch's `version` input (#602): /l-release passes it through
+# `scripts/release.sh dispatch <version>` after the release task's PR — the version's
+# CHANGELOG.md section plus the `<revision>` bump to the next `X.Y.Z-SNAPSHOT` (#463) —
+# has merged. Nothing here reads the pom to decide what to release: by the time this
+# runs, `main` already builds toward the *next* version, so the bare release version
+# is supplied explicitly and applied with -Drevision. The run refuses, before spending a
+# build minute, when `v<version>` already exists as a tag or a release (a released
+# version is immutable, #98) or when CHANGELOG.md has no section for it (#464). What it
+# publishes is a permanent release tagged `v<version>` that never changes again — the
+# only channel: install.sh, update.sh, and the in-app update banner all resolve the
+# newest one (#465). The release body is the version's CHANGELOG.md section, extracted
+# verbatim here — never generated here (#464, docs/architecture/releasing.md).
 name: Release
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Bare release version to cut (X.Y.Z — no v prefix, no -SNAPSHOT)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -28,8 +37,50 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check the version input is a bare X.Y.Z
+        run: |
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version input '${VERSION}' is not a bare X.Y.Z (no v prefix, no -SNAPSHOT)"
+            exit 1
+          fi
+          echo "Releasing ${VERSION}."
+
+      - name: Refuse a version that already exists
+        # A released version is immutable: a second run against the same version
+        # (re-ran a stale dispatch, typed last release's number) must fail loudly rather
+        # than silently overwrite or silently skip — and fail here, before setup-java
+        # and the build, so the mistake costs seconds. Both the tag and the release are
+        # checked: a tag can outlive a deleted release, and `gh release create` would
+        # happily reuse it.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${VERSION}"
+          if git ls-remote --tags origin "refs/tags/${tag}" | grep -q .; then
+            echo "::error::tag ${tag} already exists — a released version is immutable; cut a new version instead"
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::release ${tag} already exists — a released version is immutable; cut a new version instead"
+            exit 1
+          fi
+
+      - name: Extract this version's notes from CHANGELOG.md
+        # The release task's PR merged this version's section into CHANGELOG.md before
+        # the dispatch (#464, docs/architecture/releasing.md § Release notes); this step
+        # only extracts it — regenerating notes here could drift from what the human
+        # reviewed, so the release body equals the committed section by construction.
+        # No section means the release PR has not landed: fail before spending a build.
+        run: |
+          if ! ./scripts/generate-release-notes.sh extract --version "$VERSION" > release-notes.md; then
+            echo "::error::CHANGELOG.md has no section for ${VERSION} — merge the release task's PR before dispatching (docs/architecture/releasing.md)"
+            exit 1
+          fi
 
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
@@ -37,50 +88,20 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Derive the release version from the pom revision
-        id: version
-        # `<revision>` on main is always `X.Y.Z-SNAPSHOT` (#463,
-        # docs/architecture/releasing.md); the release version is that value with the
-        # suffix stripped. `${raw%-SNAPSHOT}` is a no-op when the suffix is absent, so
-        # a dispatch against an already-bare revision still releases that version —
-        # the immutability check below is what protects a version already cut.
-        run: |
-          raw=$(./mvnw -q -f engine/pom.xml help:evaluate \
-            -Dexpression=project.version -DforceStdout)
-          version="${raw%-SNAPSHOT}"
-          echo "Revision is ${raw}; releasing ${version}."
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Extract this version's notes from CHANGELOG.md
-        # The notes PR merged this version's section into CHANGELOG.md before the
-        # dispatch (#464, docs/architecture/releasing.md § Release notes); this step
-        # only extracts it — regenerating notes here could drift from what the human
-        # reviewed, so the release body equals the committed section by construction.
-        # No section means the notes PR has not landed: fail before spending a build.
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          if ! ./scripts/generate-release-notes.sh extract --version "$VERSION" > release-notes.md; then
-            echo "::error::CHANGELOG.md has no section for ${VERSION} — generate and merge the notes PR before dispatching (docs/architecture/releasing.md)"
-            exit 1
-          fi
-
       - name: Build and test the engine, then repackage the runnable jar
         # From the root, not `-f engine/pom.xml`: engine depends on the client
         # module, and building engine standalone skips the reactor, so a fresh
         # runner (no client jar in its local repo yet) fails to resolve that
         # dependency. The root build resolves it through the reactor.
         #
-        # -Drevision overrides the pom's `X.Y.Z-SNAPSHOT` with the bare release
-        # version (Maven CI-friendly versions resolve it reactor-wide), so the
-        # published jar identifies itself as the release, never as a SNAPSHOT.
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+        # -Drevision overrides the pom's `X.Y.Z-SNAPSHOT` (already the *next* version
+        # once the release PR has merged) with the bare release version — Maven
+        # CI-friendly versions resolve it reactor-wide — so the published jar
+        # identifies itself as the release, never as a SNAPSHOT. This is a full
+        # build-and-test on purpose: it produces the published artifact.
         run: ./mvnw -B package -Drevision="$VERSION"
 
       - name: Stage the jar under its fixed release asset name
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           # engine/pom.xml sets no <finalName>, so Maven's default naming applies:
           # the spring-boot-maven-plugin repackages this jar in place.
@@ -91,23 +112,12 @@ jobs:
           fi
           cp "$src" locklane.jar
 
-      - name: Cut the permanent release for the derived version
+      - name: Cut the permanent release for the requested version
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          tag="v${VERSION}"
-
-          # A released version is immutable: a second run against the same version
-          # (forgot to bump it, or re-ran a stale workflow) must fail loudly rather
-          # than silently overwrite or silently skip.
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "::error::release $tag already exists — a released version is immutable; bump <revision> in pom.xml to cut a new one"
-            exit 1
-          fi
-
-          gh release create "$tag" \
-            --title "$tag" \
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
             --notes-file release-notes.md \
             --target "$GITHUB_SHA" \
             locklane.jar
