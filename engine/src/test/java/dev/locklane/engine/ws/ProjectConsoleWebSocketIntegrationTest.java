@@ -1,5 +1,7 @@
 package dev.locklane.engine.ws;
 
+import dev.locklane.engine.github.GhAccount;
+import dev.locklane.engine.persistence.GhAccountRepository;
 import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.persistence.UserRepository;
 import dev.locklane.engine.security.TokenCipher;
@@ -48,13 +50,19 @@ class ProjectConsoleWebSocketIntegrationTest {
     @Autowired
     private TokenCipher tokenCipher;
 
+    @Autowired
+    private GhAccountRepository ghAccountRepository;
+
     @Test
     void aProjectConsoleSessionSeesTheProjectsDecryptedGithubToken(@TempDir Path workDir) throws Exception {
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
                 "console-token-user", "password-console-token");
+        long ownerId = ownerId("console-token-user");
         long projectId = projectRepository.createReady("token-project", "url", workDir, "main",
-                ownerId("console-token-user"), Instant.now()).id();
-        projectRepository.setGithubToken(projectId, tokenCipher.encrypt("ghp_project139secret"));
+                ownerId, Instant.now()).id();
+        GhAccount account = ghAccountRepository.insert(ownerId, "work",
+                tokenCipher.encrypt("ghp_project139secret"), java.util.Set.of("repo"), Instant.now());
+        projectRepository.setGithubAccountId(projectId, account.id());
         RecordingHandler client = new RecordingHandler();
 
         WebSocketSession session = AuthenticatedWebSocketClients.connect(client, cookie, consoleUri(projectId, workDir));

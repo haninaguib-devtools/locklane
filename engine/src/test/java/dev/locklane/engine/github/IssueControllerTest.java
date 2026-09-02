@@ -104,7 +104,8 @@ class IssueControllerTest {
         MutableGhClient client = new MutableGhClient(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
-        ProjectGhResources resources = new ProjectGhResources(projectRepository, tokenCipher, (path, token) -> client);
+        ProjectGhResources resources = new ProjectGhResources(projectRepository,
+                TestSqliteDatabases.newGhAccountRepository(root), tokenCipher, (path, token) -> client);
         IssueController controller = new IssueController(resources);
         // Warms the cache with the initial issue list.
         controller.tree(projectId, false);
@@ -126,7 +127,8 @@ class IssueControllerTest {
         FixedGhClient fake = new FixedGhClient(issues);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
-        ProjectGhResources resources = new ProjectGhResources(projectRepository, tokenCipher, (path, token) -> fake);
+        ProjectGhResources resources = new ProjectGhResources(projectRepository,
+                TestSqliteDatabases.newGhAccountRepository(root), tokenCipher, (path, token) -> fake);
         return new IssueController(resources);
     }
 

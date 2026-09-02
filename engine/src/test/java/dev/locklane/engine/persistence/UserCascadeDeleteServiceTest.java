@@ -28,7 +28,7 @@ class UserCascadeDeleteServiceTest {
         IssueWorktreeService issueWorktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(
                 projectRepository, tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService,
-                tokenCipher(tmp));
+                tokenCipher(tmp), TestSqliteDatabases.newGhAccountRepository(tmp));
         UserCascadeDeleteService cascadeDeleteService =
                 new UserCascadeDeleteService(projectRepository, checkoutService);
 
@@ -50,7 +50,7 @@ class UserCascadeDeleteServiceTest {
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(projectRepository,
                 tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()),
-                tokenCipher(tmp));
+                tokenCipher(tmp), TestSqliteDatabases.newGhAccountRepository(tmp));
         UserCascadeDeleteService cascadeDeleteService =
                 new UserCascadeDeleteService(projectRepository, checkoutService);
 
@@ -67,7 +67,7 @@ class UserCascadeDeleteServiceTest {
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(projectRepository,
                 tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()),
-                tokenCipher(tmp));
+                tokenCipher(tmp), TestSqliteDatabases.newGhAccountRepository(tmp));
         UserCascadeDeleteService cascadeDeleteService =
                 new UserCascadeDeleteService(projectRepository, checkoutService);
 

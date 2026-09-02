@@ -34,16 +34,16 @@ import org.springframework.http.HttpStatus;
  * (#139/#177 — same ownership story as a worktree session, just with no issue), the
  * project CRUD endpoints
  * (list/create at {@code /api/projects}, delete at {@code /api/projects/{id}},
- * retry at {@code /api/projects/{id}/retry}, #42; storing a project's GitHub token
- * at {@code /api/projects/{id}/github-token}, #81), the sidebar's usage widget
+ * retry at {@code /api/projects/{id}/retry}, #42; choosing which GitHub account a
+ * project acts as at {@code /api/projects/{id}/github-account}, #550, replacing the
+ * old per-project token endpoint from #81), the sidebar's usage widget
  * ({@code /api/usage}, #137 — it reads this host's own CLI credentials, not
  * per-project data, but is account-scoped the same way {@code /api/auth/me} is), the
  * detected-installed-agents endpoint backing the Settings dialog's default-agent picker
  * ({@code /api/agents/installed}, #359 — same account-scoped reasoning as the usage
- * widget above), the host's logged-in GitHub accounts backing the Add Project
- * dialog's account picker ({@code /api/github/accounts}, #532 — the same again: it
- * describes this host's {@code gh} logins, so it is gated exactly like the two
- * before it), the project templates on this host backing the same dialog's template
+ * widget above), the caller's own GitHub accounts under {@code /api/github/accounts}
+ * (#550 — sign in, list, remove; account-scoped like the two before it, superseding
+ * the old #532 host-{@code gh}-login read), the project templates on this host backing the same dialog's template
  * pull-down ({@code /api/templates}, #536 — host-scoped like the three before it, so
  * gated the same way), and the WebSocket session endpoint itself (every path under
  * {@code /ws/sessions/}, #50) — its origin
@@ -86,7 +86,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects").authenticated()
                         .requestMatchers("/api/projects/*").authenticated()
                         .requestMatchers("/api/projects/*/retry").authenticated()
-                        .requestMatchers("/api/projects/*/github-token").authenticated()
+                        .requestMatchers("/api/projects/*/github-account").authenticated()
                         .requestMatchers("/api/projects/*/issues/*/worktrees").authenticated()
                         .requestMatchers("/api/projects/*/issues/*/worktrees/*").authenticated()
                         .requestMatchers("/api/projects/*/consoles").authenticated()

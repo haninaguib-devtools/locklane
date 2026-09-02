@@ -12,9 +12,10 @@ export type AddProjectMode = 'import' | 'create';
 // The "Add Project" popup (#45, #491): either imports an existing repo from a git URL
 // (name prefills from the URL until the user edits it directly), or creates a brand-new
 // GitHub repository from an org and a name, optionally bootstrapped with t-workflow.
-// Both forms carry a "GitHub account" picker (#532) listing the accounts `gh` is logged
-// into on the engine host, so the project acts as the chosen one from its first fetch.
-// The create form alone carries a "template" pull-down (#536) listing the project
+// Both forms carry a "GitHub account" picker (#532, reworked by #550) listing the
+// accounts the caller has signed in to Locklane on the GitHub accounts page, so the
+// project acts as the chosen one from its first fetch. The create form alone carries
+// a "template" pull-down (#536) listing the project
 // templates on the engine host, defaulting to none; the chosen one is committed into
 // the new repository by the engine. A successful create also navigates straight to
 // the new project's console page (#537), while it is still cloning -- that page waits
@@ -46,13 +47,12 @@ export class AddProjectPopupComponent implements OnInit {
   newRepoName = '';
   bootstrapTWorkflow = false;
 
-  // GitHub account picker (#532). `accountsLoaded` stays false until the engine has
-  // answered, so the create button is held disabled rather than briefly enabled with
-  // no account behind it; a failed request counts as "no accounts", which is also the
-  // engine's own answer when `gh` is missing.
+  // GitHub account picker (#532, #550). `accountsLoaded` stays false until the engine
+  // has answered, so the create button is held disabled rather than briefly enabled
+  // with no account behind it; a failed request counts as "no accounts".
   accounts: GithubAccount[] = [];
   accountsLoaded = false;
-  githubLogin: string | null = null;
+  githubAccountId: number | null = null;
 
   // Template pull-down (#536), create tab only. `null` is the "none" option and the
   // default, so creating without a template is exactly the pre-#536 request; a failed
@@ -71,12 +71,12 @@ export class AddProjectPopupComponent implements OnInit {
     this.projectsService.githubAccounts().subscribe({
       next: (accounts) => {
         this.accounts = accounts;
-        this.githubLogin = accounts.find((a) => a.active)?.login ?? accounts[0]?.login ?? null;
+        this.githubAccountId = accounts[0]?.id ?? null;
         this.accountsLoaded = true;
       },
       error: () => {
         this.accounts = [];
-        this.githubLogin = null;
+        this.githubAccountId = null;
         this.accountsLoaded = true;
       },
     });
@@ -127,7 +127,7 @@ export class AddProjectPopupComponent implements OnInit {
     }
     this.submitting = true;
     this.error = null;
-    this.projectsService.create(this.gitUrl.trim(), this.name.trim(), this.chosenLogin()).subscribe({
+    this.projectsService.create(this.gitUrl.trim(), this.name.trim(), this.chosenAccountId()).subscribe({
       next: (project) => {
         this.submitting = false;
         this.created.emit(project);
@@ -150,7 +150,7 @@ export class AddProjectPopupComponent implements OnInit {
         this.org.trim(),
         this.newRepoName.trim(),
         this.bootstrapTWorkflow,
-        this.chosenLogin(),
+        this.chosenAccountId(),
         this.template ?? undefined,
       )
       .subscribe({
@@ -168,8 +168,8 @@ export class AddProjectPopupComponent implements OnInit {
       });
   }
 
-  /** The chosen account's login, or undefined when there is none — the request then carries no `githubLogin`. */
-  private chosenLogin(): string | undefined {
-    return this.githubLogin ?? undefined;
+  /** The chosen account's id, or undefined when there is none — the request then carries no `githubAccountId`. */
+  private chosenAccountId(): number | undefined {
+    return this.githubAccountId ?? undefined;
   }
 }

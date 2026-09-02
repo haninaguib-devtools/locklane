@@ -1,8 +1,8 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.github.GhAccount;
 import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.security.SecurityConfig;
-import dev.locklane.engine.security.TokenCipher;
 import dev.locklane.engine.template.ProjectTemplate;
 import dev.locklane.engine.template.TemplateStore;
 import org.springframework.http.HttpStatus;
@@ -46,20 +46,20 @@ public class ProjectController {
 
     private final ProjectRepository repository;
     private final ProjectCheckoutService checkoutService;
-    private final TokenCipher tokenCipher;
     private final ProjectGhResources ghResources;
     private final UserRepository userRepository;
     private final TemplateStore templateStore;
+    private final GhAccountRepository ghAccountRepository;
 
     public ProjectController(ProjectRepository repository, ProjectCheckoutService checkoutService,
-            TokenCipher tokenCipher, ProjectGhResources ghResources, UserRepository userRepository,
-            TemplateStore templateStore) {
+            ProjectGhResources ghResources, UserRepository userRepository,
+            TemplateStore templateStore, GhAccountRepository ghAccountRepository) {
         this.repository = repository;
         this.checkoutService = checkoutService;
-        this.tokenCipher = tokenCipher;
         this.ghResources = ghResources;
         this.userRepository = userRepository;
         this.templateStore = templateStore;
+        this.ghAccountRepository = ghAccountRepository;
     }
 
     @GetMapping
@@ -73,9 +73,18 @@ public class ProjectController {
         if (request.gitUrl() == null || request.gitUrl().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "gitUrl is required"));
         }
+        Optional<String> normalizedUrl = GitRemoteUrl.normalize(request.gitUrl());
+        if (normalizedUrl.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "gitUrl must be a GitHub repository: "
+                    + "https://github.com/<owner>/<repo>, git@<host>:<owner>/<repo>, or <owner>/<repo>"));
+        }
         UserRecord caller = currentUser(authentication);
+        Optional<ResponseEntity<?>> accountError = ownedAccountError(request.githubAccountId(), caller.id());
+        if (accountError.isPresent()) {
+            return accountError.get();
+        }
         ProjectRecord project = checkoutService.createProject(
-                request.gitUrl(), request.name(), caller.id(), request.githubLogin());
+                normalizedUrl.get(), request.name(), caller.id(), request.githubAccountId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ProjectView.from(project));
     }
 
@@ -83,12 +92,13 @@ public class ProjectController {
      * The "Create new" side of the Add Project dialog (#491): creates a brand-new
      * GitHub repository at {@code org/name} via {@code gh} instead of importing one
      * that already exists, then registers it through the same async, status-tracked
-     * flow as {@link #create}. Both accept an optional {@code githubLogin} (#532), one
-     * of the accounts {@code gh} is logged into on this host, for the project to act
-     * as; absent, the engine behaves exactly as before. This one also accepts an
-     * optional {@code template} (#536): the name of a project template on this host,
-     * resolved only through {@link TemplateStore#find} — never joined onto a path —
-     * and rejected with 400 before any row or repository exists when it is not listed.
+     * flow as {@link #create}. Both accept an optional {@code githubAccountId} (#550),
+     * one of the caller's own GitHub accounts, for the project to act as; absent, no
+     * account is chosen and the project has no GitHub credentials of its own. This one
+     * also accepts an optional {@code template} (#536): the name of a project template
+     * on this host, resolved only through {@link TemplateStore#find} — never joined
+     * onto a path — and rejected with 400 before any row or repository exists when it
+     * is not listed.
      */
     @PostMapping("/new")
     public ResponseEntity<?> createNew(@RequestBody CreateNewProjectRequest request, Authentication authentication) {
@@ -97,6 +107,11 @@ public class ProjectController {
         }
         if (request.name() == null || request.name().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "name is required"));
+        }
+        UserRecord caller = currentUser(authentication);
+        Optional<ResponseEntity<?>> accountError = ownedAccountError(request.githubAccountId(), caller.id());
+        if (accountError.isPresent()) {
+            return accountError.get();
         }
         ProjectTemplate template = null;
         if (request.template() != null && !request.template().isBlank()) {
@@ -107,11 +122,27 @@ public class ProjectController {
             }
             template = found.get();
         }
-        UserRecord caller = currentUser(authentication);
         ProjectRecord project = checkoutService.createNewProject(
-                request.org(), request.name(), request.bootstrapTWorkflow(), caller.id(), request.githubLogin(),
+                request.org(), request.name(), request.bootstrapTWorkflow(), caller.id(), request.githubAccountId(),
                 template);
         return ResponseEntity.status(HttpStatus.CREATED).body(ProjectView.from(project));
+    }
+
+    /**
+     * A 400 body when {@code githubAccountId} is non-null and does not resolve to one
+     * of {@code callerId}'s own GitHub accounts (#550) — checked synchronously, before
+     * any project row exists, the same way an unlisted template is (#536). Empty (no
+     * error) for {@code null} — no account chosen is always valid.
+     */
+    private Optional<ResponseEntity<?>> ownedAccountError(Long githubAccountId, long callerId) {
+        if (githubAccountId == null) {
+            return Optional.empty();
+        }
+        Optional<GhAccount> account = ghAccountRepository.findById(githubAccountId);
+        if (account.isEmpty() || account.get().ownerUserId() != callerId) {
+            return Optional.of(ResponseEntity.badRequest().body(Map.of("error", "no such GitHub account")));
+        }
+        return Optional.empty();
     }
 
     /** Re-clones a failed project from scratch. 404 if it doesn't exist, isn't the caller's, or isn't currently failed. */
@@ -144,21 +175,27 @@ public class ProjectController {
     }
 
     /**
-     * Stores an encrypted GitHub token for this project (#81), so its issue/PR
-     * fetches authenticate as that token against its own repo instead of whatever
-     * `gh` identity is already ambiently authenticated. Evicts any cached client for
-     * this project so the very next fetch picks up the new token.
+     * Sets which of the caller's own GitHub accounts (#550) this project acts as, so
+     * its issue/PR fetches and git/gh operations authenticate as that account instead
+     * of whatever identity is otherwise ambiently available. Replaces
+     * {@code PUT /api/projects/{id}/github-token} (#81). Evicts any cached client for
+     * this project so the very next fetch picks up the change.
      */
-    @PutMapping("/{id}/github-token")
-    public ResponseEntity<?> setGithubToken(
-            @PathVariable long id, @RequestBody SetGithubTokenRequest request, Authentication authentication) {
+    @PutMapping("/{id}/github-account")
+    public ResponseEntity<?> setGithubAccount(
+            @PathVariable long id, @RequestBody SetGithubAccountRequest request, Authentication authentication) {
+        UserRecord caller = currentUser(authentication);
         if (findAuthorized(id, authentication).isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        if (request.token() == null || request.token().isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "token is required"));
+        Optional<ResponseEntity<?>> accountError = ownedAccountError(request.githubAccountId(), caller.id());
+        if (accountError.isPresent()) {
+            return accountError.get();
         }
-        repository.setGithubToken(id, tokenCipher.encrypt(request.token()));
+        if (request.githubAccountId() == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "githubAccountId is required"));
+        }
+        repository.setGithubAccountId(id, request.githubAccountId());
         ghResources.evict(id);
         return ResponseEntity.noContent().build();
     }
@@ -203,19 +240,20 @@ public class ProjectController {
                         "authenticated as '" + authentication.getName() + "' but no such user row exists"));
     }
 
-    /** {@code githubLogin} (#532) is optional — {@code null} when the client chose no account. */
-    public record CreateProjectRequest(String gitUrl, String name, String githubLogin) {
+    /** {@code githubAccountId} (#550) is optional — {@code null} when the client chose no account. */
+    public record CreateProjectRequest(String gitUrl, String name, Long githubAccountId) {
     }
 
     /**
-     * {@code githubLogin} (#532) is optional — {@code null} when the client chose no
-     * account; so is {@code template} (#536) — {@code null} when the client chose none.
+     * {@code githubAccountId} (#550) is optional — {@code null} when the client chose
+     * no account; so is {@code template} (#536) — {@code null} when the client chose
+     * none.
      */
-    public record CreateNewProjectRequest(String org, String name, boolean bootstrapTWorkflow, String githubLogin,
+    public record CreateNewProjectRequest(String org, String name, boolean bootstrapTWorkflow, Long githubAccountId,
             String template) {
     }
 
-    public record SetGithubTokenRequest(String token) {
+    public record SetGithubAccountRequest(Long githubAccountId) {
     }
 
     public record SetAccentColorRequest(String accentColor) {

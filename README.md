@@ -21,15 +21,14 @@ Everything lands in `~/.locklane`. Two scripts live there afterwards:
   holds the login accounts, the projects, and the database, so deleting it needs a typed
   confirmation and is never the default.
 
-Locklane acts on GitHub through the host's own `gh` login, so that login needs the `repo`
-scope — and the `workflow` scope too if you create projects bootstrapped with t-workflow:
-their first push carries `.github/workflows/ci.yml`, and GitHub refuses that push from a
-token without `workflow`. Check with `gh auth status`, and add the scope to an existing
-login with:
-
-```
-gh auth refresh -h github.com -s workflow
-```
+Locklane acts on GitHub through the accounts you sign in to it, not through the host's
+own `gh` login: open the GitHub accounts page (the account menu in the top right, once
+you're signed in to Locklane itself) and sign in there — through GitHub's device flow,
+or by pasting a token — before importing or creating a project. Either way the account
+needs the `repo` scope, and the `workflow` scope too if you create projects bootstrapped
+with t-workflow: their first push carries `.github/workflows/ci.yml`, and GitHub refuses
+that push from a token without `workflow`. The accounts page shows whether an account has
+`workflow` before you pick it for a bootstrap.
 
 Project templates live on the host too, one directory per template at
 `~/.locklane/templates/<name>/template.md`, where `<name>` is lowercase letters, digits

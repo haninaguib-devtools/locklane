@@ -99,6 +99,38 @@ public class ProjectRepository {
                 ownerUserId);
     }
 
+    /** The GitHub account (#550) this project acts as, when one has been chosen. */
+    public void setGithubAccountId(long id, long githubAccountId) {
+        jdbcTemplate.update("UPDATE projects SET github_account_id = ? WHERE id = ?", githubAccountId, id);
+    }
+
+    /** Empty when the project has no chosen GitHub account — never falls back to any other identity (#550). */
+    public Optional<Long> findGithubAccountId(long id) {
+        // Not ResultSet#getObject(): SQLite/xerial can hand back a plain Integer for
+        // an INTEGER column depending on the stored value's magnitude, and casting
+        // that directly to Long throws. getLong() + wasNull() sidesteps the boxing
+        // entirely.
+        List<Long> rows = jdbcTemplate.query(
+                "SELECT github_account_id FROM projects WHERE id = ?",
+                (rs, rowNum) -> {
+                    long value = rs.getLong("github_account_id");
+                    return rs.wasNull() ? null : value;
+                },
+                id);
+        if (rows.isEmpty() || rows.get(0) == null) {
+            return Optional.empty();
+        }
+        return Optional.of(rows.get(0));
+    }
+
+    /** The names of every project still acting as {@code githubAccountId} — the 409-on-remove check (#550). */
+    public List<String> findNamesReferencingGithubAccount(long githubAccountId) {
+        return jdbcTemplate.query(
+                "SELECT name FROM projects WHERE github_account_id = ?",
+                (rs, rowNum) -> rs.getString("name"),
+                githubAccountId);
+    }
+
     /** Moves a project back to {@link ProjectStatus#CLONING}, clearing any previous default branch. */
     public void markCloning(long id) {
         jdbcTemplate.update("UPDATE projects SET status = ?, default_branch = NULL WHERE id = ?",
@@ -116,26 +148,6 @@ public class ProjectRepository {
 
     public void delete(long id) {
         jdbcTemplate.update("DELETE FROM projects WHERE id = ?", id);
-    }
-
-    /** Stores the encrypted GitHub token (#81) — callers encrypt/decrypt via {@code TokenCipher}; this never sees plaintext. */
-    public void setGithubToken(long id, String encryptedToken) {
-        jdbcTemplate.update("UPDATE projects SET github_token = ? WHERE id = ?", encryptedToken, id);
-    }
-
-    /** The stored (still encrypted) token, if any. Empty when none is set — never a blank/null string. */
-    public Optional<String> findGithubToken(long id) {
-        List<String> rows = jdbcTemplate.query(
-                "SELECT github_token FROM projects WHERE id = ?",
-                (rs, rowNum) -> rs.getString("github_token"),
-                id);
-        // Stream.findFirst() would NPE on a null element (it wraps via Optional.of
-        // internally) -- the column is nullable, so a plain index/blank check first.
-        if (rows.isEmpty()) {
-            return Optional.empty();
-        }
-        String token = rows.get(0);
-        return (token == null || token.isBlank()) ? Optional.empty() : Optional.of(token);
     }
 
     /** Sets or clears (#427) the project's accent color — {@code accentColor} may be {@code null}. */

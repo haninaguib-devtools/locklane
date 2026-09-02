@@ -3,6 +3,7 @@ package dev.locklane.engine.persistence;
 import dev.locklane.engine.github.GhIssue;
 import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.pty.SessionRegistry;
+import dev.locklane.engine.security.TokenCipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -79,14 +81,19 @@ public class WorktreeCleanupSweeper {
     private final ProjectRepository projectRepository;
     private final ProjectGhResources ghResources;
     private final SessionRegistry sessionRegistry;
+    private final GhAccountRepository ghAccountRepository;
+    private final TokenCipher tokenCipher;
 
     @Autowired
     public WorktreeCleanupSweeper(IssueWorktreeService issueWorktreeService, ProjectRepository projectRepository,
-            ProjectGhResources ghResources, SessionRegistry sessionRegistry) {
+            ProjectGhResources ghResources, SessionRegistry sessionRegistry, GhAccountRepository ghAccountRepository,
+            TokenCipher tokenCipher) {
         this.issueWorktreeService = issueWorktreeService;
         this.projectRepository = projectRepository;
         this.ghResources = ghResources;
         this.sessionRegistry = sessionRegistry;
+        this.ghAccountRepository = ghAccountRepository;
+        this.tokenCipher = tokenCipher;
     }
 
     @Scheduled(fixedDelayString = "${locklane.worktree-cleanup.interval-ms}",
@@ -282,7 +289,7 @@ public class WorktreeCleanupSweeper {
         if (!isClean(worktree.workingDirectory())) {
             return Optional.of("the worktree has uncommitted changes — commit or discard them before removing it");
         }
-        if (!isAncestorOfOriginMain(worktree.workingDirectory())) {
+        if (!isAncestorOfOriginMain(worktree.projectId(), worktree.workingDirectory())) {
             return Optional.of("this worktree has commits not yet reachable from origin/main — removing it would lose them");
         }
         return Optional.empty();
@@ -323,15 +330,29 @@ public class WorktreeCleanupSweeper {
      * {@code origin/main} never says yes to a commit that has since been judged not
      * reachable; any failure along the way (no HEAD, fetch or merge-base failing) is
      * treated as "not an ancestor" — the safe direction, since it only ever keeps a
-     * worktree around longer, never removes one it shouldn't.
+     * worktree around longer, never removes one it shouldn't. The fetch carries
+     * {@code projectId}'s chosen account's token as {@code GH_TOKEN} (#551), so it
+     * authenticates the same way every other git operation on this project's
+     * checkout does — empty (no account chosen) leaves it to whatever ambient
+     * credentials the host has, exactly as before #551.
      */
-    private boolean isAncestorOfOriginMain(Path workingDirectory) {
-        run(workingDirectory, "git", "fetch", "--prune", "origin");
-        Optional<String> head = run(workingDirectory, "git", "rev-parse", "HEAD").map(String::strip);
+    private boolean isAncestorOfOriginMain(long projectId, Path workingDirectory) {
+        run(workingDirectory, tokenEnvironment(projectId), "git", "fetch", "--prune", "origin");
+        Optional<String> head = run(workingDirectory, Map.of(), "git", "rev-parse", "HEAD").map(String::strip);
         if (head.isEmpty()) {
             return false;
         }
-        return run(workingDirectory, "git", "merge-base", "--is-ancestor", head.get(), "origin/main").isPresent();
+        return run(workingDirectory, Map.of(), "git", "merge-base", "--is-ancestor", head.get(), "origin/main")
+                .isPresent();
+    }
+
+    /** {@code GH_TOKEN} for {@code projectId}'s chosen account, or empty when none is chosen (#551). */
+    private Map<String, String> tokenEnvironment(long projectId) {
+        return projectRepository.findGithubAccountId(projectId)
+                .flatMap(ghAccountRepository::findEncryptedToken)
+                .map(tokenCipher::decrypt)
+                .map(token -> Map.of("GH_TOKEN", token))
+                .orElse(Map.of());
     }
 
     /** One project-console worktree (#339) — no issue of its own, unlike {@link IssueWorktreeService.ConsoleWorktree}. */
@@ -339,11 +360,17 @@ public class WorktreeCleanupSweeper {
     }
 
     private Optional<String> run(Path workingDirectory, String... command) {
+        return run(workingDirectory, Map.of(), command);
+    }
+
+    /** Same as {@link #run(Path, String...)}, with {@code env} added to the child's environment (#551). */
+    private Optional<String> run(Path workingDirectory, Map<String, String> env, String... command) {
         try {
-            Process process = new ProcessBuilder(command)
+            ProcessBuilder builder = new ProcessBuilder(command)
                     .directory(workingDirectory.toFile())
-                    .redirectErrorStream(true)
-                    .start();
+                    .redirectErrorStream(true);
+            builder.environment().putAll(env);
+            Process process = builder.start();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             int exitCode = process.waitFor();
             if (exitCode != 0) {

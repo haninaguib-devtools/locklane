@@ -35,6 +35,9 @@
               <button type="button" class="account-item" role="menuitem" (click)="openSettings()">
                 Settings
               </button>
+              <button type="button" class="account-item" role="menuitem" (click)="openGithubAccounts()">
+                GitHub accounts
+              </button>
               @if (isAdmin()) {
                 <button type="button" class="account-item" role="menuitem" (click)="openAdminUsers()">
                   Manage users
@@ -84,6 +87,9 @@
     }
     @if (adminUsersOpen) {
       <app-admin-users (closed)="closeAdminUsers()" />
+    }
+    @if (githubAccountsOpen) {
+      <app-github-accounts (closed)="closeGithubAccounts()" />
     }
     @if (showAddProject) {
       <app-add-project-popup (created)="onProjectCreated()" (closed)="onAddProjectClosed()" />

@@ -30,15 +30,15 @@
       @if (accounts.length > 0) {
         <label>
           GitHub account
-          <select name="githubLogin" class="github-login" [(ngModel)]="githubLogin" [disabled]="submitting">
-            @for (account of accounts; track account.login) {
-              <option [value]="account.login">{{ account.login }}{{ account.active ? ' (active)' : '' }}</option>
+          <select name="githubAccountId" class="github-login" [(ngModel)]="githubAccountId" [disabled]="submitting">
+            @for (account of accounts; track account.id) {
+              <option [ngValue]="account.id">{{ account.login }}</option>
             }
           </select>
         </label>
       } @else if (accountsLoaded) {
         <p class="hint no-accounts">
-          no GitHub account on the engine host — run <code>gh auth login</code> there first
+          no GitHub account signed in yet — add one from the account menu's "GitHub accounts"
         </p>
       }
     </ng-template>
@@ -50,7 +50,7 @@
           <input
             type="text"
             name="gitUrl"
-            placeholder="https://github.com/org/repo.git"
+            placeholder="https://github.com/org/repo.git, git@host:org/repo, or org/repo"
             [(ngModel)]="gitUrl"
             (ngModelChange)="onUrlChange()"
             [disabled]="submitting"

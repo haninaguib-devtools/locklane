@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.github.GhAccount;
 import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
@@ -16,10 +17,20 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ProjectControllerTest {
+
+    // A syntactically valid GitHub URL (#551's normalizer accepts it) that has no
+    // real repository behind it -- the clone fails fast (git fails immediately on an
+    // unauthenticated request for a private/nonexistent repo, no real network wait)
+    // without ever needing a throwaway local bare repo. Stands in for the pre-#551
+    // "/does/not/exist" fixture, which the normalizer now rejects before a project
+    // row is even created.
+    private static final String UNCLONEABLE_GITHUB_URL =
+            "https://github.com/locklane-tests-no-such-org/does-not-exist.git";
 
     @Test
     void listReturnsOnlyTheCallersOwnProjects(@TempDir Path tmp) throws IOException {
@@ -60,7 +71,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("/does/not/exist", "mine", null), alice.authentication());
+                new ProjectController.CreateProjectRequest(UNCLONEABLE_GITHUB_URL, "mine", null), alice.authentication());
 
         ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
         assertThat(body.ownerUserId()).isEqualTo(alice.id());
@@ -88,13 +99,58 @@ class ProjectControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    // #551: gitUrl is normalized before it's ever stored -- accepted shapes collapse
+    // to https://github.com/<owner>/<repo>.git, anything else is a 400.
+
+    @Test
+    void createWithAnyOtherHostIsABadRequest(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
+
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("https://gitlab.com/foo/bar.git", "mine", null),
+                alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(((Map<?, ?>) response.getBody()).get("error").toString()).contains("GitHub");
+    }
+
+    @Test
+    void createNormalizesABareOwnerRepoBeforeStoringIt(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("foo/bar", "mine", null), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
+        assertThat(repository.findById(body.id()).orElseThrow().gitUrl()).isEqualTo("https://github.com/foo/bar.git");
+    }
+
+    @Test
+    void createNormalizesAnSshAliasUrlBeforeStoringIt(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("git@thyme.github.com:foo/bar.git", "mine", null),
+                alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
+        assertThat(repository.findById(body.id()).orElseThrow().gitUrl()).isEqualTo("https://github.com/foo/bar.git");
+    }
+
     @Test
     void createWithAnUncloneableUrlStillReturnsCreatedWithAFailedProject(@TempDir Path tmp) throws IOException {
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("/does/not/exist", "broken", null), alice.authentication());
+                new ProjectController.CreateProjectRequest(UNCLONEABLE_GITHUB_URL, "broken", null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
@@ -154,42 +210,53 @@ class ProjectControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
-    // #532: both create endpoints forward the optional githubLogin to the checkout
-    // service, which resolves it through gh -- a stub here (see
-    // ProjectCheckoutServiceTest.stubGh), so no real gh and no network.
+    // #550: both create endpoints forward the optional githubAccountId to the
+    // checkout service, and refuse synchronously -- before any project row exists --
+    // one that doesn't resolve to the caller's own account.
 
     @Test
-    void createForwardsTheGithubLoginSoItsTokenIsStoredOnTheProject(@TempDir Path tmp) throws IOException {
+    void createForwardsTheGithubAccountIdSoItsStoredOnTheProject(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
-        ProjectController controller = controllerWithStubGh(tmp, repository);
+        GhAccount account = seedAccount(tmp, alice.id(), "work", "work-token");
+        ProjectController controller = controller(tmp, repository);
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("/does/not/exist", "mine", "work"), alice.authentication());
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
-        TokenCipher cipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
-        assertThat(cipher.decrypt(repository.findGithubToken(body.id()).orElseThrow())).isEqualTo("work-token");
-    }
-
-    @Test
-    void createNewForwardsTheGithubLoginAndAnUnknownOneFailsTheProject(@TempDir Path tmp) throws IOException {
-        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
-        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
-        ProjectController controller = controllerWithStubGh(tmp, repository);
-
-        ResponseEntity<?> response = controller.createNew(
-                new ProjectController.CreateNewProjectRequest("my-org", "new-one", false, "nobody", null),
+                new ProjectController.CreateProjectRequest(UNCLONEABLE_GITHUB_URL, "mine", account.id()),
                 alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
-        // Failed at the token lookup, before any `gh repo create` -- the stub never saw one.
-        assertThat(repository.findById(body.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
-        assertThat(repository.findGithubToken(body.id())).isEmpty();
-        assertThat(java.nio.file.Files.readString(tmp.resolve("gh-log").resolve("calls")))
-                .isEqualTo("auth token --user nobody\n");
+        assertThat(repository.findGithubAccountId(body.id())).contains(account.id());
+    }
+
+    @Test
+    void createWithAnUnknownGithubAccountIdIsABadRequestBeforeAnyRowExists(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest(UNCLONEABLE_GITHUB_URL, "mine", 999L), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(repository.findAllOwnedBy(alice.id())).isEmpty();
+    }
+
+    @Test
+    void createNewWithAnotherUsersGithubAccountIdIsABadRequest(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller bob = user(tmp, "bob", UserRecord.Role.USER);
+        GhAccount bobsAccount = seedAccount(tmp, bob.id(), "bobs-account", "bobs-token");
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.createNew(
+                new ProjectController.CreateNewProjectRequest("my-org", "new-one", false, bobsAccount.id(), null),
+                alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(repository.findAllOwnedBy(alice.id())).isEmpty();
     }
 
     // #536: an optional template name on createNew is resolved only through the
@@ -301,14 +368,14 @@ class ProjectControllerTest {
                 .isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(controller.delete(created.id(), admin.authentication()).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(controller.setGithubToken(created.id(),
-                new ProjectController.SetGithubTokenRequest("ghp_secret"), admin.authentication()).getStatusCode())
+        assertThat(controller.setGithubAccount(created.id(),
+                new ProjectController.SetGithubAccountRequest(1L), admin.authentication()).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(controller.setAccentColor(created.id(),
                 new ProjectController.SetAccentColorRequest("#c15f3c"), admin.authentication()).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
 
-        assertThat(repository.findGithubToken(created.id())).isEmpty();
+        assertThat(repository.findGithubAccountId(created.id())).isEmpty();
         assertThat(repository.findById(created.id())).isPresent().get()
                 .extracting(ProjectRecord::accentColor).isNull();
         assertThat(controller.list(alice.authentication()))
@@ -371,61 +438,79 @@ class ProjectControllerTest {
                 .extracting(ProjectController.ProjectView::name).containsExactly("foo");
     }
 
+    // #550: replaces the old #81 "paste a raw token" endpoint with choosing one of
+    // the caller's own GitHub accounts.
+
     @Test
-    void settingAGithubTokenStoresItEncrypted(@TempDir Path tmp) throws IOException {
+    void settingAGithubAccountStoresIt(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        GhAccount account = seedAccount(tmp, alice.id(), "work", "ghp_secret");
         ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
         ProjectController controller = controller(tmp, repository);
 
-        ResponseEntity<?> response = controller.setGithubToken(
-                created.id(), new ProjectController.SetGithubTokenRequest("ghp_secret"), alice.authentication());
+        ResponseEntity<?> response = controller.setGithubAccount(
+                created.id(), new ProjectController.SetGithubAccountRequest(account.id()), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-        String stored = repository.findGithubToken(created.id()).orElseThrow();
-        assertThat(stored).isNotEqualTo("ghp_secret"); // encrypted, not plaintext
-        TokenCipher cipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
-        assertThat(cipher.decrypt(stored)).isEqualTo("ghp_secret");
+        assertThat(repository.findGithubAccountId(created.id())).contains(account.id());
     }
 
     @Test
-    void settingAGithubTokenOnAnUnknownProjectIsNotFound(@TempDir Path tmp) throws IOException {
+    void settingAGithubAccountOnAnUnknownProjectIsNotFound(@TempDir Path tmp) throws IOException {
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        GhAccount account = seedAccount(tmp, alice.id(), "work", "ghp_secret");
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
-        ResponseEntity<?> response = controller.setGithubToken(
-                999, new ProjectController.SetGithubTokenRequest("ghp_secret"), alice.authentication());
+        ResponseEntity<?> response = controller.setGithubAccount(
+                999, new ProjectController.SetGithubAccountRequest(account.id()), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test
-    void settingAGithubTokenOnAnotherUsersProjectIsNotFound(@TempDir Path tmp) throws IOException {
+    void settingAGithubAccountOnAnotherUsersProjectIsNotFound(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         Caller bob = user(tmp, "bob", UserRecord.Role.USER);
+        GhAccount account = seedAccount(tmp, bob.id(), "work", "ghp_secret");
         ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
         ProjectController controller = controller(tmp, repository);
 
-        ResponseEntity<?> response = controller.setGithubToken(
-                created.id(), new ProjectController.SetGithubTokenRequest("ghp_secret"), bob.authentication());
+        ResponseEntity<?> response = controller.setGithubAccount(
+                created.id(), new ProjectController.SetGithubAccountRequest(account.id()), bob.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(repository.findGithubToken(created.id())).isEmpty();
+        assertThat(repository.findGithubAccountId(created.id())).isEmpty();
     }
 
     @Test
-    void settingABlankGithubTokenIsABadRequest(@TempDir Path tmp) throws IOException {
+    void settingAnotherUsersGithubAccountIsABadRequest(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller bob = user(tmp, "bob", UserRecord.Role.USER);
+        GhAccount bobsAccount = seedAccount(tmp, bob.id(), "bobs-account", "bobs-token");
+        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setGithubAccount(created.id(),
+                new ProjectController.SetGithubAccountRequest(bobsAccount.id()), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(repository.findGithubAccountId(created.id())).isEmpty();
+    }
+
+    @Test
+    void settingANullGithubAccountIsABadRequest(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
         ProjectController controller = controller(tmp, repository);
 
-        ResponseEntity<?> response = controller.setGithubToken(
-                created.id(), new ProjectController.SetGithubTokenRequest("  "), alice.authentication());
+        ResponseEntity<?> response = controller.setGithubAccount(
+                created.id(), new ProjectController.SetGithubAccountRequest(null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(repository.findGithubToken(created.id())).isEmpty();
     }
 
     @Test
@@ -455,22 +540,6 @@ class ProjectControllerTest {
     }
 
     @Test
-    void settingAnAccentColorOnAnotherUsersProjectIsNotFound(@TempDir Path tmp) throws IOException {
-        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
-        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
-        Caller bob = user(tmp, "bob", UserRecord.Role.USER);
-        ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
-        ProjectController controller = controller(tmp, repository);
-
-        ResponseEntity<?> response = controller.setAccentColor(
-                created.id(), new ProjectController.SetAccentColorRequest("#c15f3c"), bob.authentication());
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(repository.findById(created.id())).isPresent().get()
-                .extracting(ProjectRecord::accentColor).isNull();
-    }
-
-    @Test
     void settingAnInvalidAccentColorIsABadRequest(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
@@ -478,15 +547,13 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, repository);
 
         ResponseEntity<?> response = controller.setAccentColor(
-                created.id(), new ProjectController.SetAccentColorRequest("terracotta"), alice.authentication());
+                created.id(), new ProjectController.SetAccentColorRequest("not-a-color"), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(repository.findById(created.id())).isPresent().get()
-                .extracting(ProjectRecord::accentColor).isNull();
     }
 
     @Test
-    void settingAnUnsetAccentColorIsABadRequest(@TempDir Path tmp) throws IOException {
+    void settingANullAccentColorIsABadRequest(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
@@ -506,29 +573,41 @@ class ProjectControllerTest {
     private static ProjectController controller(Path tmp, ProjectRepository repository,
             IssueWorktreeService issueWorktreeService) throws IOException {
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
+        GhAccountRepository ghAccountRepository = TestSqliteDatabases.newGhAccountRepository(tmp);
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(repository,
-                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService, tokenCipher);
-        ProjectGhResources ghResources = new ProjectGhResources(repository, tokenCipher, (path, token) -> {
-            throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
-        });
-        return new ProjectController(repository, checkoutService, tokenCipher, ghResources,
-                TestSqliteDatabases.newUserRepository(tmp), templateStore(tmp));
+                tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService, tokenCipher,
+                ghAccountRepository);
+        ProjectGhResources ghResources = new ProjectGhResources(repository, ghAccountRepository, tokenCipher,
+                (path, token) -> {
+                    throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
+                });
+        return new ProjectController(repository, checkoutService, ghResources,
+                TestSqliteDatabases.newUserRepository(tmp), templateStore(tmp), ghAccountRepository);
     }
 
-    /** Like {@link #controller(Path, ProjectRepository)}, with the #532 stub gh in place of the real CLI. */
+    /** Like {@link #controller(Path, ProjectRepository)}, with the #550 stub gh in place of the real CLI. */
     private static ProjectController controllerWithStubGh(Path tmp, ProjectRepository repository) throws IOException {
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
+        GhAccountRepository ghAccountRepository = TestSqliteDatabases.newGhAccountRepository(tmp);
         Path ghLog = java.nio.file.Files.createDirectories(tmp.resolve("gh-log"));
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(repository,
                 tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()),
-                tokenCipher, java.util.Optional::empty, "exit 1", token -> java.util.Optional.empty(),
-                ProjectCheckoutServiceTest.stubGh(tmp, ghLog));
-        ProjectGhResources ghResources = new ProjectGhResources(repository, tokenCipher, (path, token) -> {
-            throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
-        });
-        return new ProjectController(repository, checkoutService, tokenCipher, ghResources,
-                TestSqliteDatabases.newUserRepository(tmp), templateStore(tmp));
+                tokenCipher, ghAccountRepository, "exit 1", ProjectCheckoutServiceTest.stubGh(tmp, ghLog));
+        ProjectGhResources ghResources = new ProjectGhResources(repository, ghAccountRepository, tokenCipher,
+                (path, token) -> {
+                    throw new UnsupportedOperationException("not exercised by ProjectController's own tests");
+                });
+        return new ProjectController(repository, checkoutService, ghResources,
+                TestSqliteDatabases.newUserRepository(tmp), templateStore(tmp), ghAccountRepository);
+    }
+
+    /** Seeds a real {@code github_accounts} row (#550), owned by {@code ownerUserId}. */
+    private static GhAccount seedAccount(Path tmp, long ownerUserId, String login, String plaintextToken)
+            throws IOException {
+        TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
+        return TestSqliteDatabases.newGhAccountRepository(tmp)
+                .insert(ownerUserId, login, tokenCipher.encrypt(plaintextToken), Set.of("repo"), Instant.now());
     }
 
     /**

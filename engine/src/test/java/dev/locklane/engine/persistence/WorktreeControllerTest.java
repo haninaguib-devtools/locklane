@@ -218,8 +218,9 @@ class WorktreeControllerTest {
         WorktreeSessionAuthorization authorization =
                 new WorktreeSessionAuthorization(projectRepository, TestSqliteDatabases.newUserRepository(dbDir));
         IssueWorktreeService worktreeService = new IssueWorktreeService(repository, resumeRepository, authorization);
-        ProjectGhResources ghResources =
-                new ProjectGhResources(projectRepository, tokenCipher(dbDir), (path, token) -> new FixedGhClient(issues));
+        ProjectGhResources ghResources = new ProjectGhResources(projectRepository,
+                TestSqliteDatabases.newGhAccountRepository(dbDir), tokenCipher(dbDir),
+                (path, token) -> new FixedGhClient(issues));
         WorktreeCreationService creationService =
                 new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository);
         // No CLI title storage in these temp homes and no opencode process: every
