@@ -374,7 +374,7 @@ class WorktreeCreationServiceTest {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-console-abcd1234");
 
-        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot);
+        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot, GitCredential.NONE);
 
         assertThat(worktreePath).isDirectory();
         // Detached HEAD: "branch --show-current" reports nothing for it.
@@ -390,7 +390,7 @@ class WorktreeCreationServiceTest {
         // check out its own wip/<id>-<slug> branch from inside a detached worktree.
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-console-deadbeef");
-        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot);
+        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot, GitCredential.NONE);
 
         Process checkout = new ProcessBuilder("git", "-C", worktreePath.toString(), "checkout", "-b",
                 "wip/42-do-the-thing").redirectErrorStream(true).start();
@@ -438,7 +438,8 @@ class WorktreeCreationServiceTest {
         ProjectGhResources ghResources =
                 new ProjectGhResources(projectRepository, ghAccountRepository(), tokenCipher(),
                         (path, token) -> new FixedGhClient(issues));
-        return new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository);
+        return new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository,
+                ghAccountRepository(), tokenCipher());
     }
 
     private static TokenCipher tokenCipher() {

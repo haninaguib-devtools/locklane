@@ -3,6 +3,7 @@ package dev.locklane.engine.persistence;
 import dev.locklane.engine.github.GhIssue;
 import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.process.ProcessOutcome;
+import dev.locklane.engine.security.TokenCipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -48,13 +50,18 @@ public class WorktreeCreationService {
     private final IssueWorktreeService issueWorktreeService;
     private final ProjectRepository projectRepository;
     private final WorktreeSessionRepository sessionRepository;
+    private final GhAccountRepository ghAccountRepository;
+    private final TokenCipher tokenCipher;
 
     public WorktreeCreationService(ProjectGhResources ghResources, IssueWorktreeService issueWorktreeService,
-            ProjectRepository projectRepository, WorktreeSessionRepository sessionRepository) {
+            ProjectRepository projectRepository, WorktreeSessionRepository sessionRepository,
+            GhAccountRepository ghAccountRepository, TokenCipher tokenCipher) {
         this.ghResources = ghResources;
         this.issueWorktreeService = issueWorktreeService;
         this.projectRepository = projectRepository;
         this.sessionRepository = sessionRepository;
+        this.ghAccountRepository = ghAccountRepository;
+        this.tokenCipher = tokenCipher;
     }
 
     /**
@@ -118,7 +125,7 @@ public class WorktreeCreationService {
         String slug = slug(issue.get().title());
         String worktreeId = projectId + "-" + issueNumber + "-" + slug;
 
-        openIssueWorktree(issueNumber, worktreePath, projectRoot);
+        openIssueWorktree(issueNumber, worktreePath, projectRoot, credentialFor(projectId));
         return Optional.of(new StartedSession(worktreeId, worktreePath.toString()));
     }
 
@@ -165,7 +172,7 @@ public class WorktreeCreationService {
         if (!Files.exists(worktreePath) && issue(projectId, issueNumber).isEmpty()) {
             return Optional.empty();
         }
-        openIssueWorktree(issueNumber, worktreePath, projectRoot);
+        openIssueWorktree(issueNumber, worktreePath, projectRoot, credentialFor(projectId));
         return Optional.of(new StartedSession(sessionId, worktreePath.toString()));
     }
 
@@ -194,6 +201,11 @@ public class WorktreeCreationService {
                 .orElseGet(() -> projectRoot.resolveSibling(repoName(projectRoot) + "-" + issueNumber)));
     }
 
+    /** The project's token for the {@code git fetch} each worktree open starts with (#569) — plain git when it has none. */
+    private GitCredential credentialFor(long projectId) {
+        return GitCredential.forProject(projectId, projectRepository, ghAccountRepository, tokenCipher);
+    }
+
     private Optional<GhIssue> issue(long projectId, int issueNumber) {
         return ghResources.forProject(projectId).flatMap(ctx -> ctx.cache().issue(issueNumber));
     }
@@ -210,10 +222,11 @@ public class WorktreeCreationService {
      * inside {@code projectRoot} — package-visible (and static: it touches no
      * instance state) so {@link ProjectConsoleService} (#314) can reuse the exact
      * same git plumbing for a project console's own sibling worktree, rather than
-     * duplicating it.
+     * duplicating it. {@code credential} authenticates the initial {@code git fetch}
+     * as the project's account (#569).
      */
-    static void createWorktree(String branch, Path worktreePath, Path projectRoot) {
-        run("git", "-C", projectRoot.toString(), "fetch", "--prune", "origin");
+    static void createWorktree(String branch, Path worktreePath, Path projectRoot, GitCredential credential) {
+        fetch(projectRoot, credential);
 
         boolean branchExists =
                 run("git", "-C", projectRoot.toString(), "rev-parse", "--verify", "--quiet", branch).exitCode() == 0
@@ -246,8 +259,8 @@ public class WorktreeCreationService {
      * than handed back as stale as the day it was created; a worktree carrying a
      * branch, dirty state, or its own commits is left untouched.
      */
-    static void openIssueWorktree(int issueNumber, Path worktreePath, Path projectRoot) {
-        run("git", "-C", projectRoot.toString(), "fetch", "--prune", "origin");
+    static void openIssueWorktree(int issueNumber, Path worktreePath, Path projectRoot, GitCredential credential) {
+        fetch(projectRoot, credential);
 
         if (Files.exists(worktreePath)) {
             refreshIfIdle(worktreePath);
@@ -325,8 +338,8 @@ public class WorktreeCreationService {
      * session that legitimately transitions to task work gets its proper
      * {@code wip/<id>-<slug>} branch from {@code /t-work} at that point instead.
      */
-    static void createDetachedWorktree(Path worktreePath, Path projectRoot) {
-        run("git", "-C", projectRoot.toString(), "fetch", "--prune", "origin");
+    static void createDetachedWorktree(Path worktreePath, Path projectRoot, GitCredential credential) {
+        fetch(projectRoot, credential);
 
         ProcessOutcome result = run("git", "-C", projectRoot.toString(), "worktree", "add", "--detach",
                 worktreePath.toString(), "origin/main");
@@ -353,9 +366,32 @@ public class WorktreeCreationService {
         return truncated.replaceAll("-+$", "");
     }
 
+    /**
+     * The one remote-touching git call in this class (#569): {@code git fetch --prune
+     * origin} in the project's main checkout, authenticated through {@code credential}
+     * — the inline helper plus {@code GH_TOKEN} for an HTTPS remote with a stored
+     * token, plain git otherwise. A failed fetch is logged and otherwise tolerated, as
+     * it always was: the worktree add that follows still works from whatever
+     * {@code origin/main} the checkout already has.
+     */
+    private static void fetch(Path projectRoot, GitCredential credential) {
+        ProcessOutcome result = run(credential.environment(),
+                credential.command("-C", projectRoot.toString(), "fetch", "--prune", "origin"));
+        if (result.failed()) {
+            log.warn("git fetch --prune origin failed in {}: {}", projectRoot, result.describe());
+        }
+    }
+
     private static ProcessOutcome run(String... command) {
+        return run(Map.of(), command);
+    }
+
+    /** Same as {@link #run(String...)}, with {@code env} added to the child's environment (#569). */
+    private static ProcessOutcome run(Map<String, String> env, String... command) {
         try {
-            Process process = new ProcessBuilder(command).start();
+            ProcessBuilder builder = new ProcessBuilder(command);
+            builder.environment().putAll(env);
+            Process process = builder.start();
             String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             String err = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
             int exit = process.waitFor();

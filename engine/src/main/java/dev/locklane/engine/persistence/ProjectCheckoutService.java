@@ -85,9 +85,11 @@ public class ProjectCheckoutService {
      * shows a plain HTTPS URL and no token is ever embedded in it or written to disk
      * anywhere. Every worktree shares this checkout's config, so a push from inside
      * one authenticates the same way as long as {@code GH_TOKEN} is in its own
-     * process environment.
+     * process environment. Since #569 the engine's own remote git calls no longer
+     * rely on this repo-local config being there: each one passes the same helper
+     * inline through {@link GitCredential}.
      */
-    static final String CREDENTIAL_HELPER_SCRIPT = "!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f";
+    static final String CREDENTIAL_HELPER_SCRIPT = GitCredential.HELPER_SCRIPT;
 
     /** Where a chosen template's body lands in a new repository (#536) — the file the seeded agent reads (#537). */
     static final String TEMPLATE_FILE = "PROJECT_TEMPLATE.md";
@@ -293,29 +295,36 @@ public class ProjectCheckoutService {
         log.info("Importing project {} from {} acting as GitHub account {}", project.id(), project.gitUrl(),
                 githubAccountId == null ? "none chosen" : githubAccountId);
         try {
-            Optional<String> token = Optional.empty();
+            // A freshly requested import stores the chosen account first; a retry
+            // (#569) has no account id in hand but the row already carries one, so
+            // the token is resolved from there -- before #569 a retried private
+            // import re-ran a plain, credential-less clone and could never succeed.
+            Optional<String> token;
             if (githubAccountId != null) {
                 token = storeTokenForAccount(project, githubAccountId);
                 if (token.isEmpty()) {
                     return;
                 }
+            } else {
+                token = resolveGithubToken(project);
             }
+            GitCredential credential = cloneCredential(project, token);
             Files.createDirectories(project.workareaPath().getParent());
             // The credential helper is passed with -c rather than configured first:
             // the destination has no .git yet for a repo-local config to live in, and
             // -c applies for the duration of this one command regardless (#551) --
             // enough for a private repo's clone to authenticate at all.
-            ProcessOutcome cloneResult = token.isPresent()
-                    ? run(null, tokenEnvironment(token.get()), "git", "-c",
-                            "credential.helper=" + CREDENTIAL_HELPER_SCRIPT, "clone", project.gitUrl(),
-                            project.workareaPath().toString())
-                    : run("git", "clone", project.gitUrl(), project.workareaPath().toString());
+            ProcessOutcome cloneResult = run(null, credential.environment(),
+                    credential.command("clone", project.gitUrl(), project.workareaPath().toString()));
             if (cloneResult.failed()) {
                 log.warn("git clone failed for project {} from {}: {}", project.id(), project.gitUrl(),
                         cloneResult.describe());
                 repository.markFailed(project.id());
                 return;
             }
+            // #551's repo-local helper is configured whenever an account was chosen,
+            // whatever the transport -- inert for a non-HTTPS remote, and it keeps a
+            // later HTTPS push from inside a worktree authenticating the same way.
             if (token.isPresent()) {
                 ProcessOutcome helperResult = configureCredentialHelper(project.workareaPath());
                 if (helperResult.failed()) {
@@ -562,8 +571,9 @@ public class ProjectCheckoutService {
         // The credential helper (#551), never a token embedded in remoteUrl above --
         // git remote -v shows a plain HTTPS URL, and the token reaches this push only
         // through its own process environment, never a file.
-        Map<String, String> effectivePushEnv = pushEnv;
-        if (token.isPresent()) {
+        GitCredential credential = GitCredential.forRemote(remoteUrl, token);
+        Map<String, String> effectivePushEnv = new LinkedHashMap<>(pushEnv);
+        if (credential.present()) {
             ProcessOutcome helperResult = configureCredentialHelper(workarea);
             if (helperResult.failed()) {
                 log.warn("Could not configure the git credential helper for project {}: {}", project.id(),
@@ -571,12 +581,10 @@ public class ProjectCheckoutService {
                 repository.markFailed(project.id());
                 return;
             }
-            Map<String, String> merged = new LinkedHashMap<>(pushEnv);
-            merged.putAll(tokenEnvironment(token.get()));
-            effectivePushEnv = merged;
+            effectivePushEnv.putAll(credential.environment());
         }
 
-        ProcessOutcome pushResult = run(workarea, effectivePushEnv, "git", "push", "-u", "origin", branch);
+        ProcessOutcome pushResult = run(workarea, effectivePushEnv, credential.command("push", "-u", "origin", branch));
         if (pushResult.exitCode() != 0) {
             log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(), pushResult.describe());
             repository.markFailed(project.id());
@@ -592,8 +600,13 @@ public class ProjectCheckoutService {
         return run(workarea, "git", "config", "credential.helper", CREDENTIAL_HELPER_SCRIPT);
     }
 
-    private static Map<String, String> tokenEnvironment(String token) {
-        return Map.of("GH_TOKEN", token);
+    /**
+     * The credential the import clone runs with (#569): the project's token over an
+     * HTTPS remote, plain git otherwise (an SSH remote, or no token). Package-private
+     * so a test can assert the split without reaching a real remote.
+     */
+    static GitCredential cloneCredential(ProjectRecord project, Optional<String> token) {
+        return GitCredential.forRemote(project.gitUrl(), token);
     }
 
     /**

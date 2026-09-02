@@ -186,6 +186,53 @@ class ProjectCheckoutServiceTest {
         assertThat(repositoryOver(tmp).findById(failed.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
     }
 
+    // #569: the import clone's credential follows the remote's transport, and a
+    // retry finds the account already stored on the row.
+
+    @Test
+    void cloneCredentialInjectsTheTokenForAnHttpsRemote(@TempDir Path tmp) {
+        ProjectRecord project = newProjectRecord(tmp, "https-project");
+
+        GitCredential credential = ProjectCheckoutService.cloneCredential(project, Optional.of("ghp_secret"));
+
+        assertThat(credential.present()).isTrue();
+        assertThat(credential.command("clone", project.gitUrl(), "dest"))
+                .containsExactly("git", "-c", "credential.helper=" + ProjectCheckoutService.CREDENTIAL_HELPER_SCRIPT,
+                        "clone", project.gitUrl(), "dest");
+        assertThat(credential.environment()).containsEntry("GH_TOKEN", "ghp_secret");
+    }
+
+    @Test
+    void cloneCredentialIsPlainGitForAnSshRemoteAndForAMissingToken(@TempDir Path tmp) {
+        ProjectRecord ssh = repositoryOver(tmp).create("ssh-project", "git@github.com:org/ssh-project.git",
+                tmp.resolve("workarea").resolve("1").resolve("ssh-project"), 1L, Instant.now());
+        ProjectRecord https = newProjectRecord(tmp, "https-project");
+
+        assertThat(ProjectCheckoutService.cloneCredential(ssh, Optional.of("ghp_secret"))).isSameAs(GitCredential.NONE);
+        assertThat(ProjectCheckoutService.cloneCredential(https, Optional.empty())).isSameAs(GitCredential.NONE);
+    }
+
+    @Test
+    void retryOfAFailedImportWithAStoredAccountStillMarksFailedOnAnUnreachableRemoteAndNeverLogsTheToken(
+            @TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+        GhAccount account = seedAccount(tmp, 1L, "work", "secret-token", Set.of("repo"));
+        // A host+port nothing listens on: the clone fails fast (connection refused)
+        // rather than hanging, so this proves the retry runs an authenticated clone
+        // without ever touching the network for real.
+        ProjectRecord failed = service.createProject("https://127.0.0.1:1/org/retry-project.git", "retry-project", 1L,
+                account.id());
+        assertThat(repository.findById(failed.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(repository.findGithubAccountId(failed.id())).contains(account.id());
+
+        List<ILoggingEvent> events = capturingLogs(() -> service.retry(failed.id()));
+
+        assertThat(repository.findById(failed.id()).orElseThrow().status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(events).anySatisfy(event -> assertThat(event.getFormattedMessage()).contains("git clone failed"));
+        assertThat(events).noneSatisfy(event -> assertThat(event.getFormattedMessage()).contains("secret-token"));
+    }
+
     @Test
     void retryOnAReadyProjectIsEmpty(@TempDir Path tmp) throws Exception {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");

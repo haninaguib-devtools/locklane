@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.GhAccountRepository;
 import dev.locklane.engine.persistence.ProjectRecord;
 import dev.locklane.engine.persistence.ProjectRepository;
+import dev.locklane.engine.persistence.ProjectStatus;
 import dev.locklane.engine.security.TokenCipher;
 import dev.locklane.engine.ws.EventBroadcaster;
 import org.slf4j.Logger;
@@ -13,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -66,14 +68,24 @@ public class ProjectGhResources {
         this.clientFactory = clientFactory;
     }
 
-    /** Empty for an unknown project id — never resolves any other project's context. */
+    /**
+     * Empty for an unknown project id — never resolves any other project's context.
+     * A {@link ProjectStatus#FAILED} project (#569) gets a context that answers with
+     * no issues and no PRs, never cached and never refreshed: its clone did not
+     * complete, so its workarea directory does not exist and running {@code gh} there
+     * could only fail with a misleading "is gh installed" warning that hid the real
+     * clone error. Not caching it means a successful retry sees a real context on
+     * the next lookup.
+     */
     public Optional<ProjectGhContext> forProject(long projectId) {
         ProjectGhContext existing = contexts.get(projectId);
         if (existing != null) {
             return Optional.of(existing);
         }
         return projectRepository.findById(projectId)
-                .map(project -> contexts.computeIfAbsent(projectId, id -> build(project)));
+                .map(project -> project.status() == ProjectStatus.FAILED
+                        ? buildWithoutCheckout(project)
+                        : contexts.computeIfAbsent(projectId, id -> build(project)));
     }
 
     /** Forces the next lookup to rebuild the client/cache — e.g. after the stored token changes (#81). */
@@ -93,6 +105,35 @@ public class ProjectGhResources {
                 log.error("Scheduled issue/PR refresh failed for project {}", projectId, e);
             }
         });
+    }
+
+    /** A context for a project with no checkout to run {@code gh} in (#569): empty issues, empty PRs. */
+    private static ProjectGhContext buildWithoutCheckout(ProjectRecord project) {
+        log.debug("Project {} is FAILED and has no checkout; serving an empty issue tree instead of running gh",
+                project.id());
+        GhClient client = new NoCheckoutGhClient();
+        GhIssueCache cache = new GhIssueCache(client);
+        IssueDetailService detailService = new IssueDetailService(cache, client, project.workareaPath().toString());
+        IssueTreeService treeService = new IssueTreeService(cache);
+        return new ProjectGhContext(client, cache, detailService, treeService);
+    }
+
+    /** Stands in for {@link CliGhClient} when there is no directory to run {@code gh} in (#569). */
+    private static final class NoCheckoutGhClient implements GhClient {
+        @Override
+        public List<GhIssue> issues() {
+            return List.of();
+        }
+
+        @Override
+        public List<GhPullRequest> pullRequests() {
+            return List.of();
+        }
+
+        @Override
+        public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
+            return Optional.empty();
+        }
     }
 
     private ProjectGhContext build(ProjectRecord project) {
