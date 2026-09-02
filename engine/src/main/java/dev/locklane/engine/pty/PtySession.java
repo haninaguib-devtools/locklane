@@ -3,6 +3,8 @@ package dev.locklane.engine.pty;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
 import com.pty4j.WinSize;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,6 +33,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * (e.g. WebSocket, #7) streams it to a browser in real time.
  */
 public final class PtySession {
+
+    private static final Logger log = LoggerFactory.getLogger(PtySession.class);
 
     // Fills gaps only (#63) — an explicit TERM/COLORTERM the caller's environment
     // already carries (e.g. the engine itself launched from a real terminal) is left
@@ -119,7 +123,11 @@ public final class PtySession {
                 }
             }
         } catch (IOException ignored) {
-            // The process ended or its pty closed; nothing more to drain.
+            // silent: the process ended or its pty closed; nothing more to drain.
+        } catch (RuntimeException e) {
+            // A listener or scan bug must not silently kill this session's drain
+            // thread — the process would keep running with nobody reading its output.
+            log.error("Session {}'s drain loop failed", sessionId, e);
         }
     }
 

@@ -1,5 +1,8 @@
 package dev.locklane.engine.usage;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
@@ -14,6 +17,8 @@ import java.util.Optional;
  */
 public class MacKeychainReader implements KeychainReader {
 
+    private static final Logger log = LoggerFactory.getLogger(MacKeychainReader.class);
+
     @Override
     public Optional<String> read(String service) {
         if (!System.getProperty("os.name", "").toLowerCase().contains("mac")) {
@@ -27,9 +32,11 @@ public class MacKeychainReader implements KeychainReader {
             int exit = process.waitFor();
             return exit == 0 && !output.isEmpty() ? Optional.of(output) : Optional.empty();
         } catch (IOException e) {
+            log.debug("Could not run `security find-generic-password` for service {}", service, e);
             return Optional.empty();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.debug("Interrupted while running `security find-generic-password` for service {}", service, e);
             return Optional.empty();
         }
     }

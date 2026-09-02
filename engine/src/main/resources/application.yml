@@ -1,3 +1,10 @@
+logging:
+  level:
+    # Overridable from ~/.locklane/application-locklane.properties (the same
+    # profile-specific file install.sh writes) without needing to know this key
+    # exists — see docs/architecture/logging.md.
+    dev.locklane: INFO
+
 spring:
   application:
     name: locklane-engine

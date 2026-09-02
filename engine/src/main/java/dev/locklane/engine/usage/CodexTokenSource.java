@@ -42,6 +42,8 @@ public class CodexTokenSource {
             }
             return Optional.of(new CodexCredentials(accessToken.asText(), accountId.asText()));
         } catch (IOException e) {
+            // silent: malformed/unexpected JSON reads as "no credentials" — see this
+            // class's own doc, same non-goal as ClaudeTokenSource.
             return Optional.empty();
         }
     }

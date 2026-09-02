@@ -2,6 +2,7 @@ package dev.locklane.engine.github;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.process.ProcessOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,22 +79,24 @@ public class GhAccountsService {
         try {
             Process process = new ProcessBuilder("gh", "auth", "status", "--json", "hosts").start();
             String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            process.getErrorStream().readAllBytes();
+            String err = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
             if (!process.waitFor(GH_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 log.warn("`gh auth status` did not finish within {}s", GH_TIMEOUT_SECONDS);
                 return Optional.empty();
             }
-            if (process.exitValue() != 0) {
-                log.warn("`gh auth status --json hosts` exited {}", process.exitValue());
+            ProcessOutcome outcome = new ProcessOutcome(process.exitValue(), out, err);
+            if (outcome.failed()) {
+                log.warn("`gh auth status --json hosts` exited {}: {}", outcome.exitCode(), outcome.describe());
                 return Optional.empty();
             }
             return Optional.of(out);
         } catch (IOException e) {
-            log.info("Could not run gh — is it installed and on PATH? Reporting no GitHub accounts.");
+            log.info("Could not run gh — is it installed and on PATH? Reporting no GitHub accounts.", e);
             return Optional.empty();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.debug("Interrupted while running `gh auth status`", e);
             return Optional.empty();
         }
     }

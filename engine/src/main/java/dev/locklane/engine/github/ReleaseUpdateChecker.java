@@ -1,6 +1,8 @@
 package dev.locklane.engine.github;
 
 import dev.locklane.engine.ws.EventBroadcaster;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -29,6 +31,8 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @Service
 public class ReleaseUpdateChecker {
+
+    private static final Logger log = LoggerFactory.getLogger(ReleaseUpdateChecker.class);
 
     /** A newer release the engine knows about: its version and its GitHub Releases-page URL (#466). */
     public record NewerRelease(String version, String url) {
@@ -62,18 +66,22 @@ public class ReleaseUpdateChecker {
     @Scheduled(fixedDelayString = "${locklane.release-check.interval-ms}",
             initialDelayString = "${locklane.release-check.interval-ms}")
     void check() {
-        Optional<GhRelease> latest = releaseClient.latestRelease();
-        if (latest.isEmpty()) {
-            return;
-        }
-        String latestVersion = latest.get().version();
-        if (!isNewer(latestVersion, runningVersion)) {
-            return;
-        }
-        NewerRelease found = new NewerRelease(latestVersion, latest.get().url());
-        NewerRelease previous = newerRelease.getAndSet(found);
-        if (previous == null || !found.version().equals(previous.version())) {
-            eventBroadcaster.broadcast("releaseAvailable", found.payload());
+        try {
+            Optional<GhRelease> latest = releaseClient.latestRelease();
+            if (latest.isEmpty()) {
+                return;
+            }
+            String latestVersion = latest.get().version();
+            if (!isNewer(latestVersion, runningVersion)) {
+                return;
+            }
+            NewerRelease found = new NewerRelease(latestVersion, latest.get().url());
+            NewerRelease previous = newerRelease.getAndSet(found);
+            if (previous == null || !found.version().equals(previous.version())) {
+                eventBroadcaster.broadcast("releaseAvailable", found.payload());
+            }
+        } catch (RuntimeException e) {
+            log.error("Scheduled release check failed", e);
         }
     }
 
@@ -104,6 +112,9 @@ public class ReleaseUpdateChecker {
             try {
                 parts[i] = Integer.parseInt(pieces[i]);
             } catch (NumberFormatException e) {
+                // silent: a non-numeric version segment (an unexpected build tag) is
+                // treated as 0 rather than failing the whole comparison — this is a
+                // best-effort "newer?" check, not a strict semver parser.
                 parts[i] = 0;
             }
         }

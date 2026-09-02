@@ -189,7 +189,11 @@ public class SessionRegistry {
     /** Re-checks every live session's quiescence fallback (#130). */
     @Scheduled(fixedDelay = QUIESCENCE_POLL_MS)
     void checkQuiescence() {
-        sessions.values().forEach(PtySession::checkQuiescence);
+        try {
+            sessions.values().forEach(PtySession::checkQuiescence);
+        } catch (RuntimeException e) {
+            log.error("Scheduled quiescence check failed", e);
+        }
     }
 
     /** Attaches with the default shell and no recorded owner. */

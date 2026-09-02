@@ -67,6 +67,8 @@ public class ClaudeUsageProvider implements UsageProvider {
             }
             return Optional.of(new ProviderUsage(true, fiveHour, weekly, modelWeeklyLimits(root)));
         } catch (IOException e) {
+            // silent: an undocumented endpoint changing shape degrades to
+            // unavailable, per this class's own doc — never a broken sidebar.
             return Optional.empty();
         }
     }
@@ -81,6 +83,7 @@ public class ClaudeUsageProvider implements UsageProvider {
             double percentLeft = Math.max(0, 100 - utilization.asDouble());
             return new WindowUsage(percentLeft, OffsetDateTime.parse(resetsAt.asText()).toInstant());
         } catch (DateTimeParseException e) {
+            // silent: same "unexpected shape degrades gracefully" reasoning as above.
             return null;
         }
     }

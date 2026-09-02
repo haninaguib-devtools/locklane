@@ -4,6 +4,8 @@ import dev.locklane.engine.persistence.ProjectConsoleService;
 import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
 import dev.locklane.engine.pty.PtySession;
 import dev.locklane.engine.pty.SessionRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -70,6 +72,8 @@ import java.util.regex.Pattern;
  */
 @Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(TerminalWebSocketHandler.class);
 
     private static final char INPUT = '0';
     private static final char RESIZE = '1';
@@ -167,7 +171,11 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      */
     @Scheduled(fixedDelayString = "${locklane.terminal.heartbeat-interval-ms}")
     void sendHeartbeats() {
-        heartbeat.tick();
+        try {
+            heartbeat.tick();
+        } catch (RuntimeException e) {
+            log.error("Scheduled terminal heartbeat failed", e);
+        }
     }
 
     @Override
@@ -201,7 +209,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             int rows = Integer.parseInt(body.substring(separator + 1));
             session.resize(columns, rows);
         } catch (NumberFormatException ignored) {
-            // Not a resize this handler can act on; nothing productive to do with it.
+            // silent: not a resize this handler can act on; nothing productive to do
+            // with it.
         }
     }
 
@@ -223,8 +232,9 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         try {
             wsSession.sendMessage(new TextMessage(new String(chunk, StandardCharsets.UTF_8)));
         } catch (IOException e) {
-            // The connection is going away; afterConnectionClosed will clean up the
-            // subscription shortly. Nothing productive to do with this failure here.
+            // silent: the connection is going away; afterConnectionClosed will clean
+            // up the subscription shortly. Nothing productive to do with this failure
+            // here.
         }
     }
 
@@ -346,6 +356,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         try {
             return Integer.parseInt(raw);
         } catch (NumberFormatException e) {
+            // silent: a malformed query parameter falls back to the default size,
+            // same as an absent one.
             return null;
         }
     }
