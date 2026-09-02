@@ -1,26 +1,25 @@
-import { Injectable, inject, signal } from '@angular/core';
-import { EventsService, isEngineVersionEvent } from './events.service';
+import { Injectable, computed, inject } from '@angular/core';
+import { EventsService } from './events.service';
 
 /**
- * Holds the version the running engine reports about itself (#467) -- the `release`
- * field of the `engineVersion` greeting, i.e. `BuildProperties#getVersion()` on the
- * engine (e.g. `0.1.0-SNAPSHOT` on a dev build) -- for the sidenav footer to display.
+ * The version the running engine reports about itself (#467) -- the `release` field
+ * of the `engineVersion` greeting, i.e. `BuildProperties#getVersion()` on the engine
+ * (e.g. `0.1.0-SNAPSHOT` on a dev build) -- for the About dialog (#575) to display.
  * Mirrors `ReleaseUpdateService` (#287), which tracks the *newer-available* version;
- * this one tracks what is actually running. Kept as its own service so
- * `EventsService` stays plain socket plumbing.
+ * this one tracks what is actually running.
+ *
+ * Derived from `EventsService.engineVersion`, the connection owner's own record of the
+ * latest greeting, rather than subscribed off `events$` (#595): the greeting is sent
+ * once per connection and the stream does not replay, so a subscription made only
+ * when this service is first injected -- lazily, behind the About menu item -- would
+ * miss it and report "unknown" forever. Reading state instead is correct however late
+ * the first reader arrives, and follows every reconnect's greeting, so an engine
+ * upgraded while the app stays open shows its new version, even in a dialog already
+ * open. `null` until the first greeting, and for an engine too old to send `release`.
  */
 @Injectable({ providedIn: 'root' })
 export class RunningVersionService {
   private readonly events = inject(EventsService);
 
-  private readonly versionSignal = signal<string | null>(null);
-  readonly version = this.versionSignal.asReadonly();
-
-  constructor() {
-    this.events.events$.subscribe((event) => {
-      if (isEngineVersionEvent(event) && typeof event.release === 'string') {
-        this.versionSignal.set(event.release);
-      }
-    });
-  }
+  readonly version = computed(() => this.events.engineVersion()?.release ?? null);
 }

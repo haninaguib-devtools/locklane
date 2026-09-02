@@ -37,6 +37,16 @@ describe('AboutDialogComponent (#575)', () => {
     expect(text(fixture, '.version')).toBe('version unknown');
   });
 
+  it('updates in place once the version becomes known while it is open (#595)', () => {
+    const fixture = open();
+    expect(text(fixture, '.version')).toBe('version unknown');
+
+    runningVersion = '0.1.12';
+    fixture.detectChanges();
+
+    expect(text(fixture, '.version')).toBe('version 0.1.12');
+  });
+
   it('closes from the Close button, the backdrop, and Escape', () => {
     const fixture = open();
     const closed = jasmine.createSpy('closed');

@@ -124,6 +124,38 @@ describe('EventsService', () => {
     expect(FakeWebSocket.instances.length).toBe(3);
   });
 
+  it('has no engineVersion before any greeting has arrived (#595)', () => {
+    const service = new EventsService();
+    service.connect();
+
+    expect(service.engineVersion()).toBeNull();
+  });
+
+  it('keeps the first engineVersion greeting as state for a reader that arrives later (#595)', () => {
+    const service = new EventsService();
+    service.connect();
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"a","release":"0.1.11"}');
+
+    // Nothing subscribed to events$ when the greeting went by -- the state is what
+    // a lazily created consumer (the About dialog) reads afterwards.
+    expect(service.engineVersion()).toEqual({ type: 'engineVersion', version: 'a', release: '0.1.11' });
+  });
+
+  it("replaces engineVersion with each reconnect's greeting, release included (#595)", () => {
+    const service = new EventsService();
+    service.connect();
+    latestSocket().triggerOpen();
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"a","release":"0.1.11"}');
+
+    latestSocket().triggerClose();
+    jasmine.clock().tick(1000);
+    latestSocket().triggerOpen();
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"b","release":"0.1.12"}');
+
+    expect(service.engineVersion()?.release).toBe('0.1.12');
+    expect(service.engineVersion()?.version).toBe('b');
+  });
+
   it('records the stamp from the first engineVersion message without firing versionChanged$', () => {
     const service = new EventsService();
     const changes: void[] = [];

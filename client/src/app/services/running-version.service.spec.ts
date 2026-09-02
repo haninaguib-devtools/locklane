@@ -1,45 +1,49 @@
 import { TestBed } from '@angular/core/testing';
-import { Subject } from 'rxjs';
-import { AppEvent, EventsService } from './events.service';
+import { signal } from '@angular/core';
+import { EngineVersionEvent, EventsService } from './events.service';
 import { RunningVersionService } from './running-version.service';
 
 describe('RunningVersionService', () => {
-  let events: Subject<AppEvent>;
+  let engineVersion: ReturnType<typeof signal<EngineVersionEvent | null>>;
 
   beforeEach(() => {
-    events = new Subject<AppEvent>();
+    engineVersion = signal<EngineVersionEvent | null>(null);
 
     TestBed.configureTestingModule({
-      providers: [{ provide: EventsService, useValue: { events$: events.asObservable() } }],
+      providers: [{ provide: EventsService, useValue: { engineVersion: engineVersion.asReadonly() } }],
     });
   });
 
-  it('has no version until an engineVersion event carrying one arrives', () => {
+  it('has no version until an engineVersion greeting carrying one has arrived', () => {
     const service = TestBed.inject(RunningVersionService);
 
     expect(service.version()).toBeNull();
   });
 
-  it('records the release from the engineVersion greeting', () => {
+  it('reports a greeting that arrived before the service was first injected (#595)', () => {
+    // The About dialog is the only consumer and is created lazily, long after the
+    // socket's greeting -- the regression #575 introduced.
+    engineVersion.set({ type: 'engineVersion', version: 'stamp', release: '0.1.11' });
+
     const service = TestBed.inject(RunningVersionService);
 
-    events.next({ type: 'engineVersion', version: 'stamp', release: '0.1.0-SNAPSHOT' });
-
-    expect(service.version()).toBe('0.1.0-SNAPSHOT');
+    expect(service.version()).toBe('0.1.11');
   });
 
-  it('keeps waiting when the greeting carries no release (an older engine)', () => {
+  it("follows a later greeting's release, as after an engine upgrade mid-session (#595)", () => {
     const service = TestBed.inject(RunningVersionService);
+    engineVersion.set({ type: 'engineVersion', version: 'a', release: '0.1.11' });
+    expect(service.version()).toBe('0.1.11');
 
-    events.next({ type: 'engineVersion', version: 'stamp' });
+    engineVersion.set({ type: 'engineVersion', version: 'b', release: '0.1.12' });
 
-    expect(service.version()).toBeNull();
+    expect(service.version()).toBe('0.1.12');
   });
 
-  it('ignores events of other types', () => {
-    const service = TestBed.inject(RunningVersionService);
+  it('stays unknown when the greeting carries no release (an older engine)', () => {
+    engineVersion.set({ type: 'engineVersion', version: 'stamp' });
 
-    events.next({ type: 'releaseAvailable', version: '0.2.0' });
+    const service = TestBed.inject(RunningVersionService);
 
     expect(service.version()).toBeNull();
   });
