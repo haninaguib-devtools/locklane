@@ -67,7 +67,7 @@ export class AppComponent {
   // injecting it here would construct it -- and fire that fetch,
   // unauthenticated -- the moment AppComponent itself does, before the authed
   // shell (and its login check) has rendered at all. `selectedProjectId` and
-  // `headerTitle` below are both `computed()`, so they don't force this
+  // `projectName` below are both `computed()`, so they don't force this
   // getter to run until the template actually reads them, which control flow
   // only does once `isLoggedIn()` is true.
   private get currentProject(): CurrentProjectService {
@@ -108,13 +108,11 @@ export class AppComponent {
   // initialization.
   readonly selectedProjectId = computed(() => this.currentProject.projectId());
 
-  // "LockLane - {project}" once a project is open in this window, so someone
-  // with several project windows open can tell them apart at a glance (#309);
-  // plain "LockLane" otherwise.
-  readonly headerTitle = computed(() => {
-    const project = this.currentProject.current();
-    return project ? `LockLane - ${project.name}` : 'LockLane';
-  });
+  // The selected project's name, shown as its own centered header element
+  // (#586) rather than fused into the "LockLane - {project}" brand link it
+  // used to be -- `null` with no project open in this window (#309), so the
+  // template can omit the element instead of rendering empty text.
+  readonly projectName = computed(() => this.currentProject.current()?.name ?? null);
 
   // The background wash behind the persistent header bar (#555), derived from
   // the selected project's accent color -- `null` for a project with none set

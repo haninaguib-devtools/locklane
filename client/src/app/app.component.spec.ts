@@ -326,7 +326,10 @@ describe('AppComponent', () => {
     flushProjectWorktrees();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.brand')?.textContent?.trim()).toBe('LockLane - proj');
+    // The brand link stays plain "LockLane" now -- the project name is its
+    // own centered element instead of fused into it (#586).
+    expect(compiled.querySelector('.brand')?.textContent?.trim()).toBe('LockLane');
+    expect(compiled.querySelector('.project-name')?.textContent?.trim()).toBe('proj');
   }));
 
   it('picking an accent color from the project summary tints the topbar immediately, the first time in the session (#428, #555)', fakeAsync(() => {
@@ -350,7 +353,7 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     // CurrentProjectService was already constructed by the header's own
-    // `headerTitle` read, well before this click -- this must still be an
+    // `projectName` read, well before this click -- this must still be an
     // explicit re-fetch, not a no-op left over from that earlier construction
     // (the bug this test guards against).
     httpMock.expectOne('/api/projects').flush([{ ...PROJECT, accentColor: '#5c8a4e' }]);

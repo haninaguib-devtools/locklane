@@ -10,8 +10,9 @@
     <div class="topbar" [style.background]="projectBackgroundTint()">
       <div class="brand-group">
         <img class="brand-logo" src="logo.svg" alt="" width="44" height="44" />
-        <a class="brand" routerLink="/">{{ headerTitle() }}</a>
+        <a class="brand" routerLink="/">LockLane</a>
       </div>
+      <div class="project-name" [attr.title]="projectName()">{{ projectName() }}</div>
       <div class="topbar-actions">
         <app-console-indicator />
         @if (!focusMode()) {
