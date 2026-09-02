@@ -27,7 +27,12 @@ class FakeWebSocket {
     FakeWebSocket.opened.push(this);
   }
 
-  send(): void {}
+  /** Every frame sent on this socket, so a test can read what the engine was told (#574). */
+  sent: string[] = [];
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
 
   close(): void {
     this.readyState = FakeWebSocket.CLOSED;
@@ -335,6 +340,52 @@ describe('TerminalComponent', () => {
     } finally {
       (window as unknown as { ResizeObserver: unknown }).ResizeObserver = originalResizeObserver;
     }
+  }));
+
+  // The PTY follows the focused attachment (#574): a selected tab re-asserts focus
+  // and size when its window comes back, a hidden one stays out of it.
+
+  function sentFrames(): string[] {
+    const socket = FakeWebSocket.opened[FakeWebSocket.opened.length - 1];
+    return socket.sent;
+  }
+
+  it('re-asserts focus and size when the window regains the foreground, for the selected tab (#574)', fakeAsync(() => {
+    mountTab(true);
+    tick();
+    tick(150); // the settle-time re-measure, TerminalComponent.FIT_QUIET_MS
+    const fitSpy = spyOn(FitAddon.prototype, 'fit');
+    sentFrames().length = 0;
+
+    window.dispatchEvent(new Event('focus'));
+
+    expect(fitSpy).toHaveBeenCalled();
+    expect(sentFrames()[0]).toBe('2');
+    expect(sentFrames()[1]).toMatch(/^1\d+x\d+$/);
+  }));
+
+  it('stays quiet on foreground for a tab that is not the selected one (#574)', fakeAsync(() => {
+    mountTab(false);
+    tick();
+    tick(150);
+    sentFrames().length = 0;
+
+    window.dispatchEvent(new Event('focus'));
+
+    expect(sentFrames()).toEqual([]);
+  }));
+
+  it('re-measures once after the first layout settles, and tells the engine (#574)', fakeAsync(() => {
+    mountTab(true);
+    tick();
+    sentFrames().length = 0;
+    const fitSpy = spyOn(FitAddon.prototype, 'fit');
+
+    tick(150);
+
+    expect(fitSpy).toHaveBeenCalled();
+    expect(sentFrames()).toContain('2');
+    expect(sentFrames().some((frame) => /^1\d+x\d+$/.test(frame))).toBeTrue();
   }));
 
   // File drag-and-drop and image paste (#436).

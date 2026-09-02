@@ -61,6 +61,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   private pendingFit: ReturnType<typeof setTimeout> | null = null;
   /** The deferred first measure-then-connect, for every tab now (#268, #375). */
   private pendingInit: ReturnType<typeof setTimeout> | null = null;
+  /** The one settle-time re-measure after connect (#574). */
+  private pendingSettle: ReturnType<typeof setTimeout> | null = null;
 
   // The browser tab regaining focus after being backgrounded (#279) -- distinct from
   // the `active`/`ngOnChanges` app-level tab switch above, and the only way a session
@@ -71,8 +73,27 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   private readonly checkConnectionOnForeground = (): void => {
     if (document.visibilityState === 'visible') {
       this.session?.checkConnection();
+      this.reassertFocusAndSize();
     }
   };
+
+  /**
+   * The engine sizes a session's PTY after whichever attached client last reported
+   * focus (#574). This window coming back to the foreground -- or its layout just
+   * having settled -- is that moment for the selected tab: tell the engine this
+   * attachment is the focused one, refit in case the box changed while nothing was
+   * observing, and resend the size even when unchanged, since another window may
+   * have moved the PTY off it meanwhile. A hidden tab stays quiet: it is not the one
+   * the user is looking at, so it must not claim the PTY's size.
+   */
+  private reassertFocusAndSize(): void {
+    if (!this.active || this.session === null) {
+      return;
+    }
+    this.session.focus();
+    this.fitAddon?.fit();
+    this.session.resendSize();
+  }
 
   // A CLI with mouse tracking enabled (claude/codex turn on ?1000h/?1002h/?1003h) owns
   // the selection the user sees, and xterm forwards every button press to it -- so a
@@ -218,6 +239,15 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
         this.term?.focus();
       }
       this.connect();
+      // One more measure once the first layout has settled (#574): the mount fit
+      // above runs a tick after open(), which can still precede the sidebar and
+      // tab strip taking their final size, and the ResizeObserver only reports a
+      // container change after that -- a size that was wrong from the start and
+      // never changed again would otherwise stand.
+      this.pendingSettle = setTimeout(() => {
+        this.pendingSettle = null;
+        this.reassertFocusAndSize();
+      }, TerminalComponent.FIT_QUIET_MS);
     });
     this.term.onData((input) => this.session?.send(input));
     // Fires for every size xterm settles on — the initial fit above and the
@@ -287,6 +317,9 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     // down inside the first tick would otherwise leave a socket nothing owns (#268).
     if (this.pendingInit !== null) {
       clearTimeout(this.pendingInit);
+    }
+    if (this.pendingSettle !== null) {
+      clearTimeout(this.pendingSettle);
     }
     this.resizeObserver?.disconnect();
     this.resizeSub?.dispose();
