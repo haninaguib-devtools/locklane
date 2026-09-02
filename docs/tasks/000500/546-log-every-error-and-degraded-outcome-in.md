@@ -93,3 +93,21 @@ not just be true once.
   `SpaFallbackControllerTest` failing (an unmapped Angular route was turning into a
   500 instead of the SPA shell) and fixed by excluding that one exception type, with
   a test (`GlobalExceptionHandlerTest`) pinning the rethrow.
+- **Fix pass, addressing `/t-review`'s blocker finding**: the initial
+  `@ExceptionHandler(Exception.class)` shape (previous bullet) changed status codes on
+  request shapes that were never "unhandled" before — a malformed JSON body came back
+  500 instead of 400, the wrong HTTP verb 500 instead of 405 — because it intercepted
+  every framework-level exception too, confirmed empirically by the reviewing
+  subagent running both `origin/main` and the PR head as live instances. Fixed by
+  having `GlobalExceptionHandler` extend `ResponseEntityExceptionHandler` (which
+  already maps ~19 well-known Spring MVC exceptions to their correct statuses) and
+  overriding its `handleExceptionInternal` hook to add logging without changing any
+  status; `NoResourceFoundException` gets its own override of
+  `ResponseEntityExceptionHandler#handleNoResourceFoundException` rather than a
+  second `@ExceptionHandler` (that method is `final` and already lists
+  `NoResourceFoundException` itself — a second explicit handler for it is an
+  ambiguous mapping Spring refuses to start with, hit and fixed along the way).
+  Verified through the real dispatch stack, not by calling handler methods directly
+  — a new `GlobalExceptionHandlerIntegrationTest` (`@SpringBootTest(webEnvironment =
+  RANDOM_PORT)` + `TestRestTemplate`, the `SpaFallbackControllerTest` pattern) proves
+  the malformed-body and wrong-verb cases keep their original 400/405.
