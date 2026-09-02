@@ -5,6 +5,7 @@ import dev.locklane.engine.github.GhIssue;
 import dev.locklane.engine.github.GhPullRequest;
 import dev.locklane.engine.github.GhPullRequestDetail;
 import dev.locklane.engine.github.ProjectGhResources;
+import dev.locklane.engine.pty.SessionRegistry;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The worktree-creating path exercises real git commands against a throwaway local
@@ -144,6 +146,107 @@ class WorktreeCreationServiceTest {
         assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/44-only-on-origin");
         assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
                 .contains(worktreePath.toString());
+    }
+
+    @Test
+    void releasesTheTaskBranchFromAnIdleConsoleWorktreeAndChecksItOutInTheIssueWorktree(@TempDir Path tmp)
+            throws Exception {
+        // #592: /t-work ran inside a project console and minted wip/60-* there; the tab
+        // was closed and the worktree kept (its commit is not on trunk yet). Opening the
+        // issue console used to fail on git's one-checkout-per-branch rule.
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        Path holder = tmp.resolve(projectRoot.getFileName() + "-console-7399e19f");
+        GitTestRepos.addWorktreeOnNewBranch(projectRoot, holder, "wip/60-held-branch");
+        GitTestRepos.commitEmpty(holder, "un-landed work on the task branch");
+        String branchTip = GitTestRepos.headCommit(holder);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(60, "Held branch", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        Optional<WorktreeCreationService.StartedSession> result = service.startSession(projectId, 60);
+
+        Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-60");
+        assertThat(result).map(WorktreeCreationService.StartedSession::workingDirectory)
+                .contains(worktreePath.toString());
+        assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/60-held-branch");
+        assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(branchTip);
+        // The holder is detached -- at trunk, the idle state a fresh project console
+        // starts in, so the cleanup sweep can remove it -- and still on disk.
+        assertThat(GitTestRepos.currentBranch(holder)).isEmpty();
+        assertThat(GitTestRepos.headCommit(holder)).isEqualTo(GitTestRepos.commitOf(projectRoot, "origin/main"));
+        assertThat(holder).isDirectory();
+    }
+
+    @Test
+    void refusesToReleaseAConsoleWorktreeWithUncommittedChangesNamingItsPath(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        Path holder = tmp.resolve(projectRoot.getFileName() + "-console-0dd1e5");
+        GitTestRepos.addWorktreeOnNewBranch(projectRoot, holder, "wip/61-dirty-holder");
+        GitTestRepos.makeDirty(holder);
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(61, "Dirty holder", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        assertThatThrownBy(() -> service.startSession(projectId, 61))
+                .isInstanceOf(WorktreeCreationService.WorktreeCreationException.class)
+                .hasMessageContaining(holder.toString())
+                .hasMessageContaining("uncommitted changes");
+        // Nothing was touched: the holder still has the branch, the issue worktree was not created.
+        assertThat(GitTestRepos.currentBranch(holder)).isEqualTo("wip/61-dirty-holder");
+        assertThat(holder.resolve("untracked.txt")).exists();
+        assertThat(tmp.resolve(projectRoot.getFileName() + "-61")).doesNotExist();
+    }
+
+    @Test
+    void refusesToReleaseAConsoleWorktreeWithALiveSessionNamingItsPath(@TempDir Path tmp) throws Exception {
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        Path holder = tmp.resolve(projectRoot.getFileName() + "-console-11ee5e55");
+        GitTestRepos.addWorktreeOnNewBranch(projectRoot, holder, "wip/62-live-holder");
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(62, "Live holder", "OPEN", List.of(), "", "", "");
+        // The same registry the service consults has a live console in the holder --
+        // the exact check the cleanup sweep uses (SessionRegistry#hasLiveSessionIn).
+        SessionRegistry sessionRegistry = new SessionRegistry(repository);
+        String consoleId = projectId + "-console-11ee5e55";
+        sessionRegistry.attach(consoleId, holder);
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue), sessionRegistry);
+
+        try {
+            assertThatThrownBy(() -> service.startSession(projectId, 62))
+                    .isInstanceOf(WorktreeCreationService.WorktreeCreationException.class)
+                    .hasMessageContaining(holder.toString())
+                    .hasMessageContaining("session is still attached");
+            assertThat(GitTestRepos.currentBranch(holder)).isEqualTo("wip/62-live-holder");
+            assertThat(tmp.resolve(projectRoot.getFileName() + "-62")).doesNotExist();
+        } finally {
+            sessionRegistry.close(consoleId);
+        }
+    }
+
+    @Test
+    void neverDetachesAWorktreeThatIsNotAnEngineConsoleToFreeTheBranch(@TempDir Path tmp) throws Exception {
+        // A human's own hand-made worktree holds the branch: not the engine's to detach,
+        // even when clean and session-less -- refused, naming the path.
+        Path projectRoot = GitTestRepos.initTestRepo(tmp);
+        Path holder = tmp.resolve("my-own-checkout");
+        GitTestRepos.addWorktreeOnNewBranch(projectRoot, holder, "wip/63-hand-made-holder");
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = readyProject(projectRepository, projectRoot).id();
+        GhIssue issue = new GhIssue(63, "Hand-made holder", "OPEN", List.of(), "", "", "");
+        WorktreeCreationService service = service(repository, projectRepository, List.of(issue));
+
+        assertThatThrownBy(() -> service.startSession(projectId, 63))
+                .isInstanceOf(WorktreeCreationService.WorktreeCreationException.class)
+                .hasMessageContaining(holder.toString())
+                .hasMessageContaining("not a project-console worktree");
+        assertThat(GitTestRepos.currentBranch(holder)).isEqualTo("wip/63-hand-made-holder");
     }
 
     @Test
@@ -546,13 +649,19 @@ class WorktreeCreationServiceTest {
 
     private static WorktreeCreationService service(WorktreeSessionRepository repository,
             ProjectRepository projectRepository, List<GhIssue> issues) {
+        return service(repository, projectRepository, issues, new SessionRegistry(repository));
+    }
+
+    /** Same, consulting {@code sessionRegistry} for live sessions in a branch-holding worktree (#592). */
+    private static WorktreeCreationService service(WorktreeSessionRepository repository,
+            ProjectRepository projectRepository, List<GhIssue> issues, SessionRegistry sessionRegistry) {
         IssueWorktreeService worktreeService =
                 new IssueWorktreeService(repository, TestSqliteDatabases.newNoopAuthorization());
         ProjectGhResources ghResources =
                 new ProjectGhResources(projectRepository, ghAccountRepository(), tokenCipher(),
                         (path, token) -> new FixedGhClient(issues));
         return new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository,
-                ghAccountRepository(), tokenCipher());
+                ghAccountRepository(), tokenCipher(), sessionRegistry);
     }
 
     private static TokenCipher tokenCipher() {

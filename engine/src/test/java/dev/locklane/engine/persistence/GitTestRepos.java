@@ -123,6 +123,19 @@ final class GitTestRepos {
         run(worktree, "git", "commit", "--allow-empty", "-m", message);
     }
 
+    /**
+     * Registers a new linked worktree of {@code repo} at {@code worktreePath} with a
+     * brand-new {@code branch} checked out in it, created at the repo's current HEAD —
+     * what a project console's worktree looks like after {@code /t-work} ran inside it
+     * and minted the task branch there (#592). Named like a project-console worktree
+     * ({@code <repoName>-console-<suffix>}) by the caller when that is what it should
+     * stand in for.
+     */
+    static void addWorktreeOnNewBranch(Path repo, Path worktreePath, String branch)
+            throws IOException, InterruptedException {
+        run(repo, "git", "worktree", "add", "-b", branch, worktreePath.toString());
+    }
+
     /** Writes an untracked file into {@code worktree} — the simplest way to make its git status dirty. */
     static void makeDirty(Path worktree) throws IOException {
         Files.writeString(worktree.resolve("untracked.txt"), "dirty");

@@ -3,15 +3,18 @@ package dev.locklane.engine.persistence;
 import dev.locklane.engine.github.GhIssue;
 import dev.locklane.engine.github.ProjectGhResources;
 import dev.locklane.engine.process.ProcessOutcome;
+import dev.locklane.engine.pty.SessionRegistry;
 import dev.locklane.engine.security.TokenCipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,6 +44,16 @@ import java.util.regex.Pattern;
  * {@code fatal: invalid reference: origin/main}, on any project whose trunk is called
  * something else.
  *
+ * <p>Since #592, opening an issue console whose {@code wip/<id>-<slug>} branch is
+ * still checked out in one of this engine's own closed project-console worktrees —
+ * the ordinary outcome of running {@code /t-work} inside a project console and then
+ * closing its tab while the work is un-landed — releases that branch itself instead
+ * of failing on git's one-checkout-per-branch rule: a holder with no live session and
+ * no uncommitted changes is detached at the project's trunk (the idle state a fresh
+ * project console starts in, so the cleanup sweep removes it normally), and anything
+ * else is refused with the holder's path and the reason in the message — see
+ * {@link #releaseBranchHeldByConsoleWorktree}.
+ *
  * <p>Since #43, the checkout a session is created against is resolved per project
  * (each project's own workarea, from {@link ProjectRepository}) rather than a
  * single fixed root — issue data itself stays global (a separate, deferred
@@ -69,16 +82,33 @@ public class WorktreeCreationService {
     private final WorktreeSessionRepository sessionRepository;
     private final GhAccountRepository ghAccountRepository;
     private final TokenCipher tokenCipher;
+    private final SessionRegistry sessionRegistry;
 
+    @Autowired
     public WorktreeCreationService(ProjectGhResources ghResources, IssueWorktreeService issueWorktreeService,
             ProjectRepository projectRepository, WorktreeSessionRepository sessionRepository,
-            GhAccountRepository ghAccountRepository, TokenCipher tokenCipher) {
+            GhAccountRepository ghAccountRepository, TokenCipher tokenCipher, SessionRegistry sessionRegistry) {
         this.ghResources = ghResources;
         this.issueWorktreeService = issueWorktreeService;
         this.projectRepository = projectRepository;
         this.sessionRepository = sessionRepository;
         this.ghAccountRepository = ghAccountRepository;
         this.tokenCipher = tokenCipher;
+        this.sessionRegistry = sessionRegistry;
+    }
+
+    /**
+     * For a caller with no {@link SessionRegistry} in hand — test fixtures that
+     * construct this service directly as a dependency of something else: a fresh
+     * registry, which reports no live session anywhere, so the branch-release check
+     * (#592) treats every holding worktree as session-less. Production wiring uses
+     * the {@link Autowired} constructor above and the one real registry.
+     */
+    public WorktreeCreationService(ProjectGhResources ghResources, IssueWorktreeService issueWorktreeService,
+            ProjectRepository projectRepository, WorktreeSessionRepository sessionRepository,
+            GhAccountRepository ghAccountRepository, TokenCipher tokenCipher) {
+        this(ghResources, issueWorktreeService, projectRepository, sessionRepository, ghAccountRepository,
+                tokenCipher, new SessionRegistry(sessionRepository));
     }
 
     /**
@@ -296,8 +326,14 @@ public class WorktreeCreationService {
      * of its own), it is refreshed to the current {@code trunkRef} rather than handed
      * back as stale as the day it was created; a worktree carrying a branch, dirty
      * state, or its own commits is left untouched.
+     *
+     * <p>A branch that already exists may be checked out in another worktree — since
+     * #592 one of this engine's own project-console worktrees holding it is released
+     * first, or the open fails naming it ({@link #releaseBranchHeldByConsoleWorktree}),
+     * rather than tripping over git's {@code already used by worktree} refusal with
+     * nothing a user can act on.
      */
-    static void openIssueWorktree(int issueNumber, Path worktreePath, Path projectRoot, String trunkRef,
+    void openIssueWorktree(int issueNumber, Path worktreePath, Path projectRoot, String trunkRef,
             GitCredential credential) {
         fetch(projectRoot, credential);
 
@@ -307,6 +343,9 @@ public class WorktreeCreationService {
         }
 
         Optional<String> branch = existingBranch(issueNumber, projectRoot);
+        if (branch.isPresent()) {
+            releaseBranchHeldByConsoleWorktree(branch.get(), projectRoot, trunkRef);
+        }
         ProcessOutcome result = branch.isPresent()
                 ? run("git", "-C", projectRoot.toString(), "worktree", "add", worktreePath.toString(), branch.get())
                 : run("git", "-C", projectRoot.toString(), "worktree", "add", "--detach", worktreePath.toString(),
@@ -318,6 +357,113 @@ public class WorktreeCreationService {
             throw new WorktreeCreationException(
                     "git worktree add failed for issue #" + issueNumber + ": " + result.describe());
         }
+    }
+
+    /**
+     * Frees {@code branch} for the {@code git worktree add} that follows when another
+     * worktree of the repository at {@code projectRoot} has it checked out (#592) — git
+     * allows a branch in one worktree at a time. Nothing to do when no worktree holds
+     * it. Only a holder this engine created as a project console
+     * ({@code <repoName>-console-<suffix>}, {@code ProjectConsoleService}) is ever
+     * released, and only when nothing would be lost: no live session in it
+     * ({@link SessionRegistry#hasLiveSessionIn}, the same check the cleanup sweep
+     * uses) and a clean {@code git status}. It is then detached at {@code trunkRef} —
+     * the branch and every commit on it live on in the issue worktree about to be
+     * created, and the holder returns to the idle scratch state a fresh project
+     * console starts in, which the cleanup sweep removes normally (a holder left
+     * detached at an un-landed commit instead would never satisfy that sweep's
+     * "ancestor of trunk" rule, since a squash-merge never lands that exact commit).
+     * A console holder whose directory is already gone is a stale registration and is
+     * released with {@code git worktree prune}, what git itself suggests there.
+     *
+     * <p>Every other case refuses with a {@link WorktreeCreationException} whose
+     * message names the holding worktree's path and why it was not released — a live
+     * session, uncommitted changes, or a checkout that is not the engine's to detach
+     * (the project's main checkout, or a worktree a human made by hand).
+     */
+    private void releaseBranchHeldByConsoleWorktree(String branch, Path projectRoot, String trunkRef) {
+        Optional<Path> holder = worktreeHolding(branch, projectRoot);
+        if (holder.isEmpty()) {
+            return;
+        }
+        Path holderPath = holder.get();
+        String held = "branch '" + branch + "' is checked out in another worktree at " + holderPath + ", ";
+        Path holderName = holderPath.getFileName();
+        boolean consoleWorktree = holderName != null
+                && holderName.toString().startsWith(repoName(projectRoot) + "-console-");
+        if (!consoleWorktree) {
+            throw new WorktreeCreationException(held + "which is not a project-console worktree this engine "
+                    + "manages, so it was not released — detach or remove that checkout by hand first");
+        }
+        if (!Files.isDirectory(holderPath)) {
+            // A registration whose directory is gone holds nothing anyone could lose.
+            ProcessOutcome prune = run("git", "-C", projectRoot.toString(), "worktree", "prune");
+            if (prune.failed()) {
+                throw new WorktreeCreationException(held + "whose directory no longer exists, and pruning that "
+                        + "stale registration failed: " + prune.describe());
+            }
+            log.info("Pruned stale worktree registration {} that held branch '{}'", holderPath, branch);
+            return;
+        }
+        if (sessionRegistry.hasLiveSessionIn(holderPath)) {
+            throw new WorktreeCreationException(held + "and a console session is still attached to it, so it "
+                    + "was not released — close that console first");
+        }
+        ProcessOutcome status = run("git", "-C", holderPath.toString(), "status", "--porcelain");
+        if (status.failed()) {
+            // "clean" would be a lie: there is no git status to have checked at all.
+            throw new WorktreeCreationException(held + "and its git status could not be read, so it was not "
+                    + "released: " + status.describe());
+        }
+        if (!status.stdout().isBlank()) {
+            throw new WorktreeCreationException(held + "and it has uncommitted changes, so it was not released — "
+                    + "commit or discard them there first");
+        }
+        ProcessOutcome detach = run("git", "-C", holderPath.toString(), "checkout", "--detach", trunkRef);
+        if (detach.failed()) {
+            log.warn("Detaching {} at {} failed, detaching in place instead: {}", holderPath, trunkRef,
+                    detach.describe());
+            detach = run("git", "-C", holderPath.toString(), "checkout", "--detach");
+        }
+        if (detach.failed()) {
+            throw new WorktreeCreationException(held + "and detaching it failed: " + detach.describe());
+        }
+        log.info("Released branch '{}' from idle console worktree {} (detached at {})", branch, holderPath,
+                trunkRef);
+    }
+
+    /**
+     * The path of the worktree that has {@code branch} checked out, per
+     * {@code git worktree list --porcelain} in {@code projectRoot} (one blank-line
+     * separated block per worktree: a {@code worktree <path>} line, then
+     * {@code branch refs/heads/<name>} for a checkout on a branch), or empty when no
+     * worktree holds it — or the command itself fails, in which case the
+     * {@code git worktree add} that follows reports its own error as before.
+     */
+    private static Optional<Path> worktreeHolding(String branch, Path projectRoot) {
+        ProcessOutcome result = run("git", "-C", projectRoot.toString(), "worktree", "list", "--porcelain");
+        if (result.failed()) {
+            log.warn("git worktree list --porcelain failed in {}: {}", projectRoot, result.describe());
+            return Optional.empty();
+        }
+        String wanted = "branch refs/heads/" + branch;
+        List<String> block = new ArrayList<>();
+        // The limit keeps the trailing empty strings split() would otherwise drop: the
+        // last block is only ever closed by the blank line appended here.
+        for (String line : (result.stdout() + "\n\n").split("\n", -1)) {
+            if (!line.isBlank()) {
+                block.add(line.strip());
+                continue;
+            }
+            if (block.stream().anyMatch(wanted::equals)) {
+                return block.stream()
+                        .filter(entry -> entry.startsWith("worktree "))
+                        .map(entry -> Path.of(entry.substring("worktree ".length()).strip()))
+                        .findFirst();
+            }
+            block.clear();
+        }
+        return Optional.empty();
     }
 
     /**
