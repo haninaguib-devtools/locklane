@@ -8,6 +8,21 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.1.12 — 2026-09-02
+
+### Features
+- Ship the Locklane OAuth App client id as the engine's default so GitHub sign-in works on every install (#590, #591)
+- Center and enlarge the selected project name in the header (#586, #588)
+
+### Fixes
+- Release a task branch held by a closed console worktree when opening its issue console (#592, #593)
+- Discover per-issue console worktrees git-natively in the cleanup sweep, not from the session record tab-close deletes (#585, #589)
+- Judge console worktree cleanup against the project's default branch, not a hardcoded origin/main (#583, #587)
+- Create console and issue worktrees from the project's recorded default branch instead of a hardcoded origin/main (#582, #584)
+
+### Other
+- Bump revision to 0.1.12-SNAPSHOT for next development cycle (#580, #581)
+
 ## v0.1.11 — 2026-09-02
 
 ### Features
