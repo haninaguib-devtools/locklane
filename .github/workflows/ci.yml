@@ -226,14 +226,43 @@ jobs:
         if: "!cancelled()"
         run: ./.t-workflow/scripts/check-manifest.sh
 
-      # AGENTS.md §Checks item 1 is the single place that names this command.
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+      # AGENTS.md §Checks item 1 is the single place that names the build command, and
+      # scripts/build-inputs.sh is the single place that names what Maven builds (#602,
+      # ADR-109 D3): on a pull request the two steps below run only when the diff
+      # touches a build input, and are skipped — leaving this job, and so the required
+      # `checks` context, green — when it does not. A push to main always builds: it
+      # has no PR base to diff against, and every merge gets the full run its PR may
+      # have skipped. The script's exit 2 ("nothing was decided") builds too — the
+      # skip is only ever taken on a positive answer.
+      - name: Decide whether the diff touches a build input
+        id: build-inputs
         if: "!cancelled()"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "$EVENT_NAME event: always build."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          rc=0
+          ./scripts/build-inputs.sh "origin/$BASE_REF" || rc=$?
+          case "$rc" in
+            0) echo "Build inputs changed (listed above): building."
+               echo "run=true" >> "$GITHUB_OUTPUT" ;;
+            1) echo "No build input in this diff: skipping setup-java and the Maven build."
+               echo "run=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "build-inputs.sh could not decide (exit $rc): building."
+               echo "run=true" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        if: "!cancelled() && steps.build-inputs.outputs.run == 'true'"
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
       - name: Build and test every module
-        if: "!cancelled()"
+        if: "!cancelled() && steps.build-inputs.outputs.run == 'true'"
         run: ./mvnw -B test
       # <!-- /local -->
