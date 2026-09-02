@@ -222,7 +222,8 @@ class WorktreeControllerTest {
                 TestSqliteDatabases.newGhAccountRepository(dbDir), tokenCipher(dbDir),
                 (path, token) -> new FixedGhClient(issues));
         WorktreeCreationService creationService =
-                new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository);
+                new WorktreeCreationService(ghResources, worktreeService, projectRepository, repository,
+                        TestSqliteDatabases.newGhAccountRepository(dbDir), tokenCipher(dbDir));
         // No CLI title storage in these temp homes and no opencode process: every
         // lookup resolves to "no title", the fallback #373 defines as ordinary.
         ConsoleSessionTitles titles = new ConsoleSessionTitles(dbDir.resolve("claude"), dbDir.resolve("codex"),

@@ -368,7 +368,7 @@ class WorktreeCleanupSweeperTest {
         String suffix = "abcd1234";
         Path worktreePath =
                 fx.projectRoot().resolveSibling(WorktreeCreationService.repoName(fx.projectRoot()) + "-console-" + suffix);
-        WorktreeCreationService.createDetachedWorktree(worktreePath, fx.projectRoot());
+        WorktreeCreationService.createDetachedWorktree(worktreePath, fx.projectRoot(), GitCredential.NONE);
         return new ProjectConsoleWorktreeAndId(fx.projectId + "-console-" + suffix, worktreePath);
     }
 
@@ -406,7 +406,8 @@ class WorktreeCleanupSweeperTest {
         ProjectGhResources creationGhResources = new ProjectGhResources(fx.projectRepository, ghAccountRepository(), tokenCipher(),
                 (path, token) -> new FixedGhClient(List.of(issue)));
         WorktreeCreationService creationService =
-                new WorktreeCreationService(creationGhResources, worktreeService, fx.projectRepository, fx.repository);
+                new WorktreeCreationService(creationGhResources, worktreeService, fx.projectRepository, fx.repository,
+                        ghAccountRepository(), tokenCipher());
 
         WorktreeCreationService.StartedSession started = creationService.startSession(fx.projectId, issueNumber).orElseThrow();
         Path worktreePath = Path.of(started.workingDirectory());

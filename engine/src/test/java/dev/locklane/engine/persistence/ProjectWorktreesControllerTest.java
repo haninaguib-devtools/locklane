@@ -118,7 +118,8 @@ class ProjectWorktreesControllerTest {
         ProjectGhResources creationGhResources = new ProjectGhResources(fx.projectRepository, ghAccountRepository(), tokenCipher(),
                 (path, token) -> new FixedGhClient(List.of(issue)));
         WorktreeCreationService creationService =
-                new WorktreeCreationService(creationGhResources, worktreeService, fx.projectRepository, fx.repository);
+                new WorktreeCreationService(creationGhResources, worktreeService, fx.projectRepository, fx.repository,
+                        ghAccountRepository(), tokenCipher());
 
         WorktreeCreationService.StartedSession started = creationService.startSession(fx.projectId, issueNumber).orElseThrow();
         return new WorktreeAndId(started.worktreeId(), Path.of(started.workingDirectory()));

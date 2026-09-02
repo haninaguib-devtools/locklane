@@ -338,14 +338,16 @@ public class WorktreeCleanupSweeper {
      * {@code origin/main} never says yes to a commit that has since been judged not
      * reachable; any failure along the way (no HEAD, fetch or merge-base failing) is
      * treated as "not an ancestor" — the safe direction, since it only ever keeps a
-     * worktree around longer, never removes one it shouldn't. The fetch carries
-     * {@code projectId}'s chosen account's token as {@code GH_TOKEN} (#551), so it
-     * authenticates the same way every other git operation on this project's
-     * checkout does — empty (no account chosen) leaves it to whatever ambient
+     * worktree around longer, never removes one it shouldn't. The fetch runs through
+     * {@link GitCredential} (#551, #569): over an HTTPS remote it carries the project's
+     * chosen account's token as {@code GH_TOKEN} with the inline credential helper, so
+     * it authenticates the same way every other engine git operation on this project
+     * does — no account chosen (or an SSH remote) leaves it to whatever ambient
      * credentials the host has, exactly as before #551.
      */
     private boolean isAncestorOfOriginMain(long projectId, Path workingDirectory) {
-        run(workingDirectory, tokenEnvironment(projectId), "git", "fetch", "--prune", "origin");
+        GitCredential credential = GitCredential.forProject(projectId, projectRepository, ghAccountRepository, tokenCipher);
+        run(workingDirectory, credential.environment(), credential.command("fetch", "--prune", "origin"));
         Optional<String> head = run(workingDirectory, Map.of(), "git", "rev-parse", "HEAD").map(String::strip);
         if (head.isEmpty()) {
             return false;
@@ -369,7 +371,8 @@ public class WorktreeCleanupSweeper {
      * shouldn't.
      */
     private boolean isBranchLanded(long projectId, Path workingDirectory) {
-        run(workingDirectory, tokenEnvironment(projectId), "git", "fetch", "--prune", "origin");
+        GitCredential credential = GitCredential.forProject(projectId, projectRepository, ghAccountRepository, tokenCipher);
+        run(workingDirectory, credential.environment(), credential.command("fetch", "--prune", "origin"));
         Optional<String> head = run(workingDirectory, Map.of(), "git", "rev-parse", "HEAD").map(String::strip);
         if (head.isEmpty()) {
             return false;
@@ -461,15 +464,6 @@ public class WorktreeCleanupSweeper {
                     workingDirectory, e);
             return Optional.empty();
         }
-    }
-
-    /** {@code GH_TOKEN} for {@code projectId}'s chosen account, or empty when none is chosen (#551). */
-    private Map<String, String> tokenEnvironment(long projectId) {
-        return projectRepository.findGithubAccountId(projectId)
-                .flatMap(ghAccountRepository::findEncryptedToken)
-                .map(tokenCipher::decrypt)
-                .map(token -> Map.of("GH_TOKEN", token))
-                .orElse(Map.of());
     }
 
     /** One project-console worktree (#339) — no issue of its own, unlike {@link IssueWorktreeService.ConsoleWorktree}. */

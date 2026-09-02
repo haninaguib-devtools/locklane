@@ -78,6 +78,44 @@ class ProjectGhResourcesTest {
         assertThat(factory.lastToken).isEqualTo("ghp_secret");
     }
 
+    // #569: a FAILED project has no checkout to run gh in -- its tree is empty, no
+    // client is ever built, and a later successful retry gets a real context.
+
+    @Test
+    void aFailedProjectGetsAnEmptyTreeWithoutBuildingAClient(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = repository.create("broken", "https://github.com/org/broken.git",
+                dataDir.resolve("broken"), 1L, Instant.now());
+        repository.markFailed(project.id());
+        RecordingFactory factory = new RecordingFactory();
+        ProjectGhResources resources = resources(dataDir, repository, factory);
+
+        ProjectGhContext context = resources.forProject(project.id()).orElseThrow();
+
+        assertThat(context.treeService().tree()).isEmpty();
+        assertThat(context.cache().issues()).isEmpty();
+        assertThat(context.cache().pullRequests()).isEmpty();
+        assertThat(factory.callCount).isZero();
+    }
+
+    @Test
+    void aFailedProjectsEmptyContextIsNotCachedSoARetriedProjectGetsARealOne(@TempDir Path dataDir)
+            throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = repository.create("broken", "https://github.com/org/broken.git",
+                dataDir.resolve("broken"), 1L, Instant.now());
+        repository.markFailed(project.id());
+        RecordingFactory factory = new RecordingFactory();
+        ProjectGhResources resources = resources(dataDir, repository, factory);
+        resources.forProject(project.id());
+
+        repository.markReady(project.id(), "main");
+        resources.forProject(project.id());
+
+        assertThat(factory.callCount).isEqualTo(1);
+        assertThat(factory.lastPath).isEqualTo(project.workareaPath());
+    }
+
     @Test
     void forProjectReturnsTheSameContextOnRepeatedCalls(@TempDir Path dataDir) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);

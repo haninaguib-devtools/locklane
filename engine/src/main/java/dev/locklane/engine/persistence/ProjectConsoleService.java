@@ -119,7 +119,7 @@ public class ProjectConsoleService {
         String suffix = shortId();
         String sessionId = projectId + "-console-" + suffix;
         Path worktreePath = projectRoot.resolveSibling(WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix);
-        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot);
+        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot, gitCredential(projectId));
         return new ConsoleSession(sessionId, worktreePath.toString());
     }
 
@@ -227,7 +227,7 @@ public class ProjectConsoleService {
         Path projectRoot = project.get().workareaPath();
         Path directory = resolved.get();
         if (!Files.exists(directory)) {
-            WorktreeCreationService.createDetachedWorktree(directory, projectRoot);
+            WorktreeCreationService.createDetachedWorktree(directory, projectRoot, gitCredential(projectId));
         }
         return Optional.of(new ConsoleSession(
                 projectId + "-console-" + originalConsoleSuffix(originalSessionId) + "-resume-" + shortId(),
@@ -441,6 +441,11 @@ public class ProjectConsoleService {
                 .map(tokenCipher::decrypt)
                 .map(token -> Map.of("GH_TOKEN", token))
                 .orElse(Map.of());
+    }
+
+    /** The project's token for the {@code git fetch} a console worktree's creation starts with (#569). */
+    private GitCredential gitCredential(long projectId) {
+        return GitCredential.forProject(projectId, projectRepository, ghAccountRepository, tokenCipher);
     }
 
     /** The project id a session id's own shape carries, or {@code null} for a shape that carries none. */
