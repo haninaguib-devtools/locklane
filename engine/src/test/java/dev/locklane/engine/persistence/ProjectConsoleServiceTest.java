@@ -146,7 +146,11 @@ class ProjectConsoleServiceTest {
         ProjectConsoleService service = service(tmp, projectRepository, sessionRepository);
         ProjectConsoleService.ConsoleSession session = service.start(projectId).get();
         sessionRepository.recordAttach(session.sessionId(), Path.of(session.workingDirectory()), EARLIER, "alice");
-        GitTestRepos.run(Path.of(session.workingDirectory()), "git", "checkout", "-b", "wip/1-do-the-thing");
+        // #554/ADR-107: a bare checkout with no commits at all is trivially identical
+        // to origin/main and would count as landed -- an actual commit not reachable
+        // from origin/main is what keeps this branch genuinely un-landed.
+        GitTestRepos.checkoutNewBranch(Path.of(session.workingDirectory()), "wip/1-do-the-thing");
+        GitTestRepos.commitEmpty(Path.of(session.workingDirectory()), "unshipped work");
 
         assertThat(service.close(projectId, "alice")).isTrue();
 

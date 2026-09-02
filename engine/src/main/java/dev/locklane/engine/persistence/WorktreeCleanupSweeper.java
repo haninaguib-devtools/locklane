@@ -56,10 +56,14 @@ import java.util.Optional;
  * project console (no issue of its own, {@link ProjectConsoleService}). {@link
  * #allProjectConsoleWorktrees()}/{@link #removalRefusalReasonForProjectConsole}/
  * {@link #removeProjectConsoleWorktree} are that second guard's whole shape — session
- * ended, HEAD detached, clean, and HEAD an ancestor of {@code origin/main} (a
- * detached worktree has no branch to preserve a commit once its reflog is deleted
- * with it, unlike the per-issue case above) — checked and removed the same
- * all-or-nothing way, by {@link #sweep()} as the periodic backstop and by {@link
+ * ended, clean, and either HEAD is detached and an ancestor of {@code origin/main}
+ * (a detached worktree has no branch to preserve a commit once its reflog is deleted
+ * with it, unlike the per-issue case above), or a branch is checked out whose work
+ * has already landed on {@code origin/main} — even under a rewritten SHA, e.g. via
+ * squash-merge (#554/ADR-107, see {@link #isBranchLanded}) — while a checked-out
+ * branch that still carries real, un-landed work refuses removal unconditionally,
+ * unchanged from before ADR-107. Checked and removed the same all-or-nothing way, by
+ * {@link #sweep()} as the periodic backstop and by {@link
  * ProjectConsoleService#close(long, String, String)} synchronously on tab close.
  * Discovery ({@link #allProjectConsoleWorktrees()}) is deliberately git-native
  * ({@code git worktree list --porcelain}, cross-referenced against the
@@ -272,24 +276,26 @@ public class WorktreeCleanupSweeper {
     }
 
     /**
-     * Empty when {@code worktree} clears every one of this second guard's four
-     * conditions (#339/ADR-104), checked fresh, in the order stated there; otherwise
-     * the reason the first failing one refuses, worded for a human reading it on the
-     * project page rather than a log line — the same {@link #removalRefusalReason}
-     * pattern the per-issue guard already established, applied to a worktree-creation
-     * path that guard was never written for.
+     * Empty when {@code worktree} clears every one of this second guard's conditions
+     * (#339/ADR-104, narrowed by #554/ADR-107), checked fresh, in the order stated
+     * there; otherwise the reason the first failing one refuses, worded for a human
+     * reading it on the project page rather than a log line — the same {@link
+     * #removalRefusalReason} pattern the per-issue guard already established, applied
+     * to a worktree-creation path that guard was never written for.
      */
     public Optional<String> removalRefusalReasonForProjectConsole(ProjectConsoleWorktree worktree) {
         if (sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())) {
             return Optional.of("a console session is still attached to this worktree — close it before removing the worktree");
         }
-        if (currentBranch(worktree.workingDirectory()).isPresent()) {
-            return Optional.of("a branch is checked out in this worktree — it has outgrown scratch use, so it is left alone");
+        Optional<String> branch = currentBranch(worktree.workingDirectory());
+        if (branch.isPresent() && !isBranchLanded(worktree.projectId(), worktree.workingDirectory())) {
+            return Optional.of(
+                    "a branch is checked out in this worktree, and its work has not landed on origin/main yet — it has outgrown scratch use, so it is left alone");
         }
         if (!isClean(worktree.workingDirectory())) {
             return Optional.of("the worktree has uncommitted changes — commit or discard them before removing it");
         }
-        if (!isAncestorOfOriginMain(worktree.projectId(), worktree.workingDirectory())) {
+        if (branch.isEmpty() && !isAncestorOfOriginMain(worktree.projectId(), worktree.workingDirectory())) {
             return Optional.of("this worktree has commits not yet reachable from origin/main — removing it would lose them");
         }
         return Optional.empty();
@@ -302,10 +308,12 @@ public class WorktreeCleanupSweeper {
      * having deleted it as part of ending the session; {@link SessionRegistry#close}
      * is a documented no-op for an id with nothing live or recorded, so calling it
      * unconditionally here is safe. No branch-delete step (contrast {@link
-     * #removeWorktree}): this guard already refuses any worktree with a branch
-     * checked out, so there is never one left to delete. Callers must have already
-     * confirmed {@link #removalRefusalReasonForProjectConsole} is empty; this method
-     * performs no guard check of its own.
+     * #removeWorktree}): unlike the per-issue path, a project console's checked-out
+     * branch is never this guard's own {@code wip/<id>-<slug>} branch to manage —
+     * ADR-107 deliberately leaves a landed-but-still-checked-out branch to survive
+     * ungoverned, the same as any other branch under ADR-005's default. Callers must
+     * have already confirmed {@link #removalRefusalReasonForProjectConsole} is empty;
+     * this method performs no guard check of its own.
      */
     public boolean removeProjectConsoleWorktree(ProjectConsoleWorktree worktree) {
         Optional<ProjectRecord> project = projectRepository.findById(worktree.projectId());
@@ -344,6 +352,115 @@ public class WorktreeCleanupSweeper {
         }
         return run(workingDirectory, Map.of(), "git", "merge-base", "--is-ancestor", head.get(), "origin/main")
                 .isPresent();
+    }
+
+    /**
+     * Whether {@code workingDirectory}'s checked-out branch has already landed on a
+     * freshly fetched {@code origin/main} (#554/ADR-107) — either its tip is a
+     * literal ancestor (the ordinary fast-forward/merge-commit case, the same test
+     * {@link #isAncestorOfOriginMain} uses for a detached worktree), or the whole
+     * diff the branch introduces since its merge-base with {@code origin/main} is
+     * content-equivalent (by {@code git patch-id --stable}) to some commit reachable
+     * only through {@code origin/main} since that same base — the squash-merge or
+     * rebase-merge case, where the SHA changes but the content does not. Any failure
+     * along the way (fetch, merge-base, a patch-id computation) resolves to "not
+     * landed" — the same safe direction {@link #isAncestorOfOriginMain} already
+     * takes, since it only ever keeps a worktree around longer, never removes one it
+     * shouldn't.
+     */
+    private boolean isBranchLanded(long projectId, Path workingDirectory) {
+        run(workingDirectory, tokenEnvironment(projectId), "git", "fetch", "--prune", "origin");
+        Optional<String> head = run(workingDirectory, Map.of(), "git", "rev-parse", "HEAD").map(String::strip);
+        if (head.isEmpty()) {
+            return false;
+        }
+        if (run(workingDirectory, Map.of(), "git", "merge-base", "--is-ancestor", head.get(), "origin/main")
+                .isPresent()) {
+            return true;
+        }
+        Optional<String> base = run(workingDirectory, "git", "merge-base", head.get(), "origin/main")
+                .map(String::strip);
+        if (base.isEmpty()) {
+            return false;
+        }
+        Optional<String> branchPatchId = patchId(workingDirectory, "git", "diff", base.get(), head.get());
+        if (branchPatchId.isEmpty()) {
+            // Either the branch introduces no diff at all (e.g. an empty commit) or
+            // the patch-id computation itself failed -- either way there is no
+            // content to prove equivalent to anything on origin/main, so this stays
+            // on the safe side: not landed. An empty commit still exists only on this
+            // branch; it is not proof that whatever it marks has landed anywhere.
+            return false;
+        }
+        Optional<String> candidates = run(workingDirectory, "git", "rev-list", base.get() + "..origin/main");
+        if (candidates.isEmpty()) {
+            return false;
+        }
+        for (String commit : candidates.get().split("\n")) {
+            String candidate = commit.strip();
+            if (candidate.isEmpty()) {
+                continue;
+            }
+            Optional<String> candidatePatchId = patchId(workingDirectory, "git", "show", candidate);
+            if (candidatePatchId.isPresent() && candidatePatchId.get().equals(branchPatchId.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The stable patch-id ({@code git patch-id --stable}) of {@code
+     * diffOrShowCommand}'s output — content-addresses a diff independently of the
+     * commit metadata or SHA that produced it, which is exactly what tells a
+     * squash-merged or rebase-merged commit apart from a genuinely different change.
+     * Empty when the command produces no diff at all (nothing to compute a patch-id
+     * from) or either process fails.
+     */
+    private Optional<String> patchId(Path workingDirectory, String... diffOrShowCommand) {
+        return pipe(workingDirectory, diffOrShowCommand, new String[] {"git", "patch-id", "--stable"})
+                .map(String::strip)
+                .filter(output -> !output.isEmpty())
+                .map(output -> output.split("\\s+")[0]);
+    }
+
+    /**
+     * Runs {@code first} and feeds its stdout as {@code second}'s stdin, both in
+     * {@code workingDirectory}, returning {@code second}'s stdout — {@code
+     * ProcessBuilder.startPipeline} wires the two processes' streams together
+     * directly, the same way a shell pipe would, without either command's output
+     * passing through this JVM as an intermediate string. Empty when either process
+     * exits non-zero.
+     */
+    private Optional<String> pipe(Path workingDirectory, String[] first, String[] second) {
+        try {
+            List<ProcessBuilder> builders = List.of(
+                    new ProcessBuilder(first).directory(workingDirectory.toFile()),
+                    new ProcessBuilder(second).directory(workingDirectory.toFile()).redirectErrorStream(true));
+            List<Process> processes = ProcessBuilder.startPipeline(builders);
+            Process last = processes.get(processes.size() - 1);
+            String output = new String(last.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            boolean allSucceeded = true;
+            for (Process process : processes) {
+                if (process.waitFor() != 0) {
+                    allSucceeded = false;
+                }
+            }
+            if (!allSucceeded) {
+                log.warn("'{} | {}' failed in {}", String.join(" ", first), String.join(" ", second), workingDirectory);
+                return Optional.empty();
+            }
+            return Optional.of(output);
+        } catch (IOException e) {
+            log.warn("Failed to run '{} | {}' in {}", String.join(" ", first), String.join(" ", second),
+                    workingDirectory, e);
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.debug("Interrupted while running '{} | {}' in {}", String.join(" ", first), String.join(" ", second),
+                    workingDirectory, e);
+            return Optional.empty();
+        }
     }
 
     /** {@code GH_TOKEN} for {@code projectId}'s chosen account, or empty when none is chosen (#551). */
