@@ -73,13 +73,18 @@ public class ProjectController {
         if (request.gitUrl() == null || request.gitUrl().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "gitUrl is required"));
         }
+        Optional<String> normalizedUrl = GitRemoteUrl.normalize(request.gitUrl());
+        if (normalizedUrl.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "gitUrl must be a GitHub repository: "
+                    + "https://github.com/<owner>/<repo>, git@<host>:<owner>/<repo>, or <owner>/<repo>"));
+        }
         UserRecord caller = currentUser(authentication);
         Optional<ResponseEntity<?>> accountError = ownedAccountError(request.githubAccountId(), caller.id());
         if (accountError.isPresent()) {
             return accountError.get();
         }
         ProjectRecord project = checkoutService.createProject(
-                request.gitUrl(), request.name(), caller.id(), request.githubAccountId());
+                normalizedUrl.get(), request.name(), caller.id(), request.githubAccountId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ProjectView.from(project));
     }
 

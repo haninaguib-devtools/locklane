@@ -23,6 +23,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ProjectControllerTest {
 
+    // A syntactically valid GitHub URL (#551's normalizer accepts it) that has no
+    // real repository behind it -- the clone fails fast (git fails immediately on an
+    // unauthenticated request for a private/nonexistent repo, no real network wait)
+    // without ever needing a throwaway local bare repo. Stands in for the pre-#551
+    // "/does/not/exist" fixture, which the normalizer now rejects before a project
+    // row is even created.
+    private static final String UNCLONEABLE_GITHUB_URL =
+            "https://github.com/locklane-tests-no-such-org/does-not-exist.git";
+
     @Test
     void listReturnsOnlyTheCallersOwnProjects(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
@@ -62,7 +71,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("/does/not/exist", "mine", null), alice.authentication());
+                new ProjectController.CreateProjectRequest(UNCLONEABLE_GITHUB_URL, "mine", null), alice.authentication());
 
         ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
         assertThat(body.ownerUserId()).isEqualTo(alice.id());
@@ -90,13 +99,58 @@ class ProjectControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    // #551: gitUrl is normalized before it's ever stored -- accepted shapes collapse
+    // to https://github.com/<owner>/<repo>.git, anything else is a 400.
+
+    @Test
+    void createWithAnyOtherHostIsABadRequest(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
+
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("https://gitlab.com/foo/bar.git", "mine", null),
+                alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(((Map<?, ?>) response.getBody()).get("error").toString()).contains("GitHub");
+    }
+
+    @Test
+    void createNormalizesABareOwnerRepoBeforeStoringIt(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("foo/bar", "mine", null), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
+        assertThat(repository.findById(body.id()).orElseThrow().gitUrl()).isEqualTo("https://github.com/foo/bar.git");
+    }
+
+    @Test
+    void createNormalizesAnSshAliasUrlBeforeStoringIt(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.create(
+                new ProjectController.CreateProjectRequest("git@thyme.github.com:foo/bar.git", "mine", null),
+                alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
+        assertThat(repository.findById(body.id()).orElseThrow().gitUrl()).isEqualTo("https://github.com/foo/bar.git");
+    }
+
     @Test
     void createWithAnUncloneableUrlStillReturnsCreatedWithAFailedProject(@TempDir Path tmp) throws IOException {
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("/does/not/exist", "broken", null), alice.authentication());
+                new ProjectController.CreateProjectRequest(UNCLONEABLE_GITHUB_URL, "broken", null), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         ProjectController.ProjectView body = (ProjectController.ProjectView) response.getBody();
@@ -168,7 +222,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, repository);
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("/does/not/exist", "mine", account.id()),
+                new ProjectController.CreateProjectRequest(UNCLONEABLE_GITHUB_URL, "mine", account.id()),
                 alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -183,7 +237,7 @@ class ProjectControllerTest {
         ProjectController controller = controller(tmp, repository);
 
         ResponseEntity<?> response = controller.create(
-                new ProjectController.CreateProjectRequest("/does/not/exist", "mine", 999L), alice.authentication());
+                new ProjectController.CreateProjectRequest(UNCLONEABLE_GITHUB_URL, "mine", 999L), alice.authentication());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(repository.findAllOwnedBy(alice.id())).isEmpty();

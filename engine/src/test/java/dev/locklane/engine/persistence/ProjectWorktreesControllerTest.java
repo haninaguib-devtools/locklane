@@ -131,7 +131,8 @@ class ProjectWorktreesControllerTest {
         ProjectGhResources ghResources =
                 new ProjectGhResources(fx.projectRepository, ghAccountRepository(), tokenCipher(),
                 (path, token) -> new FixedGhClient(issues));
-        WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, fx.projectRepository, ghResources, sessionRegistry);
+        WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(worktreeService, fx.projectRepository, ghResources,
+                sessionRegistry, ghAccountRepository(), tokenCipher());
         ProjectWorktreesService service = new ProjectWorktreesService(worktreeService, sweeper, sessionRegistry);
         return new ProjectWorktreesController(service);
     }
