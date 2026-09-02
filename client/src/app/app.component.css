@@ -15,12 +15,19 @@
   height: 100%;
 }
 
+/* Background defaults to `--window` so a project with no accent color set (or
+   no project selected at all) looks exactly as it always did -- AppComponent
+   only overrides it with an inline style once a selected project's accent
+   color derives a tint (#555). The only surface a project's accent color
+   tints; every page below it keeps its own plain default background
+   regardless of the selected project. */
 .topbar {
   flex: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 16px;
+  background: var(--window);
   border-bottom: 1px solid var(--border);
 }
 
@@ -152,17 +159,9 @@
   border-right: 1px solid var(--border);
 }
 
-/* Wraps whichever of a project's own pages is showing (#428) -- never the
-   sidebar or topbar, which sit outside this element entirely and keep using
-   the global `--window` background regardless of a project's accent color.
-   `background` defaults to `--window` here so a project with no accent color
-   set (every project predating this feature, since the backend column is
-   nullable) looks exactly as it did before -- AppComponent only overrides it
-   with an inline style once a color is actually set, and (#433) never at all
-   while the project's own console page is showing. The `--project-tint` /
-   `--project-accent` custom properties AppComponent sets alongside `background`
-   are unused here directly -- they exist so descendants of `app-main-content`
-   (issue-header, flow-strip, console-tabs, overview-tab) can inherit them. */
+/* Wraps whichever of a project's own pages is showing -- always this plain
+   `--window` background regardless of the selected project's accent color
+   (#555): that tint now lives on `.topbar` above instead. */
 .project-pages {
   display: flex;
   flex: 1;

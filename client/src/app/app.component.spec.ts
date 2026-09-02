@@ -327,7 +327,7 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('.brand')?.textContent?.trim()).toBe('LockLane - proj');
   }));
 
-  it('picking an accent color from the project summary tints .project-pages immediately, the first time in the session (#428)', fakeAsync(() => {
+  it('picking an accent color from the project summary tints the topbar immediately, the first time in the session (#428, #555)', fakeAsync(() => {
     logIn();
     navigateToProjectSummary();
 
@@ -340,7 +340,7 @@ describe('AppComponent', () => {
     flushProjectWorktrees();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('');
 
     // Sage is the second preset (accent-theme-store.ts).
     compiled.querySelectorAll<HTMLButtonElement>('.accent-swatch')[1].click();
@@ -360,17 +360,20 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     // sage (#5c8a4e) blended toward white at the same ~13% ratio.
-    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('rgb(234, 240, 232)');
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('rgb(234, 240, 232)');
+    // The project's own pages never pick up this tint (#555) -- it lives on
+    // the header alone.
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
   }));
 
-  it('leaves .project-pages at its default background when the project has no accent color (#428)', fakeAsync(() => {
+  it('leaves the topbar at its default background when the project has no accent color (#428, #555)', fakeAsync(() => {
     const fixture = openedApp();
 
-    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.topbar')!;
     expect(el.style.background).toBe('');
   }));
 
-  it('tints .project-pages with a background derived from the accent color once one is set (#428)', fakeAsync(() => {
+  it('tints the topbar with a background derived from the accent color once one is set (#428, #555)', fakeAsync(() => {
     const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
     logIn();
     navigateToProjectSummary();
@@ -389,13 +392,14 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     flushProjectWorktrees();
 
-    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
+    const compiled = fixture.nativeElement as HTMLElement;
     // terracotta (#c15f3c) blended toward white at the same ~13% ratio
     // AccentThemeStore's own presets use for their `accentSoft` companion.
-    expect(el.style.background).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
   }));
 
-  it('extends the background tint to the issue page, and exposes it to descendants as --project-tint / --project-accent (#433)', fakeAsync(() => {
+  it('extends the topbar tint to the issue page, leaving .project-pages at its plain default background (#555)', fakeAsync(() => {
     const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
     logIn();
     TestBed.inject(Router).navigateByUrl('/projects/1/issues/42');
@@ -413,14 +417,13 @@ describe('AppComponent', () => {
     flushIssue(42);
     fixture.detectChanges();
 
-    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
+    const compiled = fixture.nativeElement as HTMLElement;
     // Same terracotta blend the project summary page shows for the same accent color.
-    expect(el.style.background).toBe('rgb(247, 234, 230)');
-    expect(el.style.getPropertyValue('--project-tint')).toBe('rgb(247, 234, 230)');
-    expect(el.style.getPropertyValue('--project-accent')).toBe('#c15f3c');
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
   }));
 
-  it('keeps the project console page untinted even when the project has an accent color set (#433)', fakeAsync(() => {
+  it('tints the topbar on the project console page too, now that the full-page carve-out is gone (#555)', fakeAsync(() => {
     const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
     logIn();
     TestBed.inject(Router).navigateByUrl('/projects/1/console');
@@ -442,10 +445,9 @@ describe('AppComponent', () => {
     flushConsoleIndicator();
     fixture.detectChanges();
 
-    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.project-pages')!;
-    expect(el.style.background).toBe('');
-    expect(el.style.getPropertyValue('--project-tint')).toBe('');
-    expect(el.style.getPropertyValue('--project-accent')).toBe('');
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
   }));
 
   it('deleting a project from its summary page refreshes the sidenav in place (#249)', fakeAsync(() => {

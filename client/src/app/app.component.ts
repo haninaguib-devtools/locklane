@@ -113,35 +113,18 @@ export class AppComponent {
     return project ? `LockLane - ${project.name}` : 'LockLane';
   });
 
-  // The background wash behind a project's own pages (#428), derived from its
-  // accent color -- `null` for a project with none set (every pre-existing
-  // project, since the backend column is nullable), which leaves the
-  // `.project-pages` wrapper at its plain CSS background, no visual regression.
-  // Never affects `.topbar`/`.sidebar`, which sit outside this wrapper entirely.
+  // The background wash behind the persistent header bar (#555), derived from
+  // the selected project's accent color -- `null` for a project with none set
+  // (every pre-existing project, since the backend column is nullable) or with
+  // no project selected at all, which leaves `.topbar` at its plain CSS
+  // background, no visual regression. Applies whenever a project is selected,
+  // including while viewing that project's own console page -- unlike the
+  // full-page tint this replaced (#428/#433), the header is always visible so
+  // there is no console-page carve-out to make. Never affects `.project-pages`
+  // or anything under it, which always show their plain default background now.
   readonly projectBackgroundTint = computed(() => {
     const project = this.currentProject.current();
     return project ? deriveProjectBackgroundTint(project.accentColor) : null;
-  });
-
-  // #433 extends the tint from the summary page to the issue page's own chrome,
-  // but explicitly excludes the project's own console page -- so both of these
-  // are `null` while `onProjectConsole()` is true, regardless of whether the
-  // project has an accent color set. Bound to `.project-pages` as inline styles
-  // (its own `background` for `projectPageTint`, plus the `--project-tint` /
-  // `--project-accent` custom properties below), so a descendant of
-  // `app-main-content` -- `issue-header`, `flow-strip`, `console-tabs`,
-  // `overview-tab` -- can pick either up through ordinary CSS inheritance
-  // without any `@Input()` plumbing, while `app-project-console`'s own
-  // `console-tabs` never sees either property set and keeps using the global
-  // `--accent` it always has.
-  readonly projectPageTint = computed(() => (this.onProjectConsole() ? null : this.projectBackgroundTint()));
-
-  readonly projectPageAccent = computed(() => {
-    if (this.onProjectConsole()) {
-      return null;
-    }
-    const project = this.currentProject.current();
-    return project ? project.accentColor : null;
   });
 
   readonly selectedIssue = toSignal(

@@ -3,10 +3,7 @@
   align-items: center;
   gap: 0;
   padding: 8px 16px;
-  /* --project-tint (#433) is only set while this component sits under a
-     tinted issue page -- unset elsewhere, falling back to the plain panel
-     background this always had (see issue-header.component.css). */
-  background: var(--project-tint, var(--panel));
+  background: var(--panel);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;

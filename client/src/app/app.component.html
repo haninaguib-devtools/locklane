@@ -7,7 +7,7 @@
   <app-shells-window />
 } @else {
   <div class="authed">
-    <div class="topbar">
+    <div class="topbar" [style.background]="projectBackgroundTint()">
       <div class="brand-group">
         <img class="brand-logo" src="logo.svg" alt="" width="44" height="44" />
         <a class="brand" routerLink="/">{{ headerTitle() }}</a>
@@ -62,12 +62,7 @@
       </aside>
       <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
       @if (selectedProjectId(); as projectId) {
-        <div
-          class="project-pages"
-          [style.background]="projectPageTint()"
-          [style.--project-tint]="projectPageTint()"
-          [style.--project-accent]="projectPageAccent()"
-        >
+        <div class="project-pages">
           @if (onProjectConsole()) {
             <app-project-console [projectId]="projectId" />
           } @else {
