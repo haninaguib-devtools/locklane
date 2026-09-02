@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 
 /** One message off the app-wide events channel (dev.locklane.engine.ws.EventsWebSocketHandler, /ws/events, #128). */
@@ -116,11 +116,26 @@ export class EventsService {
   // what was running when this tab booted, not against the previous reconnect's stamp.
   private bootVersion: string | null = null;
 
+  // The latest `engineVersion` greeting, as *state* rather than a stream (#595): the
+  // engine sends it exactly once per connection, before anything else, and `events$`
+  // does not replay -- so a consumer constructed after the socket opened (a lazily
+  // injected service behind a dialog, say) would otherwise never see it. Every
+  // connect and reconnect replaces it, so after the engine is upgraded mid-session
+  // this is the new engine's greeting, not the one seen at boot.
+  private readonly engineVersionSignal = signal<EngineVersionEvent | null>(null);
+
   private readonly eventsSubject = new Subject<AppEvent>();
   private readonly reconnectedSubject = new Subject<void>();
   private readonly versionChangedSubject = new Subject<void>();
 
   readonly events$: Observable<AppEvent> = this.eventsSubject.asObservable();
+  /**
+   * What the engine on the other end of the current connection last said about
+   * itself (#273, #467): `null` until the first connection's greeting arrives, then
+   * always the most recent greeting. Read this, not `events$`, for the running
+   * version -- it is correct however late the reader is created.
+   */
+  readonly engineVersion = this.engineVersionSignal.asReadonly();
   readonly reconnected$: Observable<void> = this.reconnectedSubject.asObservable();
   /** Fires when a reconnect's `engineVersion` stamp differs from the one seen at boot. */
   readonly versionChanged$: Observable<void> = this.versionChangedSubject.asObservable();
@@ -150,6 +165,7 @@ export class EventsService {
       try {
         const parsed = JSON.parse(event.data) as AppEvent;
         if (isEngineVersionEvent(parsed)) {
+          this.engineVersionSignal.set(parsed);
           if (this.bootVersion === null) {
             this.bootVersion = parsed.version;
           } else if (parsed.version !== this.bootVersion) {
