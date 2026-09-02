@@ -43,6 +43,9 @@
                   Manage users
                 </button>
               }
+              <button type="button" class="account-item" role="menuitem" (click)="openAbout()">
+                About
+              </button>
               <button type="button" class="account-item" role="menuitem" (click)="logout()">
                 Sign out
               </button>
@@ -79,6 +82,9 @@
     </div>
     @if (settingsOpen) {
       <app-settings-dialog (closed)="closeSettings()" />
+    }
+    @if (aboutOpen) {
+      <app-about-dialog (closed)="closeAbout()" />
     }
     @if (adminUsersOpen) {
       <app-admin-users (closed)="closeAdminUsers()" />

@@ -1,0 +1,19 @@
+<div class="backdrop" (click)="closed.emit()">
+  <div class="dialog" role="dialog" aria-modal="true" aria-label="About LockLane" (click)="$event.stopPropagation()">
+    <div class="dialog-header">About</div>
+    <div class="dialog-body">
+      <img class="logo" src="logo.svg" alt="" width="44" height="44" />
+      <div class="name">LockLane</div>
+      <div class="version" title="The locklane version this engine is running">
+        @if (version(); as version) {
+          version {{ version }}
+        } @else {
+          version unknown
+        }
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" (click)="closed.emit()">Close</button>
+    </div>
+  </div>
+</div>

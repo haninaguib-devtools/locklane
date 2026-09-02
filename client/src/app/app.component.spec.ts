@@ -768,7 +768,7 @@ describe('AppComponent', () => {
     httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
   }));
 
-  it('toggles the account menu from the avatar, showing the username, a separator, Settings and Sign out', fakeAsync(() => {
+  it('toggles the account menu from the avatar, showing the username, a separator, Settings, About and Sign out', fakeAsync(() => {
     const fixture = openedApp();
     const compiled = fixture.nativeElement as HTMLElement;
 
@@ -780,11 +780,28 @@ describe('AppComponent', () => {
     const items = Array.from(compiled.querySelectorAll('.account-item')).map((el) =>
       el.textContent?.trim(),
     );
-    expect(items).toEqual(['Settings', 'GitHub accounts', 'Sign out']);
+    expect(items).toEqual(['Settings', 'GitHub accounts', 'About', 'Sign out']);
 
     compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
     fixture.detectChanges();
     expect(compiled.querySelector('.account-menu')).toBeFalsy();
+  }));
+
+  it('opens the About dialog from the account menu and closes the menu (#575)', fakeAsync(() => {
+    const fixture = openedApp();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
+    fixture.detectChanges();
+    const about = Array.from(compiled.querySelectorAll<HTMLButtonElement>('.account-item')).find(
+      (el) => el.textContent?.trim() === 'About',
+    );
+    about!.click();
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('app-about-dialog')).toBeTruthy();
+    expect(compiled.querySelector('.account-menu')).toBeFalsy();
+    expect(compiled.querySelector('app-about-dialog .name')?.textContent?.trim()).toBe('LockLane');
   }));
 
   it('shows "Manage users" in the account menu only for an admin account (#240)', fakeAsync(() => {
@@ -797,7 +814,7 @@ describe('AppComponent', () => {
     const items = Array.from(compiled.querySelectorAll('.account-item')).map((el) =>
       el.textContent?.trim(),
     );
-    expect(items).toEqual(['Settings', 'GitHub accounts', 'Manage users', 'Sign out']);
+    expect(items).toEqual(['Settings', 'GitHub accounts', 'Manage users', 'About', 'Sign out']);
   }));
 
   it('opens the admin-users panel from the menu and closes it again (#240)', fakeAsync(() => {
@@ -883,7 +900,9 @@ describe('AppComponent', () => {
 
     compiled.querySelector<HTMLButtonElement>('.avatar')!.click();
     fixture.detectChanges();
-    compiled.querySelectorAll<HTMLButtonElement>('.account-item')[2].click();
+    Array.from(compiled.querySelectorAll<HTMLButtonElement>('.account-item'))
+      .find((el) => el.textContent?.trim() === 'Sign out')!
+      .click();
 
     httpMock.expectOne('/api/auth/logout').flush(null);
     fixture.detectChanges();
