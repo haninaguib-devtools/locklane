@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,11 +40,11 @@ public class ProjectRepository {
             String template) {
         jdbcTemplate.update("""
                 INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at, owner_user_id,
-                                      template)
-                VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
+                                      template, sort_order)
+                VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
                 """,
                 name, gitUrl, workareaPath.toString(), ProjectStatus.CLONING.name(), now.toString(), ownerUserId,
-                template);
+                template, nextSortOrder(ownerUserId));
         return findByWorkareaPath(workareaPath).orElseThrow();
     }
 
@@ -56,18 +57,26 @@ public class ProjectRepository {
     public ProjectRecord createReady(String name, String gitUrl, Path workareaPath, String defaultBranch,
             long ownerUserId, Instant now) {
         jdbcTemplate.update("""
-                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at, owner_user_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO projects (name, git_url, workarea_path, default_branch, status, created_at, owner_user_id,
+                                      sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 name, gitUrl, workareaPath.toString(), defaultBranch, ProjectStatus.READY.name(), now.toString(),
-                ownerUserId);
+                ownerUserId, nextSortOrder(ownerUserId));
         return findByWorkareaPath(workareaPath).orElseThrow();
+    }
+
+    /** The next free position (#541) at the end of {@code ownerUserId}'s current order — 0 for their first project. */
+    private int nextSortOrder(long ownerUserId) {
+        Integer max = jdbcTemplate.queryForObject(
+                "SELECT MAX(sort_order) FROM projects WHERE owner_user_id = ?", Integer.class, ownerUserId);
+        return max == null ? 0 : max + 1;
     }
 
     public Optional<ProjectRecord> findById(long id) {
         return jdbcTemplate.query(
                 "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
-                        + "accent_color, template, template_seeded_at FROM projects WHERE id = ?",
+                        + "accent_color, template, template_seeded_at, sort_order FROM projects WHERE id = ?",
                 (rs, rowNum) -> toRecord(rs),
                 id
         ).stream().findFirst();
@@ -76,7 +85,7 @@ public class ProjectRepository {
     public Optional<ProjectRecord> findByWorkareaPath(Path workareaPath) {
         return jdbcTemplate.query(
                 "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
-                        + "accent_color, template, template_seeded_at FROM projects WHERE workarea_path = ?",
+                        + "accent_color, template, template_seeded_at, sort_order FROM projects WHERE workarea_path = ?",
                 (rs, rowNum) -> toRecord(rs),
                 workareaPath.toString()
         ).stream().findFirst();
@@ -86,17 +95,35 @@ public class ProjectRepository {
     public List<ProjectRecord> findAll() {
         return jdbcTemplate.query(
                 "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
-                        + "accent_color, template, template_seeded_at FROM projects",
+                        + "accent_color, template, template_seeded_at, sort_order FROM projects",
                 (rs, rowNum) -> toRecord(rs));
     }
 
-    /** Only the projects owned by {@code ownerUserId} (#239) — an ordinary caller's view. */
+    /**
+     * Only the projects owned by {@code ownerUserId} (#239) — an ordinary caller's
+     * view, in that owner's own persisted order (#541): ascending {@code sort_order},
+     * {@code id} breaking a tie between two rows that (should never, but) share one.
+     */
     public List<ProjectRecord> findAllOwnedBy(long ownerUserId) {
         return jdbcTemplate.query(
                 "SELECT id, name, git_url, workarea_path, default_branch, status, created_at, owner_user_id, "
-                        + "accent_color, template, template_seeded_at FROM projects WHERE owner_user_id = ?",
+                        + "accent_color, template, template_seeded_at, sort_order FROM projects "
+                        + "WHERE owner_user_id = ? ORDER BY sort_order, id",
                 (rs, rowNum) -> toRecord(rs),
                 ownerUserId);
+    }
+
+    /**
+     * Persists a new order (#541) for exactly the projects in {@code orderedIds} — each
+     * id's position in the list becomes its {@code sort_order}. Callers are responsible
+     * for checking ownership of every id first; this does not filter by owner itself.
+     */
+    public void setOrder(List<Long> orderedIds) {
+        List<Object[]> batchArgs = new ArrayList<>();
+        for (int i = 0; i < orderedIds.size(); i++) {
+            batchArgs.add(new Object[] {i, orderedIds.get(i)});
+        }
+        jdbcTemplate.batchUpdate("UPDATE projects SET sort_order = ? WHERE id = ?", batchArgs);
     }
 
     /** The GitHub account (#550) this project acts as, when one has been chosen. */
@@ -176,6 +203,7 @@ public class ProjectRepository {
                 Instant.parse(rs.getString("created_at")),
                 rs.getString("accent_color"),
                 rs.getString("template"),
-                Optional.ofNullable(rs.getString("template_seeded_at")).map(Instant::parse).orElse(null));
+                Optional.ofNullable(rs.getString("template_seeded_at")).map(Instant::parse).orElse(null),
+                rs.getInt("sort_order"));
     }
 }

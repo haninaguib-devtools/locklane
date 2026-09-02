@@ -565,6 +565,80 @@ class ProjectControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    @Test
+    void setOrderPersistsTheNewOrderAndReturnsItFromList(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord a = repository.create("a", "url-a", tmp.resolve("a"), alice.id(), Instant.now());
+        ProjectRecord b = repository.create("b", "url-b", tmp.resolve("b"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setOrder(
+                new ProjectController.SetOrderRequest(List.of(b.id(), a.id())), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(controller.list(alice.authentication())).extracting(ProjectController.ProjectView::id)
+                .containsExactly(b.id(), a.id());
+    }
+
+    @Test
+    void setOrderRefusesAListMissingOneOfTheCallersProjects(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord a = repository.create("a", "url-a", tmp.resolve("a"), alice.id(), Instant.now());
+        repository.create("b", "url-b", tmp.resolve("b"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setOrder(
+                new ProjectController.SetOrderRequest(List.of(a.id())), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void setOrderRefusesADuplicateId(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectRecord a = repository.create("a", "url-a", tmp.resolve("a"), alice.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setOrder(
+                new ProjectController.SetOrderRequest(List.of(a.id(), a.id())), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void setOrderRefusesAnIdBelongingToAnotherOwner(@TempDir Path tmp) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        Caller bob = user(tmp, "bob", UserRecord.Role.USER);
+        ProjectRecord aliceProject = repository.create("mine", "url-a", tmp.resolve("a"), alice.id(), Instant.now());
+        ProjectRecord bobProject = repository.create("theirs", "url-b", tmp.resolve("b"), bob.id(), Instant.now());
+        ProjectController controller = controller(tmp, repository);
+
+        ResponseEntity<?> response = controller.setOrder(
+                new ProjectController.SetOrderRequest(List.of(aliceProject.id())), bob.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        // Alice's own project kept its original position -- untouched by bob's refused request.
+        assertThat(repository.findById(aliceProject.id())).isPresent().get()
+                .extracting(ProjectRecord::sortOrder).isEqualTo(0);
+        assertThat(repository.findById(bobProject.id())).isPresent().get()
+                .extracting(ProjectRecord::sortOrder).isEqualTo(0);
+    }
+
+    @Test
+    void setOrderWithNoOrderedIdsIsABadRequest(@TempDir Path tmp) throws IOException {
+        Caller alice = user(tmp, "alice", UserRecord.Role.USER);
+        ProjectController controller = controller(tmp, TestSqliteDatabases.newProjectRepository(tmp));
+
+        ResponseEntity<?> response = controller.setOrder(
+                new ProjectController.SetOrderRequest(null), alice.authentication());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
     private static ProjectController controller(Path tmp, ProjectRepository repository) throws IOException {
         return controller(tmp, repository,
                 new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()));

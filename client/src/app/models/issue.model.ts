@@ -93,4 +93,10 @@ export interface Project {
    * spec fixtures that build a Project literal need not all name it.
    */
   templateSeededAt?: string | null;
+  /**
+   * The owner's chosen position (#541) of this project among their own — lower sorts
+   * first. Optional so existing spec fixtures need not all name it; the sidenav's own
+   * drag order falls back to array order when it's absent.
+   */
+  sortOrder?: number;
 }

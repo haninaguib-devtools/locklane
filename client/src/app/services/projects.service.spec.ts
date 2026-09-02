@@ -163,4 +163,13 @@ describe('ProjectsService', () => {
     expect(req.request.body).toEqual({ accentColor: '#c15f3c' });
     req.flush(null);
   });
+
+  it('persists a new project order via PUT /api/projects/order (#541)', () => {
+    service.setOrder([2, 1, 3]).subscribe();
+
+    const req = httpMock.expectOne('/api/projects/order');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ orderedIds: [2, 1, 3] });
+    req.flush(null);
+  });
 });

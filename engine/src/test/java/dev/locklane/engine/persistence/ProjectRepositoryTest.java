@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -187,5 +188,45 @@ class ProjectRepositoryTest {
 
         assertThat(repository.findById(created.id())).isPresent().get()
                 .extracting(ProjectRecord::accentColor).isNull();
+    }
+
+    @Test
+    void projectsAreCreatedWithSequentialSortOrderPerOwner(@TempDir Path dbDir) {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
+
+        ProjectRecord first = repository.create("a", "url-a", dbDir.resolve("a"), 1L, Instant.now());
+        ProjectRecord second = repository.create("b", "url-b", dbDir.resolve("b"), 1L, Instant.now());
+        // A different owner's own sequence starts over at 0 -- one owner's projects
+        // never compete for the same positions as another's.
+        ProjectRecord othersFirst = repository.create("c", "url-c", dbDir.resolve("c"), 2L, Instant.now());
+
+        assertThat(first.sortOrder()).isEqualTo(0);
+        assertThat(second.sortOrder()).isEqualTo(1);
+        assertThat(othersFirst.sortOrder()).isEqualTo(0);
+    }
+
+    @Test
+    void findAllOwnedByReturnsProjectsInSortOrder(@TempDir Path dbDir) {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
+        ProjectRecord a = repository.create("a", "url-a", dbDir.resolve("a"), 1L, Instant.now());
+        ProjectRecord b = repository.create("b", "url-b", dbDir.resolve("b"), 1L, Instant.now());
+        ProjectRecord c = repository.create("c", "url-c", dbDir.resolve("c"), 1L, Instant.now());
+
+        repository.setOrder(List.of(c.id(), a.id(), b.id()));
+
+        assertThat(repository.findAllOwnedBy(1L)).extracting(ProjectRecord::name)
+                .containsExactly("c", "a", "b");
+    }
+
+    @Test
+    void setOrderAssignsEachIdsIndexAsItsNewSortOrder(@TempDir Path dbDir) {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dbDir);
+        ProjectRecord a = repository.create("a", "url-a", dbDir.resolve("a"), 1L, Instant.now());
+        ProjectRecord b = repository.create("b", "url-b", dbDir.resolve("b"), 1L, Instant.now());
+
+        repository.setOrder(List.of(b.id(), a.id()));
+
+        assertThat(repository.findById(b.id())).isPresent().get().extracting(ProjectRecord::sortOrder).isEqualTo(0);
+        assertThat(repository.findById(a.id())).isPresent().get().extracting(ProjectRecord::sortOrder).isEqualTo(1);
     }
 }

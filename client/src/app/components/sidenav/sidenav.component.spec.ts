@@ -2,7 +2,8 @@ import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
-import { SidenavComponent } from './sidenav.component';
+import { CdkDragDrop } from '@angular/cdk/drag-drop';
+import { Section, SidenavComponent } from './sidenav.component';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
@@ -973,6 +974,46 @@ describe('SidenavComponent', () => {
     (fixture.nativeElement.querySelector('.section-header .pop-out') as HTMLElement).click();
 
     expect(emitted).toEqual([]);
+  });
+
+  it('dragging a project section reorders it immediately and persists the new order (#541)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
+
+    fixture.componentInstance.onProjectSectionDrop({ previousIndex: 0, currentIndex: 1 } as unknown as CdkDragDrop<Section[]>);
+
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([2, 1]);
+    httpMock.expectOne('/api/projects/order').flush(null);
+  });
+
+  it('dropping a project section back on its own position is a no-op (#541)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
+
+    fixture.componentInstance.onProjectSectionDrop({ previousIndex: 0, currentIndex: 0 } as unknown as CdkDragDrop<Section[]>);
+
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1, 2]);
+    httpMock.expectNone('/api/projects/order');
+  });
+
+  it('a failed persist reloads to fall back to whatever order the server actually kept (#541)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
+
+    fixture.componentInstance.onProjectSectionDrop({ previousIndex: 0, currentIndex: 1 } as unknown as CdkDragDrop<Section[]>);
+    httpMock.expectOne('/api/projects/order').error(new ProgressEvent('network error'));
+
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    flushConsoles();
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1, 2]);
   });
 
   it('a focused project only loads and renders that one project, never fetching another (#286)', () => {

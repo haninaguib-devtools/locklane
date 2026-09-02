@@ -17,9 +17,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -220,6 +222,31 @@ public class ProjectController {
     }
 
     /**
+     * Persists the caller's new sidenav order (#541) — {@code orderedIds} must name
+     * exactly the caller's own current projects, in the order they now belong in;
+     * {@code sort_order} then becomes each id's index in that list. A 400 when the set
+     * of ids doesn't match (missing one, a duplicate, or an id belonging to someone
+     * else) rather than silently reordering a subset and leaving the rest stranded at
+     * their old positions.
+     */
+    @PutMapping("/order")
+    public ResponseEntity<?> setOrder(@RequestBody SetOrderRequest request, Authentication authentication) {
+        UserRecord caller = currentUser(authentication);
+        List<Long> orderedIds = request.orderedIds();
+        if (orderedIds == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "orderedIds is required"));
+        }
+        List<Long> ownedIds = repository.findAllOwnedBy(caller.id()).stream().map(ProjectRecord::id).toList();
+        Set<Long> orderedIdSet = new HashSet<>(orderedIds);
+        if (orderedIdSet.size() != orderedIds.size() || !orderedIdSet.equals(new HashSet<>(ownedIds))) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "orderedIds must name exactly the caller's own projects, with no duplicates"));
+        }
+        repository.setOrder(orderedIds);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * The project, if it exists and the caller owns it (#239, #394). Ownership is the
      * whole of the check — no role is exempt (ADR-105). Empty either when the project
      * doesn't exist or when it belongs to someone else, deliberately
@@ -259,14 +286,19 @@ public class ProjectController {
     public record SetAccentColorRequest(String accentColor) {
     }
 
+    /** {@code orderedIds} (#541) is the caller's full project id list, in the order they now belong in. */
+    public record SetOrderRequest(List<Long> orderedIds) {
+    }
+
     /** JSON shape for a project — {@code workareaPath} as a plain string, unlike the persisted {@link ProjectRecord}. */
     public record ProjectView(
             long id, long ownerUserId, String name, String gitUrl, String workareaPath, String defaultBranch,
-            String status, String createdAt, String accentColor, String template, String templateSeededAt) {
+            String status, String createdAt, String accentColor, String template, String templateSeededAt,
+            int sortOrder) {
         static ProjectView from(ProjectRecord r) {
             return new ProjectView(r.id(), r.ownerUserId(), r.name(), r.gitUrl(), r.workareaPath().toString(),
                     r.defaultBranch(), r.status().name(), r.createdAt().toString(), r.accentColor(), r.template(),
-                    r.templateSeededAt() == null ? null : r.templateSeededAt().toString());
+                    r.templateSeededAt() == null ? null : r.templateSeededAt().toString(), r.sortOrder());
         }
     }
 }

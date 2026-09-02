@@ -125,6 +125,17 @@
   color: var(--muted);
 }
 
+/* Drag placeholder (#541): the gap left where a project section is being dropped. */
+.project-section.cdk-drag-placeholder {
+  opacity: 0.3;
+}
+
+.project-section.cdk-drag-preview {
+  background: var(--sidebar);
+  box-shadow: 0 4px 12px rgba(53, 50, 44, 0.25);
+  border-radius: 4px;
+}
+
 .section-header {
   display: flex;
   align-items: center;

@@ -81,6 +81,14 @@ export class ProjectsService {
   setAccentColor(id: number, accentColor: string): Observable<void> {
     return this.http.put<void>(`/api/projects/${id}/accent-color`, { accentColor });
   }
+
+  /**
+   * Persists the caller's new sidenav order (#541) — `orderedIds` must be exactly the
+   * caller's own current project ids, in the order they now belong in.
+   */
+  setOrder(orderedIds: number[]): Observable<void> {
+    return this.http.put<void>('/api/projects/order', { orderedIds });
+  }
 }
 
 /** The request body with `githubAccountId` added only when one was chosen. */
