@@ -2,9 +2,14 @@
    project summary, terminal scrollback) — the page itself must never scroll.
    overflow: hidden is load-bearing: the terminal refits itself whenever its
    box resizes, and a page-level scrollbar changes that box, so letting the
-   page scroll creates a fit → scrollbar → resize → refit oscillation (#117). */
+   page scroll creates a fit → scrollbar → resize → refit oscillation (#117).
+   A flex column, rather than a hardcoded height, so a banner rendered above
+   the shell (release-banner, update-banner) claims its own space and the
+   shell's flex: 1 child shrinks to what's left, instead of the shell still
+   claiming the full host height and losing that much off its own bottom (#557). */
 :host {
-  display: block;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   overflow: hidden;
 }
@@ -12,7 +17,14 @@
 .authed {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+app-login,
+app-shells-window {
+  flex: 1;
+  min-height: 0;
 }
 
 .topbar {
