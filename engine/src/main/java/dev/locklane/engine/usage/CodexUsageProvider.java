@@ -58,6 +58,8 @@ public class CodexUsageProvider implements UsageProvider {
             }
             return Optional.of(new ProviderUsage(true, primary, secondary, List.of()));
         } catch (IOException e) {
+            // silent: an undocumented endpoint changing shape degrades to
+            // unavailable, per this class's own doc — same as a real outage.
             return Optional.empty();
         }
     }

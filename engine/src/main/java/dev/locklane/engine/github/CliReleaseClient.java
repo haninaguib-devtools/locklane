@@ -2,6 +2,9 @@ package dev.locklane.engine.github;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.process.ProcessOutcome;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -22,6 +25,7 @@ import java.util.Optional;
 @Component
 public class CliReleaseClient implements ReleaseClient {
 
+    private static final Logger log = LoggerFactory.getLogger(CliReleaseClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final String repository;
@@ -37,19 +41,26 @@ public class CliReleaseClient implements ReleaseClient {
                     "--repo", repository, "--json", "tagName,url");
             Process process = builder.start();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
             int exit = process.waitFor();
-            if (exit != 0) {
+            ProcessOutcome outcome = new ProcessOutcome(exit, output, error);
+            if (outcome.failed()) {
                 // No permanent release yet (only the rolling "latest" pre-release
                 // exists) and a real gh failure look the same from here — either way
-                // there is nothing to compare the running version against.
+                // there is nothing to compare the running version against, and this
+                // runs hourly, so DEBUG (not WARN) keeps a repo with no permanent
+                // release yet from getting an hourly log line.
+                log.debug("`gh release view` exited {}: {}", outcome.exitCode(), outcome.describe());
                 return Optional.empty();
             }
             JsonNode node = MAPPER.readTree(output);
             return Optional.of(new GhRelease(node.path("tagName").asText(), node.path("url").asText()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.debug("Interrupted while running `gh release view`", e);
             return Optional.empty();
         } catch (IOException e) {
+            log.warn("Could not run gh to check for a newer release", e);
             return Optional.empty();
         }
     }

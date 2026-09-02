@@ -1,5 +1,7 @@
 package dev.locklane.engine.ws;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.PingMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -27,6 +29,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * rather than through a full PTY attach.
  */
 class TerminalHeartbeat {
+
+    private static final Logger log = LoggerFactory.getLogger(TerminalHeartbeat.class);
 
     // One missed pong could just be a slow tick under load; two in a row is treated
     // as the connection actually being gone.
@@ -72,6 +76,7 @@ class TerminalHeartbeat {
             try {
                 wsSession.sendMessage(new PingMessage());
             } catch (IOException e) {
+                log.debug("Ping failed for session {}; closing", wsSession.getId(), e);
                 closeStale(wsSession);
             }
         }
@@ -86,7 +91,8 @@ class TerminalHeartbeat {
         try {
             wsSession.close(CloseStatus.SESSION_NOT_RELIABLE.withReason("No pong received"));
         } catch (IOException e) {
-            // Already going away; nothing productive to do with this failure here.
+            // silent: already going away; nothing productive to do with this failure
+            // here.
         }
     }
 }

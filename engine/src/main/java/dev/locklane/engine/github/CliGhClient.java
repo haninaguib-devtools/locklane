@@ -2,6 +2,9 @@ package dev.locklane.engine.github;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.process.ProcessOutcome;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +26,7 @@ import java.util.Optional;
  */
 public class CliGhClient implements GhClient {
 
+    private static final Logger log = LoggerFactory.getLogger(CliGhClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final Path workingDirectory;
@@ -73,6 +77,7 @@ public class CliGhClient implements GhClient {
             // A nonexistent PR number and a real gh failure look the same from here
             // (both are a nonzero exit / unparseable output); either way, "no detail
             // available" is the right answer for a best-effort popup.
+            log.debug("Could not fetch detail for PR {}", number, e);
             return Optional.empty();
         }
     }
@@ -152,8 +157,9 @@ public class CliGhClient implements GhClient {
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
             int exit = process.waitFor();
-            if (exit != 0) {
-                throw new GhUnavailableException("gh exited " + exit + ": " + error.strip(), null);
+            ProcessOutcome outcome = new ProcessOutcome(exit, output, error);
+            if (outcome.failed()) {
+                throw new GhUnavailableException("gh exited " + exit + ": " + outcome.describe(), null);
             }
             return output;
         } catch (InterruptedException e) {

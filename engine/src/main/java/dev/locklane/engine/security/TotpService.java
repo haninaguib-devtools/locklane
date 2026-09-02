@@ -89,6 +89,8 @@ public class TotpService {
         try {
             secret = decodeBase32(base32Secret);
         } catch (IllegalArgumentException e) {
+            // silent: a malformed stored secret verifies as "wrong code", the same
+            // answer a mistyped one gets — this is user/config input, not a fault.
             return false;
         }
         long step = now.getEpochSecond() / STEP_SECONDS;

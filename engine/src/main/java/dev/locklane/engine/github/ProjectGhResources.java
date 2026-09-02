@@ -5,6 +5,8 @@ import dev.locklane.engine.persistence.ProjectRecord;
 import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.security.TokenCipher;
 import dev.locklane.engine.ws.EventBroadcaster;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,7 @@ import java.util.function.BiFunction;
 @Service
 public class ProjectGhResources {
 
+    private static final Logger log = LoggerFactory.getLogger(ProjectGhResources.class);
     private static final long REFRESH_INTERVAL_MS = 30_000;
 
     private final ProjectRepository projectRepository;
@@ -77,8 +80,12 @@ public class ProjectGhResources {
     @Scheduled(fixedDelay = REFRESH_INTERVAL_MS, initialDelay = REFRESH_INTERVAL_MS)
     void refreshAll() {
         contexts.forEach((projectId, context) -> {
-            if (context.cache().refresh()) {
-                eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
+            try {
+                if (context.cache().refresh()) {
+                    eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
+                }
+            } catch (RuntimeException e) {
+                log.error("Scheduled issue/PR refresh failed for project {}", projectId, e);
             }
         });
     }

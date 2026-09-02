@@ -46,6 +46,9 @@ public class ClaudeTokenSource {
         try {
             return tokenFromJson(Files.readString(credentialsFile));
         } catch (IOException e) {
+            // silent: the Keychain fallback above is next; a read failure here is
+            // routine (permissions, a transient race) and never load-bearing on its
+            // own.
             return Optional.empty();
         }
     }
@@ -55,6 +58,8 @@ public class ClaudeTokenSource {
             JsonNode token = MAPPER.readTree(json).path("claudeAiOauth").path("accessToken");
             return token.isTextual() && !token.asText().isBlank() ? Optional.of(token.asText()) : Optional.empty();
         } catch (IOException e) {
+            // silent: malformed/unexpected JSON reads as "no token" — see this
+            // class's own doc on ClaudeUsageProvider degrading gracefully.
             return Optional.empty();
         }
     }

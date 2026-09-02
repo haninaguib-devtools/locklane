@@ -1,6 +1,8 @@
 package dev.locklane.engine.ws;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -24,6 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 public class EventBroadcaster {
+
+    private static final Logger log = LoggerFactory.getLogger(EventBroadcaster.class);
 
     private final Set<WebSocketSession> sessions = ConcurrentHashMap.newKeySet();
     private final ObjectMapper objectMapper;
@@ -97,10 +101,11 @@ public class EventBroadcaster {
         } catch (IOException e) {
             // The connection is going away; close it so its own afterConnectionClosed
             // callback removes it from `sessions` the same way any other close does.
+            log.debug("Broadcast send failed; closing session {}", session.getId(), e);
             try {
                 session.close(CloseStatus.SERVER_ERROR);
             } catch (IOException ignored) {
-                // Already gone — nothing productive to do with this failure here.
+                // silent: already gone — nothing productive to do with this failure here.
             }
         }
     }

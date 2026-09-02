@@ -29,9 +29,12 @@ public class JdkUsageHttpClient implements UsageHttpClient {
             }
             return Optional.of(response.body());
         } catch (IOException e) {
+            // silent: a network hiccup against a best-effort usage endpoint degrades
+            // to unavailable, never a broken sidebar (see the providers' own doc).
             return Optional.empty();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            // silent: same as above.
             return Optional.empty();
         }
     }

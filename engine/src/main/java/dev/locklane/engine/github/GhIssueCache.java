@@ -1,5 +1,8 @@
 package dev.locklane.engine.github;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -16,6 +19,8 @@ import java.util.regex.Pattern;
  * {@code ProjectGhResources}, not a Spring-managed singleton itself.
  */
 public class GhIssueCache {
+
+    private static final Logger log = LoggerFactory.getLogger(GhIssueCache.class);
 
     // Task branches are wip/<id>-<slug> (AGENTS.md) — the same convention /t-work
     // uses to derive a branch name from an issue.
@@ -49,6 +54,7 @@ public class GhIssueCache {
             // Keep serving whatever is already cached; the next scheduled attempt
             // may succeed. A cache that was never populated stays null here, and
             // the accessors below fall back to a live fetch.
+            log.warn("Issue/PR refresh failed; continuing to serve the previously cached data", e);
             return false;
         }
     }
@@ -69,6 +75,7 @@ public class GhIssueCache {
             cachedIssues.set(fresh);
             return fresh;
         } catch (GhClient.GhUnavailableException e) {
+            log.warn("Live issue fetch failed with a cold cache; reporting no issues", e);
             return List.of();
         }
     }
@@ -88,6 +95,7 @@ public class GhIssueCache {
             cachedPullRequests.set(fresh);
             return fresh;
         } catch (GhClient.GhUnavailableException e) {
+            log.warn("Live PR fetch failed with a cold cache; reporting no PRs", e);
             return List.of();
         }
     }

@@ -54,7 +54,7 @@ public class EncryptionKeyProvider {
         try {
             Files.setPosixFilePermissions(keyFile, OWNER_ONLY);
         } catch (UnsupportedOperationException | IOException e) {
-            // Best effort: not every filesystem supports POSIX permissions.
+            // silent: best effort — not every filesystem supports POSIX permissions.
         }
     }
 }

@@ -1,5 +1,8 @@
 package dev.locklane.engine.github;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -16,6 +19,8 @@ import java.util.regex.Pattern;
  * own docs/tasks/, if any, would live), not a Spring-managed singleton itself.
  */
 public class IssueDetailService {
+
+    private static final Logger log = LoggerFactory.getLogger(IssueDetailService.class);
 
     // A real "## Plan" is a heading /t-plan writes at the start of a line — matching
     // it as a bare substring is a false positive waiting to happen: issue #16's own
@@ -84,6 +89,7 @@ public class IssueDetailService {
                 }
             }
         } catch (IOException e) {
+            log.warn("Could not scan {} for issue {}'s task record", tasks, number, e);
             return Optional.empty();
         }
         return Optional.empty();

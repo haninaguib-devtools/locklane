@@ -302,6 +302,9 @@ public class ConsoleSessionTitles {
                 return null;
             }
             if (process.exitValue() != 0) {
+                // Standard error is discarded above (see this method's own doc on why),
+                // so only the exit code is available to log here.
+                log.debug("'{}' exited {} in {}", String.join(" ", command), process.exitValue(), workingDirectory);
                 return null;
             }
             // The process has exited, so its output is complete and the reader is
@@ -310,11 +313,12 @@ public class ConsoleSessionTitles {
         } catch (IOException | ExecutionException | TimeoutException | RuntimeException e) {
             // Not installed, not runnable here, or it produced nothing usable.
             // Ordinary, not a fault.
-            log.debug("Could not run '{}' in {}: {}", String.join(" ", command), workingDirectory, e.toString());
+            log.debug("Could not run '{}' in {}", String.join(" ", command), workingDirectory, e);
             destroyQuietly(process);
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            // silent: same as above — ordinary, not a fault.
             destroyQuietly(process);
             return null;
         }
@@ -351,7 +355,7 @@ public class ConsoleSessionTitles {
             }
             return Files.lines(file, StandardCharsets.UTF_8);
         } catch (IOException | RuntimeException e) {
-            log.debug("Could not read {}: {}", file, e.toString());
+            log.debug("Could not read {}", file, e);
             return null;
         }
     }
@@ -361,6 +365,8 @@ public class ConsoleSessionTitles {
         try {
             return json.readTree(text);
         } catch (IOException e) {
+            // silent: a partly-written line, or output this class doesn't recognize —
+            // "no title" is the correct, documented answer, not a fault.
             return null;
         }
     }

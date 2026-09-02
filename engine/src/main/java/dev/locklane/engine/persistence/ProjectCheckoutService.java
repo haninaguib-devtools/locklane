@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.process.ProcessOutcome;
 import dev.locklane.engine.security.TokenCipher;
 import dev.locklane.engine.template.ProjectTemplate;
 import org.slf4j.Logger;
@@ -310,25 +311,33 @@ public class ProjectCheckoutService {
     }
 
     private void clone(ProjectRecord project, Optional<String> githubLogin) {
+        log.info("Importing project {} from {} acting as gh login {}", project.id(), project.gitUrl(),
+                githubLogin.orElse("default"));
         try {
             if (githubLogin.isPresent() && storeTokenForLogin(project, githubLogin.get()).isEmpty()) {
                 return;
             }
             Files.createDirectories(project.workareaPath().getParent());
-            ProcessResult cloneResult = run("git", "clone", project.gitUrl(), project.workareaPath().toString());
-            if (cloneResult.exitCode() != 0) {
+            ProcessOutcome cloneResult = run("git", "clone", project.gitUrl(), project.workareaPath().toString());
+            if (cloneResult.failed()) {
+                log.warn("git clone failed for project {} from {}: {}", project.id(), project.gitUrl(),
+                        cloneResult.describe());
                 repository.markFailed(project.id());
                 return;
             }
-            ProcessResult branchResult =
+            ProcessOutcome branchResult =
                     run("git", "-C", project.workareaPath().toString(), "branch", "--show-current");
             String branch = branchResult.stdout().strip();
-            if (branchResult.exitCode() != 0 || branch.isBlank()) {
+            if (branchResult.failed() || branch.isBlank()) {
+                log.warn("Could not determine the default branch for project {} after clone: {}", project.id(),
+                        branchResult.describe());
                 repository.markFailed(project.id());
                 return;
             }
             repository.markReady(project.id(), branch);
+            log.info("Project {} ready on branch {}", project.id(), branch);
         } catch (RuntimeException | IOException e) {
+            log.error("Import failed for project {} from {}", project.id(), project.gitUrl(), e);
             repository.markFailed(project.id());
         }
     }
@@ -348,6 +357,8 @@ public class ProjectCheckoutService {
     void createRepoAndPush(ProjectRecord project, String org, boolean bootstrapTWorkflow,
             Optional<String> githubLogin, Optional<ProjectTemplate> template) {
         String repoSpec = org + "/" + project.name();
+        log.info("Creating project {} as {} acting as gh login {}", project.id(), repoSpec,
+                githubLogin.orElse("default"));
         try {
             // With a chosen account (#532), gh acts as it through GH_TOKEN in the
             // environment (never on the command line) -- the host's active account is
@@ -368,10 +379,10 @@ public class ProjectCheckoutService {
                 repository.markFailed(project.id());
                 return;
             }
-            ProcessResult createResult = run(null, ghEnv, ghExecutable, "repo", "create", repoSpec, "--private");
-            if (createResult.exitCode() != 0) {
+            ProcessOutcome createResult = run(null, ghEnv, ghExecutable, "repo", "create", repoSpec, "--private");
+            if (createResult.failed()) {
                 log.warn("gh repo create {} failed for project {} (exit {}): {}", repoSpec, project.id(),
-                        createResult.exitCode(), createResult.stderr().strip());
+                        createResult.exitCode(), createResult.describe());
                 repository.markFailed(project.id());
                 return;
             }
@@ -429,11 +440,11 @@ public class ProjectCheckoutService {
             Files.createDirectories(workarea.getParent());
             Path scratch = Files.createTempDirectory(workarea.getParent(), ".bootstrap-" + project.id() + "-");
             try {
-                ProcessResult install = run(scratch, BOOTSTRAP_GIT_IDENTITY, "bash", "-c", installCommand,
+                ProcessOutcome install = run(scratch, BOOTSTRAP_GIT_IDENTITY, "bash", "-c", installCommand,
                         "install-t-workflow", T_WORKFLOW_INSTALL_URL, project.name());
-                if (install.exitCode() != 0) {
+                if (install.failed()) {
                     log.warn("t-workflow install failed for project {} (exit {}): {}", project.id(),
-                            install.exitCode(), install.stderr().strip());
+                            install.exitCode(), install.describe());
                     repository.markFailed(project.id());
                     return;
                 }
@@ -453,10 +464,18 @@ public class ProjectCheckoutService {
                 // own (the installer ran under BOOTSTRAP_GIT_IDENTITY), so this commit
                 // runs under the same environment for the same reason.
                 Files.writeString(workarea.resolve(TEMPLATE_FILE), template.get().body(), StandardCharsets.UTF_8);
-                if (run(workarea, BOOTSTRAP_GIT_IDENTITY, "git", "add", TEMPLATE_FILE).exitCode() != 0
-                        || run(workarea, BOOTSTRAP_GIT_IDENTITY, "git", "commit", "-m", TEMPLATE_COMMIT_SUBJECT)
-                                .exitCode() != 0) {
-                    log.warn("Committing {} failed for project {}", TEMPLATE_FILE, project.id());
+                ProcessOutcome addResult = run(workarea, BOOTSTRAP_GIT_IDENTITY, "git", "add", TEMPLATE_FILE);
+                if (addResult.failed()) {
+                    log.warn("`git add {}` failed for project {}: {}", TEMPLATE_FILE, project.id(),
+                            addResult.describe());
+                    repository.markFailed(project.id());
+                    return;
+                }
+                ProcessOutcome commitResult =
+                        run(workarea, BOOTSTRAP_GIT_IDENTITY, "git", "commit", "-m", TEMPLATE_COMMIT_SUBJECT);
+                if (commitResult.failed()) {
+                    log.warn("Committing {} failed for project {}: {}", TEMPLATE_FILE, project.id(),
+                            commitResult.describe());
                     repository.markFailed(project.id());
                     return;
                 }
@@ -470,22 +489,52 @@ public class ProjectCheckoutService {
             // Nothing guarantees the host's git has a global user.email/user.name
             // configured -- this is the first place the engine ever runs `git commit`
             // itself, so it sets its own local identity rather than assume one.
-            if (run(workarea, "git", "init").exitCode() != 0
-                    || run(workarea, "git", "config", "user.email", "locklane@local").exitCode() != 0
-                    || run(workarea, "git", "config", "user.name", "locklane").exitCode() != 0
-                    || run(workarea, "git", "add", "README.md").exitCode() != 0
-                    || (template.isPresent() && run(workarea, "git", "add", TEMPLATE_FILE).exitCode() != 0)
-                    || run(workarea, "git", "commit", "-m", "Initial commit").exitCode() != 0) {
-                log.warn("Local git init/commit failed for project {}", project.id());
+            ProcessOutcome initResult = run(workarea, "git", "init");
+            if (initResult.failed()) {
+                log.warn("`git init` failed for project {}: {}", project.id(), initResult.describe());
+                repository.markFailed(project.id());
+                return;
+            }
+            ProcessOutcome emailResult = run(workarea, "git", "config", "user.email", "locklane@local");
+            if (emailResult.failed()) {
+                log.warn("`git config user.email` failed for project {}: {}", project.id(), emailResult.describe());
+                repository.markFailed(project.id());
+                return;
+            }
+            ProcessOutcome nameResult = run(workarea, "git", "config", "user.name", "locklane");
+            if (nameResult.failed()) {
+                log.warn("`git config user.name` failed for project {}: {}", project.id(), nameResult.describe());
+                repository.markFailed(project.id());
+                return;
+            }
+            ProcessOutcome addReadmeResult = run(workarea, "git", "add", "README.md");
+            if (addReadmeResult.failed()) {
+                log.warn("`git add README.md` failed for project {}: {}", project.id(), addReadmeResult.describe());
+                repository.markFailed(project.id());
+                return;
+            }
+            if (template.isPresent()) {
+                ProcessOutcome addTemplateResult = run(workarea, "git", "add", TEMPLATE_FILE);
+                if (addTemplateResult.failed()) {
+                    log.warn("`git add {}` failed for project {}: {}", TEMPLATE_FILE, project.id(),
+                            addTemplateResult.describe());
+                    repository.markFailed(project.id());
+                    return;
+                }
+            }
+            ProcessOutcome commitResult = run(workarea, "git", "commit", "-m", "Initial commit");
+            if (commitResult.failed()) {
+                log.warn("`git commit` failed for project {}: {}", project.id(), commitResult.describe());
                 repository.markFailed(project.id());
                 return;
             }
         }
 
-        ProcessResult branchResult = run(workarea, "git", "branch", "--show-current");
+        ProcessOutcome branchResult = run(workarea, "git", "branch", "--show-current");
         String branch = branchResult.stdout().strip();
         if (branchResult.exitCode() != 0 || branch.isBlank()) {
-            log.warn("Could not determine the default branch for project {}", project.id());
+            log.warn("Could not determine the default branch for project {}: {}", project.id(),
+                    branchResult.describe());
             repository.markFailed(project.id());
             return;
         }
@@ -503,21 +552,22 @@ public class ProjectCheckoutService {
             remoteUrl = "https://x-access-token:" + token.get() + "@" + remoteUrl.substring("https://".length());
         }
 
-        ProcessResult remoteAddResult = run(workarea, "git", "remote", "add", "origin", remoteUrl);
+        ProcessOutcome remoteAddResult = run(workarea, "git", "remote", "add", "origin", remoteUrl);
         if (remoteAddResult.exitCode() != 0) {
             log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(),
-                    describe(remoteAddResult));
+                    remoteAddResult.describe());
             repository.markFailed(project.id());
             return;
         }
-        ProcessResult pushResult = run(workarea, pushEnv, "git", "push", "-u", "origin", branch);
+        ProcessOutcome pushResult = run(workarea, pushEnv, "git", "push", "-u", "origin", branch);
         if (pushResult.exitCode() != 0) {
-            log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(), describe(pushResult));
+            log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(), pushResult.describe());
             repository.markFailed(project.id());
             return;
         }
 
         repository.markReady(project.id(), branch);
+        log.info("Project {} ready on branch {}", project.id(), branch);
     }
 
     /**
@@ -571,12 +621,15 @@ public class ProjectCheckoutService {
      */
     private static Optional<Set<String>> ghTokenScopes(String token) {
         try {
-            ProcessResult result = run(null, Map.of("GH_TOKEN", token), "gh", "api", "-i", "user");
+            ProcessOutcome result = run(null, Map.of("GH_TOKEN", token), "gh", "api", "-i", "user");
             if (result.exitCode() != 0) {
                 return Optional.empty();
             }
             return parseOauthScopes(result.stdout());
         } catch (ProjectCheckoutException e) {
+            // silent: an unknown scope list is exactly the "cannot be determined" case
+            // tokenCanPushWorkflows already logs at INFO and fails open on — logging
+            // again here would double up on the same failure.
             return Optional.empty();
         }
     }
@@ -616,7 +669,7 @@ public class ProjectCheckoutService {
      * there is nothing to clean up. The token itself never reaches a log line.
      */
     private Optional<String> storeTokenForLogin(ProjectRecord project, String login) {
-        ProcessResult result;
+        ProcessOutcome result;
         try {
             result = run(ghExecutable, "auth", "token", "--user", login);
         } catch (ProjectCheckoutException e) {
@@ -659,28 +712,18 @@ public class ProjectCheckoutService {
     /** The token behind {@code gh}'s own logged-in identity, or empty if there isn't one. */
     private static Optional<String> ghAuthToken() {
         try {
-            ProcessResult result = run("gh", "auth", "token");
+            ProcessOutcome result = run("gh", "auth", "token");
             if (result.exitCode() != 0) {
                 return Optional.empty();
             }
             String token = result.stdout().strip();
             return token.isEmpty() ? Optional.empty() : Optional.of(token);
         } catch (ProjectCheckoutException e) {
+            // silent: no ambient gh session is exactly the "No GitHub credentials"
+            // case setUpLocalRepoAndPush already logs a clear WARN for once this
+            // returns empty.
             return Optional.empty();
         }
-    }
-
-    /** Both streams of a failed command, for a log line that can actually explain why (#505). */
-    private static String describe(ProcessResult result) {
-        String out = result.stdout().strip();
-        String err = result.stderr().strip();
-        if (out.isEmpty()) {
-            return err;
-        }
-        if (err.isEmpty()) {
-            return out;
-        }
-        return out + " | " + err;
     }
 
     private Path uniqueWorkareaPath(long ownerUserId, String slug) {
@@ -702,11 +745,12 @@ public class ProjectCheckoutService {
                 try {
                     Files.delete(p);
                 } catch (IOException ignored) {
-                    // Best-effort cleanup — a leftover file here doesn't block anything.
+                    // silent: best-effort cleanup — a leftover file here doesn't block
+                    // anything.
                 }
             });
         } catch (IOException ignored) {
-            // Same: cleanup is best-effort.
+            // silent: same — cleanup is best-effort.
         }
     }
 
@@ -725,17 +769,17 @@ public class ProjectCheckoutService {
         return trimmed.isEmpty() ? "project" : trimmed;
     }
 
-    private static ProcessResult run(String... command) {
+    private static ProcessOutcome run(String... command) {
         return run(null, command);
     }
 
     /** Same as {@link #run(String...)}, run in {@code cwd} instead of the engine's own working directory. */
-    private static ProcessResult run(Path cwd, String... command) {
+    private static ProcessOutcome run(Path cwd, String... command) {
         return run(cwd, Map.of(), command);
     }
 
     /** Same as {@link #run(Path, String...)}, with {@code env} added to the child's environment. */
-    private static ProcessResult run(Path cwd, Map<String, String> env, String... command) {
+    private static ProcessOutcome run(Path cwd, Map<String, String> env, String... command) {
         try {
             ProcessBuilder builder = new ProcessBuilder(command);
             if (cwd != null) {
@@ -746,16 +790,13 @@ public class ProjectCheckoutService {
             String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             String err = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
             int exit = process.waitFor();
-            return new ProcessResult(exit, out, err);
+            return new ProcessOutcome(exit, out, err);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ProjectCheckoutException("Interrupted while running " + command[0], e);
         } catch (IOException e) {
             throw new ProjectCheckoutException("Could not run " + command[0] + " — is it installed and on PATH?", e);
         }
-    }
-
-    private record ProcessResult(int exitCode, String stdout, String stderr) {
     }
 
     public static class ProjectCheckoutException extends RuntimeException {

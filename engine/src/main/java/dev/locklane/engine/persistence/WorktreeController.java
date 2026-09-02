@@ -1,5 +1,8 @@
 package dev.locklane.engine.persistence;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -27,6 +30,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/projects/{projectId}/issues")
 public class WorktreeController {
+
+    private static final Logger log = LoggerFactory.getLogger(WorktreeController.class);
 
     private final IssueWorktreeService service;
     private final WorktreeCreationService creationService;
@@ -133,7 +138,9 @@ public class WorktreeController {
     }
 
     @ExceptionHandler(WorktreeCreationService.WorktreeCreationException.class)
-    public ResponseEntity<Map<String, String>> onCreationFailure(WorktreeCreationService.WorktreeCreationException e) {
+    public ResponseEntity<Map<String, String>> onCreationFailure(WorktreeCreationService.WorktreeCreationException e,
+            HttpServletRequest request) {
+        log.error("Worktree creation failed on {} {}", request.getMethod(), request.getRequestURI(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
     }
 }

@@ -1,6 +1,8 @@
 package dev.locklane.engine.persistence;
 
 import dev.locklane.engine.pty.SessionRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +19,8 @@ import java.util.Optional;
  */
 @Service
 public class FileManagerLauncher {
+
+    private static final Logger log = LoggerFactory.getLogger(FileManagerLauncher.class);
 
     /** Spawns a subprocess — injected so a test can assert on the command without spawning one. */
     interface ProcessRunner {
@@ -51,6 +55,7 @@ public class FileManagerLauncher {
         try {
             processRunner.run(revealCommand(System.getProperty("os.name", ""), workingDirectory.get()));
         } catch (IOException e) {
+            log.warn("Could not launch the file manager for console {} at {}", consoleId, workingDirectory.get(), e);
             throw new FileManagerLaunchException(e);
         }
         return true;

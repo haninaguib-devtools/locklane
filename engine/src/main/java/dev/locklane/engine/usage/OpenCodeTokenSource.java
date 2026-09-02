@@ -43,6 +43,8 @@ public class OpenCodeTokenSource {
                     ? Optional.of(new OpenCodeCredentials(access.asText()))
                     : Optional.empty();
         } catch (IOException e) {
+            // silent: malformed/unexpected JSON reads as "no credentials" — same
+            // non-goal as ClaudeTokenSource/CodexTokenSource.
             return Optional.empty();
         }
     }

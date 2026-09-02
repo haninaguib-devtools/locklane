@@ -2,6 +2,9 @@ package dev.locklane.engine.persistence;
 
 import dev.locklane.engine.github.GhIssue;
 import dev.locklane.engine.github.ProjectGhResources;
+import dev.locklane.engine.process.ProcessOutcome;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -37,6 +40,7 @@ import java.util.regex.Pattern;
 @Service
 public class WorktreeCreationService {
 
+    private static final Logger log = LoggerFactory.getLogger(WorktreeCreationService.class);
     private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
     private static final int MAX_SLUG_LENGTH = 40;
 
@@ -216,14 +220,15 @@ public class WorktreeCreationService {
                 || run("git", "-C", projectRoot.toString(), "rev-parse", "--verify", "--quiet", "origin/" + branch)
                         .exitCode() == 0;
 
-        ProcessResult result = branchExists
+        ProcessOutcome result = branchExists
                 ? run("git", "-C", projectRoot.toString(), "worktree", "add", worktreePath.toString(), branch)
                 : run("git", "-C", projectRoot.toString(), "worktree", "add", "-b", branch,
                         worktreePath.toString(), "origin/main");
 
-        if (result.exitCode() != 0) {
+        if (result.failed()) {
+            log.warn("git worktree add failed for branch '{}' at {}: {}", branch, worktreePath, result.describe());
             throw new WorktreeCreationException(
-                    "git worktree add failed for branch '" + branch + "': " + result.stderr().strip());
+                    "git worktree add failed for branch '" + branch + "': " + result.describe());
         }
     }
 
@@ -250,14 +255,16 @@ public class WorktreeCreationService {
         }
 
         Optional<String> branch = existingBranch(issueNumber, projectRoot);
-        ProcessResult result = branch.isPresent()
+        ProcessOutcome result = branch.isPresent()
                 ? run("git", "-C", projectRoot.toString(), "worktree", "add", worktreePath.toString(), branch.get())
                 : run("git", "-C", projectRoot.toString(), "worktree", "add", "--detach", worktreePath.toString(),
                         "origin/main");
 
-        if (result.exitCode() != 0) {
+        if (result.failed()) {
+            log.warn("git worktree add failed for issue #{} at {}: {}", issueNumber, worktreePath,
+                    result.describe());
             throw new WorktreeCreationException(
-                    "git worktree add failed for issue #" + issueNumber + ": " + result.stderr().strip());
+                    "git worktree add failed for issue #" + issueNumber + ": " + result.describe());
         }
     }
 
@@ -279,7 +286,7 @@ public class WorktreeCreationService {
     }
 
     private static Optional<String> firstMatchingRef(Path projectRoot, String pattern) {
-        ProcessResult result =
+        ProcessOutcome result =
                 run("git", "-C", projectRoot.toString(), "for-each-ref", "--format=%(refname:short)", pattern);
         return result.stdout().lines().map(String::strip).filter(line -> !line.isEmpty()).findFirst();
     }
@@ -321,12 +328,13 @@ public class WorktreeCreationService {
     static void createDetachedWorktree(Path worktreePath, Path projectRoot) {
         run("git", "-C", projectRoot.toString(), "fetch", "--prune", "origin");
 
-        ProcessResult result = run("git", "-C", projectRoot.toString(), "worktree", "add", "--detach",
+        ProcessOutcome result = run("git", "-C", projectRoot.toString(), "worktree", "add", "--detach",
                 worktreePath.toString(), "origin/main");
 
-        if (result.exitCode() != 0) {
+        if (result.failed()) {
+            log.warn("git worktree add --detach failed at {}: {}", worktreePath, result.describe());
             throw new WorktreeCreationException(
-                    "git worktree add --detach failed: " + result.stderr().strip());
+                    "git worktree add --detach failed: " + result.describe());
         }
     }
 
@@ -345,22 +353,19 @@ public class WorktreeCreationService {
         return truncated.replaceAll("-+$", "");
     }
 
-    private static ProcessResult run(String... command) {
+    private static ProcessOutcome run(String... command) {
         try {
             Process process = new ProcessBuilder(command).start();
             String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             String err = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
             int exit = process.waitFor();
-            return new ProcessResult(exit, out, err);
+            return new ProcessOutcome(exit, out, err);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new WorktreeCreationException("Interrupted while running git", e);
         } catch (IOException e) {
             throw new WorktreeCreationException("Could not run git — is it installed and on PATH?", e);
         }
-    }
-
-    private record ProcessResult(int exitCode, String stdout, String stderr) {
     }
 
     public static class WorktreeCreationException extends RuntimeException {

@@ -92,7 +92,11 @@ public class WorktreeCleanupSweeper {
     @Scheduled(fixedDelayString = "${locklane.worktree-cleanup.interval-ms}",
             initialDelayString = "${locklane.worktree-cleanup.interval-ms}")
     void scheduledSweep() {
-        sweep();
+        try {
+            sweep();
+        } catch (RuntimeException e) {
+            log.error("Scheduled worktree cleanup sweep failed", e);
+        }
     }
 
     /**
@@ -353,6 +357,7 @@ public class WorktreeCleanupSweeper {
             return Optional.empty();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.debug("Interrupted while running '{}' in {}", String.join(" ", command), workingDirectory, e);
             return Optional.empty();
         }
     }

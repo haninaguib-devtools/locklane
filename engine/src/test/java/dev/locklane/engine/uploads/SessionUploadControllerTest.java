@@ -6,6 +6,7 @@ import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.nio.file.Files;
@@ -92,7 +93,7 @@ class SessionUploadControllerTest {
     void theServletContainersOwnSizeRejectionMapsToTheSame413(@TempDir Path dbDir, @TempDir Path uploadsDir) {
         SessionUploadController controller = controller(dbDir, uploadsDir, 4);
 
-        var response = controller.maxUploadSizeExceeded();
+        var response = controller.maxUploadSizeExceeded(new MockHttpServletRequest());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
         assertThat(response.getBody().get("error")).contains("upload limit");

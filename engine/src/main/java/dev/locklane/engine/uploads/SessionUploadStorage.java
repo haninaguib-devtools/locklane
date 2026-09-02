@@ -66,7 +66,7 @@ public class SessionUploadStorage {
                 Files.copy(content, target);
                 return target.toAbsolutePath().normalize();
             } catch (FileAlreadyExistsException e) {
-                // Another upload holds this name; try the next suffix.
+                // silent: another upload holds this name; try the next suffix.
             }
         }
     }

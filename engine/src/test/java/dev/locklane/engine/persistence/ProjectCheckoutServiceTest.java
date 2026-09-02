@@ -91,6 +91,63 @@ class ProjectCheckoutServiceTest {
         assertThat(found.gitUrl()).isEqualTo("/does/not/exist");
     }
 
+    // #546: a failing `git clone` must be diagnosable from the log alone.
+
+    @Test
+    void aFailedCloneLogsAWarnContainingGitsOwnStderr(@TempDir Path tmp) {
+        ProjectCheckoutService service = service(tmp);
+
+        List<ILoggingEvent> events = capturingLogs(() -> service.createProject("/does/not/exist", "broken", 1L));
+
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("git clone failed")
+                    .containsIgnoringCase("does/not/exist");
+        });
+    }
+
+    @Test
+    void anExceptionDuringImportLogsWithTheExceptionAttached(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        ProjectCheckoutService service = service(tmp);
+        // The workarea's own parent is reserved as a plain file, so
+        // Files.createDirectories(project.workareaPath().getParent()) throws IOException
+        // instead of the clone ever running -- clone()'s own catch block is what must
+        // log this, not any WARN further down the happy path.
+        Path ownerRoot = tmp.resolve("workarea").resolve("1");
+        Files.createDirectories(ownerRoot.getParent());
+        Files.writeString(ownerRoot, "not a directory");
+
+        List<ILoggingEvent> events =
+                capturingLogs(() -> service.createProject(origin.toString(), "blocked", 1L));
+
+        ProjectRecord found = repositoryOver(tmp).findAll().stream()
+                .filter(p -> p.name().equals("blocked")).findFirst().orElseThrow();
+        assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(event.getThrowableProxy()).isNotNull();
+        });
+    }
+
+    @Test
+    void aSuccessfulImportLogsTheStartAndReadyInfoLines(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "trunk");
+        ProjectCheckoutService service = service(tmp);
+
+        List<ILoggingEvent> events = capturingLogs(() -> service.createProject(origin.toString(), "myproj", 1L));
+
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.INFO);
+            assertThat(event.getFormattedMessage()).contains("Importing project").contains(origin.toString())
+                    .contains("default");
+        });
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.INFO);
+            assertThat(event.getFormattedMessage()).contains("ready on branch").contains("trunk");
+        });
+    }
+
     @Test
     void aNameCollisionGetsANumericSuffix(@TempDir Path tmp) throws Exception {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");
@@ -499,6 +556,30 @@ class ProjectCheckoutServiceTest {
         ProjectRecord found = repository.findById(project.id()).orElseThrow();
         assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
         assertThat(found.gitUrl()).isEqualTo("https://127.0.0.1:1/org/token-project.git");
+    }
+
+    // #546: the token embedded in the push URL above must never reach a log line,
+    // even on a failing push that used one.
+
+    @Test
+    void aFailingPushWithAStoredTokenNeverLogsTheTokenItself(@TempDir Path tmp) throws Exception {
+        ProjectCheckoutService service = service(tmp);
+        ProjectRepository repository = repositoryOver(tmp);
+        Path workarea = tmp.resolve("workarea").resolve("1").resolve("token-project");
+        ProjectRecord project = repository.create(
+                "token-project", "https://127.0.0.1:1/org/token-project.git", workarea, 1L, Instant.now());
+        repository.setGithubToken(project.id(), tokenCipher(tmp).encrypt("secret-token"));
+
+        List<ILoggingEvent> events = capturingLogs(() -> {
+            try {
+                service.setUpLocalRepoAndPush(project, false);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
+
+        assertThat(events).isNotEmpty();
+        assertThat(events).noneSatisfy(event -> assertThat(event.getFormattedMessage()).contains("secret-token"));
     }
 
     // #513: with no per-project token stored yet (a freshly created project), the push
