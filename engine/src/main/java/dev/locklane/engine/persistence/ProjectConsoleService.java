@@ -430,17 +430,30 @@ public class ProjectConsoleService {
      * resolves to empty: {@code gh} then falls back to whatever ambient session the
      * host has, exactly as it does for project issue/PR fetches with no account
      * chosen.
+     *
+     * <p>Since #572 the same token also reaches plain {@code git} in the session: for
+     * an HTTPS remote, {@link GitCredential#sessionEnvironment()} adds the inline
+     * credential-helper config variables next to {@code GH_TOKEN}, so {@code git
+     * fetch}/{@code push} act as the project's account too. An SSH remote gets
+     * {@code GH_TOKEN} alone, and keeps the host's key handling for git.
      */
     public Map<String, String> environmentFor(String sessionId) {
         Long projectId = projectIdFor(sessionId);
         if (projectId == null) {
             return Map.of();
         }
-        return projectRepository.findGithubAccountId(projectId)
+        Optional<String> token = projectRepository.findGithubAccountId(projectId)
                 .flatMap(ghAccountRepository::findEncryptedToken)
-                .map(tokenCipher::decrypt)
-                .map(token -> Map.of("GH_TOKEN", token))
-                .orElse(Map.of());
+                .map(tokenCipher::decrypt);
+        if (token.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> environment = new LinkedHashMap<>();
+        environment.put("GH_TOKEN", token.get());
+        projectRepository.findById(projectId)
+                .map(project -> GitCredential.forRemote(project.gitUrl(), token).sessionEnvironment())
+                .ifPresent(environment::putAll);
+        return Map.copyOf(environment);
     }
 
     /** The project's token for the {@code git fetch} a console worktree's creation starts with (#569). */

@@ -3,6 +3,7 @@ package dev.locklane.engine.persistence;
 import dev.locklane.engine.security.TokenCipher;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,6 +33,9 @@ public record GitCredential(List<String> configArguments, Map<String, String> en
     /** The helper script #551 introduced: username {@code x-access-token}, password from {@code GH_TOKEN}. */
     public static final String HELPER_SCRIPT = "!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f";
 
+    /** The git config key the helper is installed under — inline per command, or via {@link #sessionEnvironment()}. */
+    public static final String HELPER_KEY = "credential.helper";
+
     /** Plain git: no config override, nothing added to the environment. */
     public static final GitCredential NONE = new GitCredential(List.of(), Map.of());
 
@@ -49,7 +53,7 @@ public record GitCredential(List<String> configArguments, Map<String, String> en
         if (!isHttps(remoteUrl) || token.isEmpty() || token.get().isBlank()) {
             return NONE;
         }
-        return new GitCredential(List.of("-c", "credential.helper=" + HELPER_SCRIPT), Map.of("GH_TOKEN", token.get()));
+        return new GitCredential(List.of("-c", HELPER_KEY + "=" + HELPER_SCRIPT), Map.of("GH_TOKEN", token.get()));
     }
 
     /**
@@ -77,6 +81,26 @@ public record GitCredential(List<String> configArguments, Map<String, String> en
     /** Whether this credential actually injects anything — false for {@link #NONE}. */
     public boolean present() {
         return !environment.isEmpty();
+    }
+
+    /**
+     * The same credential expressed for an interactive session's environment (#572):
+     * {@link #environment()} plus git's {@code GIT_CONFIG_COUNT}/{@code GIT_CONFIG_KEY_0}/
+     * {@code GIT_CONFIG_VALUE_0} triple installing the inline helper, so every plain
+     * {@code git} a shell (or an agent inside it) runs against an HTTPS remote
+     * authenticates as the project's account without a host credential helper or SSH
+     * key, and without anything written into {@code .git/config}. Empty for
+     * {@link #NONE}: an SSH remote or a missing token adds nothing.
+     */
+    public Map<String, String> sessionEnvironment() {
+        if (!present()) {
+            return Map.of();
+        }
+        Map<String, String> session = new LinkedHashMap<>(environment);
+        session.put("GIT_CONFIG_COUNT", "1");
+        session.put("GIT_CONFIG_KEY_0", HELPER_KEY);
+        session.put("GIT_CONFIG_VALUE_0", HELPER_SCRIPT);
+        return Map.copyOf(session);
     }
 
     /**

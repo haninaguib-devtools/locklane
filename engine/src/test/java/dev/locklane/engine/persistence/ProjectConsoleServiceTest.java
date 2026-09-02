@@ -477,6 +477,61 @@ class ProjectConsoleServiceTest {
         assertThat(service.environmentFor(projectId + "-174-rename-toggle")).isEmpty();
     }
 
+    // #572: plain git inside a session authenticates as the project's account too --
+    // for an HTTPS remote only, through the shared GitCredential helper.
+
+    @Test
+    void environmentForAnHttpsProjectAddsTheGitCredentialHelperNextToTheToken(@TempDir Path dbDir) throws IOException {
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository.createReady("proj", "https://github.com/org/proj.git", dbDir.resolve("work"),
+                "main", 1L, Instant.now()).id();
+        ProjectConsoleService service = serviceWithToken(dbDir, projectRepository, "ghp_https_token");
+
+        Map<String, String> environment = service.environmentFor(projectId + "-console-0a1b2c3d");
+
+        assertThat(environment).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "GH_TOKEN", "ghp_https_token",
+                "GIT_CONFIG_COUNT", "1",
+                "GIT_CONFIG_KEY_0", GitCredential.HELPER_KEY,
+                "GIT_CONFIG_VALUE_0", GitCredential.HELPER_SCRIPT));
+        assertThat(service.environmentFor(projectId + "-174-rename-toggle")).isEqualTo(environment);
+    }
+
+    @Test
+    void environmentForAnSshProjectCarriesOnlyTheToken(@TempDir Path dbDir) throws IOException {
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository.createReady("proj", "git@github.com:org/proj.git", dbDir.resolve("work"),
+                "main", 1L, Instant.now()).id();
+        ProjectConsoleService service = serviceWithToken(dbDir, projectRepository, "ghp_ssh_token");
+
+        assertThat(service.environmentFor(projectId + "-console-0a1b2c3d")).isEqualTo(Map.of("GH_TOKEN", "ghp_ssh_token"));
+        assertThat(service.environmentFor(projectId + "-174-rename-toggle")).isEqualTo(Map.of("GH_TOKEN", "ghp_ssh_token"));
+    }
+
+    @Test
+    void environmentForAnHttpsProjectWithNoStoredTokenHasNoGitCredentialVariables(@TempDir Path dbDir) {
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        long projectId = projectRepository.createReady("proj", "https://github.com/org/proj.git", dbDir.resolve("work"),
+                "main", 1L, Instant.now()).id();
+        ProjectConsoleService service = service(dbDir, projectRepository);
+
+        assertThat(service.environmentFor(projectId + "-console-0a1b2c3d")).isEmpty();
+    }
+
+    private ProjectConsoleService serviceWithToken(Path dbDir, ProjectRepository projectRepository, String token)
+            throws IOException {
+        TokenCipher tokenCipher = tokenCipher(dbDir);
+        GhAccountRepository ghAccountRepository = TestSqliteDatabases.newGhAccountRepository(dbDir);
+        dev.locklane.engine.github.GhAccount account = ghAccountRepository.insert(1L, "work",
+                tokenCipher.encrypt(token), java.util.Set.of("repo"), Instant.now());
+        projectRepository.setGithubAccountId(projectRepository.findAll().get(0).id(), account.id());
+        WorktreeSessionRepository sessionRepository = TestSqliteDatabases.newRepository(dbDir);
+        return new ProjectConsoleService(projectRepository, ghAccountRepository, tokenCipher,
+                new SessionRegistry(sessionRepository), sessionRepository,
+                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization(dbDir, projectRepository),
+                sweeper(dbDir, sessionRepository, projectRepository));
+    }
+
     // ---- #372: past conversations in a project's own consoles ----
 
     @Test
