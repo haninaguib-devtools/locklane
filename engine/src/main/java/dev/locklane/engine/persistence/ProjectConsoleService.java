@@ -22,8 +22,10 @@ import java.util.regex.Pattern;
  * worktree — a sibling checkout next to the project's own
  * ({@link ProjectCheckoutService}'s workarea), following the same
  * {@code ../<repo-name>-<suffix>} pattern. Since #338 that worktree's HEAD is
- * detached at current {@code origin/main} ({@link
- * WorktreeCreationService#createDetachedWorktree}) rather than sitting on a freshly
+ * detached at the current tip of the project's trunk on origin — its recorded default
+ * branch, {@link WorktreeCreationService#trunkRef}, since #582; a hardcoded
+ * {@code origin/main} before that ({@link
+ * WorktreeCreationService#createDetachedWorktree}) — rather than sitting on a freshly
  * minted {@code console/<suffix>} branch: a console exists for pre-issue discussion
  * and almost never commits, so every one opened left a branch behind permanently. A
  * session that legitimately transitions to task work gets its proper
@@ -112,14 +114,16 @@ public class ProjectConsoleService {
     public Optional<ConsoleSession> start(long projectId) {
         return projectRepository.findById(projectId)
                 .filter(project -> project.status() == ProjectStatus.READY)
-                .map(project -> startWorktreeSession(projectId, project.workareaPath()));
+                .map(project -> startWorktreeSession(projectId, project));
     }
 
-    private ConsoleSession startWorktreeSession(long projectId, Path projectRoot) {
+    private ConsoleSession startWorktreeSession(long projectId, ProjectRecord project) {
+        Path projectRoot = project.workareaPath();
         String suffix = shortId();
         String sessionId = projectId + "-console-" + suffix;
         Path worktreePath = projectRoot.resolveSibling(WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix);
-        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot, gitCredential(projectId));
+        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot,
+                WorktreeCreationService.trunkRef(project), gitCredential(projectId));
         return new ConsoleSession(sessionId, worktreePath.toString());
     }
 
@@ -227,7 +231,8 @@ public class ProjectConsoleService {
         Path projectRoot = project.get().workareaPath();
         Path directory = resolved.get();
         if (!Files.exists(directory)) {
-            WorktreeCreationService.createDetachedWorktree(directory, projectRoot, gitCredential(projectId));
+            WorktreeCreationService.createDetachedWorktree(directory, projectRoot,
+                    WorktreeCreationService.trunkRef(project.get()), gitCredential(projectId));
         }
         return Optional.of(new ConsoleSession(
                 projectId + "-console-" + originalConsoleSuffix(originalSessionId) + "-resume-" + shortId(),

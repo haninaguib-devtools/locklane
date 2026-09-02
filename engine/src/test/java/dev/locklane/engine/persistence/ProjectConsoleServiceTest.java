@@ -77,6 +77,49 @@ class ProjectConsoleServiceTest {
     }
 
     @Test
+    void startingOnAProjectWhoseTrunkIsMasterCreatesTheWorktreeAtOriginMaster(@TempDir Path tmp) throws Exception {
+        // #582: a project created by plain `git init` on a host with no
+        // init.defaultBranch records `master` and has no `main` anywhere. Opening a
+        // console used to run `git worktree add --detach ... origin/main` regardless and
+        // fail with "fatal: invalid reference: origin/main".
+        Path workarea = GitTestRepos.initTestRepo(tmp, "master");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "master", 1L, Instant.now()).id();
+        ProjectConsoleService service = service(tmp, projectRepository);
+
+        ProjectConsoleService.ConsoleSession session = service.start(projectId).get();
+
+        Path worktree = Path.of(session.workingDirectory());
+        assertThat(worktree).isDirectory();
+        assertThat(GitTestRepos.currentBranch(worktree)).isEmpty();
+        assertThat(GitTestRepos.headCommit(worktree)).isEqualTo(GitTestRepos.commitOf(workarea, "origin/master"));
+        assertThat(GitTestRepos.localBranches(workarea)).containsExactly("master");
+    }
+
+    @Test
+    void reopeningAConsoleOnAMasterProjectRecreatesItsGoneWorktreeAtOriginMaster(@TempDir Path tmp)
+            throws Exception {
+        Path workarea = GitTestRepos.initTestRepo(tmp, "master");
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
+        long projectId = projectRepository.createReady("proj", "url", workarea, "master", 1L, Instant.now()).id();
+        ProjectConsoleService service = service(tmp, projectRepository);
+        ProjectConsoleService.ConsoleSession original = service.start(projectId).get();
+        // Removed by hand rather than via close(): the tab-close guard still judges
+        // "landed" against origin/main (split to #583), so on a master project it keeps
+        // the worktree -- the reopen path's recreation is what this test is about.
+        GitTestRepos.run(workarea, "git", "worktree", "remove", original.workingDirectory());
+        assertThat(Path.of(original.workingDirectory())).doesNotExist();
+
+        ProjectConsoleService.ConsoleSession reopened = service.reopenSession(projectId, original.sessionId()).get();
+
+        Path worktree = Path.of(reopened.workingDirectory());
+        assertThat(worktree.toString()).isEqualTo(original.workingDirectory());
+        assertThat(worktree).isDirectory();
+        assertThat(GitTestRepos.currentBranch(worktree)).isEmpty();
+        assertThat(GitTestRepos.headCommit(worktree)).isEqualTo(GitTestRepos.commitOf(workarea, "origin/master"));
+    }
+
+    @Test
     void startingCreatesAFreshSiblingWorktreePerSessionNeverTheSharedCheckout(@TempDir Path tmp) throws Exception {
         Path workarea = GitTestRepos.initTestRepo(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);

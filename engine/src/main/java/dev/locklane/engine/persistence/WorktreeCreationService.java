@@ -29,9 +29,17 @@ import java.util.regex.Pattern;
  * <p>Since #340, opening a console never mints a {@code wip/<id>-<slug>} branch itself:
  * if one already exists for the issue (locally or on origin) it is checked out — work
  * is already in flight there — otherwise the worktree is created detached at the
- * current {@code origin/main}, leaving branch creation to {@code /t-work} once
- * implementation actually starts (see {@link #openIssueWorktree}). A console opened
- * only to discuss or plan an issue therefore leaves no branch behind.
+ * current tip of the project's trunk on origin, leaving branch creation to
+ * {@code /t-work} once implementation actually starts (see {@link #openIssueWorktree}).
+ * A console opened only to discuss or plan an issue therefore leaves no branch behind.
+ *
+ * <p>Since #582 that trunk is the branch the project recorded when its checkout was
+ * set up ({@link ProjectRecord#defaultBranch}, e.g. {@code master} for a repository
+ * whose {@code git init} ran on a host with no {@code init.defaultBranch}), never a
+ * hardcoded {@code main} — see {@link #trunkRef}. Every {@code git worktree add} here
+ * used to name {@code origin/main} literally and failed outright, with
+ * {@code fatal: invalid reference: origin/main}, on any project whose trunk is called
+ * something else.
  *
  * <p>Since #43, the checkout a session is created against is resolved per project
  * (each project's own workarea, from {@link ProjectRepository}) rather than a
@@ -45,6 +53,15 @@ public class WorktreeCreationService {
     private static final Logger log = LoggerFactory.getLogger(WorktreeCreationService.class);
     private static final Pattern NON_ALNUM = Pattern.compile("[^a-z0-9]+");
     private static final int MAX_SLUG_LENGTH = 40;
+
+    /**
+     * The trunk assumed for a project whose record carries no default branch (#582) —
+     * a row still {@link ProjectStatus#CLONING}, or one that predates
+     * {@code ProjectRepository#markReady} recording it. Exactly what every worktree
+     * here was created from before #582, so an existing project behaves as it always
+     * did.
+     */
+    static final String DEFAULT_TRUNK = "main";
 
     private final ProjectGhResources ghResources;
     private final IssueWorktreeService issueWorktreeService;
@@ -125,7 +142,7 @@ public class WorktreeCreationService {
         String slug = slug(issue.get().title());
         String worktreeId = projectId + "-" + issueNumber + "-" + slug;
 
-        openIssueWorktree(issueNumber, worktreePath, projectRoot, credentialFor(projectId));
+        openIssueWorktree(issueNumber, worktreePath, projectRoot, trunkRef(project.get()), credentialFor(projectId));
         return Optional.of(new StartedSession(worktreeId, worktreePath.toString()));
     }
 
@@ -172,7 +189,7 @@ public class WorktreeCreationService {
         if (!Files.exists(worktreePath) && issue(projectId, issueNumber).isEmpty()) {
             return Optional.empty();
         }
-        openIssueWorktree(issueNumber, worktreePath, projectRoot, credentialFor(projectId));
+        openIssueWorktree(issueNumber, worktreePath, projectRoot, trunkRef(project.get()), credentialFor(projectId));
         return Optional.of(new StartedSession(sessionId, worktreePath.toString()));
     }
 
@@ -218,14 +235,34 @@ public class WorktreeCreationService {
     }
 
     /**
+     * The remote-tracking ref every worktree of {@code project} is created from and
+     * refreshed to (#582): {@code origin/<defaultBranch>} — the branch
+     * {@code ProjectCheckoutService} detected and {@code ProjectRepository#markReady}
+     * recorded, so a {@code master} project resolves to {@code origin/master} — or
+     * {@code origin/}{@link #DEFAULT_TRUNK} when the record carries none. Package-visible
+     * so {@link ProjectConsoleService} resolves it the same way.
+     */
+    static String trunkRef(ProjectRecord project) {
+        return trunkRef(project.defaultBranch());
+    }
+
+    /** Same as {@link #trunkRef(ProjectRecord)}, from the recorded branch name itself — {@code null}/blank means {@link #DEFAULT_TRUNK}. */
+    static String trunkRef(String defaultBranch) {
+        String branch = defaultBranch == null || defaultBranch.isBlank() ? DEFAULT_TRUNK : defaultBranch.strip();
+        return "origin/" + branch;
+    }
+
+    /**
      * Runs a real {@code git worktree add} for {@code branch} at {@code worktreePath}
      * inside {@code projectRoot} — package-visible (and static: it touches no
      * instance state) so {@link ProjectConsoleService} (#314) can reuse the exact
      * same git plumbing for a project console's own sibling worktree, rather than
-     * duplicating it. {@code credential} authenticates the initial {@code git fetch}
-     * as the project's account (#569).
+     * duplicating it. A branch that does not exist yet is created from
+     * {@code trunkRef} ({@link #trunkRef}, #582). {@code credential} authenticates the
+     * initial {@code git fetch} as the project's account (#569).
      */
-    static void createWorktree(String branch, Path worktreePath, Path projectRoot, GitCredential credential) {
+    static void createWorktree(String branch, Path worktreePath, Path projectRoot, String trunkRef,
+            GitCredential credential) {
         fetch(projectRoot, credential);
 
         boolean branchExists =
@@ -236,7 +273,7 @@ public class WorktreeCreationService {
         ProcessOutcome result = branchExists
                 ? run("git", "-C", projectRoot.toString(), "worktree", "add", worktreePath.toString(), branch)
                 : run("git", "-C", projectRoot.toString(), "worktree", "add", "-b", branch,
-                        worktreePath.toString(), "origin/main");
+                        worktreePath.toString(), trunkRef);
 
         if (result.failed()) {
             log.warn("git worktree add failed for branch '{}' at {}: {}", branch, worktreePath, result.describe());
@@ -251,19 +288,21 @@ public class WorktreeCreationService {
      * already in flight there — check it out, so naming/branch-creation authority stays
      * with {@code /t-work} rather than being split between it and console-open.
      * Otherwise no branch is minted here at all: the worktree is created detached at
-     * the current {@code origin/main}, so a console opened only to discuss or plan
-     * leaves no machine-made branch behind. When the worktree already exists on disk —
-     * a still-standing checkout from an earlier console — and it is idle (detached,
-     * clean, its {@code HEAD} entirely contained in {@code origin/main}'s history, i.e.
-     * no commits of its own), it is refreshed to the current {@code origin/main} rather
-     * than handed back as stale as the day it was created; a worktree carrying a
-     * branch, dirty state, or its own commits is left untouched.
+     * the current {@code trunkRef} — the project's trunk on origin, {@link #trunkRef}
+     * (#582) — so a console opened only to discuss or plan leaves no machine-made
+     * branch behind. When the worktree already exists on disk — a still-standing
+     * checkout from an earlier console — and it is idle (detached, clean, its
+     * {@code HEAD} entirely contained in {@code trunkRef}'s history, i.e. no commits
+     * of its own), it is refreshed to the current {@code trunkRef} rather than handed
+     * back as stale as the day it was created; a worktree carrying a branch, dirty
+     * state, or its own commits is left untouched.
      */
-    static void openIssueWorktree(int issueNumber, Path worktreePath, Path projectRoot, GitCredential credential) {
+    static void openIssueWorktree(int issueNumber, Path worktreePath, Path projectRoot, String trunkRef,
+            GitCredential credential) {
         fetch(projectRoot, credential);
 
         if (Files.exists(worktreePath)) {
-            refreshIfIdle(worktreePath);
+            refreshIfIdle(worktreePath, trunkRef);
             return;
         }
 
@@ -271,7 +310,7 @@ public class WorktreeCreationService {
         ProcessOutcome result = branch.isPresent()
                 ? run("git", "-C", projectRoot.toString(), "worktree", "add", worktreePath.toString(), branch.get())
                 : run("git", "-C", projectRoot.toString(), "worktree", "add", "--detach", worktreePath.toString(),
-                        "origin/main");
+                        trunkRef);
 
         if (result.failed()) {
             log.warn("git worktree add failed for issue #{} at {}: {}", issueNumber, worktreePath,
@@ -305,12 +344,12 @@ public class WorktreeCreationService {
     }
 
     /**
-     * Fast-forwards {@code worktreePath} to the current {@code origin/main} when it is
+     * Fast-forwards {@code worktreePath} to the current {@code trunkRef} when it is
      * idle — detached, clean, and carrying no commits of its own — leaving it alone
      * otherwise (#340). Best-effort: a failure here never stops the worktree from being
      * handed back, since the checkout itself is already usable as it stands.
      */
-    private static void refreshIfIdle(Path worktreePath) {
+    private static void refreshIfIdle(Path worktreePath, String trunkRef) {
         boolean detached = run("git", "-C", worktreePath.toString(), "symbolic-ref", "-q", "HEAD").exitCode() != 0;
         if (!detached) {
             return;
@@ -320,35 +359,48 @@ public class WorktreeCreationService {
             return;
         }
         boolean noOwnCommits = run("git", "-C", worktreePath.toString(), "merge-base", "--is-ancestor", "HEAD",
-                "origin/main").exitCode() == 0;
+                trunkRef).exitCode() == 0;
         if (!noOwnCommits) {
             return;
         }
-        run("git", "-C", worktreePath.toString(), "checkout", "--detach", "origin/main");
+        run("git", "-C", worktreePath.toString(), "checkout", "--detach", trunkRef);
     }
 
     /**
      * Runs a real {@code git worktree add --detach} for {@code worktreePath} inside
-     * {@code projectRoot}, at current {@code origin/main} — no branch is created or
-     * checked out (#338). Package-visible (and static, like {@link #createWorktree})
-     * so {@link ProjectConsoleService} can reuse it for a project console's sibling
+     * {@code projectRoot}, at current {@code trunkRef} — the project's trunk on origin,
+     * {@link #trunkRef} (#582) — no branch is created or checked out (#338).
+     * Package-visible (and static, like {@link #createWorktree}) so
+     * {@link ProjectConsoleService} can reuse it for a project console's sibling
      * worktree: a console exists for pre-issue discussion and almost never commits,
      * so minting it a branch left one behind on disk permanently for every console
      * ever opened. The worktree still gives full file isolation between sessions; a
      * session that legitimately transitions to task work gets its proper
      * {@code wip/<id>-<slug>} branch from {@code /t-work} at that point instead.
      */
-    static void createDetachedWorktree(Path worktreePath, Path projectRoot, GitCredential credential) {
+    static void createDetachedWorktree(Path worktreePath, Path projectRoot, String trunkRef,
+            GitCredential credential) {
         fetch(projectRoot, credential);
 
         ProcessOutcome result = run("git", "-C", projectRoot.toString(), "worktree", "add", "--detach",
-                worktreePath.toString(), "origin/main");
+                worktreePath.toString(), trunkRef);
 
         if (result.failed()) {
             log.warn("git worktree add --detach failed at {}: {}", worktreePath, result.describe());
             throw new WorktreeCreationException(
                     "git worktree add --detach failed: " + result.describe());
         }
+    }
+
+    /**
+     * {@link #createDetachedWorktree(Path, Path, String, GitCredential)} at
+     * {@code origin/}{@link #DEFAULT_TRUNK}, for a caller with no project record in
+     * hand — the sweeper and worktree-listing test fixtures, which build their repos
+     * on {@code main}. Production callers always have the record and pass
+     * {@link #trunkRef(ProjectRecord)} instead (#582).
+     */
+    static void createDetachedWorktree(Path worktreePath, Path projectRoot, GitCredential credential) {
+        createDetachedWorktree(worktreePath, projectRoot, "origin/" + DEFAULT_TRUNK, credential);
     }
 
     /** Package-visible for the same reason as {@link #createWorktree}: shared with {@link ProjectConsoleService}. */
@@ -372,7 +424,7 @@ public class WorktreeCreationService {
      * — the inline helper plus {@code GH_TOKEN} for an HTTPS remote with a stored
      * token, plain git otherwise. A failed fetch is logged and otherwise tolerated, as
      * it always was: the worktree add that follows still works from whatever
-     * {@code origin/main} the checkout already has.
+     * remote-tracking trunk ref the checkout already has.
      */
     private static void fetch(Path projectRoot, GitCredential credential) {
         ProcessOutcome result = run(credential.environment(),
