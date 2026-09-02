@@ -8,6 +8,18 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.1.10 — 2026-09-01
+
+### Features
+- Bump revision to 0.1.10-SNAPSHOT for next development cycle (#543, #544)
+
+### Fixes
+- Log every error and degraded outcome in the engine, with its cause (#546, #553)
+
+### Other
+- Own GitHub accounts in Locklane instead of the host's gh login and SSH config (#549, #559)
+- Create projects from templates (#535, #548)
+
 ## v0.1.9 — 2026-09-01
 
 ### Features
