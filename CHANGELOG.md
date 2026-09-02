@@ -8,6 +8,13 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.0 — 2026-09-02
+
+### Features
+- Move revision to 0.2.0-SNAPSHOT so v0.2.0 can be cut (#606, #607)
+- Speed up /l-release: skip Maven on docs-only diffs, fold the bump into the notes task, script the mechanical steps (#602, #605)
+- Bump revision to 0.1.14-SNAPSHOT for next development cycle (#603, #604)
+
 ## v0.1.13 — 2026-09-02
 
 ### Features
