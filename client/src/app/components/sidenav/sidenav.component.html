@@ -163,11 +163,6 @@
   }
   </div>
   <app-usage-widget />
-  @if (runningVersion(); as version) {
-    <div class="app-version" title="The locklane version this engine is running">
-      locklane {{ version }}
-    </div>
-  }
 </nav>
 
 <ng-template #rows let-nodes="nodes" let-projectId="projectId">

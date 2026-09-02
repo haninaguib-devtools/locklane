@@ -12,6 +12,7 @@ import { ConsoleIndicatorComponent } from './components/console-indicator/consol
 import { ProjectConsoleComponent } from './components/project-console/project-console.component';
 import { ShellsWindowComponent } from './components/shells-window/shells-window.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
+import { AboutDialogComponent } from './components/about-dialog/about-dialog.component';
 import { AdminUsersComponent } from './components/admin-users/admin-users.component';
 import { GithubAccountsComponent } from './components/github-accounts/github-accounts.component';
 import { AddProjectPopupComponent } from './components/add-project-popup/add-project-popup.component';
@@ -38,6 +39,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     LoginComponent,
     ConsoleIndicatorComponent,
     SettingsDialogComponent,
+    AboutDialogComponent,
     AdminUsersComponent,
     GithubAccountsComponent,
     ProjectConsoleComponent,
@@ -84,6 +86,7 @@ export class AppComponent {
   // them, and the template reads them directly.
   menuOpen = false;
   settingsOpen = false;
+  aboutOpen = false;
   adminUsersOpen = false;
   githubAccountsOpen = false;
 
@@ -214,6 +217,15 @@ export class AppComponent {
 
   closeSettings(): void {
     this.settingsOpen = false;
+  }
+
+  openAbout(): void {
+    this.menuOpen = false;
+    this.aboutOpen = true;
+  }
+
+  closeAbout(): void {
+    this.aboutOpen = false;
   }
 
   openAdminUsers(): void {
