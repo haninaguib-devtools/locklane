@@ -220,16 +220,37 @@ class WorktreeCleanupSweeperTest {
     }
 
     @Test
-    void sweepLeavesAProjectConsoleWorktreeAloneWhoseBranchIsCheckedOut(@TempDir Path tmp) throws Exception {
+    void sweepLeavesAProjectConsoleWorktreeAloneWhoseBranchCarriesUnlandedWork(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
         ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
-        run(console.path(), "git", "checkout", "-b", "wip/1-do-the-thing");
+        checkoutBranchWithRealCommit(console.path(), "wip/1-do-the-thing", "unshipped.txt", "not yet on main");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
         List<String> removed = sweeper.sweep();
 
         assertThat(removed).isEmpty();
         assertThat(console.path()).isDirectory();
+    }
+
+    @Test
+    void sweepRemovesAProjectConsoleWorktreeWhoseBranchHasAlreadyLandedOnOriginMain(@TempDir Path tmp)
+            throws Exception {
+        // #554/ADR-107: the branch's own commit is squash-merged into main under a
+        // different SHA -- git worktrees share the same repo's refs, so squashing
+        // straight onto fx.projectRoot()'s checked-out `main` and pushing simulates
+        // exactly what a real squash-merge PR does, without needing a second clone.
+        Fixture fx = fixture(tmp);
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        checkoutBranchWithRealCommit(console.path(), "wip/529-bump-revision", "revision.txt", "0.1.9-SNAPSHOT");
+        run(fx.projectRoot(), "git", "merge", "--squash", "wip/529-bump-revision");
+        run(fx.projectRoot(), "git", "commit", "-m", "Bump revision (#530)");
+        run(fx.projectRoot(), "git", "push", "origin", "main");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).containsExactly(console.worktreeId());
+        assertThat(console.path()).doesNotExist();
     }
 
     @Test
@@ -267,13 +288,31 @@ class WorktreeCleanupSweeperTest {
     void removalRefusalReasonForProjectConsoleNamesTheFirstFailingCheck(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
         ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
-        run(console.path(), "git", "checkout", "-b", "wip/1-do-the-thing");
+        checkoutBranchWithRealCommit(console.path(), "wip/1-do-the-thing", "unshipped.txt", "not yet on main");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
         Optional<String> reason = sweeper.removalRefusalReasonForProjectConsole(
                 new WorktreeCleanupSweeper.ProjectConsoleWorktree(fx.projectId, console.worktreeId(), console.path()));
 
-        assertThat(reason).contains("a branch is checked out in this worktree — it has outgrown scratch use, so it is left alone");
+        assertThat(reason).contains(
+                "a branch is checked out in this worktree, and its work has not landed on origin/main yet — it has outgrown scratch use, so it is left alone");
+    }
+
+    @Test
+    void removalRefusalReasonForProjectConsoleIsEmptyOnceItsCheckedOutBranchHasLanded(@TempDir Path tmp)
+            throws Exception {
+        Fixture fx = fixture(tmp);
+        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        checkoutBranchWithRealCommit(console.path(), "wip/529-bump-revision", "revision.txt", "0.1.9-SNAPSHOT");
+        run(fx.projectRoot(), "git", "merge", "--squash", "wip/529-bump-revision");
+        run(fx.projectRoot(), "git", "commit", "-m", "Bump revision (#530)");
+        run(fx.projectRoot(), "git", "push", "origin", "main");
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
+
+        Optional<String> reason = sweeper.removalRefusalReasonForProjectConsole(
+                new WorktreeCleanupSweeper.ProjectConsoleWorktree(fx.projectId, console.worktreeId(), console.path()));
+
+        assertThat(reason).isEmpty();
     }
 
     // #551: the ancestor-check fetch carries the project's chosen account's token as
@@ -331,6 +370,21 @@ class WorktreeCleanupSweeperTest {
                 fx.projectRoot().resolveSibling(WorktreeCreationService.repoName(fx.projectRoot()) + "-console-" + suffix);
         WorktreeCreationService.createDetachedWorktree(worktreePath, fx.projectRoot());
         return new ProjectConsoleWorktreeAndId(fx.projectId + "-console-" + suffix, worktreePath);
+    }
+
+    /**
+     * Checks out {@code branch} from the worktree's current (detached-at-origin/main)
+     * HEAD and adds one real commit on it — a branch with actual, genuine content,
+     * unlike a bare {@code checkout -b} whose tip would be trivially identical to
+     * {@code origin/main} and therefore already "landed" under #554/ADR-107's own
+     * literal-ancestor test.
+     */
+    private static void checkoutBranchWithRealCommit(Path worktreePath, String branch, String fileName,
+            String content) throws IOException, InterruptedException {
+        run(worktreePath, "git", "checkout", "-b", branch);
+        Files.writeString(worktreePath.resolve(fileName), content);
+        run(worktreePath, "git", "add", fileName);
+        run(worktreePath, "git", "commit", "-m", "add " + fileName);
     }
 
     private record Fixture(Path projectRoot, long projectId, WorktreeSessionRepository repository,

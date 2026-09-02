@@ -206,7 +206,11 @@ class ProjectWorktreesServiceTest {
     void removeRefusesAProjectConsoleWorktreeWithABranchCheckedOut(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
         WorktreeAndId console = createProjectConsoleWorktree(fx);
+        // #554/ADR-107: a bare checkout with no commits at all is trivially identical
+        // to origin/main and would count as landed -- an actual commit not reachable
+        // from origin/main is what keeps this branch genuinely un-landed.
         run(console.path(), "git", "checkout", "-b", "wip/1-do-the-thing");
+        run(console.path(), "git", "commit", "--allow-empty", "-m", "unshipped work");
         ProjectWorktreesService service = service(fx, List.of());
 
         ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, console.worktreeId());
