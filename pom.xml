@@ -15,7 +15,7 @@
   <packaging>pom</packaging>
 
   <properties>
-    <revision>0.1.14-SNAPSHOT</revision>
+    <revision>0.2.0-SNAPSHOT</revision>
     <!-- Coverage and quality reporting (#399), used only by the manually-triggered
          Sonar workflow; nothing here changes what `./mvnw -B test` does. -->
     <jacoco.version>0.8.13</jacoco.version>
