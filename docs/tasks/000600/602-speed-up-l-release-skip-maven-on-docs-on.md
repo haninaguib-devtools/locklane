@@ -74,5 +74,19 @@ Maven builds; and put the mechanical steps in a script the skill calls.
   t-workflow template.** For comparison, the v0.1.13 notes PR #601 went from CI green
   (18:42:00Z) to merge (18:42:30Z) in 30 s through the same watch.
 - `release.yml` cannot be exercised end-to-end before merge without publishing; the
-  fail-fast path was exercised instead by dispatching the task branch's workflow with an
-  already-released version (see the PR's checks).
+  fail-fast path was exercised instead by dispatching the task branch's workflow with
+  an already-released version: run 33674614831 (`gh workflow run release.yml --ref
+  wip/602-… -f version=0.1.13`) concluded `failure` at step 4, "Refuse a version that
+  already exists", with the CHANGELOG extraction, `setup-java`, the build, and the
+  release steps all skipped — the input is wired and the refusal costs seconds.
+- **Inside a Locklane console, `GH_TOKEN` is an OAuth-app token the
+  `haninaguib-devtools` organization restricts**: `git push` over HTTPS through the
+  console's credential helper and `gh workflow run` both returned 403 ("OAuth App
+  access restrictions"). The branch was pushed over SSH and the dispatch above ran with
+  `GH_TOKEN` unset (gh's keyring login). `scripts/release.sh dispatch` inherits
+  whatever token the session has; a console session that cuts a release needs one the
+  organization accepts — an environment fact to keep in mind, not something this task
+  changes (a fix, if one is wanted, belongs to the console's token setup, its own issue).
+- `gh --jq` accepts no `--arg`: the first draft of `scripts/release.sh dispatch` passed
+  the dispatch timestamp that way and failed at run lookup; the timestamp is now
+  interpolated into the jq expression (second commit).
