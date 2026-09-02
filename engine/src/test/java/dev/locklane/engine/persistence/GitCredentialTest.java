@@ -26,7 +26,7 @@ class GitCredentialTest {
 
         assertThat(credential.present()).isTrue();
         assertThat(credential.configArguments())
-                .containsExactly("-c", "credential.helper=" + GitCredential.HELPER_SCRIPT);
+                .containsExactly("-c", GitCredential.HELPER_KEY + "=" + GitCredential.HELPER_SCRIPT);
         assertThat(credential.environment()).containsExactly(java.util.Map.entry("GH_TOKEN", "ghp_secret"));
     }
 
@@ -36,7 +36,7 @@ class GitCredentialTest {
 
         String[] command = credential.command("clone", "https://github.com/org/repo.git", "/tmp/dest");
 
-        assertThat(command).startsWith("git", "-c", "credential.helper=" + GitCredential.HELPER_SCRIPT)
+        assertThat(command).startsWith("git", "-c", GitCredential.HELPER_KEY + "=" + GitCredential.HELPER_SCRIPT)
                 .endsWith("clone", "https://github.com/org/repo.git", "/tmp/dest");
         assertThat(String.join(" ", command)).doesNotContain("ghp_secret");
     }
@@ -94,5 +94,27 @@ class GitCredentialTest {
         projects.setGithubAccountId(project.id(), account.id());
 
         assertThat(GitCredential.forProject(project.id(), projects, accounts, cipher)).isSameAs(GitCredential.NONE);
+    }
+
+    // #572: the same credential, as the environment an interactive session inherits.
+
+    @Test
+    void sessionEnvironmentInstallsTheHelperThroughGitConfigVariables() {
+        GitCredential credential = GitCredential.forRemote("https://github.com/org/repo.git", Optional.of("ghp_secret"));
+
+        assertThat(credential.sessionEnvironment()).containsExactlyInAnyOrderEntriesOf(java.util.Map.of(
+                "GH_TOKEN", "ghp_secret",
+                "GIT_CONFIG_COUNT", "1",
+                "GIT_CONFIG_KEY_0", GitCredential.HELPER_KEY,
+                "GIT_CONFIG_VALUE_0", GitCredential.HELPER_SCRIPT));
+        // The token is only ever the GH_TOKEN value the helper script reads at run time.
+        assertThat(credential.sessionEnvironment().get("GIT_CONFIG_VALUE_0")).doesNotContain("ghp_secret");
+    }
+
+    @Test
+    void sessionEnvironmentIsEmptyForPlainGit() {
+        assertThat(GitCredential.NONE.sessionEnvironment()).isEmpty();
+        assertThat(GitCredential.forRemote("git@github.com:org/repo.git", Optional.of("ghp_secret")).sessionEnvironment())
+                .isEmpty();
     }
 }
