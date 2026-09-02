@@ -287,7 +287,9 @@ describe('AppComponent', () => {
     lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(2);
     lists.forEach((request) => request.flush([PROJECT]));
-    const trees = httpMock.match('/api/projects/1/issues/tree');
+    // The sidenav's own refresh() now requests fresh=true (#545); the overview's
+    // does not -- two requests to the same path, distinguished only by that param.
+    const trees = httpMock.match((r) => r.url === '/api/projects/1/issues/tree');
     expect(trees.length).toBe(2);
     trees.forEach((request) => request.flush([]));
     httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
@@ -760,7 +762,7 @@ describe('AppComponent', () => {
 
     expect(fixture.componentInstance.showAddProject).toBeFalse();
     httpMock.expectOne('/api/projects').flush([PROJECT]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree?fresh=true').flush([]);
     httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
   }));
 

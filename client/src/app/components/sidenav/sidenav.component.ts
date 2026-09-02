@@ -177,7 +177,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
       return;
     }
     this.refreshing = true;
-    this.load(() => (this.refreshing = false));
+    this.load(() => (this.refreshing = false), true);
   }
 
   // The header's one-click "+" (#180): asks the project console page for a brand-new
@@ -248,7 +248,13 @@ export class SidenavComponent implements OnInit, OnDestroy {
     return this.deleteErrorProjectId === projectId ? this.deleteError : null;
   }
 
-  private load(onDone: () => void): void {
+  /**
+   * `fresh` (#545) bypasses the engine's `GhIssueCache` for every project's tree
+   * fetch, the same way `refreshProject` already does for one project alone — for
+   * the refresh button, so it shows the current issue list rather than whatever the
+   * cache already held from the last scheduled poll.
+   */
+  private load(onDone: () => void, fresh = false): void {
     this.projectsService
       .list()
       .pipe(
@@ -263,7 +269,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
             ? of([] as Section[])
             : forkJoin(
                 relevant.map((project) =>
-                  this.issuesService.tree(project.id).pipe(map((tree): Section => ({ project, tree }))),
+                  this.issuesService.tree(project.id, fresh).pipe(map((tree): Section => ({ project, tree }))),
                 ),
               );
         }),
