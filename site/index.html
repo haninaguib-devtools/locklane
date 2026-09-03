@@ -70,7 +70,7 @@
           </div>
         </div>
 
-        <p class="note">Requires Java 21+ and the authenticated GitHub CLI while the repository is private. The installer places the jar, updater, uninstaller, and local configuration in <code>~/.locklane</code>.</p>
+        <p class="note">Requires Java 21+ and the authenticated GitHub CLI while the repository is private. The installer places the jar, updater, uninstaller, and local configuration in <code>~/.locklane</code>, alongside three small control scripts &mdash; <code>status.sh</code>, <code>stop.sh</code>, and <code>start.sh</code> &mdash; that already know how the server was installed, so checking on it or restarting it (<code>stop.sh</code> then <code>start.sh</code>) never depends on which service manager your machine uses.</p>
 
         <p class="note">There is no second step: the installer starts the server for you and registers it to keep running &mdash; as a per-user background service, a systemd user service on Linux or a launchd agent on macOS, so it comes back after a reboot and restarts itself if it crashes. On a host with neither, it starts the server detached instead; that copy runs until the machine restarts, and you start it again yourself afterwards.</p>
 
