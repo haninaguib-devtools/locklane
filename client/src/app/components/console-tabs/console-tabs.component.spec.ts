@@ -179,7 +179,7 @@ describe('ConsoleTabsComponent', () => {
     expect(fixture.componentInstance.pendingCloseId).toBe('7-rename-toggle');
   });
 
-  it('omits the Folder menu item once the overflow menu opens away from localhost, keeping Shell and Close (#497)', () => {
+  it('omits the Folder and Open IDE menu items once the overflow menu opens away from localhost, keeping Shell and Close (#497, #628)', () => {
     TestBed.configureTestingModule({
       imports: [ConsoleTabsComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -194,6 +194,7 @@ describe('ConsoleTabsComponent', () => {
     fixture.detectChanges();
 
     expect(tabWrap.querySelector('.tab-reveal')).toBeNull();
+    expect(tabWrap.querySelector('.tab-open-ide')).toBeNull();
     expect(tabWrap.querySelector('.tab-shell')).not.toBeNull();
     expect(tabWrap.querySelector('.tab-close')).not.toBeNull();
   });
@@ -378,5 +379,70 @@ describe('ConsoleTabsComponent open-a-shell (#447)', () => {
 
     expect(openSpy).not.toHaveBeenCalled();
     expect(fixture.nativeElement.querySelector('.shell-error')).not.toBeNull();
+  });
+});
+
+// The Open IDE control (#627/#628) talks HTTP and the DOM, the same shape as
+// open-a-shell above.
+describe('ConsoleTabsComponent open-the-ide (#628)', () => {
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [ConsoleTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => httpMock.verify());
+
+  function render(tabs: ConsoleTab[], overview = true) {
+    const fixture = TestBed.createComponent(ConsoleTabsComponent);
+    fixture.componentInstance.tabs = tabs;
+    fixture.componentInstance.overview = overview;
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  function openMenu(fixture: ReturnType<typeof render>, tabWrapIndex = 0): void {
+    const wraps = fixture.nativeElement.querySelectorAll('.tab-wrap');
+    (wraps[tabWrapIndex].querySelector('.tab-menu-trigger') as HTMLButtonElement).click();
+    fixture.detectChanges();
+  }
+
+  it('shows the Open IDE item once its tab menu is open, matching Folder\'s localhost-only gating (#497)', () => {
+    const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+    openMenu(fixture, 1);
+
+    expect(fixture.nativeElement.querySelectorAll('.tab-open-ide').length).toBe(1);
+  });
+
+  it('clicking Open IDE starts code-server for that console and opens the singleton window', () => {
+    const openSpy = spyOn(window, 'open');
+    const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+    openMenu(fixture, 1);
+
+    (fixture.nativeElement.querySelector('.tab-open-ide') as HTMLButtonElement).click();
+
+    const post = httpMock.expectOne('/api/projects/1/consoles/1-7-do-the-thing/open-ide');
+    expect(post.request.method).toBe('POST');
+    post.flush({ url: 'http://127.0.0.1:41231/' });
+    expect(openSpy).toHaveBeenCalledWith('http://127.0.0.1:41231/', 'locklane-ide');
+  });
+
+  it('a failed start shows the error note instead of opening a window', () => {
+    const openSpy = spyOn(window, 'open');
+    const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+    openMenu(fixture, 1);
+
+    (fixture.nativeElement.querySelector('.tab-open-ide') as HTMLButtonElement).click();
+    httpMock
+      .expectOne('/api/projects/1/consoles/1-7-do-the-thing/open-ide')
+      .flush(null, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('.ide-error')).not.toBeNull();
   });
 });

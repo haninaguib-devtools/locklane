@@ -81,6 +81,14 @@
               >
                 Folder
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                class="tab-open-ide"
+                (click)="openIdeAt(tab, $event)"
+              >
+                Open IDE
+              </button>
             }
             <button
               type="button"
@@ -112,6 +120,10 @@
 
 @if (shellOpenFailed) {
   <div class="shell-error">could not open a shell at that console's worktree — try again</div>
+}
+
+@if (ideOpenFailed) {
+  <div class="ide-error">could not open the IDE for that console — try again</div>
 }
 
 @if (pendingCloseId !== null) {

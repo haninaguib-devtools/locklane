@@ -2,7 +2,7 @@ import { Component, ElementRef, EventEmitter, HostListener, Input, Optional, Out
 import { Observable, map, of, switchMap } from 'rxjs';
 import { Agent } from '../../services/agent-store';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
-import { issueNumberFromSessionId } from '../../services/consoles.service';
+import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
 import { ShellsService } from '../../services/shells.service';
 import { WorktreesService } from '../../services/worktrees.service';
 import { ConsoleTab, OVERVIEW_TAB_ID, tabText } from './console-labels';
@@ -34,6 +34,7 @@ export class ConsoleTabsComponent {
   constructor(
     @Optional() private readonly shellsService: ShellsService | null = null,
     @Optional() private readonly worktreesService: WorktreesService | null = null,
+    @Optional() private readonly consolesService: ConsolesService | null = null,
   ) {}
 
   // Exposed for the template's Overview tab, pinned first in the same strip (#96).
@@ -220,6 +221,30 @@ export class ConsoleTabsComponent {
    * number, since an issue has one worktree. Errors when neither matches, which
    * the open-shell subscriber surfaces as {@link #shellOpenFailed}.
    */
+  // Whether the last "Open IDE" attempt failed (#628) -- cleared on the next one.
+  ideOpenFailed = false;
+
+  /**
+   * The "Open IDE" menu item (#627/#628): starts (or reuses) this tab's code-server
+   * process, then opens the returned URL in a singleton browser tab -- the same
+   * shape as {@link openShellAt}: mint/reuse the session server-side, then
+   * `window.open` it, never a path sent from here.
+   */
+  openIdeAt(tab: ConsoleTab, event: Event): void {
+    event.stopPropagation();
+    this.openMenuId = null;
+    const consoles = this.consolesService;
+    const projectId = projectIdOf(tab.id);
+    if (consoles === null || projectId === null) {
+      return;
+    }
+    this.ideOpenFailed = false;
+    consoles.openIde(projectId, tab.id).subscribe({
+      next: (opened) => window.open(opened.url, 'locklane-ide'),
+      error: () => (this.ideOpenFailed = true),
+    });
+  }
+
   private directoryOf(projectId: number, tab: ConsoleTab): Observable<string> {
     if (tab.dir) {
       return of(tab.dir);
