@@ -18,9 +18,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -68,6 +71,12 @@ public class SessionRegistry {
     // there: a disconnect or engine restart keeps the session's record, so it keeps
     // its uploads too.
     private final SessionUploadStorage uploadStorage;
+    // Session-scoped resources outside this class (code-server's process, #628) that
+    // need to end when a session does, without SessionRegistry needing to know what
+    // kind of resource each one is — the same role uploadStorage above plays for
+    // uploads, generalized so a future resource doesn't need its own field and wiring
+    // here.
+    private final List<Consumer<String>> closeListeners = new CopyOnWriteArrayList<>();
 
     @Autowired
     public SessionRegistry(WorktreeSessionRepository repository, ConsoleResumeSessionRepository resumeRepository,
@@ -288,9 +297,22 @@ public class SessionRegistry {
         if (uploadStorage != null) {
             uploadStorage.deleteFor(sessionId);
         }
+        // Same unconditional reasoning as uploadStorage above (#628): a registered
+        // resource (code-server's process) is asked to end for this id regardless of
+        // wasOpen, so it's never left running past a session it's tied to.
+        closeListeners.forEach(listener -> listener.accept(sessionId));
         if (wasOpen) {
             broadcastConsolesChanged(sessionId);
         }
+    }
+
+    /**
+     * Registers a listener invoked with a session's id on every {@link #close}, so a
+     * session-scoped resource elsewhere (code-server's process, #628) can end when its
+     * console does without this class needing to know what kind of resource it is.
+     */
+    public void addCloseListener(Consumer<String> listener) {
+        closeListeners.add(listener);
     }
 
     /**

@@ -3,6 +3,11 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, Subject, filter, map, merge } from 'rxjs';
 import { EventsService, isConsolesChangedEvent } from './events.service';
 
+/** What starting/reusing a console's code-server process returns (#628): its URL. */
+export interface OpenedIde {
+  url: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ConsolesService {
   private readonly http = inject(HttpClient);
@@ -37,6 +42,15 @@ export class ConsolesService {
    */
   reveal(projectId: number, id: string): Observable<void> {
     return this.http.post<void>(`/api/projects/${projectId}/consoles/${id}/reveal-in-file-manager`, {});
+  }
+
+  /**
+   * Starts (or reuses) a code-server process for a console's worktree (#628) and
+   * returns its URL to open. The engine resolves the working directory server-side
+   * from the console id, so no path is ever sent here.
+   */
+  openIde(projectId: number, id: string): Observable<OpenedIde> {
+    return this.http.post<OpenedIde>(`/api/projects/${projectId}/consoles/${id}/open-ide`, {});
   }
 
   /**

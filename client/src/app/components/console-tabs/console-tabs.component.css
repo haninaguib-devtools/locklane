@@ -103,7 +103,8 @@
   background: var(--bg);
 }
 
-.shell-error {
+.shell-error,
+.ide-error {
   padding: 6px 16px;
   font-size: 12px;
   color: #b3261e;
