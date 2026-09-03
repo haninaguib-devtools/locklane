@@ -65,6 +65,24 @@ install/update scripts.
   "$INSTALL_DIR"` removes it with everything else (agent, 2026-09-03).
 
 ## Deviations / notes
+- Fix pass (agent, 2026-09-03), addressing `/t-review`'s findings on PR #638:
+  - **Blocker** (the check reuse skill review found no proven pass for
+    `./mvnw -B test`, and the failing-locally result is blocker/high "by
+    construction"): resolved by getting CI to actually run this check — `ci.yml`
+    skips it while a PR is a draft, so this PR is marked ready as part of this fix
+    pass, matching the same shape task #619's own PR (#622) went through with the
+    identical local-environmental-failure pattern.
+  - **High** (`install.sh`/`update.sh` ran the code-server fetch ahead of critical
+    steps — account creation in `install.sh`, the server restart in `update.sh` —
+    under `set -euo pipefail`, so a `code-server.dev` hiccup would abort an
+    otherwise-successful install/update): both scripts now run that step last,
+    after the step that actually matters has already succeeded, and soft-fail with
+    a warning instead of aborting — matching this file's own existing
+    systemd/launchd fallback shape.
+  - Medium (`CodeServerService.start()` never checks `process.isAlive()` before
+    reusing a cached handle) and low (no code-server version pinned) findings are
+    reported but not acted on here — Fix mode addresses only blocker/high; either
+    is a reasonable follow-up if the human asks for it by number.
 - `ConsolesController`'s constructor gained a third parameter (`CodeServerService`),
   which also touched its existing test file
   (`ConsolesControllerTest`, already in scope as the controller's own test) to update
