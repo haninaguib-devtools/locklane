@@ -46,11 +46,13 @@ describe('ConsolesService', () => {
   });
 
   it('starts a console\'s IDE via POST /api/projects/{projectId}/consoles/{id}/open-ide (#628)', () => {
-    service.openIde(1, '1-7-main-a1b2c3d4').subscribe((result) => expect(result).toEqual({ url: 'http://127.0.0.1:41231/' }));
+    service
+      .openIde(1, '1-7-main-a1b2c3d4')
+      .subscribe((result) => expect(result).toEqual({ url: '/api/projects/1/consoles/1-7-main-a1b2c3d4/ide/' }));
 
     const req = httpMock.expectOne('/api/projects/1/consoles/1-7-main-a1b2c3d4/open-ide');
     expect(req.request.method).toBe('POST');
-    req.flush({ url: 'http://127.0.0.1:41231/' });
+    req.flush({ url: '/api/projects/1/consoles/1-7-main-a1b2c3d4/ide/' });
   });
 
   it('notifies onClosed subscribers when a console is closed', () => {

@@ -179,7 +179,7 @@ describe('ConsoleTabsComponent', () => {
     expect(fixture.componentInstance.pendingCloseId).toBe('7-rename-toggle');
   });
 
-  it('omits the Folder and Open IDE menu items once the overflow menu opens away from localhost, keeping Shell and Close (#497, #628)', () => {
+  it('omits only the Folder menu item once the overflow menu opens away from localhost, keeping Shell, Open IDE and Close (#497, #655)', () => {
     TestBed.configureTestingModule({
       imports: [ConsoleTabsComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -194,7 +194,7 @@ describe('ConsoleTabsComponent', () => {
     fixture.detectChanges();
 
     expect(tabWrap.querySelector('.tab-reveal')).toBeNull();
-    expect(tabWrap.querySelector('.tab-open-ide')).toBeNull();
+    expect(tabWrap.querySelector('.tab-open-ide')).not.toBeNull();
     expect(tabWrap.querySelector('.tab-shell')).not.toBeNull();
     expect(tabWrap.querySelector('.tab-close')).not.toBeNull();
   });
@@ -411,7 +411,7 @@ describe('ConsoleTabsComponent open-the-ide (#628)', () => {
     fixture.detectChanges();
   }
 
-  it('shows the Open IDE item once its tab menu is open, matching Folder\'s localhost-only gating (#497)', () => {
+  it('shows the Open IDE item once its tab menu is open (#628)', () => {
     const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
     openMenu(fixture, 1);
 
@@ -427,8 +427,10 @@ describe('ConsoleTabsComponent open-the-ide (#628)', () => {
 
     const post = httpMock.expectOne('/api/projects/1/consoles/1-7-do-the-thing/open-ide');
     expect(post.request.method).toBe('POST');
-    post.flush({ url: 'http://127.0.0.1:41231/' });
-    expect(openSpy).toHaveBeenCalledWith('http://127.0.0.1:41231/', 'locklane-ide');
+    // The engine's own proxied path (#655), relative so it opens against whatever
+    // host this page was reached at -- never code-server's loopback address.
+    post.flush({ url: '/api/projects/1/consoles/1-7-do-the-thing/ide/' });
+    expect(openSpy).toHaveBeenCalledWith('/api/projects/1/consoles/1-7-do-the-thing/ide/', 'locklane-ide');
   });
 
   it('a failed start shows the error note instead of opening a window', () => {

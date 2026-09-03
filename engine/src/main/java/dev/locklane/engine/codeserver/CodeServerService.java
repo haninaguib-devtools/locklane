@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,6 +24,14 @@ import java.util.concurrent.ConcurrentMap;
  * already running rather than starting a second one; the process is stopped when its
  * console's session ends (registered as a {@link SessionRegistry} close listener, since
  * every session closer already funnels through {@link SessionRegistry#close}).
+ *
+ * <p>Since #655 the loopback address a process listens on is never what a browser is
+ * given: the engine reverse-proxies each console's IDE under
+ * {@code /api/projects/{projectId}/consoles/{id}/ide/} ({@link CodeServerHttpProxy},
+ * {@link CodeServerWebSocketProxy}), behind locklane's own session and owner-only
+ * check, so a remote browser reaches it on the engine's own host and port. What this
+ * service hands out is the loopback base ({@link #start}, {@link #upstream}) those
+ * proxies forward to.
  */
 @Service
 public class CodeServerService {
@@ -64,13 +73,14 @@ public class CodeServerService {
 
     /**
      * Starts (or reuses) code-server for {@code consoleId}'s worktree and returns the
-     * URL to reach it. Empty, with nothing started, when the console id names no known
-     * working directory.
+     * loopback base the engine's proxy forwards to ({@code http://127.0.0.1:<port>}).
+     * Empty, with nothing started, when the console id names no known working
+     * directory.
      */
-    public Optional<String> start(String consoleId) {
+    public Optional<URI> start(String consoleId) {
         Running existing = running.get(consoleId);
         if (existing != null) {
-            return Optional.of(existing.url());
+            return Optional.of(existing.upstream());
         }
         Optional<Path> workingDirectory = sessionRegistry.lastKnownWorkingDirectory(consoleId);
         if (workingDirectory.isEmpty()) {
@@ -80,7 +90,17 @@ public class CodeServerService {
         // concurrent start() for the same console reuse one process rather than a race
         // spawning two — the up-front get() above is only a fast path once one exists.
         Running started = running.computeIfAbsent(consoleId, id -> spawn(workingDirectory.get()));
-        return Optional.of(started.url());
+        return Optional.of(started.upstream());
+    }
+
+    /**
+     * The loopback base of {@code consoleId}'s already-running code-server, or empty
+     * when none is running — never starts one. The proxies resolve their target
+     * through this: an IDE nobody asked to open (or whose console has since closed,
+     * which stops it) is not reachable, the same as a console that does not exist.
+     */
+    public Optional<URI> upstream(String consoleId) {
+        return Optional.ofNullable(running.get(consoleId)).map(Running::upstream);
     }
 
     private Running spawn(Path workingDirectory) {
@@ -89,10 +109,14 @@ public class CodeServerService {
             Process process = processRunner.run(
                     codeServerBinary.toString(),
                     "--bind-addr", "127.0.0.1:" + port,
-                    // Bound to loopback only (above) and never reachable off this machine,
-                    // so code-server's own password prompt would only add friction, not
-                    // security -- locklane's own per-project access rules already decide
-                    // who can reach this far (CONSTITUTION.md §4.5, unchanged by #628).
+                    // Bound to loopback only (above): the only client that ever reaches
+                    // this process is the engine's own proxy (#655), which admits a
+                    // request only once locklane's session and owner-only check have
+                    // passed (CONSTITUTION.md §4.5). code-server's own password prompt
+                    // would add a second login without adding a second boundary, so it
+                    // stays off -- which is also exactly why this bind address must never
+                    // widen: with no auth of its own, a network-reachable code-server
+                    // would be an unauthenticated shell in the worktree.
                     "--auth", "none",
                     "--disable-telemetry",
                     workingDirectory.toString());
@@ -127,8 +151,8 @@ public class CodeServerService {
     }
 
     private record Running(Process process, int port) {
-        String url() {
-            return "http://127.0.0.1:" + port + "/";
+        URI upstream() {
+            return URI.create("http://127.0.0.1:" + port);
         }
     }
 
