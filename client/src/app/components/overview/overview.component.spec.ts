@@ -8,6 +8,8 @@ import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
 
 describe('OverviewComponent', () => {
+
+  const GITHUB_OK = { failing: false, failure: null, lastSuccessAt: null };
   let httpMock: HttpTestingController;
 
   const PROJECT_A: Project = {
@@ -107,7 +109,7 @@ describe('OverviewComponent', () => {
 
     fixture.componentInstance.refresh();
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
 
     expect(fixture.componentInstance.rows.length).toBe(1);
@@ -125,10 +127,10 @@ describe('OverviewComponent', () => {
 
   it('aggregates counts across every project into the stat tiles', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush([
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [
       { number: 9, title: 'Only in B', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
-    ]);
+    ], github: GITHUB_OK });
     fixture.detectChanges();
 
     expect(fixture.componentInstance.totals).toEqual({ total: 5, open: 3, closed: 2, initiatives: 1, tasks: 4 });
@@ -140,7 +142,7 @@ describe('OverviewComponent', () => {
 
   it('links a READY project to its issues page', () => {
     const fixture = init([PROJECT_A]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     fixture.detectChanges();
 
     const link = (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('a.project-row');
@@ -150,7 +152,7 @@ describe('OverviewComponent', () => {
   it('a non-READY project has no href, even though its (empty) tree is still fetched like project-summary\'s (#85)', () => {
     const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
     const fixture = init([cloning]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
 
     const row = (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('a.project-row');
@@ -172,7 +174,7 @@ describe('OverviewComponent', () => {
 
   it('shows a closed/total completion indicator per project', () => {
     const fixture = init([PROJECT_A]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     fixture.detectChanges();
 
     const label = (fixture.nativeElement as HTMLElement).querySelector('.completion-label');
@@ -181,7 +183,7 @@ describe('OverviewComponent', () => {
 
   it('opens a shell console for a READY project and navigates to it (#256)', () => {
     const fixture = init([PROJECT_A]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     fixture.detectChanges();
     const router = TestBed.inject(Router);
     spyOn(router, 'navigate');
@@ -203,7 +205,7 @@ describe('OverviewComponent', () => {
   it('has no shell button for a project that is not READY', () => {
     const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
     const fixture = init([cloning]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
 
     expect((fixture.nativeElement as HTMLElement).querySelector('.shell-btn')).toBeFalsy();
@@ -211,7 +213,7 @@ describe('OverviewComponent', () => {
 
   it('guards the shell button against a double click starting two sessions', () => {
     const fixture = init([PROJECT_A]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     fixture.detectChanges();
 
     const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shell-btn')!;

@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, Subject } from 'rxjs';
-import { GhIssue, IssueDetail, ResumeSession, TreeNode } from '../models/issue.model';
+import { Observable, Subject, map } from 'rxjs';
+import { GhIssue, IssueDetail, ResumeSession, TreeNode, TreeResponse } from '../models/issue.model';
 
 // Nested under a project id since #43 -- issue data itself still comes from one
 // shared repo for every project (see #43's task record), but every route requires
@@ -22,7 +22,16 @@ export class IssuesService {
    * engine's own 30s poll.
    */
   tree(projectId: number, fresh = false): Observable<TreeNode[]> {
-    return this.http.get<TreeNode[]>(`/api/projects/${projectId}/issues/tree`, fresh ? { params: { fresh } } : {});
+    return this.treeWithStatus(projectId, fresh).pipe(map((response) => response.nodes));
+  }
+
+  /**
+   * The tree plus the outcome of the engine's most recent GitHub fetch for the
+   * project (#619) -- for the sidenav, which shows that outcome. `tree()` above is
+   * the same request for callers that only count nodes.
+   */
+  treeWithStatus(projectId: number, fresh = false): Observable<TreeResponse> {
+    return this.http.get<TreeResponse>(`/api/projects/${projectId}/issues/tree`, fresh ? { params: { fresh } } : {});
   }
 
   get(projectId: number, number: number): Observable<GhIssue> {

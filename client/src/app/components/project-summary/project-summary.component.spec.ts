@@ -10,6 +10,8 @@ import { ConsolesService } from '../../services/consoles.service';
 import { LastConsoleStore } from '../../services/last-console-store';
 
 describe('ProjectSummaryComponent', () => {
+
+  const GITHUB_OK = { failing: false, failure: null, lastSuccessAt: null };
   let httpMock: HttpTestingController;
 
   const PROJECT: Project = {
@@ -84,7 +86,7 @@ describe('ProjectSummaryComponent', () => {
     if (ready) {
       httpMock.expectOne(`/api/projects/${projectId}/console/sessions`).flush(consoles);
     }
-    httpMock.expectOne(`/api/projects/${projectId}/issues/tree`).flush(nodes);
+    httpMock.expectOne(`/api/projects/${projectId}/issues/tree`).flush({ nodes: nodes, github: GITHUB_OK });
     fixture.detectChanges();
     if (ready) {
       httpMock.expectOne(`/api/projects/${projectId}/worktrees`).flush([]);
@@ -251,7 +253,7 @@ describe('ProjectSummaryComponent', () => {
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').flush([PROJECT, { ...PROJECT, id: 2, name: 'proj-b' }]);
     httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
-    httpMock.expectOne('/api/projects/2/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/2/worktrees').flush([]);
     fixture.detectChanges();

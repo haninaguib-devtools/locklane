@@ -3,6 +3,7 @@ package dev.locklane.engine.github;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -27,11 +28,26 @@ public class GhIssueCache {
     private static final Pattern WIP_BRANCH = Pattern.compile("^wip/(\\d+)-");
 
     private final GhClient ghClient;
+    private final Clock clock;
     private final AtomicReference<List<GhIssue>> cachedIssues = new AtomicReference<>();
     private final AtomicReference<List<GhPullRequest>> cachedPullRequests = new AtomicReference<>();
+    // The outcome of the most recent fetch (#619) -- refresh() and the cold-cache
+    // fallbacks below all record here, so a token that stopped working is visible
+    // from the very first fetch that fails, not only from the next scheduled poll.
+    private final AtomicReference<GhRefreshStatus> status = new AtomicReference<>(GhRefreshStatus.initial());
 
     public GhIssueCache(GhClient ghClient) {
+        this(ghClient, Clock.systemUTC());
+    }
+
+    GhIssueCache(GhClient ghClient, Clock clock) {
         this.ghClient = ghClient;
+        this.clock = clock;
+    }
+
+    /** The outcome of this project's most recent GitHub fetch (#619). */
+    public GhRefreshStatus status() {
+        return status.get();
     }
 
     /**
@@ -49,12 +65,14 @@ public class GhIssueCache {
             List<GhPullRequest> freshPullRequests = ghClient.pullRequests();
             cachedIssues.set(freshIssues);
             cachedPullRequests.set(freshPullRequests);
+            recordSuccess();
             return !Objects.equals(previousIssues, freshIssues) || !Objects.equals(previousPullRequests, freshPullRequests);
         } catch (GhClient.GhUnavailableException e) {
             // Keep serving whatever is already cached; the next scheduled attempt
             // may succeed. A cache that was never populated stays null here, and
             // the accessors below fall back to a live fetch.
             log.warn("Issue/PR refresh failed; continuing to serve the previously cached data", e);
+            recordFailure(e);
             return false;
         }
     }
@@ -73,9 +91,11 @@ public class GhIssueCache {
         try {
             List<GhIssue> fresh = ghClient.issues();
             cachedIssues.set(fresh);
+            recordSuccess();
             return fresh;
         } catch (GhClient.GhUnavailableException e) {
             log.warn("Live issue fetch failed with a cold cache; reporting no issues", e);
+            recordFailure(e);
             return List.of();
         }
     }
@@ -93,9 +113,11 @@ public class GhIssueCache {
         try {
             List<GhPullRequest> fresh = ghClient.pullRequests();
             cachedPullRequests.set(fresh);
+            recordSuccess();
             return fresh;
         } catch (GhClient.GhUnavailableException e) {
             log.warn("Live PR fetch failed with a cold cache; reporting no PRs", e);
+            recordFailure(e);
             return List.of();
         }
     }
@@ -116,5 +138,19 @@ public class GhIssueCache {
             }
         }
         return Optional.ofNullable(latest);
+    }
+
+    private void recordSuccess() {
+        status.updateAndGet(current -> current.succeeded(clock.instant()));
+    }
+
+    /**
+     * The exception's own message is the text a person can act on -- for a failed
+     * gh run, {@code CliGhClient} already folds the process's stderr (e.g. {@code HTTP
+     * 401: Bad credentials}) into it.
+     */
+    private void recordFailure(GhClient.GhUnavailableException e) {
+        String failure = e.getMessage() == null || e.getMessage().isBlank() ? "GitHub is unavailable" : e.getMessage();
+        status.updateAndGet(current -> current.failed(failure));
     }
 }

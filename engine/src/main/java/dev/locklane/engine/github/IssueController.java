@@ -49,16 +49,28 @@ public class IssueController {
      * fetch turns up a change, it broadcasts {@code issuesChanged} the same way the
      * scheduled {@code ProjectGhResources.refreshAll} does (#545), so other open
      * tabs learn about it too rather than only the caller that triggered it.
+     *
+     * <p>The response carries the outcome of the project's most recent GitHub fetch
+     * alongside the tree (#619) -- a forced refresh that fails still answers 200 with
+     * the cached tree, and this is what lets the caller tell that apart from an
+     * up-to-date one. A forced refresh whose outcome moved (started failing, stopped
+     * failing, or failing differently) broadcasts {@code githubRefreshStatus} the same
+     * way the scheduled poll does.
      */
     @GetMapping("/tree")
-    public ResponseEntity<List<TreeNode>> tree(@PathVariable long projectId,
+    public ResponseEntity<TreeResponse> tree(@PathVariable long projectId,
             @RequestParam(defaultValue = "false") boolean fresh) {
         return resources.forProject(projectId)
                 .map(ctx -> {
-                    if (fresh && ctx.cache().refresh()) {
-                        eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
+                    if (fresh) {
+                        GhRefreshStatus before = ctx.cache().status();
+                        boolean changed = ctx.cache().refresh();
+                        ProjectGhResources.broadcastStatusIfMoved(eventBroadcaster, projectId, before, ctx.cache().status());
+                        if (changed) {
+                            eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
+                        }
                     }
-                    return ResponseEntity.ok(ctx.treeService().tree());
+                    return ResponseEntity.ok(new TreeResponse(ctx.treeService().tree(), ctx.cache().status()));
                 })
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

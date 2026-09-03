@@ -130,6 +130,9 @@
             </button>
           </div>
           @if (!isProjectCollapsed(section.project.id)) {
+            @if (githubErrorFor(section); as message) {
+              <div class="github-error" role="alert">{{ message }}</div>
+            }
             @if (section.project.status === 'CLONING') {
               <div class="state">cloning the repository…</div>
             } @else if (section.project.status === 'FAILED') {

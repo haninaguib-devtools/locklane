@@ -73,7 +73,17 @@ describe('IssuesService', () => {
     const req = httpMock.expectOne('/api/projects/1/issues/tree');
     expect(req.request.method).toBe('GET');
     expect(req.request.params.has('fresh')).toBeFalse();
-    req.flush(tree);
+    req.flush({ nodes: tree, github: { failing: false, failure: null, lastSuccessAt: null } });
+  });
+
+  it('treeWithStatus returns the tree together with the GitHub refresh outcome (#619)', () => {
+    const response = {
+      nodes: [] as TreeNode[],
+      github: { failing: true, failure: 'HTTP 401: Bad credentials', lastSuccessAt: '2026-09-02T10:00:00Z' },
+    };
+    service.treeWithStatus(1).subscribe((result) => expect(result).toEqual(response));
+
+    httpMock.expectOne('/api/projects/1/issues/tree').flush(response);
   });
 
   it('passes fresh=true to bypass the cache when asked', () => {
@@ -81,7 +91,7 @@ describe('IssuesService', () => {
 
     const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/tree');
     expect(req.request.params.get('fresh')).toBe('true');
-    req.flush([]);
+    req.flush({ nodes: [], github: { failing: false, failure: null, lastSuccessAt: null } });
   });
 
   it('notifies subscribers when a project is marked stale', () => {

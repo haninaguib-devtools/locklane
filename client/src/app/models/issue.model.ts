@@ -57,6 +57,23 @@ export interface TreeNode {
   children: TreeNode[];
 }
 
+/**
+ * Mirrors dev.locklane.engine.github.GhRefreshStatus (#619): the outcome of the
+ * engine's most recent GitHub fetch for a project. `lastSuccessAt` is an ISO instant,
+ * null until one fetch has ever succeeded.
+ */
+export interface GithubRefreshStatus {
+  failing: boolean;
+  failure: string | null;
+  lastSuccessAt: string | null;
+}
+
+/** Mirrors dev.locklane.engine.github.TreeResponse (#619). */
+export interface TreeResponse {
+  nodes: TreeNode[];
+  github: GithubRefreshStatus;
+}
+
 // Mirrors dev.locklane.engine.persistence.WorktreeController.ResumeSessionView:
 // one past Claude/Codex/OpenCode conversation captured in one of the issue's
 // consoles (#102), reopenable from the Overview tab (#103). Since #372 the
