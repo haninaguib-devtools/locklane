@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import { TerminalComponent } from './terminal.component';
 
@@ -237,6 +238,48 @@ describe('TerminalComponent', () => {
     });
   });
 
+  // The WebGL renderer (#616).
+
+  it('loads the WebGL addon after open() so wide rows render without the DOM renderer\'s rounding drift (#616)', async () => {
+    const loadAddonSpy = spyOn(Terminal.prototype, 'loadAddon').and.callThrough();
+
+    mountTab(true);
+    // The addon is imported dynamically, to keep it out of the initial bundle (#616)
+    // -- even an already-loaded chunk resolves on a later microtask.
+    await fixture!.whenStable();
+
+    expect(loadAddonSpy.calls.allArgs().some((args) => args[0] instanceof WebglAddon))
+      .withContext('a WebglAddon instance must be among the loaded addons')
+      .toBeTrue();
+  });
+
+  it('disposes the WebGL addon on context loss, falling back to the DOM renderer (#616)', () => {
+    const component = mountTab(true);
+    // A context-loss event cannot be triggered for real in a unit test -- this drives
+    // the same named handler the component wires to the addon's onContextLoss, against
+    // a plain (never-activated) instance standing in for the real one.
+    const addon = new WebglAddon();
+    const disposeSpy = spyOn(addon, 'dispose');
+    (component as unknown as { webglAddon: WebglAddon | null }).webglAddon = addon;
+
+    (component as unknown as { disposeWebglAddonOnContextLoss: () => void }).disposeWebglAddonOnContextLoss();
+
+    expect(disposeSpy).toHaveBeenCalled();
+    expect((component as unknown as { webglAddon: WebglAddon | null }).webglAddon).toBeNull();
+  });
+
+  it('disposes the WebGL addon on destroy', () => {
+    const component = mountTab(true);
+    const addon = new WebglAddon();
+    const disposeSpy = spyOn(addon, 'dispose');
+    (component as unknown as { webglAddon: WebglAddon | null }).webglAddon = addon;
+
+    fixture?.destroy();
+    fixture = null;
+
+    expect(disposeSpy).toHaveBeenCalled();
+  });
+
   it('swallows a right-click mousedown while the application has mouse tracking on, so the press never reaches the CLI (#435)', (done) => {
     const component = mountTab(true);
     // DECSET 1002: button-event mouse tracking, one of the modes claude enables.
@@ -319,10 +362,14 @@ describe('TerminalComponent', () => {
     // while a console sat in the background was simply dropped and the tab kept the
     // size it had before. It is measurable while hidden now, so it must react.
     const originalResizeObserver = window.ResizeObserver;
+    // The component's own ResizeObserver is constructed synchronously here, before
+    // the WebGL addon's activate() -- deferred behind its dynamic import (#616) --
+    // gets a chance to construct its own to watch the canvas. Keeping only the first
+    // one built is what keeps this test driving the component's, not the addon's.
     let notifyResize: (() => void) | null = null;
     (window as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
       constructor(callback: () => void) {
-        notifyResize = callback;
+        notifyResize ??= callback;
       }
       observe(): void {}
       disconnect(): void {}
