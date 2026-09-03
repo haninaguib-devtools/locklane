@@ -49,8 +49,9 @@ INSTALL_DIR=$(printf %q "$dir")
 SERVICE_KIND=$(printf %q "$kind")
 REG_FILE=$(printf %q "$reg")
 EOF
-    # Quoted heredoc: everything below is the generated script's own runtime code and
-    # must reach it unexpanded.
+    # The console guard (#647), then the quoted heredoc: everything below it is the
+    # generated script's own runtime code and must reach it unexpanded.
+    write_inside_server_guard
     cat <<'UNINSTALL_BODY'
 AGENT_LABEL="com.locklane.server"
 
@@ -78,6 +79,9 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# Never from inside the server this would stop (#647): see refuse_inside_server above.
+refuse_inside_server "$SERVICE_KIND" uninstall.sh "$AGENT_LABEL"
 
 # --- Stop the server and de-register it ---------------------------------------
 # This half is unconditional: whatever the answer about the data, a service manager
@@ -264,6 +268,10 @@ INSTALL_DIR=$(printf %q "$dir")
 SERVICE_KIND=$(printf %q "$kind")
 REG_FILE=$(printf %q "$reg")
 EOF
+      # Only stop.sh stops anything, so only it carries the console guard (#647).
+      if [ "$name" = stop ]; then
+        write_inside_server_guard
+      fi
       # Quoted heredocs: everything below is the generated script's own runtime code
       # and must reach it unexpanded.
       case "$name" in
@@ -367,6 +375,9 @@ START_BODY
         stop) cat <<'STOP_BODY'
 AGENT_LABEL="com.locklane.server"
 
+# Never from inside the server this would stop (#647): see refuse_inside_server above.
+refuse_inside_server "$SERVICE_KIND" stop.sh "$AGENT_LABEL"
+
 case "$SERVICE_KIND" in
   systemd)
     # `stop` leaves the unit enabled, so the server comes back at the next login or
@@ -381,12 +392,28 @@ case "$SERVICE_KIND" in
     # therefore stays down after bootout, and does not come back at the next login until
     # start.sh (or update.sh) bootstraps it again. That is the price of a stop that
     # actually sticks; start.sh restores the installed state.
-    if ! launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+    domain="gui/$(id -u)/$AGENT_LABEL"
+    if ! listing="$(launchctl print "$domain" 2>/dev/null)"; then
       echo "locklane is already stopped: the launchd agent ($AGENT_LABEL) is not loaded."
       exit 0
     fi
+    # bootout returns before the process has gone (#647): wait, bounded to 30s, for
+    # the agent to leave the domain and its pid to exit, so a start.sh straight after
+    # does not fail with "Bootstrap failed: 5: Input/output error".
+    pid="$(printf '%s\n' "$listing" | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -n 1)"
     echo "Stopping the locklane agent..."
-    launchctl bootout "gui/$(id -u)/$AGENT_LABEL"
+    launchctl bootout "$domain"
+    for _ in $(seq 1 30); do
+      if ! launchctl print "$domain" >/dev/null 2>&1 \
+          && { [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; }; then
+        break
+      fi
+      sleep 1
+    done
+    if launchctl print "$domain" >/dev/null 2>&1 || { [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; }; then
+      echo "error: the launchd agent $AGENT_LABEL did not stop within 30s." >&2
+      exit 1
+    fi
     echo "Stopped. The agent is unloaded, so it will not come back at the next login until start.sh (or update.sh) loads it again."
     ;;
   *)
@@ -428,6 +455,52 @@ STOP_BODY
 # contain a `}` of their own, so the checks extracting this function key off this line.
 } # end write_control_scripts
 
+# --- The console guard, for the generated scripts (#647) ------------------------
+# Prints the same refuse_inside_server function the scripts above define, for
+# stop.sh and uninstall.sh to carry: they are standalone files that cannot source it.
+# Kept in step with refuse_inside_server by hand -- a change to one is a change to
+# both -- and, like every generator here, duplicated byte for byte in install.sh and
+# update.sh. Change one, change the other.
+write_inside_server_guard() {
+  cat <<'GUARD_BODY'
+# Refuses to run from inside the server this script would stop (#647): a Locklane
+# console tab's shell is a child of the server JVM, and stopping the server from it
+# ends this script mid-way, with nothing left to restart the server.
+refuse_inside_server() {
+  local kind="$1" script="$2" label="$3" agent_pid p
+  case "$kind" in
+    systemd)
+      grep -qs 'locklane\.service' /proc/self/cgroup || return 0
+      ;;
+    launchd)
+      agent_pid="$(launchctl print "gui/$(id -u)/$label" 2>/dev/null \
+        | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -n 1)"
+      if [ -z "$agent_pid" ]; then
+        return 0
+      fi
+      p=$$
+      while [ -n "$p" ] && [ "$p" -gt 1 ] && [ "$p" != "$agent_pid" ]; do
+        p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]')"
+      done
+      if [ "$p" != "$agent_pid" ]; then
+        return 0
+      fi
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+  cat >&2 <<REFUSED
+error: $script is running inside the locklane server it would stop.
+This shell was opened from a Locklane console tab, so stopping the server would end
+this shell too, and nothing here would finish. Run $script from ssh or a local
+terminal instead. Nothing was changed.
+REFUSED
+  exit 2
+} # end refuse_inside_server
+GUARD_BODY
+} # end write_inside_server_guard
+
 # --- Resolving the user's real PATH (#422) -------------------------------------
 # A service manager (systemd, launchd) starts its unit/agent with its own minimal
 # PATH, not the one an interactive login shell builds up (nvm, homebrew, a language
@@ -446,6 +519,158 @@ resolve_login_path() {
   fi
   printf '%s' "$resolved"
 }
+
+# --- Refusing to run from inside the server (#647) ------------------------------
+# A Locklane console tab's shell is a child of the server JVM. On Linux it sits in the
+# locklane.service cgroup, which `systemctl --user stop` sweeps wholesale (KillMode's
+# default is control-group); on macOS it descends from the agent's pid, which
+# `launchctl bootout` takes down with the agent. A script that stops the server from
+# such a shell kills itself at its own stop step, and the server stays down with
+# nothing left to restart it -- an explicit stop is exactly what Restart=always and
+# KeepAlive do not undo. So every script that stops the server refuses to start from
+# there, before it has changed anything. The detached fallback has no service manager
+# sweeping a process tree, so it needs no guard. Exit 2, distinct from the 1 a stop
+# that timed out returns: "refused to start" is not "tried and failed".
+#
+# THIS FUNCTION IS DUPLICATED, BYTE FOR BYTE, IN install.sh AND update.sh -- see
+# write_uninstall_script above for why. Change one, change the other.
+refuse_inside_server() {
+  local kind="$1" script="$2" label="$3" agent_pid p
+  case "$kind" in
+    systemd)
+      grep -qs 'locklane\.service' /proc/self/cgroup || return 0
+      ;;
+    launchd)
+      agent_pid="$(launchctl print "gui/$(id -u)/$label" 2>/dev/null \
+        | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -n 1)"
+      if [ -z "$agent_pid" ]; then
+        return 0
+      fi
+      p=$$
+      while [ -n "$p" ] && [ "$p" -gt 1 ] && [ "$p" != "$agent_pid" ]; do
+        p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]')"
+      done
+      if [ "$p" != "$agent_pid" ]; then
+        return 0
+      fi
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+  cat >&2 <<REFUSED
+error: $script is running inside the locklane server it would stop.
+This shell was opened from a Locklane console tab, so stopping the server would end
+this shell too, and nothing here would finish. Run $script from ssh or a local
+terminal instead. Nothing was changed.
+REFUSED
+  exit 2
+} # end refuse_inside_server
+
+# --- Stopping the launchd agent so that it stays stopped (#647) -----------------
+# `launchctl bootout` returns as soon as it has told the agent to go, not once it has
+# gone: a `bootstrap` issued straight after fails with "Bootstrap failed: 5:
+# Input/output error" while the old process is still on its way out. So this waits,
+# bounded to 30s, until the agent is out of the domain and its process is gone. An
+# agent that is not loaded is already stopped, not an error; any other bootout
+# failure is shown, never silenced.
+#
+# THIS FUNCTION IS DUPLICATED, BYTE FOR BYTE, IN install.sh AND update.sh -- see
+# write_uninstall_script above for why. Change one, change the other.
+stop_launchd_agent() {
+  local label="$1" domain listing pid _
+  domain="gui/$(id -u)/$label"
+  if ! listing="$(launchctl print "$domain" 2>/dev/null)"; then
+    return 0
+  fi
+  pid="$(printf '%s\n' "$listing" | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  launchctl bootout "$domain"
+  for _ in $(seq 1 30); do
+    if ! launchctl print "$domain" >/dev/null 2>&1 \
+        && { [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; }; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "error: the launchd agent $label did not stop within 30s." >&2
+  return 1
+} # end stop_launchd_agent
+
+# --- Stopping whatever is running (#385, #386, #647) ----------------------------
+# Stops the instance the way it was started -- the service manager's own stop, or the
+# pid a detached start recorded -- and returns once it is gone. A missing pid file, or
+# a pid that is no longer running, is not an error: there is simply nothing to stop.
+#
+# THIS FUNCTION IS DUPLICATED, BYTE FOR BYTE, IN install.sh AND update.sh -- see
+# write_uninstall_script above for why. Change one, change the other.
+stop_running_server() {
+  local kind="$1" dir="$2" label="$3" pid_file old_pid _
+  pid_file="$dir/locklane.pid"
+  case "$kind" in
+    systemd)
+      echo "Stopping the locklane service..."
+      systemctl --user stop locklane
+      ;;
+    launchd)
+      echo "Stopping the locklane agent..."
+      stop_launchd_agent "$label"
+      ;;
+    *)
+      if [ -f "$pid_file" ]; then
+        old_pid="$(cat "$pid_file")"
+        if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+          echo "Stopping the running server (pid $old_pid)..."
+          kill "$old_pid"
+          for _ in $(seq 1 30); do
+            kill -0 "$old_pid" 2>/dev/null || break
+            sleep 1
+          done
+          if kill -0 "$old_pid" 2>/dev/null; then
+            echo "error: server (pid $old_pid) did not stop within 30s." >&2
+            return 1
+          fi
+        fi
+        rm -f "$pid_file"
+      fi
+      ;;
+  esac
+} # end stop_running_server
+
+# --- Downloading the jar before anything is stopped (#647) ----------------------
+# Fetches the newest permanent release's locklane.jar (no tag argument: gh resolves the
+# newest non-prerelease, non-draft release, the one the in-app update banner announces,
+# #465) to locklane.jar.new next to the live jar, and checks that it is a readable
+# archive -- so a failed or truncated download is found while the old server is still
+# running, and never replaces a working jar. `unzip -tq` where unzip exists; otherwise
+# the zip signature plus a size no Spring Boot jar is under.
+#
+# THIS FUNCTION IS DUPLICATED, BYTE FOR BYTE, IN install.sh AND update.sh -- see
+# write_uninstall_script above for why. Change one, change the other.
+download_jar() {
+  local repo="$1" dir="$2" new size
+  new="$dir/locklane.jar.new"
+  rm -f "$new"
+  echo "Downloading locklane.jar (newest release of $repo)..."
+  if ! gh release download --repo "$repo" --pattern locklane.jar --output "$new"; then
+    rm -f "$new"
+    echo "error: could not download locklane.jar -- nothing was changed." >&2
+    return 1
+  fi
+  if command -v unzip >/dev/null 2>&1; then
+    if ! unzip -tq "$new" >/dev/null 2>&1; then
+      rm -f "$new"
+      echo "error: the downloaded locklane.jar is not a readable archive -- nothing was changed." >&2
+      return 1
+    fi
+  else
+    size="$(wc -c < "$new" | tr -d '[:space:]')"
+    if [ "$(head -c 2 "$new")" != "PK" ] || [ "$size" -lt 1048576 ]; then
+      rm -f "$new"
+      echo "error: the downloaded locklane.jar is not a readable archive -- nothing was changed." >&2
+      return 1
+    fi
+  fi
+} # end download_jar
 
 # Rewrites (or, on a pre-#422 install, adds) the systemd unit's Environment=PATH= line
 # with a freshly resolved value -- so re-running update.sh repairs an already-broken
@@ -489,6 +714,25 @@ update_launchd_path() {
   /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:PATH string \"$path_value\"" "$plist"
 }
 
+# Adds SuccessExitStatus=143 to a unit that lacks it (#647), so a unit written before
+# install.sh carried the line stops logging every stop as a failure. The same
+# line-by-line rewrite as update_systemd_path, its own pass: a unit that already has a
+# SuccessExitStatus line is left exactly as it is, so running this twice adds nothing.
+update_systemd_success_status() {
+  local unit="$1" tmp line
+  if grep -q '^SuccessExitStatus=' "$unit"; then
+    return 0
+  fi
+  tmp="$(mktemp "$unit.XXXXXX")"
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf '%s\n' "$line"
+    if [ "$line" = '[Service]' ]; then
+      printf 'SuccessExitStatus=143\n'
+    fi
+  done < "$unit" > "$tmp"
+  mv "$tmp" "$unit"
+}
+
 # --- Detect how the server was started (#386) -----------------------------------
 # install.sh sets up a systemd user service or a launchd agent when the platform
 # supports one, falling back to #385's plain detached start otherwise. Whichever it
@@ -506,13 +750,51 @@ else
   service_kind=""
 fi
 
-# --- Refresh the service's PATH (#422) -----------------------------------------
+# --- Refuse to run from inside the server (#647) ---------------------------------
+# Before anything else has changed: a console tab's shell would die at the stop step
+# below, with the server stopped and nothing left to restart it.
+refuse_inside_server "$service_kind" update.sh "$agent_label"
+
+# gh must be installed, not logged in: the only gh calls below are `gh release download`
+# and `gh release view`, which work unauthenticated on a public repository (#610).
+if ! command -v gh >/dev/null 2>&1; then
+  echo "error: the GitHub CLI (gh) is required — install it from https://cli.github.com." >&2
+  exit 1
+fi
+
+# --- Refresh this script first (#647) --------------------------------------------
+# The jar is not the only thing a release changes: this script is how an install is
+# kept current, and an install made before the code-server step (#628), or before this
+# very block, would otherwise never get them. So the newest release's own update.sh is
+# fetched first and, when it differs from this copy, takes over the run -- once,
+# guarded by the variable, so a copy can never chase itself. Releases cut before #647
+# carry no update.sh asset; that is not an error, the installed copy simply continues.
+if [ -z "${LOCKLANE_UPDATE_REEXEC:-}" ]; then
+  new_self="$(mktemp update.sh.XXXXXX)"
+  if gh release download --repo "$REPO" --pattern update.sh \
+      --output "$new_self" --clobber 2>/dev/null && [ -s "$new_self" ]; then
+    if cmp -s "$new_self" update.sh; then
+      rm -f "$new_self"
+    else
+      echo "The newest release carries a newer update.sh -- switching to it for this run..."
+      chmod 755 "$new_self"
+      mv -f "$new_self" update.sh
+      LOCKLANE_UPDATE_REEXEC=1 exec ./update.sh
+    fi
+  else
+    rm -f "$new_self"
+    echo "No update.sh on the newest release (or it could not be fetched); keeping the installed copy."
+  fi
+fi
+
+# --- Refresh the service's PATH (#422) and make a stop count as success (#647) ----
 # Done here, before anything else touches the service, so an already-broken install
 # is repaired by this run whether or not a newer jar is even available yet.
 case "$service_kind" in
   systemd)
     echo "Refreshing the systemd service's PATH..."
     update_systemd_path "$unit_file" "$(resolve_login_path)"
+    update_systemd_success_status "$unit_file"
     systemctl --user daemon-reload 2>/dev/null || true
     ;;
   launchd)
@@ -520,13 +802,6 @@ case "$service_kind" in
     update_launchd_path "$agent_file" "$(resolve_login_path)"
     ;;
 esac
-
-# gh must be installed, not logged in: the only gh call below is `gh release download`,
-# which works unauthenticated on a public repository (#610).
-if ! command -v gh >/dev/null 2>&1; then
-  echo "error: the GitHub CLI (gh) is required — install it from https://cli.github.com." >&2
-  exit 1
-fi
 
 # --- Retire a stored bootstrap password ---------------------------------------
 # Installs predating #384 left the login password in plaintext here. The engine
@@ -542,50 +817,30 @@ if [ -f "$props_file" ] && grep -Eq '^locklane\.security\.bootstrap-password[[:s
   mv "$tmp_props" "$props_file"
 fi
 
-# --- Stop the running instance, if any -----------------------------------------
-# Must happen before the jar is replaced (#385): overwriting locklane.jar with
-# --clobber while the running JVM still holds that file open, then starting a second
-# server on the port the first one still has bound, leaves the old server damaged and
-# the new one not running. A missing pid file, or a pid that is no longer running, is
-# not an error -- there is simply nothing to stop.
+# --- Download and verify the new jar while the old server keeps running (#647) ---
+# Everything that can fail on the network fails here, with the old server untouched.
+# The tag is read now, next to the download, so the line printed at the end names the
+# release that was actually fetched. `gh release view` needs a logged-in gh, which this
+# host need not have (#610), so an unauthenticated read of the same "latest" release
+# through the REST API is the fallback; failing both is not worth failing the run.
+tag="$(gh release view --repo "$REPO" --json tagName -q .tagName 2>/dev/null)" || tag=""
+if [ -z "$tag" ]; then
+  tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+    | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)" || tag=""
+fi
+download_jar "$REPO" "$(pwd)"
 
-pid_file="locklane.pid"
-case "$service_kind" in
-  systemd)
-    echo "Stopping the locklane service..."
-    systemctl --user stop locklane
-    ;;
-  launchd)
-    echo "Stopping the locklane agent..."
-    # bootout also fully unloads it, which is what lets the KeepAlive agent stay down
-    # for the download below instead of relaunching itself immediately.
-    launchctl bootout "gui/$(id -u)/$agent_label" 2>/dev/null || true
-    ;;
-  *)
-    if [ -f "$pid_file" ]; then
-      old_pid="$(cat "$pid_file")"
-      if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
-        echo "Stopping the running server (pid $old_pid)..."
-        kill "$old_pid"
-        for _ in $(seq 1 30); do
-          kill -0 "$old_pid" 2>/dev/null || break
-          sleep 1
-        done
-        if kill -0 "$old_pid" 2>/dev/null; then
-          echo "error: server (pid $old_pid) did not stop within 30s." >&2
-          exit 1
-        fi
-      fi
-      rm -f "$pid_file"
-    fi
-    ;;
-esac
-
-# No tag argument: gh resolves the newest permanent (non-prerelease, non-draft)
-# release — the same release the in-app update banner announces (#465).
-echo "Downloading locklane.jar (newest release of $REPO)..."
-gh release download --repo "$REPO" --pattern locklane.jar \
-  --dir . --clobber
+# --- Stop the running instance, then swap the jar in ------------------------------
+# The stop happens only now, after the download has succeeded (#385, #647): overwriting
+# locklane.jar while the running JVM still holds it open, then starting a second server
+# on the port the first one still has bound, leaves the old server damaged and the new
+# one not running -- and a stop before a download that then fails leaves nothing
+# running at all.
+if ! stop_running_server "$service_kind" "$(pwd)" "$agent_label"; then
+  rm -f locklane.jar.new
+  exit 1
+fi
+mv -f locklane.jar.new locklane.jar
 
 # --- Start the new build ---------------------------------------------------------
 # A service-managed install (#386) is restarted the same way it was started; the
@@ -594,6 +849,7 @@ gh release download --repo "$REPO" --pattern locklane.jar \
 # job table, the second, independent way a closing terminal can take a background job
 # down with it.
 
+pid_file="locklane.pid"
 case "$service_kind" in
   systemd)
     echo "Restarting the locklane service..."
@@ -611,6 +867,7 @@ case "$service_kind" in
     disown
     ;;
 esac
+echo "Installed locklane ${tag:-(version unknown)} and restarted the server."
 
 # --- code-server (#628) ---------------------------------------------------------
 # Re-run install.sh's own installer: it detects the version already under --prefix

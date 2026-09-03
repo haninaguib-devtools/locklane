@@ -128,9 +128,12 @@ jobs:
       - name: Cut the permanent release for the requested version
         env:
           GH_TOKEN: ${{ github.token }}
+        # update.sh rides along as a second asset (#647): install.sh fetches it from
+        # the same release as the jar, and an installed update.sh refreshes itself
+        # from it before each update, so the script and the jar it installs match.
         run: |
           gh release create "v${VERSION}" \
             --title "v${VERSION}" \
             --notes-file release-notes.md \
             --target "$GITHUB_SHA" \
-            locklane.jar
+            locklane.jar update.sh

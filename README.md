@@ -15,14 +15,20 @@ curl -fsSL https://raw.githubusercontent.com/haninaguib-devtools/locklane/main/i
 
 Everything lands in `~/.locklane`. Five scripts live there afterwards, and each one
 already knows how the server was installed — as a systemd user service, a launchd agent,
-or a plain detached process — so you never need to:
+or a plain detached process — so you never need to. Run them from a terminal outside
+Locklane's own console (ssh, or a local terminal): a console tab is a child of the
+server, so a script that stops the server from there would take itself down with it,
+and the ones that stop it refuse to start from a console tab for that reason.
 
 - `~/.locklane/status.sh` — say whether the server is running (exit 0) or not (non-zero).
 - `~/.locklane/stop.sh` — stop the server. On macOS this also unloads the launchd agent,
   so it stays down across logins until `start.sh` brings it back.
 - `~/.locklane/start.sh` — start it again. `stop.sh && start.sh` is the restart; there is
   no separate restart script.
-- `~/.locklane/update.sh` — pull a newer build and restart the server.
+- `~/.locklane/update.sh` — pull a newer build and restart the server. It first
+  refreshes itself from the newest release, downloads and checks the new jar while the
+  old server keeps running, and only then stops, swaps and restarts, printing the
+  version it installed.
 - `~/.locklane/uninstall.sh` — stop the server and de-register it from the service
   manager, then ask separately whether to delete `~/.locklane` itself. That directory
   holds the login accounts, the projects, and the database, so deleting it needs a typed
