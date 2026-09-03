@@ -587,6 +587,16 @@ echo "Downloading locklane.jar (newest release of $REPO)..."
 gh release download --repo "$REPO" --pattern locklane.jar \
   --dir . --clobber
 
+# --- code-server (#628) ---------------------------------------------------------
+# Re-run install.sh's own installer: it detects the version already under --prefix
+# and updates it in place, so this is a no-op on an install that already has the
+# newest code-server. Kept in sync with install.sh's own copy of this block --
+# CodeServerService resolves the binary at "code-server/bin/code-server" relative
+# to this directory either way.
+echo "Installing code-server..."
+curl -fsSL https://code-server.dev/install.sh | sh -s -- \
+  --method=standalone --prefix="$(pwd)/code-server"
+
 # --- Start the new build ---------------------------------------------------------
 # A service-managed install (#386) is restarted the same way it was started; the
 # fallback (#385) relaunches detached the same way install.sh does: nohup ignores the
