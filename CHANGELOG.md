@@ -8,6 +8,11 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.3 — 2026-09-03
+
+### Fixes
+- Fix wide/ambiguous unicode glyphs miscounted by terminal column width (#630, #631)
+
 ## v0.2.2 — 2026-09-02
 
 ### Features
