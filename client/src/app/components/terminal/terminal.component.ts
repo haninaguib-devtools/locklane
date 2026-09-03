@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
+import type { WebglAddon } from '@xterm/addon-webgl';
 import { IDisposable, Terminal } from '@xterm/xterm';
 import { forkJoin } from 'rxjs';
 import { SessionUploadsService } from '../../services/session-uploads.service';
@@ -55,6 +56,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
 
   private term: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
+  private webglAddon: WebglAddon | null = null;
+  private destroyed = false;
   private session: TerminalSession | null = null;
   private resizeSub: IDisposable | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -70,6 +73,12 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   // away and back. Bound once so removeEventListener in ngOnDestroy actually matches;
   // `visibilityState` is re-checked because `focus` alone can fire while still hidden
   // (e.g. a devtools panel taking focus without the page itself becoming visible).
+  // Named rather than inline so a test can drive it directly (#616) -- firing a real
+  // WebGL context-loss event is not something a unit test can trigger.
+  private readonly disposeWebglAddonOnContextLoss = (): void => {
+    this.disposeWebglAddon();
+  };
+
   private readonly checkConnectionOnForeground = (): void => {
     if (document.visibilityState === 'visible') {
       this.session?.checkConnection();
@@ -224,6 +233,16 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     // stuck at xterm's 80x24 constructor default, parsing replayed output at the wrong
     // width for the rest of the session.
     this.term.open(this.container.nativeElement);
+    // The WebGL renderer draws glyphs on a canvas at exact cell positions, so it never
+    // accumulates the DOM renderer's per-column rounding drift that clips the last
+    // character of a wide row (#616). Loaded only after open(), as the addon's own
+    // documentation requires -- and imported dynamically so its ~250 KB stays out of
+    // the initial bundle (the app shell renders and connects long before this
+    // resolves). A browser (or test/CI environment) without WebGL2 throws
+    // synchronously from loadAddon() -- caught here the same way onContextLoss below
+    // handles losing a context after the fact, so the tab just falls back to the DOM
+    // renderer instead of never mounting.
+    void this.loadWebglAddon();
     // The container may not have its final layout size yet at this point in the
     // change-detection cycle, so the first measurement is deferred a tick rather than
     // locking in a bad cached size the way #257 did. The connection waits for that
@@ -301,6 +320,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.container.nativeElement.removeEventListener('mousedown', this.suppressRightClickUnderMouseTracking, true);
     this.container.nativeElement.removeEventListener('dragover', this.allowFileDrop);
     this.container.nativeElement.removeEventListener('drop', this.uploadDroppedFiles);
@@ -323,8 +343,39 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
     }
     this.resizeObserver?.disconnect();
     this.resizeSub?.dispose();
+    this.disposeWebglAddon();
     this.session?.close();
     this.term?.dispose();
+  }
+
+  /**
+   * A browser caps the number of live WebGL contexts per page, and every mounted
+   * console tab holds one -- so a context can be lost (not just at teardown) without
+   * warning. onContextLoss is the addon's own signal for that; disposing it here is
+   * what lets the tab keep working, falling back to xterm's DOM renderer instead of
+   * going blank (#616).
+   */
+  private async loadWebglAddon(): Promise<void> {
+    const { WebglAddon } = await import('@xterm/addon-webgl');
+    // The tab could have closed while the dynamic import above was in flight -- with
+    // no terminal left to attach to, there is nothing to load the addon onto.
+    if (this.destroyed) {
+      return;
+    }
+    const webglAddon = new WebglAddon();
+    webglAddon.onContextLoss(this.disposeWebglAddonOnContextLoss);
+    try {
+      this.term?.loadAddon(webglAddon);
+      this.webglAddon = webglAddon;
+    } catch {
+      // WebGL2 unavailable in this browser/environment -- the DOM renderer xterm
+      // falls back to on its own is a fine substitute.
+    }
+  }
+
+  private disposeWebglAddon(): void {
+    this.webglAddon?.dispose();
+    this.webglAddon = null;
   }
 
   /**
