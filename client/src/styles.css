@@ -48,3 +48,21 @@ button {
 .terminal .xterm {
   padding: 8px;
 }
+
+/* xterm 6 moved scrolling into its own `.xterm-scrollable-element` (with a 14px overlay
+   scrollbar of its own) but still creates the old, now-empty `.xterm-viewport` div and
+   ships it as `position: absolute; inset: 0; overflow-y: scroll; background: #000`.
+   `overflow-y: scroll` reserves and paints a native scrollbar even with nothing to
+   scroll, and the absolute box spans the 8px padding above — so under macOS's classic
+   (always-visible) scrollbars its gutter showed as a strip right of the console, and
+   its `#000` showed through the padding ring instead of the theme background (#649).
+   Checked against @xterm/xterm 6.0.0's source before hiding it: CoreBrowserTerminal
+   only creates and appends it; Viewport.ts builds the scrollable element on the screen
+   element and attaches wheel handling there; the only other references are
+   OverviewRulerRenderer (inserts its canvas before it in the DOM — an option this app
+   never enables, and unaffected by display anyway) and DomRenderer (copies its never-set
+   inline `style.height`). No listener, no measurement, so removing it from rendering
+   is safe; the padding ring then shows `.terminal`'s own theme background. */
+.terminal .xterm-viewport {
+  display: none;
+}
