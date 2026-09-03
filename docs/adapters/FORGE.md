@@ -32,7 +32,7 @@ probe PR opened with `--draft --base <non-default-branch>` landed with that exac
 as `baseRefName`) — narrowing task #41's finding to what it actually showed: omitting
 `--base` falls back to the default branch; passing it explicitly works normally, `--draft`
 included. `/t-drive` (ADR-004 Decision 1) uses the `<base>` form to open each child's
-draft PR directly against the initiative's integration branch, never against `main`.
+draft PR directly against the initiative's integration branch, never against the trunk.
 
 | Backend | Command |
 |---|---|
@@ -192,7 +192,7 @@ values below are starting points, not ceilings.
 
 ## Bootstrap
 
-Repo settings as code (squash-only merges, delete-branch-on-merge, protected `main`):
+Repo settings as code (squash-only merges, delete-branch-on-merge, protected trunk):
 
 | Backend | Where |
 |---|---|

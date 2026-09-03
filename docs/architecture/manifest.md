@@ -52,10 +52,29 @@ genesis-only: stamped once by `installer/bootstrap.sh` and then wholly the consu
 own (`README.md`), or deleted outright for every generated project (`LICENSE`,
 `installer/`, `site/`, `.github/workflows/installer.yml`,
 `.github/workflows/pages.yml`) — there is nothing in a consumer repo for those paths to
-sync *to*. `.t-workflow/scripts/template-owned-paths.sh --list` is the executable list: every
-tracked file matching a protected pattern, minus that genesis-only exclusion set. It is
-itself template-owned, so a future exclusion or inclusion change reaches consumers the
-same way any other template fix does.
+sync *to*. Nor is pattern matching alone sufficient once a consumer's own repo exists: a
+consumer-authored file can legitimately sit under a protected directory it did not get
+from the template — a consumer-local skill under `.claude/skills/` (the non-`t-*`
+convention `AGENTS.md` names) or a consumer's own ADR under `docs/adr/` — and pattern
+matching cannot tell that apart from a file the template actually shipped.
+
+`.t-workflow/scripts/template-owned-paths.sh --list` is the executable list, computed in two
+tiers:
+
+1. **Pattern match**: every tracked file matching a protected pattern, minus the
+   genesis-only exclusion set above — the same computation as before.
+2. **Manifest narrowing**: when `.template-manifest.json` exists at the repo root
+   (a pinned consumer), the list narrows to the paths that are *also* a key in that
+   manifest's `files` map — the manifest is the authoritative record of what the
+   consumer's pinned tag actually shipped, so a pattern match outside it is a
+   consumer-authored file, never template-owned. With no manifest present — this repo
+   itself (never a pinned consumer), a `t-update` scratch clone of the template at a
+   target tag (which never carries a manifest of its own), or a freshly-bootstrapped
+   consumer before its first commit — the list is the pattern match alone, since there
+   is no manifest yet to narrow against.
+
+The script is itself template-owned, so a future exclusion, inclusion, or narrowing
+change reaches consumers the same way any other template fix does.
 
 ## Normalized hashing
 

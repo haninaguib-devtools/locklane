@@ -1,6 +1,6 @@
 ---
 name: t-ship
-description: Ship a task — mark its draft PR ready, obtain the human's confirmation, and squash-merge with a self-contained commit written from the record. The only path to main. Use when a task is finished and ready to merge.
+description: Ship a task — mark its draft PR ready, obtain the human's confirmation, and squash-merge with a self-contained commit written from the record. The only path to the project's trunk. Use when a task is finished and ready to merge.
 ---
 
 # Ship a task
@@ -8,12 +8,14 @@ description: Ship a task — mark its draft PR ready, obtain the human's confirm
 Resolve every `tracker:*` / `forge:*` operation named below via
 `docs/adapters/TRACKER.md` and `docs/adapters/FORGE.md` (GitHub by default). The merge
 stage: the human's confirmation is the strategic read, and, when no cold review ran,
-the only read the change gets before `main`.
+the only read the change gets before the trunk.
 
 Read `AGENTS.md` and `CONSTITUTION.md` first — unless this ship is `/t-drive` chaining
 this stage in the same session whose Phase 0 already read them for the whole run, in
 which case that read already covers this one. A standalone invocation, with no driving
-session, always reads both itself.
+session, always reads both itself. Resolve the project's trunk name once, up front
+(`.t-workflow/scripts/trunk-ref.sh`, `<trunk>` below), and use it everywhere a step
+below would otherwise name `main` literally.
 
 ## Preconditions
 
@@ -49,7 +51,7 @@ has already left the pipeline, say which and stop.
    the `isolation:` line and staleness by hand. Exit 1 → stop, send it back to
    `/t-review <id>`, quoting the script's own reason (a missing or `same session`
    isolation line, or a review older than the head commit).
-3. The branch merges cleanly against current `origin/main` (`forge:pr-view <pr>`). A
+3. The branch merges cleanly against current `origin/<trunk>` (`forge:pr-view <pr>`). A
    conflict means another task landed first; resolving it goes back through `/t-work`.
    Mergeability is computed asynchronously and often returns **unknown** at first: wait
    a few seconds and retry, up to about three times; still unknown → carry
@@ -115,7 +117,7 @@ has already left the pipeline, say which and stop.
    at "expected" forever and block the merge button — the exact #94/#109 failure,
    self-inflicted on this PR unless the live setting moves before the merge is
    attempted, not after. Confirm the new context name(s) already have a real run to
-   point at — **this PR's own head sha**, not `main` (the merge hasn't happened yet):
+   point at — **this PR's own head sha**, not the trunk (the merge hasn't happened yet):
    `gh api repos/<owner>/<repo>/commits/<head-sha>/check-runs`, expecting `checks`
    (from step 1–2 above) and `cold-review` (from precondition 2's review, which must
    already exist on a protected surface) to both appear. Missing either → stop, name
@@ -139,7 +141,7 @@ has already left the pipeline, say which and stop.
      checks, or none>` · branch protection `<'no change needed', or 'will update
      required checks from <old list> to <new list> — required for this merge to
      succeed', from step 3>`
-   - question: "Merge PR #<pr> into main?"
+   - question: "Merge PR #<pr> into <trunk>?"
    - options: `confirm` (human checks judged) / `abort` (do not merge)
 
    **On `abort`, put the PR back into draft** (`forge:pr-draft <pr>`) before reporting —
@@ -155,19 +157,19 @@ has already left the pipeline, say which and stop.
 
    ```bash
    echo '{"strict": false, "contexts": [<the new list>]}' |
-     gh api "repos/<owner>/<repo>/branches/main/protection/required_status_checks" \
+     gh api "repos/<owner>/<repo>/branches/<trunk>/protection/required_status_checks" \
        -X PATCH --input -
-   gh api "repos/<owner>/<repo>/branches/main/protection/required_status_checks" \
+   gh api "repos/<owner>/<repo>/branches/<trunk>/protection/required_status_checks" \
      --jq .contexts
    ```
 
    **Never run `github-bootstrap.sh` here.** Its required-checks gating looks for the
-   new context on `main`, which cannot exist until this very merge lands — pre-merge it
-   takes its "CI has not run on main yet" branch instead of asserting the new list
-   (#113's own ship tripped exactly this). The script is a post-merge true-up only:
-   after the merge, once `main`'s first CI run of the new context concludes, re-run it
-   and confirm it reports the same list this step just set. Not applicable → nothing to
-   do here, continue.
+   new context on the trunk, which cannot exist until this very merge lands — pre-merge
+   it takes its "CI has not run on `<trunk>` yet" branch instead of asserting the new
+   list (#113's own ship tripped exactly this). The script is a post-merge true-up only:
+   after the merge, once the trunk's first CI run of the new context concludes, re-run
+   it and confirm it reports the same list this step just set. Not applicable → nothing
+   to do here, continue.
 
    Then squash-merge with a **self-contained commit** written from the record, via
    `forge:pr-merge <pr>` — **re-read `docs/adapters/FORGE.md`'s `forge:pr-merge` row
@@ -213,20 +215,20 @@ has already left the pipeline, say which and stop.
    `tracker:close-done` (as completed) — never `tracker:close`, which closes as
    not-planned. A child's own PR into the integration branch (`/t-drive` Phase 2 step 6)
    never carries this phrase — merging into a non-default branch does not trigger the
-   forge's auto-close, and a child is not done until its work reaches `main` through
+   forge's auto-close, and a child is not done until its work reaches the trunk through
    this PR.
 6. `git fetch --prune` (deleted `wip/` branches otherwise linger as stale
-   `origin/wip/*` refs), then **at most, fast-forward a `main` this checkout happens to
+   `origin/wip/*` refs), then **at most, fast-forward the trunk this checkout happens to
    be sitting on** (ADR-002) — merging leaves the task's worktree, local branch, and
    this checkout untouched, left alone permanently (ADR-005), never a side effect of
-   shipping: `git rev-parse --abbrev-ref HEAD`, then **on `main`**: `git merge --ff-only
-   origin/main`; **on any other branch**, including the task branch: leave it exactly
+   shipping: `git rev-parse --abbrev-ref HEAD`, then **on `<trunk>`**: `git merge --ff-only
+   origin/<trunk>`; **on any other branch**, including the task branch: leave it exactly
    where it is — the normal outcome now that shipping runs from anywhere.
 7. A `tracker:view <id>` `parent` field names a tracking issue whose `subIssuesSummary`
    the task's close above already updated — nothing to write here.
 8. Report the merge commit hash, whether a cold review ran, whether branch protection
    was updated (step 3/5), and whether this checkout's
-   `main` was fast-forwarded. **If `subIssuesSummary` (`tracker:view <parent-id>`) now
+   trunk was fast-forwarded. **If `subIssuesSummary` (`tracker:view <parent-id>`) now
    shows every child closed**, ask whether to close the initiative too — never
    automatic. For a driven run that just shipped, `<parent-id>` is `<id>` itself (the
    initiative just driven): every included child closed above, and an excluded child, if
@@ -238,6 +240,6 @@ has already left the pipeline, say which and stop.
 ## Rules
 
 - Never merge without the human's explicit confirmation in this conversation.
-- Never force-push; never push `main`.
+- Never force-push; never push the trunk branch directly.
 - Do not edit the change while shipping — a defect noticed here is a new finding or
   issue, not a drive-by fix.

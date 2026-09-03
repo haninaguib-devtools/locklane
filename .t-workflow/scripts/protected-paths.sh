@@ -22,7 +22,7 @@
 # Exit 2 exists because "asked about nothing" and "asked, found nothing" are the same
 # value in a naive script, and every caller reads that value as "skip the plan and the
 # review". An empty pipe is a broken caller, not a clean diff.
-#   git diff --name-only main...HEAD | .t-workflow/scripts/protected-paths.sh --stdin
+#   git diff --name-only <trunk>...HEAD | .t-workflow/scripts/protected-paths.sh --stdin
 # Protected paths are echoed to stdout, so callers can report which ones matched.
 #
 # Prefer --stdin over `xargs`: on empty input GNU and BSD xargs behave differently (BSD

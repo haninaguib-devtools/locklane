@@ -7,6 +7,16 @@ set -euo pipefail
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 echo "Bootstrapping $repo"
 
+# The trunk's name, read from GitHub itself rather than `.t-workflow/scripts/trunk-ref.sh`'s
+# `origin/HEAD` git ref: this script runs at genesis, right after the first push, when a
+# freshly-`git init`'d checkout has never had `origin/HEAD` set (that symref is set by
+# `git clone`/`git remote set-head`, not by `git push`) — `git symbolic-ref` would fall
+# through to trunk-ref.sh's own `main` fallback even on a repo whose actual default
+# branch is something else, reintroducing the exact silent-wrong-default bug this task
+# fixes. GitHub's own record of the default branch has no such gap.
+trunk=$(gh api "repos/$repo" --jq .default_branch)
+echo "Trunk branch: $trunk"
+
 # --- Labels -----------------------------------------------------------------
 label() { gh label create "$1" --color "$2" --description "$3" --force; }
 label "initiative" "8250DF" "Tracking issue: intent + ordered child tasks"
@@ -26,7 +36,7 @@ gh api "repos/$repo" -X PATCH \
   -F delete_branch_on_merge=true >/dev/null
 echo "Merge mechanics set: squash-only, delete branch on merge."
 
-# --- Branch protection on main ----------------------------------------------
+# --- Branch protection on the trunk ------------------------------------------
 # PRs only; no force pushes; no deletions.
 #
 # REQUIRED APPROVALS ARE 0 ON PURPOSE — do not raise this to 1 while one person works
@@ -36,44 +46,45 @@ echo "Merge mechanics set: squash-only, delete branch on merge."
 # is the approval in the solo phase (ADR-001 D1). Raise it to 1 — and only then — when a
 # second maintainer exists and the approval policy (workflow §13 Q9) is decided.
 #
-# `enforce_admins` stays true: it is what stops a direct push to main, which is the
+# `enforce_admins` stays true: it is what stops a direct push to the trunk, which is the
 # invariant the whole workflow rests on.
 #
 # The job from .github/workflows/ci.yml becomes a required check once CI has run at
 # least once on the default branch; a context GitHub has never seen can be rejected
-# here, so this script sets it only after seeing `checks` land on main. (#94/#113 folded
-# what were six separate jobs — consistency, record, plan-gate, title-gate, blockers,
-# plumbing-test — into sequential steps of that one `checks` job, so there is only one
-# ci.yml context to require now. `cold-review` stays a separate required context: it is
-# a different job, in review-gate.yml, gated on the pull_request_review trigger that
-# job needs and this one doesn't.)
+# here, so this script sets it only after seeing `checks` land on the trunk. (#94/#113
+# folded what were six separate jobs — consistency, record, plan-gate, title-gate,
+# blockers, plumbing-test — into sequential steps of that one `checks` job, so there is
+# only one ci.yml context to require now. `cold-review` stays a separate required
+# context: it is a different job, in review-gate.yml, gated on the pull_request_review
+# trigger that job needs and this one doesn't.)
 #
 # NOTE: on a PRIVATE repo, branch protection (and rulesets, and CODEOWNERS enforcement)
 # requires a paid plan — GitHub Pro (personal) or Team (org). On free plans it works
 # only on PUBLIC repos. The call below degrades to a warning instead of failing.
-# When the context can't be confirmed on main, the fallback must preserve whatever is
-# currently enforced — this PUT *overwrites* the live setting, so falling back to null
-# on an already-protected repo would silently disable required checks entirely (#113's
-# own ship tripped exactly that, pre-merge). Read the live value first; fall back to it.
-current=$(gh api "repos/$repo/branches/main/protection/required_status_checks" \
+# When the context can't be confirmed on the trunk, the fallback must preserve whatever
+# is currently enforced — this PUT *overwrites* the live setting, so falling back to
+# null on an already-protected repo would silently disable required checks entirely
+# (#113's own ship tripped exactly that, pre-merge). Read the live value first; fall
+# back to it.
+current=$(gh api "repos/$repo/branches/$trunk/protection/required_status_checks" \
   --jq '{strict: .strict, contexts: .contexts}' 2>/dev/null || echo null)
-if gh api "repos/$repo/commits/main/check-runs" -q '.check_runs[].name' 2>/dev/null \
+if gh api "repos/$repo/commits/$trunk/check-runs" -q '.check_runs[].name' 2>/dev/null \
    | grep -qx checks; then
   checks='{"strict": false, "contexts": ["checks", "cold-review"]}'
-  echo "CI has run on main: marking checks and cold-review required checks."
+  echo "CI has run on $trunk: marking checks and cold-review required checks."
 elif [ "$current" != null ]; then
   checks="$current"
-  echo "CI has not run on main yet: keeping the currently-required checks unchanged:"
+  echo "CI has not run on $trunk yet: keeping the currently-required checks unchanged:"
   echo "  $current"
   echo "  Re-run this script after the first CI run to require checks + cold-review."
 else
   checks='null'
-  echo "CI has not run on main yet and no checks are currently required: leaving unset."
+  echo "CI has not run on $trunk yet and no checks are currently required: leaving unset."
   echo "  Re-run this script after the first CI run to make it required."
 fi
 
 protection_err=$(mktemp)
-if gh api "repos/$repo/branches/main/protection" -X PUT \
+if gh api "repos/$repo/branches/$trunk/protection" -X PUT \
   -H "Accept: application/vnd.github+json" \
   --input - <<JSON >/dev/null 2>"$protection_err"
 {
@@ -94,10 +105,10 @@ else
   sed 's/^/    /' "$protection_err"
   echo "  Most often this is a PRIVATE repo on a free plan, where branch protection needs"
   echo "  GitHub Pro or Team. Other causes worth ruling out: the token lacks 'repo' or"
-  echo "  'administration' scope, 'main' does not exist yet (push first), or a required"
-  echo "  check name has never run on main."
-  echo "  Until it is set, PR-only main runs on convention — the skills never commit to"
-  echo "  main directly, but nothing *enforces* it. Re-run this script once fixed."
+  echo "  'administration' scope, '$trunk' does not exist yet (push first), or a required"
+  echo "  check name has never run on $trunk."
+  echo "  Until it is set, PR-only $trunk runs on convention — the skills never commit to"
+  echo "  $trunk directly, but nothing *enforces* it. Re-run this script once fixed."
 fi
 rm -f "$protection_err"
 

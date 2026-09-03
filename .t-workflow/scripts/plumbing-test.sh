@@ -350,5 +350,81 @@ case "$out" in
 esac
 echo
 
+# --- 12. .t-workflow/scripts/template-owned-paths.sh (issue #122) -------------------------
+# A minimal real git repo — unlike consistency-check.sh's plain-directory fixtures
+# above, template-owned-paths.sh calls bare `git ls-files`, so the fixture needs an
+# actual repo. One file the template would ship (AGENTS.md, a manifest key) and one a
+# consumer added themselves under a protected directory the template never put it in
+# (.claude/skills/l-example/SKILL.md, not a manifest key) — issue #122's own repro
+# shape.
+echo "template-owned-paths.sh"
+
+towned_repo="$work/towned-repo"
+mkdir -p "$towned_repo/.claude/skills/l-example"
+git -C "$towned_repo" init -q -b main
+printf '# AGENTS.md\n' > "$towned_repo/AGENTS.md"
+printf '# /l-example\nA consumer-authored skill, not shipped by the template.\n' \
+  > "$towned_repo/.claude/skills/l-example/SKILL.md"
+printf 'not protected\n' > "$towned_repo/README2.txt"
+git -C "$towned_repo" add -A
+git -C "$towned_repo" -c user.email=test@example.com -c user.name=test commit -q -m "fixture"
+
+out_nomanifest=$(bash -c 'cd "$1" && "$2/.t-workflow/scripts/template-owned-paths.sh" --list' _ "$towned_repo" "$root")
+case "$out_nomanifest" in
+  *".claude/skills/l-example/SKILL.md"*) ok "no manifest present: pattern match alone still reports a protected-directory file (baseline)" ;;
+  *) bad "no manifest present: pattern match alone still reports a protected-directory file (got: $out_nomanifest)" ;;
+esac
+
+h_agents=$("$root/.t-workflow/scripts/check-manifest.sh" --hash-file "$towned_repo/AGENTS.md")
+printf '{"template":"x/y","tag":"v1","migrations_applied":0,"files":{"AGENTS.md":"%s"}}' "$h_agents" \
+  > "$towned_repo/.template-manifest.json"
+
+out_withmanifest=$(bash -c 'cd "$1" && "$2/.t-workflow/scripts/template-owned-paths.sh" --list' _ "$towned_repo" "$root")
+case "$out_withmanifest" in
+  *".claude/skills/l-example/SKILL.md"*)
+    bad "manifest present: a consumer-added file under a protected directory, not a manifest key, is no longer reported (got: $out_withmanifest)" ;;
+  *)
+    ok "manifest present: a consumer-added file under a protected directory, not a manifest key, is no longer reported" ;;
+esac
+case "$out_withmanifest" in
+  *"AGENTS.md"*) ok "manifest present: a file that is a manifest key is still reported" ;;
+  *) bad "manifest present: a file that is a manifest key is still reported (got: $out_withmanifest)" ;;
+esac
+echo
+
+# --- 13. .t-workflow/scripts/trunk-ref.sh (issue #124) --------------------------
+# Resolves the checkout's actual trunk instead of hardcoding `main`. A bare "remote"
+# whose default branch is not `main`, cloned normally, sets `origin/HEAD` the same way
+# a real consumer clone would — the resolver must follow it rather than falling back.
+# A fresh repo with no remote at all has no `origin/HEAD` to read — the resolver's one
+# permitted fallback.
+echo "trunk-ref.sh"
+
+trunk_bare="$work/trunk-bare"
+git init -q --bare -b trunk-test "$trunk_bare"
+trunk_src="$work/trunk-src"
+git init -q -b trunk-test "$trunk_src"
+git -C "$trunk_src" -c user.email=test@example.com -c user.name=test \
+  commit -q --allow-empty -m "init"
+git -C "$trunk_src" remote add origin "$trunk_bare"
+git -C "$trunk_src" push -q origin trunk-test
+trunk_clone="$work/trunk-clone"
+git clone -q "$trunk_bare" "$trunk_clone"
+
+out_nonmain=$(cd "$trunk_clone" && "$root/.t-workflow/scripts/trunk-ref.sh")
+case "$out_nonmain" in
+  "trunk-test") ok "a checkout whose default branch is not main resolves to it (got: $out_nonmain)" ;;
+  *) bad "a checkout whose default branch is not main resolves to it (got: $out_nonmain)" ;;
+esac
+
+no_remote_repo="$work/no-remote-repo"
+git init -q "$no_remote_repo"
+out_noremote=$(cd "$no_remote_repo" && "$root/.t-workflow/scripts/trunk-ref.sh")
+case "$out_noremote" in
+  "main") ok "no origin/HEAD to read falls back to main (got: $out_noremote)" ;;
+  *) bad "no origin/HEAD to read falls back to main (got: $out_noremote)" ;;
+esac
+echo
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

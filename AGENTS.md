@@ -106,10 +106,11 @@ table below.
   worktree — neither one destroys it (ADR-002), and nothing else does either: a stale
   local worktree or branch is left alone permanently (ADR-005), removed by hand
   (`git worktree remove`, `git branch -D`) only if it is ever actually in the way.
-- `main` only moves by pull request. Never commit or push to `main` directly. The trunk
-  name is `main` literally, throughout the skills and scripts — it is not abstracted the
-  way the tracker and forge are; changing it is a find-and-replace across protected
-  surfaces, done as one task.
+- `main` only moves by pull request. Never commit or push to `main` directly. The
+  skills and scripts resolve the actual trunk branch name (`.t-workflow/scripts/trunk-ref.sh`,
+  falling back to `main` only when it cannot be determined) rather than hardcoding
+  `main` — a consumer whose default branch is named something else is followed, not
+  silently mishandled.
 - Commit messages: imperative, descriptive, no `wip`, no trailers. A task's
   squash-merge subject (and the draft PR title `/t-work` opens) is
   `[<id>] <title> (#<pr>)` — the bracketed issue number ties every commit in

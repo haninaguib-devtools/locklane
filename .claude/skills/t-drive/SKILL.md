@@ -1,6 +1,6 @@
 ---
 name: t-drive
-description: Drive an initiative's children to completion on an integration branch (merging what review authorizes, excluding what fails one bounded retry, one PR to main), or drive a single ordinary task through its own pipeline — plan, implement, review as the gates require — chained into /t-ship's merge gate; either way the run stops once, at the human's confirmation (ADR-004, ADR-006). Use to drive, run, or autonomously work an initiative or a single task.
+description: Drive an initiative's children to completion on an integration branch (merging what review authorizes, excluding what fails one bounded retry, one PR to the project's trunk), or drive a single ordinary task through its own pipeline — plan, implement, review as the gates require — chained into /t-ship's merge gate; either way the run stops once, at the human's confirmation (ADR-004, ADR-006). Use to drive, run, or autonomously work an initiative or a single task.
 ---
 
 # Drive an initiative, or a single task
@@ -10,7 +10,7 @@ description: Drive an initiative's children to completion on an integration bran
 `initiative`-labeled issue it chains `/t-plan`+`/t-work`+`/t-review` across the
 initiative's children without stopping between them, merging what review authorizes
 into a shared integration branch, and stops once — at the human's confirmation on a
-single PR to `main`; on a plain task it chains that task's own ordinary pipeline —
+single PR to the project's trunk; on a plain task it chains that task's own ordinary pipeline —
 plan and review only where the gates require them — into `/t-ship`'s
 merge-confirmation gate, whose pause is the same single stop (§Solo mode). Optional
 (`AGENTS.md`); nothing else in the pipeline invokes it. Resolve every
@@ -34,7 +34,9 @@ where this skill and those ADRs differ, the ADR wins — flag it, do not improvi
    labeled → the initiative mode, steps 2–3 below and Phases 1–3, exactly as ADR-004
    defines them; a plain task → **skip steps 2–3 and go to §Solo mode** (ADR-006 D1).
    A tracking issue that merely *looks* like an initiative (children, no label) is a
-   tracker defect to report, not a judgment call to make here.
+   tracker defect to report, not a judgment call to make here. Resolve the project's
+   trunk name once, up front (`.t-workflow/scripts/trunk-ref.sh`, `<trunk>` below), and
+   use it everywhere a step below would otherwise name `main` literally.
 2. `tracker:list-children <id>` — every sub-issue, with state. **Refuse** an initiative
    with no open children — nothing to drive; say so.
 3. `tracker:list-open` **once**, filtered client-side to this initiative's open
@@ -51,7 +53,7 @@ where this skill and those ADRs differ, the ADR wins — flag it, do not improvi
    resolution `/t-work` Phase 1 step 4 uses for a task branch: `git fetch --prune`, then
    local and `origin/` refs matching that exact name.
    - Exists → reuse it (a resumed drive).
-   - Missing → create it from a current `main`, fast-forwarding a behind-only `main`
+   - Missing → create it from the current trunk, fast-forwarding a behind-only trunk
      first and refusing on anything ahead or diverged (the same rule `/t-work` applies to
      its own branch creation), then push it
      (`git push -u origin wip/<initiative-id>-integration`) so children have a base to
@@ -89,7 +91,7 @@ topological order, one after another.
    incomplete issue, an unresolved ambiguity) that is the "protected path with no plan
    `/t-drive` can resolve on its own" precondition ADR-004 Decision 2 names: exclude the
    child immediately, spending no retry, and report why.
-3. **Branch the child from the integration branch, not `main`.** Before running
+3. **Branch the child from the integration branch, not the trunk.** Before running
    `/t-work`, create `wip/<child-id>-<slug>` — the same derivation `/t-work` Phase 1 step
    4 uses from the issue title — from the integration branch's current tip, and push it.
    `/t-work`'s own idempotent branch resolution then finds exactly this one ref and
@@ -97,10 +99,10 @@ topological order, one after another.
    sure the branch already exists in the right place before asking `/t-work` to use it.
 4. **Work.** Run `/t-work <child-id>` (Normal mode — branch, record, implement, check,
    draft PR), directing it to open the draft PR against
-   `wip/<initiative-id>-integration` instead of `main` (`/t-work` Phase 3 step 5 —
+   `wip/<initiative-id>-integration` instead of the trunk (`/t-work` Phase 3 step 5 —
    `forge:pr-create-draft`'s `<base>` argument names the integration branch directly at
    creation, confirmed to work alongside `--draft`, #113). The PR never lands against
-   `main` in the first place, so it needs no retarget afterward — the earlier
+   the trunk in the first place, so it needs no retarget afterward — the earlier
    `forge:pr-set-base` retarget fired a `pull_request: edited` event `review-gate.yml`
    never listened for, letting a child merge with its `cold-review` verdict computed
    against the wrong base, and burned an extra CI run per child while `edited` was a CI
@@ -121,7 +123,7 @@ topological order, one after another.
        Never auto-merge it, never auto-cancel it. Record the excluding finding or check
        by name for the closing report, then continue to the next child.
 6. **Merge, once review authorizes it.** A `readiness: ready` review is what authorizes
-   merging into the integration branch — never into `main` (ADR-004 Decision 1):
+   merging into the integration branch — never into the trunk (ADR-004 Decision 1):
    `forge:pr-ready <pr>` (a draft PR cannot merge — `/t-work` always opens one, and only
    `/t-ship` marks its own PR ready; on this branch `/t-drive` does that job itself),
    then squash the child's PR into the integration branch with one commit, in the
@@ -129,16 +131,16 @@ topological order, one after another.
    that child's own record exactly as `/t-ship`'s Procedure step 3 builds one for an
    ordinary task, ending with that child's own `Task: #<child-id>` line
    (`forge:pr-merge <pr> <subject> <body>`, base `wip/<initiative-id>-integration`).
-   `/t-drive` performs this merge itself — `/t-ship` only ever merges to `main`. Then
+   `/t-drive` performs this merge itself — `/t-ship` only ever merges to the trunk. Then
    re-evaluate any child that was held on this one (step 1).
 
-## Phase 3 — the aggregate PR to `main`
+## Phase 3 — the aggregate PR to the trunk
 
 Once every child is merged, excluded, or excluded by cascade — nothing left eligible or
 held:
 
-1. Open the single PR from `wip/<initiative-id>-integration` to `main`
-   (`forge:pr-create-draft` — this one already lands against `main` by default, no
+1. Open the single PR from `wip/<initiative-id>-integration` to the trunk
+   (`forge:pr-create-draft` — this one already lands against the trunk by default, no
    retargeting needed): title `[<initiative-id>] <initiative title>`; body naming every
    included child and every excluded one with its reason, so the PR reads on its own
    before anyone opens it — plus, **exactly one line per included child, in exactly this
@@ -161,8 +163,8 @@ held:
    initiative's full combined diff, not only what each child's own review already saw.
    - `readiness: ready` → **stop.** Report every included child, every excluded child
      (and anything held because of one) by number, the PR, and name
-     `/t-ship <initiative-id>` as the next command. `/t-drive` never merges to `main`
-     itself.
+     `/t-ship <initiative-id>` as the next command. `/t-drive` never merges to the
+     trunk itself.
    - `readiness: not-ready` → one bounded retry on the aggregate PR, the same shape as a
      child's (Phase 2 step 5), but performed by `/t-drive` directly rather than via
      `/t-work <initiative-id>` — an initiative issue has no branch or record of its own,
@@ -191,11 +193,11 @@ merge, every gate exactly where the manual pipeline fires it:
    (ADR-006 D6). If `/t-plan` stops with a question only a human can answer, **stop
    immediately**, spending no retry, and report why. Not protected → no plan; continue.
 3. **Work.** Run `/t-work <id>` (Normal mode) exactly as it runs standalone: ordinary
-   branch from `main`, record, implement, checks, draft PR against `main`. No
+   branch from the trunk, record, implement, checks, draft PR against the trunk. No
    retargeting — the Phase 2 base-retargeting step is initiative-mode machinery with no
    counterpart here.
 4. **Review, if the actual diff needs one.** Run the diff's real paths —
-   `git -c core.quotePath=false diff --name-only main...HEAD` — through
+   `git -c core.quotePath=false diff --name-only <trunk>...HEAD` — through
    `.t-workflow/scripts/protected-paths.sh --stdin`. Protected → run `/t-review <id>`
    exactly as it runs standalone. Not protected → **skip review, deliberately**
    (ADR-006 D5): with no autonomous merge anywhere in this mode, review keeps its
@@ -236,7 +238,7 @@ merge, every gate exactly where the manual pipeline fires it:
   own contract — call them exactly as documented, never reimplement their steps.
 - Never merge a child into the integration branch without a `readiness: ready` review of
   that child's own diff.
-- Never merge the integration branch into `main` — that is `/t-ship`'s job alone, after
+- Never merge the integration branch into the trunk — that is `/t-ship`'s job alone, after
   the human's confirmation.
 - In solo mode, merge nothing at all — the only merge is the one the human confirms at
   `/t-ship`'s gate, and skipping review is legitimate only when the *actual diff* is
