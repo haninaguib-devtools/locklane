@@ -88,6 +88,19 @@ jobs:
           java-version: "21"
           cache: maven
 
+      # Same cache ci.yml keeps for its own build step (#641): the root reactor pulls
+      # in the client module, and frontend-maven-plugin downloads a fresh Node/npm and
+      # reinstalls every package on every dispatch without it. Unlike ci.yml's step,
+      # this one is unconditional — a release always builds what it publishes, so there
+      # is no build-input skip to gate it on.
+      - name: Cache client Node/npm and node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            client/node
+            client/node_modules
+          key: ${{ runner.os }}-client-node-${{ hashFiles('client/package-lock.json', 'client/pom.xml') }}
+
       - name: Build and test the engine, then repackage the runnable jar
         # From the root, not `-f engine/pom.xml`: engine depends on the client
         # module, and building engine standalone skips the reactor, so a fresh
