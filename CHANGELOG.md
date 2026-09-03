@@ -8,6 +8,11 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.4 — 2026-09-03
+
+### Fixes
+- Fix multi-byte UTF-8 characters split across PTY chunks rendering as � in the console (#634, #635)
+
 ## v0.2.3 — 2026-09-03
 
 ### Fixes
