@@ -8,6 +8,14 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.7 — 2026-09-03
+
+### Features
+- Make Open IDE reachable from a remote browser (#655, #658)
+
+### Fixes
+- Renew short-lived device-flow GitHub tokens before they expire and on 401 (#656, #657)
+
 ## v0.2.6 — 2026-09-03
 
 ### Fixes
