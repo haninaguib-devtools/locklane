@@ -8,6 +8,11 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.8 — 2026-09-03
+
+### Fixes
+- Keep the service worker off /api and /ws so Open IDE reaches the proxied IDE (#661, #662)
+
 ## v0.2.7 — 2026-09-03
 
 ### Features
