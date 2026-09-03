@@ -8,6 +8,17 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.1 — 2026-09-02
+
+### Features
+- Install status.sh, start.sh and stop.sh alongside update.sh and uninstall.sh (#612, #615)
+
+### Fixes
+- Show a GitHub-unavailable error in the sidenav when the engine's issue refresh fails (#619, #622)
+- Find out why device-flow GitHub tokens stop working after 60 minutes and keep them valid (#620, #621)
+- Fix right-edge glyph clipping in wide consoles by rendering with xterm's WebGL addon (#616, #617)
+- Stop install.sh and update.sh from requiring a gh login (#610, #611)
+
 ## v0.2.0 — 2026-09-02
 
 ### Features
