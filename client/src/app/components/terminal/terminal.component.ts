@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import { IDisposable, Terminal } from '@xterm/xterm';
 import { forkJoin } from 'rxjs';
@@ -191,9 +192,22 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       // with just the word under the pointer the instant the user right-clicks --
       // so the context menu's own Copy could never copy more than one word (#350).
       rightClickSelectsWord: false,
+      // Unicode11Addon's activate() sets `term.unicode.activeVersion`, one of the
+      // handful of xterm APIs still marked "proposed" -- xterm throws at that call
+      // site unless this is on, regardless of how stable the addon itself is (#630).
+      allowProposedApi: true,
     });
     this.fitAddon = new FitAddon();
     this.term.loadAddon(this.fitAddon);
+    // xterm's bundled character-width table is the legacy one, which scores several
+    // glyphs the CLI's status/prompt line uses (▸▸, ←, ❚) as narrower than the CLI
+    // itself assumes when it pads/wraps that line to the PTY's column count -- so the
+    // line wrapped in the wrong place and left stray characters near the right edge
+    // (#630), distinct from the pixel-rounding bug #616 already fixed. Unicode11Addon
+    // adds the Unicode 11 width table; activeVersion selects it explicitly, since
+    // loading the addon alone does not switch xterm off its legacy default.
+    this.term.loadAddon(new Unicode11Addon());
+    this.term.unicode.activeVersion = '11';
     // OSC 52 is how a CLI running in the PTY (claude's own Ctrl+C copy, tmux, vim)
     // puts text on the clipboard -- the server has no clipboard tool, so this escape
     // sequence is its only route out, and without a handler xterm drops it silently
