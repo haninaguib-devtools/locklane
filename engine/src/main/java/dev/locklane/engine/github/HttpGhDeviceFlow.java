@@ -73,6 +73,26 @@ public class HttpGhDeviceFlow implements GhDeviceFlow {
             log.info("Device-flow poll failed", e);
             return new PollResult.Error(e.getMessage());
         }
+        return tokenResult(node);
+    }
+
+    @Override
+    public PollResult refresh(String clientId, String refreshToken) {
+        JsonNode node;
+        try {
+            node = post(accessTokenUri, Map.of(
+                    "client_id", clientId,
+                    "refresh_token", refreshToken,
+                    "grant_type", "refresh_token"));
+        } catch (GhDeviceFlowException e) {
+            log.info("Token refresh failed", e);
+            return new PollResult.Error(e.getMessage());
+        }
+        return tokenResult(node);
+    }
+
+    /** The token endpoint answers the device-code grant and the refresh grant in the same shape. */
+    private static PollResult tokenResult(JsonNode node) {
         if (node.has("access_token")) {
             return new PollResult.Success(
                     node.path("access_token").asText(),

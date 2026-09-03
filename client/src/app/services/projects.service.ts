@@ -10,6 +10,10 @@ export interface GithubAccount {
   scopes: string[];
   hasWorkflowScope: boolean;
   createdAt: string;
+  /** True once the engine can no longer renew this account's token on its own (#656): remove it and sign in again. */
+  needsReconnect: boolean;
+  /** When the current access token expires; null for a pasted token, which never does. */
+  tokenExpiresAt: string | null;
 }
 
 /** One project template on the engine host (#536): its directory name, and the frontmatter's title and description. */

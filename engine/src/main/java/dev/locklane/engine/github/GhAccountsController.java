@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -103,11 +104,18 @@ public class GhAccountsController {
     record AddTokenRequest(String token) {
     }
 
-    /** The API shape of a {@link GhAccount} — never its token. */
-    record AccountView(long id, String login, List<String> scopes, boolean hasWorkflowScope, String createdAt) {
+    /**
+     * The API shape of a {@link GhAccount} — never its token, never its refresh
+     * token. {@code needsReconnect} (#656) is true once the engine can no longer keep
+     * the account working on its own; {@code tokenExpiresAt} is null for a token that
+     * does not expire.
+     */
+    record AccountView(long id, String login, List<String> scopes, boolean hasWorkflowScope, String createdAt,
+            boolean needsReconnect, String tokenExpiresAt) {
         static AccountView from(GhAccount account) {
             return new AccountView(account.id(), account.login(), List.copyOf(account.scopes()),
-                    account.hasWorkflowScope(), account.createdAt().toString());
+                    account.hasWorkflowScope(), account.createdAt().toString(), account.needsReconnect(Instant.now()),
+                    account.tokenExpiresAt() == null ? null : account.tokenExpiresAt().toString());
         }
     }
 

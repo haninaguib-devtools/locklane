@@ -252,6 +252,127 @@ class ProjectGhResourcesTest {
         verifyNoInteractions(broadcaster);
     }
 
+    // #656: a Bad-credentials refresh asks the registered renewer once, retries with a
+    // rebuilt context, and reports a retry that still fails.
+
+    @Test
+    void refreshAllRenewsOnceAndRetriesWithARebuiltContextWhenTheTokenIsRefused(@TempDir Path dataDir)
+            throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = readyProject(repository, dataDir, "myproj");
+        VariableGhClient staleClient = new VariableGhClient();
+        VariableGhClient freshClient = new VariableGhClient();
+        freshClient.setIssues(List.of(new GhIssue(1, "Back", "OPEN", List.of(), "", "", "")));
+        AtomicInteger builds = new AtomicInteger();
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster,
+                (path, token) -> builds.incrementAndGet() == 1 ? staleClient : freshClient);
+        RecordingRenewer renewer = new RecordingRenewer(true, resources);
+        resources.onBadCredentials(renewer);
+        resources.forProject(project.id());
+        resources.refreshAll(); // warm, healthy
+        staleClient.failWith("gh exited 1: HTTP 401: Bad credentials");
+
+        resources.refreshAll();
+
+        assertThat(renewer.renewals).containsExactly(project.id());
+        assertThat(renewer.didNotHelp).isEmpty();
+        assertThat(builds.get()).isEqualTo(2);
+        ProjectGhContext rebuilt = resources.forProject(project.id()).orElseThrow();
+        assertThat(rebuilt.cache().status().failing()).isFalse();
+        assertThat(rebuilt.cache().issues()).extracting(GhIssue::title).containsExactly("Back");
+        // The sidenav never saw a failure: the outcome moved from healthy to healthy.
+        verify(broadcaster, times(0)).broadcast(eq("githubRefreshStatus"), argThat((Map<String, ?> fields) ->
+                fields.get("failing").equals(true)));
+    }
+
+    @Test
+    void refreshAllReportsARetryThatStillFailsAndDoesNotRenewAgain(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = readyProject(repository, dataDir, "myproj");
+        VariableGhClient client = new VariableGhClient();
+        client.failWith("gh exited 1: HTTP 401: Bad credentials");
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> client);
+        RecordingRenewer renewer = new RecordingRenewer(true, resources);
+        resources.onBadCredentials(renewer);
+        resources.forProject(project.id());
+
+        resources.refreshAll();
+
+        assertThat(renewer.renewals).containsExactly(project.id());
+        assertThat(renewer.didNotHelp).containsExactly(project.id());
+        verify(broadcaster, times(1)).broadcast(eq("githubRefreshStatus"), argThat((Map<String, ?> fields) ->
+                fields.get("failing").equals(true)));
+    }
+
+    @Test
+    void refreshAllDoesNotRetryWhenTheRenewerDeclines(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = readyProject(repository, dataDir, "myproj");
+        VariableGhClient client = new VariableGhClient();
+        client.failWith("gh exited 1: HTTP 401: Bad credentials");
+        AtomicInteger builds = new AtomicInteger();
+        ProjectGhResources resources = resources(dataDir, repository, (path, token) -> {
+            builds.incrementAndGet();
+            return client;
+        });
+        RecordingRenewer renewer = new RecordingRenewer(false, resources);
+        resources.onBadCredentials(renewer);
+        resources.forProject(project.id());
+
+        resources.refreshAll();
+
+        assertThat(renewer.renewals).containsExactly(project.id());
+        assertThat(renewer.didNotHelp).isEmpty();
+        assertThat(builds.get()).isEqualTo(1);
+    }
+
+    @Test
+    void refreshAllNeverAsksTheRenewerForAFailureThatIsNotBadCredentials(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = readyProject(repository, dataDir, "myproj");
+        VariableGhClient client = new VariableGhClient();
+        client.failWith("Could not run gh — is it installed and on PATH?");
+        ProjectGhResources resources = resources(dataDir, repository, (path, token) -> client);
+        RecordingRenewer renewer = new RecordingRenewer(true, resources);
+        resources.onBadCredentials(renewer);
+        resources.forProject(project.id());
+
+        resources.refreshAll();
+
+        assertThat(renewer.renewals).isEmpty();
+    }
+
+    /** A renewer that records what it was asked and, when told to, evicts like the real one does. */
+    private static final class RecordingRenewer implements ProjectGhResources.CredentialRenewer {
+        final List<Long> renewals = new java.util.ArrayList<>();
+        final List<Long> didNotHelp = new java.util.ArrayList<>();
+        private final boolean renews;
+        private final ProjectGhResources resources;
+
+        RecordingRenewer(boolean renews, ProjectGhResources resources) {
+            this.renews = renews;
+            this.resources = resources;
+        }
+
+        @Override
+        public boolean renewForProject(long projectId) {
+            renewals.add(projectId);
+            if (renews) {
+                resources.evict(projectId);
+            }
+            return renews;
+        }
+
+        @Override
+        public void renewalDidNotHelp(long projectId) {
+            didNotHelp.add(projectId);
+        }
+    }
+
     private static ProjectRecord readyProject(ProjectRepository repository, Path dataDir, String name) {
         return repository.createReady(name, "url", dataDir.resolve(name), "main", 1L, Instant.now());
     }

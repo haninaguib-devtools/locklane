@@ -111,6 +111,37 @@ class HttpGhDeviceFlowTest {
     }
 
     @Test
+    void refreshPostsTheRefreshGrantAndReadsTheRotatedPair() throws Exception {
+        // #656: GitHub answers the refresh grant in the same shape as the device-code grant.
+        HttpGhDeviceFlow deviceFlow = deviceFlowOverStub("""
+                {"access_token":"ghu_new","expires_in":28800,
+                 "refresh_token":"ghr_new","refresh_token_expires_in":15811200,
+                 "token_type":"bearer","scope":"repo,workflow"}
+                """);
+
+        GhDeviceFlow.PollResult result = deviceFlow.refresh("client-id", "ghr_old");
+
+        assertThat(result).isInstanceOf(GhDeviceFlow.PollResult.Success.class);
+        GhDeviceFlow.PollResult.Success success = (GhDeviceFlow.PollResult.Success) result;
+        assertThat(success.accessToken()).isEqualTo("ghu_new");
+        assertThat(success.refreshToken()).isEqualTo("ghr_new");
+        assertThat(success.expiresInSeconds()).isEqualTo(28800);
+        assertThat(lastRequestBody.get()).contains("grant_type=refresh_token")
+                .contains("refresh_token=ghr_old").contains("client_id=client-id");
+    }
+
+    @Test
+    void refreshMapsARefusalToError() throws Exception {
+        HttpGhDeviceFlow deviceFlow = deviceFlowOverStub(
+                "{\"error\":\"bad_refresh_token\",\"error_description\":\"The refresh token passed is incorrect or expired.\"}");
+
+        GhDeviceFlow.PollResult result = deviceFlow.refresh("client-id", "ghr_dead");
+
+        assertThat(result).isInstanceOf(GhDeviceFlow.PollResult.Error.class);
+        assertThat(((GhDeviceFlow.PollResult.Error) result).message()).isEqualTo("bad_refresh_token");
+    }
+
+    @Test
     void pollMapsEveryKnownErrorCode() throws Exception {
         assertThat(pollWithError("authorization_pending")).isInstanceOf(GhDeviceFlow.PollResult.Pending.class);
         assertThat(pollWithError("slow_down")).isInstanceOf(GhDeviceFlow.PollResult.SlowDown.class);

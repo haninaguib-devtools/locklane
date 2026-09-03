@@ -132,8 +132,8 @@ describe('AddProjectPopupComponent', () => {
 
   describe('GitHub account picker (#532, #550)', () => {
     const TWO_ACCOUNTS = [
-      { id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-01T00:00:00Z' },
-      { id: 2, login: 'hani-thyme', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-02T00:00:00Z' },
+      { id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-01T00:00:00Z' },
+      { id: 2, login: 'hani-thyme', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-02T00:00:00Z' },
     ];
 
     // Rendering runs ngOnInit, which asks the engine for the caller's GitHub accounts.
@@ -178,7 +178,7 @@ describe('AddProjectPopupComponent', () => {
 
     it('still shows the select with exactly one account', () => {
       const fixture = render();
-      flushAccounts([{ id: 9, login: 'solo', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-01T00:00:00Z' }]);
+      flushAccounts([{ id: 9, login: 'solo', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-01T00:00:00Z' }]);
       fixture.detectChanges();
 
       expect(optionLabels(fixture)).toEqual(['solo']);
@@ -287,7 +287,7 @@ describe('AddProjectPopupComponent', () => {
       const fixture = create();
       fixture.detectChanges();
       httpMock.expectOne('/api/github/accounts').flush({
-        accounts: [{ id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-01T00:00:00Z' }],
+        accounts: [{ id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-01T00:00:00Z' }],
       });
       return fixture;
     }

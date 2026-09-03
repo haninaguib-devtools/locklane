@@ -93,6 +93,14 @@
             <li>
               <div class="account-info">
                 <span class="login">{{ account.login }}</span>
+                @if (account.needsReconnect) {
+                  <span
+                    class="pending needs-reconnect"
+                    title="Its GitHub token could not be renewed, so its projects fail with 'Bad credentials' -- remove this account and sign in again"
+                  >
+                    needs reconnection
+                  </span>
+                }
                 @if (!account.hasWorkflowScope) {
                   <span class="pending" title="Cannot bootstrap t-workflow -- missing the workflow scope">
                     no workflow scope

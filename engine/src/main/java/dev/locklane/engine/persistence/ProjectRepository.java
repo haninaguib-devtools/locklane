@@ -158,6 +158,14 @@ public class ProjectRepository {
                 githubAccountId);
     }
 
+    /** The ids of every project acting as {@code githubAccountId} — each one's cached {@code gh} client is evicted after a renewal (#656). */
+    public List<Long> findIdsReferencingGithubAccount(long githubAccountId) {
+        return jdbcTemplate.query(
+                "SELECT id FROM projects WHERE github_account_id = ? ORDER BY id",
+                (rs, rowNum) -> rs.getLong("id"),
+                githubAccountId);
+    }
+
     /** Moves a project back to {@link ProjectStatus#CLONING}, clearing any previous default branch. */
     public void markCloning(long id) {
         jdbcTemplate.update("UPDATE projects SET status = ?, default_branch = NULL WHERE id = ?",

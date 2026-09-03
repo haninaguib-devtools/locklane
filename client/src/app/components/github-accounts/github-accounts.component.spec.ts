@@ -11,7 +11,7 @@ describe('GithubAccountsComponent', () => {
     id: 1,
     login: 'haninaguib',
     scopes: ['repo', 'workflow'],
-    hasWorkflowScope: true,
+    hasWorkflowScope: true, needsReconnect: false, tokenExpiresAt: null,
     createdAt: '2026-08-01T00:00:00Z',
   };
 
@@ -31,6 +31,21 @@ describe('GithubAccountsComponent', () => {
     httpMock.expectOne('/api/github/accounts').flush({ accounts: [HANINAGUIB] });
     return fixture;
   }
+
+  it('flags an account the engine could no longer renew as needing reconnection', () => {
+    // #656: a device-flow token whose renewal failed for good.
+    const fixture = TestBed.createComponent(GithubAccountsComponent);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/github/accounts').flush({
+      accounts: [HANINAGUIB, { ...HANINAGUIB, id: 2, login: 'dead', needsReconnect: true }],
+    });
+    fixture.detectChanges();
+
+    const badges = (fixture.nativeElement as HTMLElement).querySelectorAll('.needs-reconnect');
+    expect(badges.length).toBe(1);
+    expect(badges[0].textContent?.trim()).toBe('needs reconnection');
+    expect(badges[0].closest('li')?.textContent).toContain('dead');
+  });
 
   it('loads the account list on init', () => {
     const fixture = create();
@@ -58,7 +73,7 @@ describe('GithubAccountsComponent', () => {
 
     const req = httpMock.expectOne('/api/github/accounts/token');
     expect(req.request.body).toEqual({ token: 'ghp_pasted' });
-    req.flush({ id: 2, login: 'pasted', scopes: ['repo'], hasWorkflowScope: false, createdAt: '' });
+    req.flush({ id: 2, login: 'pasted', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '' });
 
     expect(fixture.componentInstance.pastedToken).toBe('');
     httpMock.expectOne('/api/github/accounts').flush({ accounts: [HANINAGUIB] });
