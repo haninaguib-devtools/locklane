@@ -13,8 +13,15 @@ login, and leaves it running as a per-user service:
 curl -fsSL https://raw.githubusercontent.com/haninaguib-devtools/locklane/main/install.sh | bash
 ```
 
-Everything lands in `~/.locklane`. Two scripts live there afterwards:
+Everything lands in `~/.locklane`. Five scripts live there afterwards, and each one
+already knows how the server was installed — as a systemd user service, a launchd agent,
+or a plain detached process — so you never need to:
 
+- `~/.locklane/status.sh` — say whether the server is running (exit 0) or not (non-zero).
+- `~/.locklane/stop.sh` — stop the server. On macOS this also unloads the launchd agent,
+  so it stays down across logins until `start.sh` brings it back.
+- `~/.locklane/start.sh` — start it again. `stop.sh && start.sh` is the restart; there is
+  no separate restart script.
 - `~/.locklane/update.sh` — pull a newer build and restart the server.
 - `~/.locklane/uninstall.sh` — stop the server and de-register it from the service
   manager, then ask separately whether to delete `~/.locklane` itself. That directory
