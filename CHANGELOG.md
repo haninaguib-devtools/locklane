@@ -8,6 +8,15 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.6 — 2026-09-03
+
+### Fixes
+- Hide xterm 6's leftover viewport scrollbar that shows as a strip right of the console (#649, #651)
+- Harden update.sh, install.sh and the generated control scripts (#647, #648)
+
+### Other
+- Update template to v0.0.13 (#650, #652)
+
 ## v0.2.5 — 2026-09-03
 
 ### Features
