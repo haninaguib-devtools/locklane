@@ -376,11 +376,11 @@ case "$SERVICE_KIND" in
     echo "Stopped. The service stays enabled and comes back at the next boot; start.sh brings it back now."
     ;;
   launchd)
-    # bootout is the only way to stop a KeepAlive agent -- a plain `launchctl stop`
-    # would just have launchd relaunch it -- and bootout also UNLOADS the agent. A
-    # stopped agent therefore does not come back at the next login until start.sh (or
-    # update.sh) bootstraps it again. That is the price of a stop that actually sticks,
-    # and start.sh restores the installed state.
+    # bootout is the only way to stop a KeepAlive agent (a plain `launchctl stop` would
+    # just have launchd relaunch it), and it also UNLOADS the agent. A stopped agent
+    # therefore stays down after bootout, and does not come back at the next login until
+    # start.sh (or update.sh) bootstraps it again. That is the price of a stop that
+    # actually sticks; start.sh restores the installed state.
     if ! launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
       echo "locklane is already stopped: the launchd agent ($AGENT_LABEL) is not loaded."
       exit 0

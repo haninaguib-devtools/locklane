@@ -82,3 +82,8 @@ back at the next boot. `start.sh` after `stop.sh` restores the installed state o
   systemd `locklane` user unit on this host runs the console session doing the work,
   and there is no macOS host. Both are the plan's human checks. The detached fallback
   was exercised with a stand-in `java` on `PATH`.
+- Fix pass after the cold review (PR #615, finding H1): the plan's review-stage check
+  `grep -n 'bootout' install.sh | grep -qi 'login\|back'` failed because the generated
+  `stop.sh`'s macOS comment wrapped "bootout" and "does not come back at the next login"
+  onto different lines. The comment was reflowed in both generator copies so one line
+  carries both; no behaviour changed (agent, 2026-09-02).
