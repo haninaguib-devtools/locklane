@@ -88,6 +88,31 @@ export function isReleaseAvailableEvent(event: AppEvent): event is ReleaseAvaila
   );
 }
 
+/**
+ * A `githubRefreshStatus` message (#619): the outcome of the engine's GitHub fetch for
+ * a project moved -- it started failing, stopped failing, or is failing with different
+ * text. Sent by the scheduled poll and by a forced refresh alike, so the sidenav
+ * learns about a dead token without anyone clicking. `failure` and `lastSuccessAt`
+ * are absent (not null) when unset.
+ */
+export interface GithubRefreshStatusEvent extends AppEvent {
+  type: 'githubRefreshStatus';
+  projectId: number;
+  failing: boolean;
+  failure?: string;
+  lastSuccessAt?: string;
+}
+
+export function isGithubRefreshStatusEvent(event: AppEvent): event is GithubRefreshStatusEvent {
+  return (
+    event.type === 'githubRefreshStatus' &&
+    typeof event['projectId'] === 'number' &&
+    typeof event['failing'] === 'boolean' &&
+    (event['failure'] === undefined || typeof event['failure'] === 'string') &&
+    (event['lastSuccessAt'] === undefined || typeof event['lastSuccessAt'] === 'string')
+  );
+}
+
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 

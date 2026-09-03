@@ -14,6 +14,8 @@ import { OpenProjectConsole } from './services/project-console.service';
 import { routes } from './app.routes';
 
 describe('AppComponent', () => {
+
+  const GITHUB_OK = { failing: false, failure: null, lastSuccessAt: null };
   let httpMock: HttpTestingController;
 
   const PROJECT: Project = {
@@ -118,7 +120,7 @@ describe('AppComponent', () => {
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT]));
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
   }
 
@@ -136,7 +138,7 @@ describe('AppComponent', () => {
     lists.forEach((request) => request.flush([PROJECT]));
     const trees = httpMock.match('/api/projects/1/issues/tree');
     expect(trees.length).toBe(2);
-    trees.forEach((request) => request.flush([]));
+    trees.forEach((request) => request.flush({ nodes: [], github: GITHUB_OK }));
     flushUsageWidget();
   }
 
@@ -291,7 +293,7 @@ describe('AppComponent', () => {
     // does not -- two requests to the same path, distinguished only by that param.
     const trees = httpMock.match((r) => r.url === '/api/projects/1/issues/tree');
     expect(trees.length).toBe(2);
-    trees.forEach((request) => request.flush([]));
+    trees.forEach((request) => request.flush({ nodes: [], github: GITHUB_OK }));
     httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
   }));
 
@@ -390,7 +392,7 @@ describe('AppComponent', () => {
     lists.forEach((request) => request.flush([TINTED_PROJECT]));
     const trees = httpMock.match('/api/projects/1/issues/tree');
     expect(trees.length).toBe(2);
-    trees.forEach((request) => request.flush([]));
+    trees.forEach((request) => request.flush({ nodes: [], github: GITHUB_OK }));
     flushUsageWidget();
     flushProjectConsoleSessions();
     flushConsoleIndicator();
@@ -416,7 +418,7 @@ describe('AppComponent', () => {
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([TINTED_PROJECT]));
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
     flushConsoleIndicator();
     flushIssue(42);
@@ -442,7 +444,7 @@ describe('AppComponent', () => {
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([TINTED_PROJECT]));
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
     flushConsoleIndicator();
     fixture.detectChanges();
@@ -495,7 +497,7 @@ describe('AppComponent', () => {
     expect(TestBed.inject(Router).url).toBe('/projects/1/issues');
     httpMock.expectOne('/api/projects').flush([PROJECT]);
     flushProjectConsoleSessions();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
     flushProjectWorktrees();
 
@@ -562,7 +564,7 @@ describe('AppComponent', () => {
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT]));
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
     flushConsoleIndicator();
     fixture.detectChanges();
@@ -595,7 +597,7 @@ describe('AppComponent', () => {
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT, PROJECT2]));
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
     flushConsoleIndicator();
     fixture.detectChanges();
@@ -767,7 +769,7 @@ describe('AppComponent', () => {
 
     expect(fixture.componentInstance.showAddProject).toBeFalse();
     httpMock.expectOne('/api/projects').flush([PROJECT]);
-    httpMock.expectOne('/api/projects/1/issues/tree?fresh=true').flush([]);
+    httpMock.expectOne('/api/projects/1/issues/tree?fresh=true').flush({ nodes: [], github: GITHUB_OK });
     httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
   }));
 

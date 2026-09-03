@@ -55,8 +55,9 @@ class IssueControllerRoutingTest {
 
         mockMvc.perform(get("/api/projects/1/issues/tree"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].number").value(1))
-                .andExpect(jsonPath("$[0].kind").value("INITIATIVE"));
+                .andExpect(jsonPath("$.nodes[0].number").value(1))
+                .andExpect(jsonPath("$.nodes[0].kind").value("INITIATIVE"))
+                .andExpect(jsonPath("$.github.failing").value(false));
     }
 
     @Test

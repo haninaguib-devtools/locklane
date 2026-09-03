@@ -13,6 +13,8 @@ import { Project, TreeNode } from '../../models/issue.model';
 import { UsageSnapshot } from '../../models/usage.model';
 
 describe('SidenavComponent', () => {
+
+  const GITHUB_OK = { failing: false, failure: null, lastSuccessAt: null };
   let httpMock: HttpTestingController;
 
   const PROJECT_A: Project = {
@@ -97,7 +99,7 @@ describe('SidenavComponent', () => {
   function flushTree(projectId: number, nodes: TreeNode[], fresh = false): void {
     httpMock
       .expectOne(`/api/projects/${projectId}/issues/tree${fresh ? '?fresh=true' : ''}`)
-      .flush(nodes);
+      .flush({ nodes: nodes, github: GITHUB_OK });
     flushConsoles();
   }
 
@@ -122,10 +124,10 @@ describe('SidenavComponent', () => {
 
   it('renders one section per project, each with its own tree', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush([
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [
       { number: 9, title: 'Only in B', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
-    ]);
+    ], github: GITHUB_OK });
     flushConsoles();
 
     const [sectionA, sectionB] = fixture.componentInstance.projectSections;
@@ -195,8 +197,8 @@ describe('SidenavComponent', () => {
 
   it('isSelected only matches the exact project/issue pair', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
     fixture.componentInstance.selected = { projectId: 1, issueNumber: 4 };
 
@@ -218,8 +220,8 @@ describe('SidenavComponent', () => {
 
   it('a pin in one project does not pin the same issue number in another project', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
 
     TestBed.inject(PinStore).toggle(1, 4);
@@ -284,8 +286,8 @@ describe('SidenavComponent', () => {
 
   it('a fold in one project does not fold the same issue number in another project', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
     const [sectionA] = fixture.componentInstance.projectSections;
     const initiative = fixture.componentInstance.mainNodesFor(sectionA)[0];
@@ -338,7 +340,7 @@ describe('SidenavComponent', () => {
 
   it('an issue with an open console stays visible under hideShipped even when closed (#263)', () => {
     const fixture = init();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-3-fix-thing']);
 
     const section = fixture.componentInstance.projectSections[0];
@@ -350,7 +352,7 @@ describe('SidenavComponent', () => {
 
   it('while hideShipped is checked, still shows the status label for a CLOSED row kept visible by an open console (#366)', () => {
     const fixture = init();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-3-fix-thing']);
     fixture.detectChanges();
 
@@ -363,7 +365,7 @@ describe('SidenavComponent', () => {
 
   it('an issue with an open console stays visible regardless of the typed search text (#263)', () => {
     const fixture = init();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-4-standalone']);
 
     fixture.componentInstance.filterText = 'no match at all';
@@ -409,7 +411,7 @@ describe('SidenavComponent', () => {
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
     const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/tree');
     expect(req.request.params.get('fresh')).toBe('true');
-    req.flush(tree());
+    req.flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
   });
 
@@ -417,7 +419,7 @@ describe('SidenavComponent', () => {
     init();
     const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/tree');
     expect(req.request.params.has('fresh')).toBeFalse();
-    req.flush(tree());
+    req.flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
   });
 
@@ -625,8 +627,8 @@ describe('SidenavComponent', () => {
 
   it('an issuesChanged event re-fetches just that project\'s tree, in place', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
 
     emitAppEvent({ type: 'issuesChanged', projectId: 1 });
@@ -636,12 +638,66 @@ describe('SidenavComponent', () => {
       ...tree(),
       { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
     ];
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(updated);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: updated, github: GITHUB_OK });
     flushConsoles();
 
     const [sectionA, sectionB] = fixture.componentInstance.projectSections;
     expect(fixture.componentInstance.mainNodesFor(sectionA).map((n) => n.number)).toEqual([1, 4, 5]);
     expect(fixture.componentInstance.mainNodesFor(sectionB).map((n) => n.number)).toEqual([1, 4]);
+  });
+
+  it('a githubRefreshStatus event shows the failure for that project, and a successful reload clears it (#619)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    flushConsoles();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.github-error')).toBeNull();
+
+    emitAppEvent({
+      type: 'githubRefreshStatus',
+      projectId: 1,
+      failing: true,
+      failure: 'gh exited 1: HTTP 401: Bad credentials',
+      lastSuccessAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    });
+    fixture.detectChanges();
+
+    httpMock.expectNone('/api/projects/1/issues/tree'); // the event carries the outcome; no re-fetch
+    const errors = (fixture.nativeElement as HTMLElement).querySelectorAll('.github-error');
+    expect(errors.length).toBe(1);
+    expect(errors[0].textContent).toContain('HTTP 401: Bad credentials');
+    expect(errors[0].textContent).toContain('last refreshed 5 min ago');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.github-error button')).toBeNull(); // not dismissable
+
+    // The refresh button makes a fresh attempt and reports honestly: still failing.
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    const failing = { failing: true, failure: 'gh exited 1: HTTP 401: Bad credentials', lastSuccessAt: null };
+    httpMock.expectOne('/api/projects/1/issues/tree?fresh=true').flush({ nodes: tree(), github: failing });
+    httpMock.expectOne('/api/projects/2/issues/tree?fresh=true').flush({ nodes: tree(), github: GITHUB_OK });
+    flushConsoles();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.github-error')?.textContent).toContain(
+      'never refreshed successfully',
+    );
+
+    // The next successful load clears it.
+    emitAppEvent({ type: 'issuesChanged', projectId: 1 });
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    flushConsoles();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.github-error')).toBeNull();
+  });
+
+  it('a githubRefreshStatus event for a project not currently loaded is ignored (#619)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'githubRefreshStatus', projectId: 999, failing: true, failure: 'nope' });
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.github-error')).toBeNull();
   });
 
   it('an issuesChanged event for a project not currently loaded is ignored', () => {
@@ -661,7 +717,7 @@ describe('SidenavComponent', () => {
 
     const req = httpMock.expectOne((r) => r.url === '/api/projects/1/issues/tree');
     expect(req.request.params.get('fresh')).toBe('true');
-    req.flush(tree());
+    req.flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
   });
 
@@ -705,8 +761,8 @@ describe('SidenavComponent', () => {
 
   it('a consoleAttention event only marks the matching project (#130)', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
 
     emitAppEvent({ type: 'consoleAttention', sessionId: '2-4-main-slug', state: 'waiting' });
@@ -740,8 +796,8 @@ describe('SidenavComponent', () => {
 
   it('a suffixed project-console session id marks only its own project (#450)', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
 
     emitAppEvent({ type: 'consoleAttention', sessionId: '2-console-abc', state: 'waiting' });
@@ -792,10 +848,10 @@ describe('SidenavComponent', () => {
     flushTree(1, tree());
 
     emitAppEvent({ type: 'issuesChanged', projectId: 1 });
-    httpMock.expectOne('/api/projects/1/issues/tree').flush([
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [
       ...tree(),
       { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
-    ]);
+    ], github: GITHUB_OK });
     flushConsoles();
     fixture.detectChanges();
 
@@ -843,7 +899,7 @@ describe('SidenavComponent', () => {
 
   it('the header "+" asks for a new console even when the project already has some open (#370)', () => {
     const fixture = init();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     // This project already has an open project-level console -- the case that used
     // to hand the user back into that existing console instead of a new one.
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console-a1b2c3d4']);
@@ -871,7 +927,7 @@ describe('SidenavComponent', () => {
 
   it('a project-level console with no issue attached lights the project dot (#330)', () => {
     const fixture = init();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console-a1b2c3d4']);
 
     expect(fixture.componentInstance.hasOpenConsoleForProject(1)).toBeTrue();
@@ -879,7 +935,7 @@ describe('SidenavComponent', () => {
 
   it('the legacy project-level console session id shape lights the project dot (#330)', () => {
     const fixture = init();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console']);
 
     expect(fixture.componentInstance.hasOpenConsoleForProject(1)).toBeTrue();
@@ -894,8 +950,8 @@ describe('SidenavComponent', () => {
 
   it('a project-level console in one project does not light another project\'s dot (#330)', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-console-a1b2c3d4']);
     httpMock.expectOne((req) => /\/api\/projects\/2\/consoles$/.test(req.url)).flush([]);
 
@@ -905,7 +961,7 @@ describe('SidenavComponent', () => {
 
   it('an issue-attached console alone does not light the project dot (#330)', () => {
     const fixture = init();
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-2-fix-bug']);
 
     expect(fixture.componentInstance.hasOpenConsole(1, 2)).toBeTrue();
@@ -947,8 +1003,8 @@ describe('SidenavComponent', () => {
 
   it("popOutProject falls back to the project's base route when it is not the active project (#286)", () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
     fixture.componentInstance.selected = { projectId: 1, issueNumber: 4 };
     const openSpy = spyOn(window, 'open');
@@ -973,8 +1029,8 @@ describe('SidenavComponent', () => {
 
   it('dragging a project section reorders it immediately and persists the new order (#541)', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
 
     fixture.componentInstance.onProjectSectionDrop({ previousIndex: 0, currentIndex: 1 } as unknown as CdkDragDrop<Section[]>);
@@ -985,8 +1041,8 @@ describe('SidenavComponent', () => {
 
   it('dropping a project section back on its own position is a no-op (#541)', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
 
     fixture.componentInstance.onProjectSectionDrop({ previousIndex: 0, currentIndex: 0 } as unknown as CdkDragDrop<Section[]>);
@@ -997,8 +1053,8 @@ describe('SidenavComponent', () => {
 
   it('a failed persist reloads to fall back to whatever order the server actually kept (#541)', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/1/issues/tree').flush(tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
 
     fixture.componentInstance.onProjectSectionDrop({ previousIndex: 0, currentIndex: 1 } as unknown as CdkDragDrop<Section[]>);
@@ -1006,7 +1062,7 @@ describe('SidenavComponent', () => {
 
     httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
     flushTree(1, tree());
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
     expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1, 2]);
   });
@@ -1017,7 +1073,7 @@ describe('SidenavComponent', () => {
     fixture.detectChanges();
 
     httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
-    httpMock.expectOne('/api/projects/2/issues/tree').flush(tree());
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushConsoles();
     httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
 

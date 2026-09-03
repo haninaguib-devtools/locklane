@@ -21,6 +21,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -209,6 +211,36 @@ class ProjectGhResourcesTest {
     }
 
     @Test
+    void refreshAllBroadcastsGithubRefreshStatusWhenAPollStartsFailingAndAgainWhenItRecovers(@TempDir Path dataDir)
+            throws IOException {
+        // #619: the scheduled poll is how the sidenav learns about a dead token
+        // without anyone clicking -- the status event fires when the outcome moves,
+        // and stays quiet while it keeps failing the same way.
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = readyProject(repository, dataDir, "myproj");
+        VariableGhClient client = new VariableGhClient();
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> client);
+        resources.forProject(project.id());
+        resources.refreshAll(); // warms the cache: succeeds, and there was no failure before -- no status event
+
+        client.failWith("gh exited 1: HTTP 401: Bad credentials");
+        resources.refreshAll();
+        resources.refreshAll(); // same failure again -- nothing new to broadcast
+        client.failWith(null);
+        resources.refreshAll();
+
+        verify(broadcaster, times(1)).broadcast(eq("githubRefreshStatus"), argThat((Map<String, ?> fields) ->
+                fields.get("projectId").equals(project.id()) && fields.get("failing").equals(true)
+                        && fields.get("failure").equals("gh exited 1: HTTP 401: Bad credentials")));
+        verify(broadcaster, times(1)).broadcast(eq("githubRefreshStatus"), argThat((Map<String, ?> fields) ->
+                fields.get("projectId").equals(project.id()) && fields.get("failing").equals(false)
+                        && fields.get("lastSuccessAt") != null));
+        assertThat(resources.forProject(project.id()).orElseThrow().cache().status().failing()).isFalse();
+    }
+
+    @Test
     void refreshAllNeverBroadcastsForAProjectThatWasNeverLookedUp(@TempDir Path dataDir) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
@@ -274,13 +306,22 @@ class ProjectGhResourcesTest {
 
     private static final class VariableGhClient implements GhClient {
         private List<GhIssue> issues = List.of();
+        private String failure;
 
         void setIssues(List<GhIssue> issues) {
             this.issues = issues;
         }
 
+        /** Every call throws with this message until reset with {@code null} (#619). */
+        void failWith(String failure) {
+            this.failure = failure;
+        }
+
         @Override
         public List<GhIssue> issues() {
+            if (failure != null) {
+                throw new GhUnavailableException(failure, null);
+            }
             return issues;
         }
 

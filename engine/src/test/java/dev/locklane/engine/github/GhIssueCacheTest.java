@@ -2,6 +2,9 @@ package dev.locklane.engine.github;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -161,6 +164,42 @@ class GhIssueCacheTest {
         boolean changed = cache.refresh();
 
         assertThat(changed).isFalse();
+    }
+
+    @Test
+    void statusRecordsAFailedRefreshAndTheLastSuccessAndClearsOnTheNextSuccess() {
+        // #619
+        FakeGhClient fake = new FakeGhClient(List.of(issue(1, "First", "OPEN")), List.of());
+        Clock clock = Clock.fixed(Instant.parse("2026-09-02T10:00:00Z"), ZoneOffset.UTC);
+        GhIssueCache cache = new GhIssueCache(fake, clock);
+        assertThat(cache.status()).isEqualTo(new GhRefreshStatus(false, null, null));
+
+        cache.refresh();
+        assertThat(cache.status()).isEqualTo(new GhRefreshStatus(false, null, Instant.parse("2026-09-02T10:00:00Z")));
+
+        fake.failNextCall();
+        cache.refresh();
+        assertThat(cache.status().failing()).isTrue();
+        assertThat(cache.status().failure()).isEqualTo("simulated failure");
+        assertThat(cache.status().lastSuccessAt()).isEqualTo(Instant.parse("2026-09-02T10:00:00Z"));
+
+        cache.refresh();
+        assertThat(cache.status()).isEqualTo(new GhRefreshStatus(false, null, Instant.parse("2026-09-02T10:00:00Z")));
+    }
+
+    @Test
+    void statusRecordsAFailedColdFetchToo() {
+        // #619: a project whose very first fetch fails (engine just started, token
+        // already dead) is reported failing from that first fetch, not only from the
+        // next scheduled poll.
+        FakeGhClient fake = new FakeGhClient(List.of(), List.of());
+        fake.failNextCall();
+        GhIssueCache cache = new GhIssueCache(fake);
+
+        cache.issues();
+
+        assertThat(cache.status().failing()).isTrue();
+        assertThat(cache.status().lastSuccessAt()).isNull();
     }
 
     private static GhIssue issue(int number, String title, String state) {

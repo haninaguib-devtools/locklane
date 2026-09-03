@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -93,18 +94,52 @@ public class ProjectGhResources {
         contexts.remove(projectId);
     }
 
-    /** Diffs each project's cache against its previous state and publishes `issuesChanged` (#129) where it moved. */
+    /**
+     * Diffs each project's cache against its previous state and publishes
+     * `issuesChanged` (#129) where it moved, and `githubRefreshStatus` (#619) where
+     * the fetch's outcome moved -- started failing, stopped failing, or failing with
+     * different text -- so the sidenav learns that GitHub is unreachable without
+     * anyone clicking anything.
+     */
     @Scheduled(fixedDelay = REFRESH_INTERVAL_MS, initialDelay = REFRESH_INTERVAL_MS)
     void refreshAll() {
         contexts.forEach((projectId, context) -> {
             try {
-                if (context.cache().refresh()) {
+                GhRefreshStatus before = context.cache().status();
+                boolean changed = context.cache().refresh();
+                broadcastStatusIfMoved(eventBroadcaster, projectId, before, context.cache().status());
+                if (changed) {
                     eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
                 }
             } catch (RuntimeException e) {
                 log.error("Scheduled issue/PR refresh failed for project {}", projectId, e);
             }
         });
+    }
+
+    /**
+     * Broadcasts {@code githubRefreshStatus} (#619) when the fetch outcome for a
+     * project differs from what it was before the refresh. Shared with
+     * {@link IssueController}'s forced refresh so both paths report the same way.
+     * The payload mirrors {@link GhRefreshStatus}; {@code failure} and
+     * {@code lastSuccessAt} are absent rather than null when unset, since
+     * {@link Map#of} rejects null values.
+     */
+    static void broadcastStatusIfMoved(EventBroadcaster broadcaster, long projectId,
+            GhRefreshStatus before, GhRefreshStatus after) {
+        if (before.sameOutcomeAs(after)) {
+            return;
+        }
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("projectId", projectId);
+        fields.put("failing", after.failing());
+        if (after.failure() != null) {
+            fields.put("failure", after.failure());
+        }
+        if (after.lastSuccessAt() != null) {
+            fields.put("lastSuccessAt", after.lastSuccessAt().toString());
+        }
+        broadcaster.broadcast("githubRefreshStatus", fields);
     }
 
     /** A context for a project with no checkout to run {@code gh} in (#569): empty issues, empty PRs. */

@@ -18,6 +18,9 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -120,8 +123,8 @@ class IssueControllerTest {
                 new GhIssue(1, "First", "OPEN", List.of(), "", "", ""),
                 new GhIssue(2, "Second", "OPEN", List.of(), "", "", "")));
 
-        assertThat(controller.tree(projectId, false).getBody()).extracting(TreeNode::number).containsExactly(1);
-        assertThat(controller.tree(projectId, true).getBody()).extracting(TreeNode::number).containsExactlyInAnyOrder(1, 2);
+        assertThat(controller.tree(projectId, false).getBody().nodes()).extracting(TreeNode::number).containsExactly(1);
+        assertThat(controller.tree(projectId, true).getBody().nodes()).extracting(TreeNode::number).containsExactlyInAnyOrder(1, 2);
     }
 
     @Test
@@ -164,6 +167,59 @@ class IssueControllerTest {
         verifyNoInteractions(broadcaster);
     }
 
+    @Test
+    void treeCarriesTheFailureWhenTheForcedRefreshThrowsAndClearsItOnTheNextSuccess(@TempDir Path root) throws IOException {
+        // #619: a refresh that fails still answers 200 with the cached tree -- the
+        // response has to say so, or the caller cannot tell stale from up to date.
+        long projectId = readyProject(root);
+        MutableGhClient client = new MutableGhClient(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
+        ProjectGhResources resources = new ProjectGhResources(projectRepository,
+                TestSqliteDatabases.newGhAccountRepository(root), tokenCipher, (path, token) -> client);
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        IssueController controller = new IssueController(resources, broadcaster);
+        controller.tree(projectId, false); // warms the cache
+
+        client.failWith("gh exited 1: HTTP 401: Bad credentials");
+        TreeResponse failed = controller.tree(projectId, true).getBody();
+
+        assertThat(failed.nodes()).extracting(TreeNode::number).containsExactly(1);
+        assertThat(failed.github().failing()).isTrue();
+        assertThat(failed.github().failure()).isEqualTo("gh exited 1: HTTP 401: Bad credentials");
+        assertThat(failed.github().lastSuccessAt()).isNotNull();
+        verify(broadcaster).broadcast(eq("githubRefreshStatus"), argThat((Map<String, ?> fields) ->
+                fields.get("projectId").equals(projectId) && fields.get("failing").equals(true)
+                        && fields.get("failure").equals("gh exited 1: HTTP 401: Bad credentials")));
+
+        client.failWith(null);
+        TreeResponse recovered = controller.tree(projectId, true).getBody();
+
+        assertThat(recovered.github().failing()).isFalse();
+        assertThat(recovered.github().failure()).isNull();
+        verify(broadcaster).broadcast(eq("githubRefreshStatus"), argThat((Map<String, ?> fields) ->
+                fields.get("projectId").equals(projectId) && fields.get("failing").equals(false)));
+    }
+
+    @Test
+    void treeWithFreshTrueDoesNotBroadcastAStatusEventWhenTheOutcomeDidNotMove(@TempDir Path root) throws IOException {
+        long projectId = readyProject(root);
+        MutableGhClient client = new MutableGhClient(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
+        ProjectGhResources resources = new ProjectGhResources(projectRepository,
+                TestSqliteDatabases.newGhAccountRepository(root), tokenCipher, (path, token) -> client);
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        IssueController controller = new IssueController(resources, broadcaster);
+        controller.tree(projectId, false);
+        client.failWith("HTTP 401: Bad credentials");
+        controller.tree(projectId, true); // first failure: broadcast once
+
+        controller.tree(projectId, true); // still failing the same way: nothing new to say
+
+        verify(broadcaster, times(1)).broadcast(eq("githubRefreshStatus"), any());
+    }
+
     private static long readyProject(Path root) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(root);
         return repository.createReady("proj", "url", root.resolve("checkout"), "main", 1L, Instant.now()).id();
@@ -201,9 +257,10 @@ class IssueControllerTest {
         }
     }
 
-    /** Like {@link FixedGhClient}, but its issue list can change between calls (#140). */
+    /** Like {@link FixedGhClient}, but its issue list can change between calls (#140), and it can be made to fail (#619). */
     private static final class MutableGhClient implements GhClient {
         private List<GhIssue> issues;
+        private String failure;
 
         MutableGhClient(List<GhIssue> issues) {
             this.issues = issues;
@@ -213,8 +270,16 @@ class IssueControllerTest {
             this.issues = issues;
         }
 
+        /** Every call throws with this message until reset with {@code null}. */
+        void failWith(String failure) {
+            this.failure = failure;
+        }
+
         @Override
         public List<GhIssue> issues() {
+            if (failure != null) {
+                throw new GhUnavailableException(failure, null);
+            }
             return issues;
         }
 

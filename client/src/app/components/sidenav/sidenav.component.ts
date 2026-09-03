@@ -5,7 +5,7 @@ import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Subscription, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
-import { Project, TreeNode } from '../../models/issue.model';
+import { GithubRefreshStatus, Project, TreeNode } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { PinStore } from '../../services/pin-store';
@@ -18,7 +18,14 @@ import {
   projectIdFromProjectConsoleSessionId,
   projectIssueKeyFromSessionId,
 } from '../../services/consoles.service';
-import { AppEvent, ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '../../services/events.service';
+import {
+  AppEvent,
+  ConsoleAttentionEvent,
+  EventsService,
+  GithubRefreshStatusEvent,
+  isConsoleAttentionEvent,
+  isGithubRefreshStatusEvent,
+} from '../../services/events.service';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
 import { filterPinnedTree, filterTree } from './tree-filter';
@@ -33,6 +40,23 @@ function isIssuesChangedEvent(event: AppEvent): event is IssuesChangedEvent {
   return event.type === 'issuesChanged' && typeof event['projectId'] === 'number';
 }
 
+/** "just now", "3 min ago", "2 h ago", "4 d ago" -- coarse on purpose; a failing refresh is re-polled every 30 s. */
+export function formatAgo(iso: string, nowMs: number): string {
+  const seconds = Math.max(0, Math.round((nowMs - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) {
+    return 'just now';
+  }
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return `${hours} h ago`;
+  }
+  return `${Math.round(hours / 24)} d ago`;
+}
+
 /** How often a project still cloning is re-checked, until it settles (#45). */
 const CLONE_POLL_MS = 3000;
 
@@ -45,6 +69,8 @@ export interface ProjectIssue {
 export interface Section {
   project: Project;
   tree: TreeNode[];
+  // The outcome of the engine's most recent GitHub fetch for this project (#619).
+  github: GithubRefreshStatus;
 }
 
 interface PinnedGroup {
@@ -149,6 +175,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
       this.eventsService.events$.pipe(
         filter(isConsoleAttentionEvent),
         map((event) => () => this.applyAttentionEvent(event)),
+      ),
+      this.eventsService.events$.pipe(
+        filter(isGithubRefreshStatusEvent),
+        map((event) => () => this.applyGithubStatusEvent(event)),
       ),
       this.eventsService.reconnected$.pipe(map(() => () => this.load(() => {}))),
     ).subscribe((run) => run());
@@ -265,7 +295,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
             ? of([] as Section[])
             : forkJoin(
                 relevant.map((project) =>
-                  this.issuesService.tree(project.id, fresh).pipe(map((tree): Section => ({ project, tree }))),
+                  this.issuesService
+                    .treeWithStatus(project.id, fresh)
+                    .pipe(map((response): Section => ({ project, tree: response.nodes, github: response.github }))),
                 ),
               );
         }),
@@ -295,10 +327,48 @@ export class SidenavComponent implements OnInit, OnDestroy {
     if (index === -1) {
       return;
     }
-    this.issuesService.tree(projectId, fresh).subscribe((tree) => {
-      this.sections[index] = { ...this.sections[index], tree };
+    this.issuesService.treeWithStatus(projectId, fresh).subscribe((response) => {
+      this.sections[index] = { ...this.sections[index], tree: response.nodes, github: response.github };
       this.refreshConsoleIndicators();
     });
+  }
+
+  /**
+   * The engine's GitHub fetch for a project started or stopped failing (#619): update
+   * that project's status in place so the error appears (or clears) without a
+   * re-fetch. A project not loaded here is ignored, the same as `issuesChanged`.
+   */
+  private applyGithubStatusEvent(event: GithubRefreshStatusEvent): void {
+    const index = this.sections.findIndex((s) => s.project.id === event.projectId);
+    if (index === -1) {
+      return;
+    }
+    const current = this.sections[index].github;
+    this.sections[index] = {
+      ...this.sections[index],
+      github: {
+        failing: event.failing,
+        failure: event.failure ?? null,
+        lastSuccessAt: event.lastSuccessAt ?? current.lastSuccessAt,
+      },
+    };
+  }
+
+  /**
+   * The sidenav's own wording for a project whose GitHub fetch is failing (#619):
+   * the failure text, plus how long ago the last successful refresh was so the
+   * reader knows how old the tree they are looking at is. Null when not failing.
+   */
+  githubErrorFor(section: Section): string | null {
+    if (!section.github.failing) {
+      return null;
+    }
+    const failure = section.github.failure ?? 'GitHub is unavailable';
+    const since =
+      section.github.lastSuccessAt === null
+        ? 'never refreshed successfully'
+        : `last refreshed ${formatAgo(section.github.lastSuccessAt, Date.now())}`;
+    return `${failure} — ${since}`;
   }
 
   /** Recomputes which issues have an open console (#108), across every loaded project. */
