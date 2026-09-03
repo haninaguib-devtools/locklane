@@ -26,6 +26,18 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+      # Same cache ci.yml keeps for its own build step (#641): the root reactor pulls
+      # in the client module, and frontend-maven-plugin downloads a fresh Node/npm and
+      # reinstalls every package on every scan without it. Unconditional, unlike
+      # ci.yml's step — a Sonar scan is invoked on demand for exactly this purpose, so
+      # there is no build-input skip to gate it on.
+      - name: Cache client Node/npm and node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            client/node
+            client/node_modules
+          key: ${{ runner.os }}-client-node-${{ hashFiles('client/package-lock.json', 'client/pom.xml') }}
       - name: Build with coverage and upload to SonarQube
         env:
           # Repository secrets, deliberately not environment secrets: this job declares
