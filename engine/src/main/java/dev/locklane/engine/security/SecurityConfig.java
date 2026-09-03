@@ -90,6 +90,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects/*/issues/*/worktrees").authenticated()
                         .requestMatchers("/api/projects/*/issues/*/worktrees/*").authenticated()
                         .requestMatchers("/api/projects/*/consoles").authenticated()
+                        // Starting a console's IDE and everything the proxied IDE
+                        // itself serves under it (#655) -- pages, assets and the
+                        // WebSocket handshake alike. Behind this, the proxy applies
+                        // the owner-only check before forwarding anything.
+                        .requestMatchers("/api/projects/*/consoles/*/open-ide").authenticated()
+                        .requestMatchers("/api/projects/*/consoles/*/ide/**").authenticated()
                         .requestMatchers("/api/projects/*/console").authenticated()
                         .requestMatchers("/api/projects/*/console/*").authenticated()
                         // The shell-session endpoints (#445/#460): the trailing /**

@@ -29,10 +29,12 @@ class CodeServerServiceTest {
                     return new ProcessBuilder("true").start();
                 });
 
-        var url = service.start("1-174-rename-toggle");
+        var upstream = service.start("1-174-rename-toggle");
 
-        assertThat(url).isPresent();
-        assertThat(url.get()).matches("http://127\\.0\\.0\\.1:\\d+/");
+        // The loopback base the engine's proxy forwards to (#655) -- never handed to
+        // a browser as such; ConsolesController maps it to the proxied path.
+        assertThat(upstream).isPresent();
+        assertThat(upstream.get().toString()).matches("http://127\\.0\\.0\\.1:\\d+");
         assertThat(invocations).hasSize(1);
         String[] command = invocations.get(0);
         assertThat(command[0]).isEqualTo(BINARY.toString());
@@ -68,10 +70,33 @@ class CodeServerServiceTest {
                     return new ProcessBuilder("true").start();
                 });
 
-        var url = service.start("no-such-console");
+        var upstream = service.start("no-such-console");
 
-        assertThat(url).isEmpty();
+        assertThat(upstream).isEmpty();
         assertThat(invocations).isEmpty();
+    }
+
+    @Test
+    void upstreamAnswersOnlyForARunningProcessAndNeverStartsOne(@TempDir Path dbDir) {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
+        List<String[]> invocations = new ArrayList<>();
+        CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
+                command -> {
+                    invocations.add(command);
+                    return new ProcessBuilder("true").start();
+                });
+
+        // A console that exists but whose IDE nobody asked to open (#655): the proxy
+        // resolves nothing, and asking did not spawn anything.
+        assertThat(service.upstream("1-174-rename-toggle")).isEmpty();
+        assertThat(invocations).isEmpty();
+
+        var started = service.start("1-174-rename-toggle");
+
+        assertThat(service.upstream("1-174-rename-toggle")).isEqualTo(started);
+        service.stop("1-174-rename-toggle");
+        assertThat(service.upstream("1-174-rename-toggle")).isEmpty();
     }
 
     @Test

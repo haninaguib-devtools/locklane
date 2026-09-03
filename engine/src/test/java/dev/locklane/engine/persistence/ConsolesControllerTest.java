@@ -74,7 +74,7 @@ class ConsolesControllerTest {
     }
 
     @Test
-    void openIdeReturnsTheCodeServerUrlForAVisibleConsole(@TempDir Path dbDir) {
+    void openIdeReturnsTheProxiedIdePathForAVisibleConsole(@TempDir Path dbDir) {
         createProject(dbDir, "alice"); // project 1
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
@@ -84,7 +84,9 @@ class ConsolesControllerTest {
         ResponseEntity<ConsolesController.OpenIdeResponse> response = controller.openIde(1, "1-174-rename-toggle", ALICE);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody().url()).matches("http://127\\.0\\.0\\.1:\\d+/");
+        // The engine's own proxied path (#655), relative and slash-terminated -- never
+        // the loopback address the process itself listens on.
+        assertThat(response.getBody().url()).isEqualTo("/api/projects/1/consoles/1-174-rename-toggle/ide/");
     }
 
     @Test

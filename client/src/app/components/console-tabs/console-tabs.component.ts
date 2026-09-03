@@ -228,7 +228,9 @@ export class ConsoleTabsComponent {
    * The "Open IDE" menu item (#627/#628): starts (or reuses) this tab's code-server
    * process, then opens the returned URL in a singleton browser tab -- the same
    * shape as {@link openShellAt}: mint/reuse the session server-side, then
-   * `window.open` it, never a path sent from here.
+   * `window.open` it, never a path sent from here. Offered on every host, unlike
+   * Folder (#655): the URL is the engine's own proxied path for the IDE, so it works
+   * wherever this page itself was reached from.
    */
   openIdeAt(tab: ConsoleTab, event: Event): void {
     event.stopPropagation();

@@ -54,9 +54,15 @@ public class ConsolesController {
 
     /**
      * Starts (or reuses) a code-server (#627) process for {@code id}'s worktree and
-     * returns its URL — same visibility rule as {@link #consoles}, so this can't be
-     * used to open an editor on a console outside the caller's own project. 404 for a
-     * console id the caller may not see, or one with no known working directory.
+     * returns the URL to open it at — same visibility rule as {@link #consoles}, so
+     * this can't be used to open an editor on a console outside the caller's own
+     * project. 404 for a console id the caller may not see, or one with no known
+     * working directory.
+     *
+     * <p>The URL is the engine's own proxied path for that console (#655),
+     * {@code /api/projects/{projectId}/consoles/{id}/ide/}, relative so it resolves
+     * against whatever host the browser reached locklane at — never the loopback
+     * address code-server itself listens on, which a remote browser could not open.
      */
     @PostMapping("/{id}/open-ide")
     public ResponseEntity<OpenIdeResponse> openIde(@PathVariable long projectId, @PathVariable String id, Principal principal) {
@@ -64,8 +70,13 @@ public class ConsolesController {
             return ResponseEntity.notFound().build();
         }
         return codeServerService.start(id)
-                .map(url -> ResponseEntity.ok(new OpenIdeResponse(url)))
+                .map(upstream -> ResponseEntity.ok(new OpenIdeResponse(ideUrl(projectId, id))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** The proxied path a browser opens {@code id}'s IDE at (#655), slash-terminated so its relative links resolve inside it. */
+    static String ideUrl(long projectId, String id) {
+        return "/api/projects/" + projectId + "/consoles/" + id + "/ide/";
     }
 
     public record OpenIdeResponse(String url) {}
