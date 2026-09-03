@@ -34,20 +34,22 @@ implementation before editing files.
    covered it; Phase 3 re-checks it against the real diff.
 4. **Get onto the task branch, in the checkout you were invoked from.** A worktree is
    optional (ADR-001, ADR-002) — if the human wanted one, it exists already and this
-   session is rooted there. Resolve the branch idempotently — `git fetch --prune`, then
-   list local and `origin/` refs matching `wip/<id>-*`, normalizing away the `origin/`
-   prefix (ADR-001 §D4):
+   session is rooted there. Resolve the project's trunk name once, up front
+   (`.t-workflow/scripts/trunk-ref.sh` — `main` unless the checkout's own default branch
+   says otherwise), and use it everywhere below instead of a literal `main`. Resolve the
+   branch idempotently — `git fetch --prune`, then list local and `origin/` refs
+   matching `wip/<id>-*`, normalizing away the `origin/` prefix (ADR-001 §D4):
 
    - exactly one → reuse it (`git checkout <branch>`, or it is already current), then
-     check it against the `origin/main` the fetch above already updated: behind-only →
-     rebase onto it (`git rebase origin/main`) when the rebase applies cleanly, noting
+     check it against the `origin/<trunk>` the fetch above already updated: behind-only →
+     rebase onto it (`git rebase origin/<trunk>`) when the rebase applies cleanly, noting
      it in the report; a conflict → stop and report, leaving the rebase in progress
      rather than aborting it — never auto-resolve, the human resolves it directly and
      re-invokes `/t-work` once done. The same fast-forward-when-safe,
-     stop-when-it-isn't split the `main` refusal below applies to branch creation;
+     stop-when-it-isn't split the trunk refusal below applies to branch creation;
    - none → derive `wip/<id>-<slug>` from the issue title (lowercase, each run of
      non-alphanumeric characters becomes `-`, trim leading/trailing `-`, truncate to 40
-     characters, trim a trailing `-` again) and create it from a current `main`;
+     characters, trim a trailing `-` again) and create it from the current trunk;
    - more than one → stop and report every candidate; never choose lexically.
 
    Four refusals, each reported rather than worked around: **this session is in a
@@ -57,8 +59,9 @@ implementation before editing files.
    worktree** → report that absolute path and stop, work continues there; **the current
    checkout is dirty with changes that are not this task's** → stop and report them,
    never stash or discard someone else's work; **creating the branch would start from a
-   stale or diverged `main`** → fast-forward a behind-only `main` (`git merge --ff-only
-   origin/main`), stop and report if ahead or diverged. Never commit on `main`.
+   stale or diverged trunk** → fast-forward a behind-only trunk (`git merge --ff-only
+   origin/<trunk>`), stop and report if ahead or diverged. Never commit on the trunk
+   branch.
 
 5. **Normal or fix mode.** Resolve the task's PR, if it has one, from the branch:
    `forge:pr-find-by-task <id>` — none on a fresh task, exactly one once Phase 3 step 5
@@ -105,14 +108,15 @@ implementation before editing files.
    each check's exact command and result — step 5 records the ones tagged `either` (or,
    with no plan, this whole set) as this commit's provenance for `/t-review` to reuse,
    sparing it from running the same command again on an unchanged tree.
-2. **Read your own diff** (`git diff main...HEAD`) for scope drift, unintended
-   deletions, and leftover scratch; remove what does not belong. **An edit here
-   invalidates step 1's result for whatever it touched** — re-run any affected check
-   before step 5 records anything as this commit's provenance; a check nothing here
-   touched needs no re-run. Then re-check protection against what the diff *actually*
-   touches — Phase 1 step 3 could only
-   judge what the work was expected to touch: `git -c core.quotePath=false diff
-   --name-only main...HEAD | bash .t-workflow/scripts/protected-paths.sh --stdin`
+2. **Read your own diff** (`git diff <trunk>...HEAD`, `<trunk>` from
+   `.t-workflow/scripts/trunk-ref.sh`) for scope drift, unintended deletions, and
+   leftover scratch; remove what does not belong. **An edit here invalidates step 1's
+   result for whatever it touched** — re-run any affected check before step 5 records
+   anything as this commit's provenance; a check nothing here touched needs no re-run.
+   Then re-check protection against what the diff *actually* touches — Phase 1 step 3
+   could only judge what the work was expected to touch: `git -c core.quotePath=false
+   diff --name-only <trunk>...HEAD | bash .t-workflow/scripts/protected-paths.sh
+   --stdin`
    (`core.quotePath=false` matters — by default git quotes and octal-escapes a
    non-ASCII path, and a gate reading the quoted form would see no protected path).
    Exit **0** = protected, **1** = none, **2** = nothing was checked — on a task with a
@@ -127,7 +131,7 @@ implementation before editing files.
    - `.t-workflow/scripts/check-manifest.sh` — pure local, no tracker call.
    - `.t-workflow/scripts/check-record.sh <id> <record-file>` — pure local, no tracker
      call; `<id>` and `<record-file>` are already fixed, from Phase 1 step 6.
-   - `git -c core.quotePath=false diff --name-only main...HEAD | bash
+   - `git -c core.quotePath=false diff --name-only <trunk>...HEAD | bash
      .t-workflow/scripts/check-plan-gate.sh <issue-body-file>`, `<issue-body-file>`
      being `tracker:view <id>`'s body written to disk (mirrors the `plan-gate` job in
      `.github/workflows/ci.yml`) — re-fetch it first if the issue could have changed
@@ -137,9 +141,10 @@ implementation before editing files.
    continuing, never bypassed (`CONSTITUTION.md` §1.5).
 4. Commit on the branch — real messages, imperative, no `wip`, no trailers.
 5. Push (`git push -u origin wip/<id>-<slug>`) and open the draft PR
-   (`forge:pr-create-draft`, against `main` unless the invoking session directed this run
-   at a different base — `/t-drive` does, naming the initiative's integration branch for
-   a driven child, ADR-004 Decision 1) — title: `[<id>] <issue title>`; body: the tracker's
+   (`forge:pr-create-draft`, against the project's trunk (`.t-workflow/scripts/trunk-ref.sh`)
+   unless the invoking session directed this run at a different base — `/t-drive` does,
+   naming the initiative's integration branch for a driven child, ADR-004 Decision 1) —
+   title: `[<id>] <issue title>`; body: the tracker's
    auto-close phrase for `<id>` when it has one (`tracker:auto-close-on-merge`),
    followed by what changed, what was verified with actual results, and what remains
    open. **Include a `## Checks run` section**, one line per check that is a candidate

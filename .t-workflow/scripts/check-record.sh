@@ -3,7 +3,7 @@
 # derived from its branch — the mechanical form of the record-honesty rule (goal item
 # 4 of #30). ci.yml's `record` job locates the file for an ordinary task PR; this
 # checks what is inside it. In `--multi` mode (ADR-004: a driven initiative's aggregate
-# PR to `main`, branch `wip/<initiative-id>-integration`) it also *locates* one record
+# PR to the trunk, branch `wip/<initiative-id>-integration`) it also *locates* one record
 # per child named in the PR body's `Task: #<id>` lines, since there is no single id to
 # derive a lone record's path from — the initiative issue carries no record of its own
 # (docs/workflow.md §6.1).

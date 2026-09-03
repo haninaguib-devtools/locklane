@@ -66,8 +66,8 @@ to update — this skill exists for the repos generated from it.
    - `tracker:create` an issue titled `Update template to <target-tag>`, body naming the
      tag range, the file counts from step 4, and the migrations that will apply;
    - resolve `wip/<id>-update-template-to-<target-tag>` and create it from a
-     fast-forwarded `main` (`/t-work` Phase 1 step 4's exact procedure — same refusals:
-     never start from a stale or diverged `main`, never work in another task's
+     fast-forwarded trunk (`/t-work` Phase 1 step 4's exact procedure — same refusals:
+     never start from a stale or diverged trunk, never work in another task's
      worktree);
    - create `docs/tasks/<bucket>/<id>-update-template-to-<target-tag>.md` from
      `docs/tasks/TEMPLATE.md`.

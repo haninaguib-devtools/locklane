@@ -87,8 +87,9 @@ survives, and every neighbour decision from Phase 2. Then the gate, per
    be deleted:
 
    ```bash
+   trunk=$(.t-workflow/scripts/trunk-ref.sh)
    [ "$(git rev-parse --abbrev-ref HEAD)" = "wip/<id>-<slug>" ] &&
-     git checkout main && git merge --ff-only origin/main
+     git checkout "$trunk" && git merge --ff-only "origin/$trunk"
    git rev-parse --verify --quiet wip/<id>-<slug> && git branch -D wip/<id>-<slug>
    ```
 
@@ -124,7 +125,8 @@ survives, and every neighbour decision from Phase 2. Then the gate, per
 ## Rules
 
 - **Never destroy before the gate**, and never on silence.
-- **Never merge, never push `main`, never force-push** beyond the exact-ID lease above.
+- **Never merge, never push the trunk branch, never force-push** beyond the exact-ID
+  lease above.
 - **Never cascade** — every dependent, child, and parent gets an explicit human
   decision, however tedious.
 - **Never cancel to avoid finishing** — a failing check or hard review finding is a
