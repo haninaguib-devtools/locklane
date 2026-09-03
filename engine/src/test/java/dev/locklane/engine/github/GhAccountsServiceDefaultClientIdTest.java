@@ -48,6 +48,11 @@ class GhAccountsServiceDefaultClientIdTest {
             public PollResult poll(String clientId, String deviceCode) {
                 return new PollResult.Pending();
             }
+
+            @Override
+            public PollResult refresh(String clientId, String refreshToken) {
+                throw new AssertionError("sign-in never refreshes a token");
+            }
         };
         GhAccountsService service = new GhAccountsService(TestSqliteDatabases.newGhAccountRepository(tmp),
                 TestSqliteDatabases.newProjectRepository(tmp), tokenCipher(tmp),

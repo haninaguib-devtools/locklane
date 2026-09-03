@@ -49,6 +49,29 @@ class GhAccountsControllerTest {
     }
 
     @Test
+    void theAccountViewCarriesNeedsReconnectAndNoTokenField(@TempDir Path tmp) throws Exception {
+        // #656: a renewal that failed for good is what the accounts page shows as
+        // "needs reconnection"; the tokens themselves never leave the engine.
+        GhAccount failed = new GhAccount(8, 1, "dead", Set.of("repo"), Instant.parse("2026-09-03T10:00:00Z"),
+                Instant.parse("2026-09-03T11:00:00Z"), Instant.parse("2027-03-03T10:00:00Z"),
+                Instant.parse("2026-09-03T11:01:00Z"));
+        GhAccountsService service = mock(GhAccountsService.class);
+        when(service.accountsFor(1L)).thenReturn(List.of(ACCOUNT, failed));
+        Caller caller = user(tmp, "alice");
+        GhAccountsController controller = new GhAccountsController(service, userRepository(tmp));
+
+        GhAccountsController.AccountsResponse response = controller.list(caller.authentication());
+
+        assertThat(response.accounts().get(0).needsReconnect()).isFalse();
+        assertThat(response.accounts().get(0).tokenExpiresAt()).isNull();
+        assertThat(response.accounts().get(1).needsReconnect()).isTrue();
+        assertThat(response.accounts().get(1).tokenExpiresAt()).isEqualTo("2026-09-03T11:00:00Z");
+        assertThat(GhAccountsController.AccountView.class.getRecordComponents())
+                .extracting(java.lang.reflect.RecordComponent::getName)
+                .noneMatch(name -> name.toLowerCase().contains("token") && !name.equals("tokenExpiresAt"));
+    }
+
+    @Test
     void addByTokenReturns201WithTheAccount(@TempDir Path tmp) throws Exception {
         GhAccountsService service = mock(GhAccountsService.class);
         Caller caller = user(tmp, "alice");

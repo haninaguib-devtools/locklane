@@ -128,14 +128,14 @@ describe('ProjectsService', () => {
     expect(req.request.method).toBe('GET');
     req.flush({
       accounts: [
-        { id: 1, login: 'haninaguib', scopes: ['repo', 'workflow'], hasWorkflowScope: true, createdAt: '2026-08-01T00:00:00Z' },
-        { id: 2, login: 'hani-thyme', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-02T00:00:00Z' },
+        { id: 1, login: 'haninaguib', scopes: ['repo', 'workflow'], hasWorkflowScope: true, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-01T00:00:00Z' },
+        { id: 2, login: 'hani-thyme', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-02T00:00:00Z' },
       ],
     });
 
     expect(result).toEqual([
-      { id: 1, login: 'haninaguib', scopes: ['repo', 'workflow'], hasWorkflowScope: true, createdAt: '2026-08-01T00:00:00Z' },
-      { id: 2, login: 'hani-thyme', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-02T00:00:00Z' },
+      { id: 1, login: 'haninaguib', scopes: ['repo', 'workflow'], hasWorkflowScope: true, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-01T00:00:00Z' },
+      { id: 2, login: 'hani-thyme', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-02T00:00:00Z' },
     ]);
   });
 

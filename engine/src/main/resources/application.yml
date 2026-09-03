@@ -60,10 +60,16 @@ locklane:
     # GitHub's device-code endpoint and shown in every authorization URL), so
     # committing it here is safe; no client secret exists or is needed for device flow.
     # Since 2026-08-14 GitHub issues short-lived tokens (plus a refresh token) to every
-    # newly registered OAuth App by default, this one included; the engine logs the
-    # lifetime it was handed on each sign-in and does not renew it yet (#620,
+    # newly registered OAuth App by default, this one included; the engine stores the
+    # pair and renews the access token ahead of expiry and on a 401 (#620, #656,
     # docs/architecture/github-token-lifetime.md).
     oauth-client-id: "Ov23lifzJ18NqTqgqdRn"
+    token-renewal:
+      # How often dev.locklane.engine.github.GhTokenRenewalService looks for a
+      # device-flow account whose access token expires within the next five minutes
+      # and renews it (#656). Once a minute is far inside any lifetime GitHub sends
+      # (3600 s observed, 28800 s documented) and costs nothing when no account is due.
+      interval-ms: 60000
   uploads:
     # Files dropped or pasted onto a console terminal (#436) land here, one subfolder
     # per session id, so the CLI in that session can be handed a real path. A

@@ -40,6 +40,7 @@ public class ProjectGhResources {
     private final EventBroadcaster eventBroadcaster;
     private final BiFunction<Path, String, GhClient> clientFactory;
     private final Map<Long, ProjectGhContext> contexts = new ConcurrentHashMap<>();
+    private volatile CredentialRenewer credentialRenewer = CredentialRenewer.NONE;
 
     @Autowired
     public ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
@@ -95,26 +96,88 @@ public class ProjectGhResources {
     }
 
     /**
+     * Registers who to ask when a project's fetch fails with {@code Bad credentials}
+     * (#656). {@link GhTokenRenewalService} registers itself at construction; with
+     * nothing registered a 401 is reported exactly as before, and nothing retries.
+     * Kept as a hook rather than a constructor dependency because the renewer needs
+     * {@link #evict} — a constructor dependency both ways would be a bean cycle.
+     */
+    public void onBadCredentials(CredentialRenewer renewer) {
+        this.credentialRenewer = renewer == null ? CredentialRenewer.NONE : renewer;
+    }
+
+    /**
      * Diffs each project's cache against its previous state and publishes
      * `issuesChanged` (#129) where it moved, and `githubRefreshStatus` (#619) where
      * the fetch's outcome moved -- started failing, stopped failing, or failing with
      * different text -- so the sidenav learns that GitHub is unreachable without
      * anyone clicking anything.
+     *
+     * <p>A fetch that fails with {@code Bad credentials} asks the registered
+     * {@link CredentialRenewer} for one renewal (#656); if it got one, the project's
+     * context is rebuilt with the renewed token and fetched once more in the same
+     * tick, so a renewed account recovers here rather than a poll later. A retry that
+     * still answers 401 tells the renewer, which marks the account as needing
+     * reconnection so nothing retries it again.
      */
     @Scheduled(fixedDelay = REFRESH_INTERVAL_MS, initialDelay = REFRESH_INTERVAL_MS)
     void refreshAll() {
-        contexts.forEach((projectId, context) -> {
+        // A snapshot: a renewal below evicts and rebuilds entries while we iterate.
+        for (Map.Entry<Long, ProjectGhContext> entry : List.copyOf(contexts.entrySet())) {
+            long projectId = entry.getKey();
+            ProjectGhContext context = entry.getValue();
             try {
                 GhRefreshStatus before = context.cache().status();
                 boolean changed = context.cache().refresh();
-                broadcastStatusIfMoved(eventBroadcaster, projectId, before, context.cache().status());
+                GhRefreshStatus after = context.cache().status();
+                if (isBadCredentials(after) && credentialRenewer.renewForProject(projectId)) {
+                    Optional<ProjectGhContext> rebuilt = forProject(projectId);
+                    if (rebuilt.isPresent()) {
+                        changed = rebuilt.get().cache().refresh();
+                        after = rebuilt.get().cache().status();
+                        if (isBadCredentials(after)) {
+                            credentialRenewer.renewalDidNotHelp(projectId);
+                        }
+                    }
+                }
+                broadcastStatusIfMoved(eventBroadcaster, projectId, before, after);
                 if (changed) {
                     eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
                 }
             } catch (RuntimeException e) {
                 log.error("Scheduled issue/PR refresh failed for project {}", projectId, e);
             }
-        });
+        }
+    }
+
+    /** The failure text {@code CliGhClient} folds a rejected token's stderr into (#619): {@code gh exited 1: HTTP 401: Bad credentials ...}. */
+    private static boolean isBadCredentials(GhRefreshStatus status) {
+        return status.failing() && status.failure() != null && status.failure().contains("Bad credentials");
+    }
+
+    /**
+     * What {@link #refreshAll} asks when a project's token is refused (#656). The
+     * implementation is {@link GhTokenRenewalService}; the interface keeps this class
+     * free of any dependency on it.
+     */
+    public interface CredentialRenewer {
+        /** Does nothing and never authorizes a retry — the state before any renewer registers. */
+        CredentialRenewer NONE = new CredentialRenewer() {
+            @Override
+            public boolean renewForProject(long projectId) {
+                return false;
+            }
+
+            @Override
+            public void renewalDidNotHelp(long projectId) {
+            }
+        };
+
+        /** Renews the account behind {@code projectId} now; {@code true} when a fresh token is stored and the project evicted, so a retry is worth making. */
+        boolean renewForProject(long projectId);
+
+        /** The retry {@link #renewForProject} authorized was refused too: the account is done until a human reconnects it. */
+        void renewalDidNotHelp(long projectId);
     }
 
     /**

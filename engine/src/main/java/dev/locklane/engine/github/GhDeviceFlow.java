@@ -3,7 +3,8 @@ package dev.locklane.engine.github;
 /**
  * GitHub's OAuth device flow (#550) — the two calls a "Sign in with GitHub" button
  * makes: start a flow to get a user code and a link to show the operator, then poll
- * until they've approved it (or it expired, or they denied it). An interface so
+ * until they've approved it (or it expired, or they denied it) — plus the refresh
+ * call (#656) that keeps a short-lived token alive afterwards. An interface so
  * tests substitute a fake instead of ever reaching the real {@code github.com}
  * endpoints; {@link HttpGhDeviceFlow} is the real implementation.
  */
@@ -14,6 +15,16 @@ public interface GhDeviceFlow {
 
     /** One poll of the token endpoint for a flow already started with {@link #start}. */
     PollResult poll(String clientId, String deviceCode);
+
+    /**
+     * Exchanges a refresh token for a new pair (#656) — GitHub's
+     * {@code grant_type=refresh_token} on the same token endpoint {@link #poll} uses.
+     * The old refresh token is dead the moment this succeeds (GitHub rotates it), so
+     * the caller must store the returned pair before doing anything else. Answers
+     * {@link PollResult.Success} or {@link PollResult.Error}; the device-flow-only
+     * outcomes (pending, slow down, expired, denied) never occur here.
+     */
+    PollResult refresh(String clientId, String refreshToken);
 
     /** What {@link #start} returns to show the operator, and what {@link #poll} needs from then on. */
     record DeviceCode(String deviceCode, String userCode, String verificationUri, int expiresInSeconds,

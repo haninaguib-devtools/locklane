@@ -98,6 +98,85 @@ class GhAccountRepositoryTest {
         assertThat(repository.findById(account.id()).orElseThrow().scopes()).isEmpty();
     }
 
+    // #656: the token pair and its lifetimes.
+
+    @Test
+    void aShortLivedAccountRoundTripsItsExpiriesButNeverItsRefreshToken(@TempDir Path tmp) {
+        GhAccountRepository repository = repository(tmp);
+        Instant tokenExpiry = Instant.parse("2026-09-03T11:00:00Z");
+        Instant refreshExpiry = Instant.parse("2027-03-03T10:00:00Z");
+
+        GhAccount account = repository.insert(1L, "work", "enc-token", Set.of("repo"),
+                Instant.parse("2026-09-03T10:00:00Z"), "enc-refresh", tokenExpiry, refreshExpiry);
+
+        GhAccount found = repository.findById(account.id()).orElseThrow();
+        assertThat(found.tokenExpiresAt()).isEqualTo(tokenExpiry);
+        assertThat(found.refreshTokenExpiresAt()).isEqualTo(refreshExpiry);
+        assertThat(found.renewalFailedAt()).isNull();
+        assertThat(found.toString()).doesNotContain("enc-refresh").doesNotContain("enc-token");
+        assertThat(repository.findEncryptedRefreshToken(account.id())).contains("enc-refresh");
+    }
+
+    @Test
+    void findEncryptedRefreshTokenIsEmptyForAPastedTokenAccount(@TempDir Path tmp) {
+        GhAccountRepository repository = repository(tmp);
+        GhAccount pasted = repository.insert(1L, "pasted", "enc-token", Set.of("repo"), Instant.now());
+
+        assertThat(repository.findEncryptedRefreshToken(pasted.id())).isEmpty();
+        assertThat(repository.findEncryptedRefreshToken(999)).isEmpty();
+    }
+
+    @Test
+    void findDueForRenewalReturnsOnlyRenewableAccountsExpiringByTheCutoff(@TempDir Path tmp) {
+        GhAccountRepository repository = repository(tmp);
+        Instant created = Instant.parse("2026-09-03T10:00:00Z");
+        GhAccount soon = repository.insert(1L, "soon", "t1", Set.of("repo"), created, "r1",
+                Instant.parse("2026-09-03T11:00:00Z"), null);
+        repository.insert(1L, "later", "t2", Set.of("repo"), created, "r2",
+                Instant.parse("2026-09-03T12:00:00Z"), null);
+        repository.insert(1L, "pasted", "t3", Set.of("repo"), created);
+        GhAccount failed = repository.insert(1L, "failed", "t4", Set.of("repo"), created, "r4",
+                Instant.parse("2026-09-03T10:30:00Z"), null);
+        repository.markRenewalFailed(failed.id(), Instant.parse("2026-09-03T10:31:00Z"));
+
+        List<GhAccount> due = repository.findDueForRenewal(Instant.parse("2026-09-03T11:05:00Z"));
+
+        assertThat(due).extracting(GhAccount::id).containsExactly(soon.id());
+    }
+
+    @Test
+    void updateTokensStoresTheRotatedPairAndClearsAnEarlierFailure(@TempDir Path tmp) {
+        GhAccountRepository repository = repository(tmp);
+        GhAccount account = repository.insert(1L, "work", "t-old", Set.of("repo"), Instant.now(), "r-old",
+                Instant.parse("2026-09-03T11:00:00Z"), Instant.parse("2027-03-03T10:00:00Z"));
+        repository.markRenewalFailed(account.id(), Instant.parse("2026-09-03T11:01:00Z"));
+        assertThat(repository.findById(account.id()).orElseThrow().renewalFailedAt()).isNotNull();
+
+        repository.updateTokens(account.id(), "t-new", "r-new", Instant.parse("2026-09-03T12:00:00Z"),
+                Instant.parse("2027-03-03T11:00:00Z"));
+
+        GhAccount renewed = repository.findById(account.id()).orElseThrow();
+        assertThat(renewed.tokenExpiresAt()).isEqualTo(Instant.parse("2026-09-03T12:00:00Z"));
+        assertThat(renewed.refreshTokenExpiresAt()).isEqualTo(Instant.parse("2027-03-03T11:00:00Z"));
+        assertThat(renewed.renewalFailedAt()).isNull();
+        assertThat(repository.findEncryptedToken(account.id())).contains("t-new");
+        assertThat(repository.findEncryptedRefreshToken(account.id())).contains("r-new");
+    }
+
+    @Test
+    void needsReconnectWhenARenewalFailedOrTheRefreshTokenItselfExpired(@TempDir Path tmp) {
+        Instant now = Instant.parse("2026-09-03T10:00:00Z");
+        GhAccount healthy = new GhAccount(1, 1, "a", Set.of(), now, now.plusSeconds(3600), now.plusSeconds(86400), null);
+        GhAccount failed = new GhAccount(2, 1, "b", Set.of(), now, now.plusSeconds(3600), now.plusSeconds(86400), now);
+        GhAccount refreshDead = new GhAccount(3, 1, "c", Set.of(), now, now.plusSeconds(3600), now, null);
+        GhAccount pasted = new GhAccount(4, 1, "d", Set.of(), now);
+
+        assertThat(healthy.needsReconnect(now)).isFalse();
+        assertThat(failed.needsReconnect(now)).isTrue();
+        assertThat(refreshDead.needsReconnect(now)).isTrue();
+        assertThat(pasted.needsReconnect(now)).isFalse();
+    }
+
     private static GhAccountRepository repository(Path tmp) {
         return TestSqliteDatabases.newGhAccountRepository(tmp);
     }

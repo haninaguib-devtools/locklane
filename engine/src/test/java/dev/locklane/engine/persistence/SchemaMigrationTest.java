@@ -340,6 +340,34 @@ class SchemaMigrationTest {
     }
 
     @Test
+    void anExistingGithubAccountsTableGainsTheRenewalColumnsWithoutLosingRows(@TempDir Path dbDir) {
+        // V15 created github_accounts (#550); V17 adds the refresh-token pair and its
+        // lifetimes (#656). A row from before stays a non-expiring account.
+        DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "16");
+        new JdbcTemplate(oldShape).update("""
+                INSERT INTO github_accounts (owner_user_id, login, token, scopes, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """, 1L, "haninaguib", "old-encrypted-token", "repo,workflow", "2026-09-01T00:00:00Z");
+
+        TestSqliteDatabases.migrateToLatest(oldShape);
+        GhAccountRepository repository = new GhAccountRepository(oldShape);
+
+        List<GhAccount> accounts = repository.findAllOwnedBy(1L);
+        assertThat(accounts).hasSize(1);
+        GhAccount kept = accounts.get(0);
+        assertThat(kept.login()).isEqualTo("haninaguib");
+        assertThat(kept.tokenExpiresAt()).isNull();
+        assertThat(kept.refreshTokenExpiresAt()).isNull();
+        assertThat(kept.renewalFailedAt()).isNull();
+        assertThat(repository.findEncryptedToken(kept.id())).contains("old-encrypted-token");
+        assertThat(repository.findEncryptedRefreshToken(kept.id())).isEmpty();
+        assertThat(repository.findDueForRenewal(Instant.parse("2099-01-01T00:00:00Z"))).isEmpty();
+
+        repository.updateTokens(kept.id(), "new-token", "new-refresh", Instant.parse("2026-09-03T11:00:00Z"), null);
+        assertThat(repository.findEncryptedRefreshToken(kept.id())).contains("new-refresh");
+    }
+
+    @Test
     void aDatabaseLeftAtAnOlderVersionByAPreviousTestRunMigratesCleanlyOnTheNextOne(@TempDir Path dbDir) {
         // Stands in for a leftover locklane-engine-test directory from a run made
         // before a migration existed: the directory is there, but the schema in it

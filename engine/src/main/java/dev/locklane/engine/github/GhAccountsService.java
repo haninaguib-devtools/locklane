@@ -197,15 +197,14 @@ public class GhAccountsService {
     private void completeFlow(DeviceFlowState state, GhDeviceFlow.PollResult.Success success) {
         String accessToken = success.accessToken();
         // Redacted evidence of the token's shape (#620): field presence and lifetimes,
-        // never a secret value. A short-lived token here is one this engine cannot
-        // yet renew -- see docs/architecture/github-token-lifetime.md.
+        // never a secret value.
         log.info("Device-flow token response for user {}: token_type={} scope={} expires_in={} refresh_token={} "
                 + "refresh_token_expires_in={}", state.ownerUserId, success.tokenType(), success.scope(),
                 success.expiresInSeconds(), success.refreshToken() == null ? "absent" : "present",
                 success.refreshTokenExpiresInSeconds());
-        if (success.expires()) {
-            log.warn("GitHub issued a short-lived token (expires in {}s) for user {}; this engine does not renew it "
-                    + "yet, so its projects will fail with `Bad credentials` once it expires (#620)",
+        if (success.expires() && success.refreshToken() == null) {
+            log.warn("GitHub issued a short-lived token (expires in {}s) for user {} without a refresh token; "
+                    + "nothing can renew it, so its projects will fail with `Bad credentials` once it expires",
                     success.expiresInSeconds(), state.ownerUserId);
         }
         Optional<GhTokenIntrospector.Introspection> introspection = introspector.introspect(accessToken);
@@ -214,8 +213,23 @@ public class GhAccountsService {
             state.fail("signed in, but could not read the account back from GitHub");
             return;
         }
+        // A short-lived token is stored as the pair GitHub defines it as (#656): the
+        // refresh token encrypted like the access token, both expiries alongside, so
+        // GhTokenRenewalService can renew it ahead of time and on a 401.
+        Instant now = Instant.now();
+        Instant tokenExpiresAt = success.expiresInSeconds() == null ? null : now.plusSeconds(success.expiresInSeconds());
+        Instant refreshTokenExpiresAt = success.refreshTokenExpiresInSeconds() == null ? null
+                : now.plusSeconds(success.refreshTokenExpiresInSeconds());
+        String encryptedRefreshToken = success.refreshToken() == null ? null
+                : tokenCipher.encrypt(success.refreshToken());
         GhAccount account = accountRepository.insert(state.ownerUserId, introspection.get().login(),
-                tokenCipher.encrypt(accessToken), introspection.get().scopes(), Instant.now());
+                tokenCipher.encrypt(accessToken), introspection.get().scopes(), now,
+                encryptedRefreshToken, tokenExpiresAt, refreshTokenExpiresAt);
+        if (tokenExpiresAt != null) {
+            log.info("GitHub account {} ({}) has a short-lived token (expires in {}s); renewal is scheduled {} ahead "
+                    + "of expiry", account.id(), account.login(), success.expiresInSeconds(),
+                    GhTokenRenewalService.RENEWAL_MARGIN);
+        }
         log.info("Added GitHub account {} ({}) for user {} by device flow", account.id(), account.login(),
                 state.ownerUserId);
         state.complete(account);

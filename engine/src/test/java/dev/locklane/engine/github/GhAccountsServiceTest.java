@@ -193,6 +193,47 @@ class GhAccountsServiceTest {
     }
 
     @Test
+    void aShortLivedDeviceFlowTokenIsStoredAsAnEncryptedPairWithItsExpiries(@TempDir Path tmp)
+            throws InterruptedException {
+        // #656: the shape GitHub sends every OAuth App registered since 2026-08-14.
+        FakeDeviceFlow deviceFlow = new FakeDeviceFlow();
+        deviceFlow.pollResults.add(new GhDeviceFlow.PollResult.Success("ghu_access", "bearer", "repo", 3600,
+                "ghr_refresh", 15811200));
+        CountDownLatch settled = new CountDownLatch(1);
+        GhAccountsService service = service(tmp, "client-id", deviceFlow,
+                token -> Optional.of(new GhTokenIntrospector.Introspection("device-login", Set.of("repo"))), settled);
+        Instant before = Instant.now();
+
+        service.startDeviceFlow(1L);
+        assertThat(settled.await(5, TimeUnit.SECONDS)).isTrue();
+
+        GhAccount account = service.accountsFor(1L).get(0);
+        assertThat(account.tokenExpiresAt()).isBetween(before.plusSeconds(3600), Instant.now().plusSeconds(3600));
+        assertThat(account.refreshTokenExpiresAt()).isBetween(before.plusSeconds(15811200),
+                Instant.now().plusSeconds(15811200));
+        assertThat(account.renewalFailedAt()).isNull();
+        assertThat(account.needsReconnect(Instant.now())).isFalse();
+        GhAccountRepository repository = TestSqliteDatabases.newGhAccountRepository(tmp);
+        String storedRefresh = repository.findEncryptedRefreshToken(account.id()).orElseThrow();
+        assertThat(storedRefresh).isNotEqualTo("ghr_refresh");
+        assertThat(tokenCipher(tmp).decrypt(storedRefresh)).isEqualTo("ghr_refresh");
+        assertThat(tokenCipher(tmp).decrypt(repository.findEncryptedToken(account.id()).orElseThrow()))
+                .isEqualTo("ghu_access");
+    }
+
+    @Test
+    void aPastedTokenStoresNoRefreshTokenAndNoExpiry(@TempDir Path tmp) {
+        GhAccountsService service = service(tmp, token -> Optional.of(
+                new GhTokenIntrospector.Introspection("pasted-login", Set.of("repo"))));
+
+        GhAccount added = ((GhAccountsService.AddResult.Added) service.addByToken(1L, "ghp_pasted")).account();
+
+        assertThat(added.tokenExpiresAt()).isNull();
+        assertThat(added.refreshTokenExpiresAt()).isNull();
+        assertThat(TestSqliteDatabases.newGhAccountRepository(tmp).findEncryptedRefreshToken(added.id())).isEmpty();
+    }
+
+    @Test
     void aDeniedDeviceFlowReportsFailedWithNoAccountStored(@TempDir Path tmp) throws InterruptedException {
         FakeDeviceFlow deviceFlow = new FakeDeviceFlow();
         deviceFlow.startResult = new GhDeviceFlow.DeviceCode("device-abc", "USER-CODE", "https://github.com/login/device",
@@ -304,6 +345,11 @@ class GhAccountsServiceTest {
         public PollResult poll(String clientId, String deviceCode) {
             PollResult next = pollResults.poll();
             return next != null ? next : new PollResult.Pending();
+        }
+
+        @Override
+        public PollResult refresh(String clientId, String refreshToken) {
+            throw new AssertionError("sign-in never refreshes a token");
         }
     }
 

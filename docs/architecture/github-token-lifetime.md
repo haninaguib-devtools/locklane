@@ -1,7 +1,8 @@
 # GitHub token lifetime
 
-**Status:** accepted design (#620). The renewal it calls for is split to a follow-up
-task; until that lands, a device-flow account stops working when its token expires.
+**Status:** accepted design (#620), implemented (#656): the engine persists the token
+pair, renews ahead of expiry and once on a 401, evicts each affected project's `gh`
+client, and shows an account it cannot renew as needing reconnection.
 
 ## What a person sees
 
@@ -120,12 +121,14 @@ renewal and one retry; a pasted-token account is never touched by any of it.
   tokens, and it would force expiry onto a self-registered app that opted out.
 - *Re-run the device flow on 401.* Needs a human at a browser every eight hours.
 
-## What the follow-up task carries
+## Where it landed (#656)
 
-The migration (a Java `V<next>__AddRefreshTokenToGithubAccounts` under
-`engine/src/main/java/dev/locklane/engine/persistence/migration/`, the same shape as
-`V15`), the repository and
-service changes above, `GhDeviceFlow.refresh`, the renewal schedule, the 401 hook, and
-the tests. Its Scope is this document's §Fix; its human check is the issue's own:
-connect via the device flow, wait past the logged `expires_in`, confirm no
-`Bad credentials` and a sidenav that still updates.
+The migration is `V17__AddRefreshTokenToGithubAccounts` (it also adds
+`renewal_failed_at`, the mark behind "needs reconnection"); `GhDeviceFlow.refresh` and
+its `HttpGhDeviceFlow` implementation post the refresh grant; `GhTokenRenewalService`
+is both the scheduled pass (`locklane.github.token-renewal.interval-ms`, once a minute,
+five-minute margin) and the on-401 renewal, sharing one lock per account because GitHub
+rotates the refresh token on every use; `ProjectGhResources.refreshAll` is the 401 hook,
+retrying once with a rebuilt context and marking the account when the retry is refused
+too. The human check remains the issue's own: connect via the device flow, wait past
+the logged `expires_in`, confirm no `Bad credentials` and a sidenav that still updates.

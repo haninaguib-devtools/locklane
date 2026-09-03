@@ -24,11 +24,11 @@ describe('GithubAccountsService', () => {
     const req = httpMock.expectOne('/api/github/accounts');
     expect(req.request.method).toBe('GET');
     req.flush({
-      accounts: [{ id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-01T00:00:00Z' }],
+      accounts: [{ id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-01T00:00:00Z' }],
     });
 
     expect(result).toEqual([
-      { id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, createdAt: '2026-08-01T00:00:00Z' },
+      { id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-01T00:00:00Z' },
     ]);
   });
 
@@ -38,7 +38,7 @@ describe('GithubAccountsService', () => {
     const req = httpMock.expectOne('/api/github/accounts/token');
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ token: 'ghp_secret' });
-    req.flush({ id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, createdAt: '' });
+    req.flush({ id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '' });
   });
 
   it('starts a device flow via POST /api/github/accounts/device/start', () => {
