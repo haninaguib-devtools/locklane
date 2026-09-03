@@ -18,6 +18,10 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
 import java.net.URLDecoder;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -73,6 +77,12 @@ import java.util.regex.Pattern;
  * <p>With several clients attached to one session, the PTY's size follows the client
  * that most recently reported focus (#574) — see {@link AttachmentSizeArbiter}; a
  * resize from any other attachment is held until that attachment reports focus.
+ *
+ * <p>Live output is decoded per connection with a {@link StreamingUtf8Decoder} (#634):
+ * the PTY is read in fixed-size chunks, and a read boundary can fall inside a
+ * multi-byte UTF-8 character, so decoding each chunk on its own would turn the
+ * partial bytes on either side into U+FFFD. The decoder carries an incomplete tail
+ * over to the next chunk and emits every complete character immediately.
  */
 @Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
@@ -158,7 +168,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         // between the snapshot and the subscription taking effect is lost or
         // duplicated — subscribe() only ever delivers output from this point on.
         wsSession.sendMessage(new TextMessage(session.bufferedOutput()));
-        AutoCloseable subscription = session.subscribe(chunk -> forward(wsSession, chunk));
+        StreamingUtf8Decoder decoder = new StreamingUtf8Decoder();
+        AutoCloseable subscription = session.subscribe(chunk -> forward(wsSession, decoder, chunk));
         subscriptions.put(wsSession.getId(), subscription);
         heartbeat.track(wsSession);
     }
@@ -237,16 +248,64 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         // closing must never stop the session itself.
     }
 
-    private static void forward(WebSocketSession wsSession, byte[] chunk) {
+    /**
+     * Forwards one PTY chunk to the client through this connection's decoder (#634).
+     * Package-visible for tests. Nothing is sent for a chunk that yields no complete
+     * character (e.g. one holding only the first byte of a 3-byte sequence).
+     */
+    static void forward(WebSocketSession wsSession, StreamingUtf8Decoder decoder, byte[] chunk) {
         if (!wsSession.isOpen()) {
             return;
         }
+        String text = decoder.decode(chunk);
+        if (text.isEmpty()) {
+            return;
+        }
         try {
-            wsSession.sendMessage(new TextMessage(new String(chunk, StandardCharsets.UTF_8)));
+            wsSession.sendMessage(new TextMessage(text));
         } catch (IOException e) {
             // silent: the connection is going away; afterConnectionClosed will clean
             // up the subscription shortly. Nothing productive to do with this failure
             // here.
+        }
+    }
+
+    /**
+     * Decodes a byte stream that arrives in arbitrary chunks as UTF-8 (#634). Every
+     * complete character is returned from the {@link #decode} call that completes it;
+     * the trailing bytes of a sequence cut off by a chunk boundary (at most three) are
+     * held and joined onto the next chunk. Genuinely malformed bytes become U+FFFD, the
+     * same as {@code new String(bytes, UTF_8)} did before. One instance per
+     * connection; not thread-safe, which matches the one drain thread that feeds it.
+     * Package-visible for tests.
+     */
+    static final class StreamingUtf8Decoder {
+
+        private final CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPLACE)
+                .onUnmappableCharacter(CodingErrorAction.REPLACE);
+        private byte[] pending = new byte[0];
+
+        String decode(byte[] chunk) {
+            byte[] input;
+            if (pending.length == 0) {
+                input = chunk;
+            } else {
+                input = new byte[pending.length + chunk.length];
+                System.arraycopy(pending, 0, input, 0, pending.length);
+                System.arraycopy(chunk, 0, input, pending.length, chunk.length);
+            }
+            ByteBuffer in = ByteBuffer.wrap(input);
+            // A UTF-8 byte never decodes to more than one char, so this never overflows.
+            CharBuffer out = CharBuffer.allocate(input.length);
+            decoder.reset();
+            // endOfInput=false: an incomplete trailing sequence is left unread in `in`
+            // (underflow) rather than replaced, so it can be completed by the next chunk.
+            decoder.decode(in, out, false);
+            pending = new byte[in.remaining()];
+            in.get(pending);
+            out.flip();
+            return out.toString();
         }
     }
 
