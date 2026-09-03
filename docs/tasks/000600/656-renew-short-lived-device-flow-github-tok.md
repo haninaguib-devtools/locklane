@@ -55,3 +55,14 @@ renewed as needing reconnection.
 
 ## Deviations / notes
 - `docs/architecture/` is protected: `/t-review` is required before shipping.
+- Three client spec files outside the plan's Allowed paths were edited:
+  `client/src/app/components/add-project-popup/add-project-popup.component.spec.ts`,
+  `client/src/app/services/github-accounts.service.spec.ts`,
+  `client/src/app/services/projects.service.spec.ts`. Each edit only adds
+  `needsReconnect: false, tokenExpiresAt: null` to a hard-coded `GithubAccount`
+  fixture so the client still type-checks after the interface (which the plan did
+  allow) gained two required fields — the client-side twin of the "existing tests
+  adjusted for the wider shape" the plan foresaw for the engine. No behaviour or
+  assertion changed. Raised by the cold review on PR #657 (high, scope); recorded here
+  in the fix pass rather than widening the plan, which is a tracker write the human
+  may ask for separately. (claude, 2026-09-03)
