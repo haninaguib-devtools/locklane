@@ -24,8 +24,28 @@ public interface GhDeviceFlow {
     sealed interface PollResult permits PollResult.Success, PollResult.Pending, PollResult.SlowDown,
             PollResult.Expired, PollResult.Denied, PollResult.Error {
 
-        /** The operator approved it — {@code accessToken} is ready to store. */
-        record Success(String accessToken) implements PollResult {
+        /**
+         * The operator approved it — {@code accessToken} is ready to store. The rest is
+         * the whole of GitHub's token response (#620): {@code tokenType} and
+         * {@code scope} always; {@code expiresInSeconds}, {@code refreshToken} and
+         * {@code refreshTokenExpiresInSeconds} only when the OAuth App issues
+         * short-lived tokens (GitHub's default for every app registered since
+         * 2026-08-14), {@code null} otherwise. Carried so the engine can see — and
+         * log, redacted — which shape it was handed, instead of silently keeping only
+         * the access token and finding out an hour later.
+         */
+        record Success(String accessToken, String tokenType, String scope, Integer expiresInSeconds,
+                String refreshToken, Integer refreshTokenExpiresInSeconds) implements PollResult {
+
+            /** A non-expiring token: the shape every response had before short-lived tokens existed. */
+            public Success(String accessToken) {
+                this(accessToken, "bearer", "", null, null, null);
+            }
+
+            /** True when GitHub said this token expires — {@code expiresInSeconds} and, normally, {@code refreshToken} are set. */
+            public boolean expires() {
+                return expiresInSeconds != null;
+            }
         }
 
         /** Not approved yet — poll again after the flow's interval. */
