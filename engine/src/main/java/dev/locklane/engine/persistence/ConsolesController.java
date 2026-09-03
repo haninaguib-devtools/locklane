@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.codeserver.CodeServerService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,10 +23,13 @@ public class ConsolesController {
 
     private final IssueWorktreeService service;
     private final FileManagerLauncher fileManagerLauncher;
+    private final CodeServerService codeServerService;
 
-    public ConsolesController(IssueWorktreeService service, FileManagerLauncher fileManagerLauncher) {
+    public ConsolesController(IssueWorktreeService service, FileManagerLauncher fileManagerLauncher,
+            CodeServerService codeServerService) {
         this.service = service;
         this.fileManagerLauncher = fileManagerLauncher;
+        this.codeServerService = codeServerService;
     }
 
     @GetMapping
@@ -47,4 +51,22 @@ public class ConsolesController {
         }
         return fileManagerLauncher.reveal(id) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
+
+    /**
+     * Starts (or reuses) a code-server (#627) process for {@code id}'s worktree and
+     * returns its URL — same visibility rule as {@link #consoles}, so this can't be
+     * used to open an editor on a console outside the caller's own project. 404 for a
+     * console id the caller may not see, or one with no known working directory.
+     */
+    @PostMapping("/{id}/open-ide")
+    public ResponseEntity<OpenIdeResponse> openIde(@PathVariable long projectId, @PathVariable String id, Principal principal) {
+        if (!service.allWorktreeIds(projectId, principal.getName()).contains(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        return codeServerService.start(id)
+                .map(url -> ResponseEntity.ok(new OpenIdeResponse(url)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    public record OpenIdeResponse(String url) {}
 }

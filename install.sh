@@ -690,6 +690,28 @@ fi
 write_uninstall_script "$INSTALL_DIR" "$service_kind" "$reg_file"
 write_control_scripts "$INSTALL_DIR" "$service_kind" "$reg_file"
 
+# --- code-server (#628) ---------------------------------------------------------
+# The open-source, web-based VS Code editor a console tab's "Open IDE" action opens
+# (#627), bundled here so no separate install step is needed. --method=standalone
+# extracts a self-contained build under --prefix rather than touching a package
+# manager or asking for sudo, matching every other dependency this installer brings
+# in on its own; --prefix keeps it inside $INSTALL_DIR, next to everything else
+# locklane owns, so uninstall.sh's plain `rm -rf "$INSTALL_DIR"` removes it too.
+# CodeServerService resolves the binary at
+# "$INSTALL_DIR/code-server/bin/code-server" -- keep that path and this one in sync.
+#
+# Run last and soft-failing, unlike every step above it: the account, the database,
+# and the running server are what actually make this install useful, and code-server
+# is an optional extra on top -- a code-server.dev hiccup here must never undo any of
+# that or leave install.sh exiting non-zero after everything the person actually
+# asked for already succeeded (matching this script's own systemd/launchd fallback,
+# which warns and continues rather than aborting).
+echo "Installing code-server..."
+if ! curl -fsSL https://code-server.dev/install.sh | sh -s -- \
+  --method=standalone --prefix="$INSTALL_DIR/code-server"; then
+  echo "warning: could not install code-server -- the \"Open IDE\" console action won't work until update.sh retries this." >&2
+fi
+
 cat <<EOF
 
 Installed to $INSTALL_DIR:
@@ -699,6 +721,7 @@ Installed to $INSTALL_DIR:
   status.sh, start.sh, stop.sh
   application-locklane.properties (mode 600; port and origins only)
   locklane.log (server output)
+  code-server/ (the web-based IDE a console tab's "Open IDE" action opens)
 
 $account_note
 

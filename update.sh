@@ -612,6 +612,24 @@ case "$service_kind" in
     ;;
 esac
 
+# --- code-server (#628) ---------------------------------------------------------
+# Re-run install.sh's own installer: it detects the version already under --prefix
+# and updates it in place, so this is a no-op on an install that already has the
+# newest code-server. Kept in sync with install.sh's own copy of this block --
+# CodeServerService resolves the binary at "code-server/bin/code-server" relative
+# to this directory either way.
+#
+# Run after the server is already back up, not before, and soft-failing: this update
+# already stopped the running server above to replace the jar, so getting it running
+# again is the one thing this script cannot skip -- a code-server.dev hiccup here is
+# an optional extra, and must never leave the server down over it (matching how
+# install.sh orders and guards this same step).
+echo "Installing code-server..."
+if ! curl -fsSL https://code-server.dev/install.sh | sh -s -- \
+  --method=standalone --prefix="$(pwd)/code-server"; then
+  echo "warning: could not update code-server -- the \"Open IDE\" console action may be stale or missing until the next update.sh run." >&2
+fi
+
 # --- Refresh the uninstaller (#392) and the control scripts (#612) ---------------
 # Rewritten on every update so an install never keeps a stale copy -- one generated
 # before the service kind changed would de-register, stop or start the wrong thing, or
