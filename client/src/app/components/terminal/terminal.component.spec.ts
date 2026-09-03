@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import { TerminalComponent } from './terminal.component';
@@ -236,6 +237,19 @@ describe('TerminalComponent', () => {
       expect(readText).not.toHaveBeenCalled();
       done();
     });
+  });
+
+  // Unicode-aware column width (#630).
+
+  it('loads the Unicode 11 addon and switches xterm onto its width table (#630)', () => {
+    const loadAddonSpy = spyOn(Terminal.prototype, 'loadAddon').and.callThrough();
+
+    const component = mountTab(true);
+
+    expect(loadAddonSpy.calls.allArgs().some((args) => args[0] instanceof Unicode11Addon))
+      .withContext('a Unicode11Addon instance must be among the loaded addons')
+      .toBeTrue();
+    expect(term(component).unicode.activeVersion).toBe('11');
   });
 
   // The WebGL renderer (#616).
