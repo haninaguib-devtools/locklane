@@ -262,6 +262,20 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+      # Caches the isolated Node/npm binary and installed npm packages
+      # frontend-maven-plugin downloads into client/node and client/node_modules on
+      # every run — mirrors setup-java's own `cache: maven` above for the client
+      # module's build, which that cache doesn't cover. Keyed on the lockfile plus
+      # pom.xml, since the plugin's Node/npm version lives in the pom's <properties>,
+      # not the lockfile. Task #640.
+      - name: Cache client Node/npm and node_modules
+        if: "!cancelled() && steps.build-inputs.outputs.run == 'true'"
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            client/node
+            client/node_modules
+          key: ${{ runner.os }}-client-node-${{ hashFiles('client/package-lock.json', 'client/pom.xml') }}
       - name: Build and test every module
         if: "!cancelled() && steps.build-inputs.outputs.run == 'true'"
         run: ./mvnw -B test
