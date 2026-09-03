@@ -74,7 +74,13 @@ public class HttpGhDeviceFlow implements GhDeviceFlow {
             return new PollResult.Error(e.getMessage());
         }
         if (node.has("access_token")) {
-            return new PollResult.Success(node.path("access_token").asText());
+            return new PollResult.Success(
+                    node.path("access_token").asText(),
+                    node.path("token_type").asText("bearer"),
+                    node.path("scope").asText(""),
+                    integerOrNull(node, "expires_in"),
+                    node.hasNonNull("refresh_token") ? node.path("refresh_token").asText() : null,
+                    integerOrNull(node, "refresh_token_expires_in"));
         }
         String error = node.path("error").asText("");
         return switch (error) {
@@ -84,6 +90,12 @@ public class HttpGhDeviceFlow implements GhDeviceFlow {
             case "access_denied" -> new PollResult.Denied();
             default -> new PollResult.Error(error.isBlank() ? "unexpected response from GitHub" : error);
         };
+    }
+
+    /** {@code null} when the field is absent or not a number — an OAuth App without short-lived tokens sends neither expiry. */
+    private static Integer integerOrNull(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.canConvertToInt() ? value.asInt() : null;
     }
 
     private JsonNode post(URI uri, Map<String, String> form) {

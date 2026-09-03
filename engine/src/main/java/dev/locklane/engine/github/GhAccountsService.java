@@ -167,7 +167,7 @@ public class GhAccountsService {
                 Thread.sleep(interval * 1000L);
                 GhDeviceFlow.PollResult result = deviceFlow.poll(oauthClientId.orElseThrow(), deviceCode);
                 if (result instanceof GhDeviceFlow.PollResult.Success success) {
-                    completeFlow(state, success.accessToken());
+                    completeFlow(state, success);
                     return;
                 } else if (result instanceof GhDeviceFlow.PollResult.SlowDown) {
                     interval += 5;
@@ -194,7 +194,20 @@ public class GhAccountsService {
         }
     }
 
-    private void completeFlow(DeviceFlowState state, String accessToken) {
+    private void completeFlow(DeviceFlowState state, GhDeviceFlow.PollResult.Success success) {
+        String accessToken = success.accessToken();
+        // Redacted evidence of the token's shape (#620): field presence and lifetimes,
+        // never a secret value. A short-lived token here is one this engine cannot
+        // yet renew -- see docs/architecture/github-token-lifetime.md.
+        log.info("Device-flow token response for user {}: token_type={} scope={} expires_in={} refresh_token={} "
+                + "refresh_token_expires_in={}", state.ownerUserId, success.tokenType(), success.scope(),
+                success.expiresInSeconds(), success.refreshToken() == null ? "absent" : "present",
+                success.refreshTokenExpiresInSeconds());
+        if (success.expires()) {
+            log.warn("GitHub issued a short-lived token (expires in {}s) for user {}; this engine does not renew it "
+                    + "yet, so its projects will fail with `Bad credentials` once it expires (#620)",
+                    success.expiresInSeconds(), state.ownerUserId);
+        }
         Optional<GhTokenIntrospector.Introspection> introspection = introspector.introspect(accessToken);
         if (introspection.isEmpty()) {
             log.warn("Device flow for user {} produced a token GitHub would not introspect", state.ownerUserId);

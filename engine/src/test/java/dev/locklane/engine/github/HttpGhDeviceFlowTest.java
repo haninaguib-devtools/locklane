@@ -75,6 +75,42 @@ class HttpGhDeviceFlowTest {
     }
 
     @Test
+    void pollKeepsANonExpiringTokenFreeOfExpiryFields() throws Exception {
+        HttpGhDeviceFlow deviceFlow = deviceFlowOverStub(
+                "{\"access_token\":\"gho_abc123\",\"token_type\":\"bearer\",\"scope\":\"repo,workflow\"}");
+
+        GhDeviceFlow.PollResult.Success success = (GhDeviceFlow.PollResult.Success) deviceFlow.poll("client-id", "dc123");
+
+        assertThat(success.tokenType()).isEqualTo("bearer");
+        assertThat(success.scope()).isEqualTo("repo,workflow");
+        assertThat(success.expires()).isFalse();
+        assertThat(success.expiresInSeconds()).isNull();
+        assertThat(success.refreshToken()).isNull();
+        assertThat(success.refreshTokenExpiresInSeconds()).isNull();
+    }
+
+    @Test
+    void pollReadsTheWholeShortLivedTokenResponse() throws Exception {
+        // The shape GitHub sends for an OAuth App with short-lived tokens (#620) --
+        // the default for every app registered since 2026-08-14.
+        HttpGhDeviceFlow deviceFlow = deviceFlowOverStub("""
+                {"access_token":"ghu_abc123","expires_in":28800,
+                 "refresh_token":"ghr_def456","refresh_token_expires_in":15811200,
+                 "token_type":"bearer","scope":"repo,workflow,read:org"}
+                """);
+
+        GhDeviceFlow.PollResult.Success success = (GhDeviceFlow.PollResult.Success) deviceFlow.poll("client-id", "dc123");
+
+        assertThat(success.accessToken()).isEqualTo("ghu_abc123");
+        assertThat(success.expires()).isTrue();
+        assertThat(success.expiresInSeconds()).isEqualTo(28800);
+        assertThat(success.refreshToken()).isEqualTo("ghr_def456");
+        assertThat(success.refreshTokenExpiresInSeconds()).isEqualTo(15811200);
+        assertThat(success.tokenType()).isEqualTo("bearer");
+        assertThat(success.scope()).isEqualTo("repo,workflow,read:org");
+    }
+
+    @Test
     void pollMapsEveryKnownErrorCode() throws Exception {
         assertThat(pollWithError("authorization_pending")).isInstanceOf(GhDeviceFlow.PollResult.Pending.class);
         assertThat(pollWithError("slow_down")).isInstanceOf(GhDeviceFlow.PollResult.SlowDown.class);
