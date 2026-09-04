@@ -410,11 +410,46 @@ case "$SERVICE_KIND" in
       fi
       sleep 1
     done
+    forced=""
     if launchctl print "$domain" >/dev/null 2>&1 || { [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; }; then
-      echo "error: the launchd agent $AGENT_LABEL did not stop within 30s." >&2
+      # The grace period is over (#676): the JVM, or a child holding it up, has ignored
+      # SIGTERM for 30s. Finish the job the way systemd's own stop does -- SIGKILL, to
+      # the service if launchd still has it and to the pid directly -- then give it a
+      # few seconds more. A stop that ends here is still a stop, and says it was forced.
+      echo "The server has not exited after 30s -- forcing it."
+      launchctl kill SIGKILL "$domain" 2>/dev/null || true
+      if [ -n "$pid" ]; then
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
+      for _ in $(seq 1 10); do
+        if ! launchctl print "$domain" >/dev/null 2>&1 \
+            && { [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; }; then
+          break
+        fi
+        sleep 1
+      done
+      forced=" (forced after 30s: the server ignored SIGTERM)"
+    fi
+    if launchctl print "$domain" >/dev/null 2>&1 || { [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; }; then
+      # Even SIGKILL did not clear it: say exactly what is left, so the next report is
+      # not as blind as the one that led here (#676).
+      {
+        echo "error: the launchd agent $AGENT_LABEL did not stop, even when forced."
+        if launchctl print "$domain" >/dev/null 2>&1; then
+          echo "  agent: still loaded in $domain"
+        else
+          echo "  agent: unloaded"
+        fi
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+          echo "  server pid $pid: still alive"
+          echo "  its children: $(pgrep -P "$pid" 2>/dev/null | tr '\n' ' ')"
+        else
+          echo "  server pid ${pid:-?}: gone"
+        fi
+      } >&2
       exit 1
     fi
-    echo "Stopped. The agent is unloaded, so it will not come back at the next login until start.sh (or update.sh) loads it again."
+    echo "Stopped$forced. The agent is unloaded, so it will not come back at the next login until start.sh (or update.sh) loads it again."
     ;;
   *)
     # Detached fallback: kill the recorded pid and wait for it to go, the same bounded
@@ -437,12 +472,30 @@ case "$SERVICE_KIND" in
       kill -0 "$pid" 2>/dev/null || break
       sleep 1
     done
+    forced=""
     if kill -0 "$pid" 2>/dev/null; then
-      echo "error: server (pid $pid) did not stop within 30s." >&2
+      # The grace period is over (#676): finish the job the way systemd's own stop
+      # does -- SIGKILL, then a few seconds more -- and say the stop was forced.
+      echo "The server has not exited after 30s -- forcing it."
+      kill -KILL "$pid" 2>/dev/null || true
+      for _ in $(seq 1 10); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 1
+      done
+      forced=" (forced after 30s: the server ignored SIGTERM)"
+    fi
+    if kill -0 "$pid" 2>/dev/null; then
+      # Even SIGKILL did not clear it: say exactly what is left (#676). The pid file
+      # is kept, since the process it names is still there.
+      {
+        echo "error: server (pid $pid) did not stop, even when forced."
+        echo "  server pid $pid: still alive; $pid_file kept"
+        echo "  its children: $(pgrep -P "$pid" 2>/dev/null | tr '\n' ' ')"
+      } >&2
       exit 1
     fi
     rm -f "$pid_file"
-    echo "Stopped. It was started detached, so nothing restarts it on its own; start.sh does."
+    echo "Stopped$forced. It was started detached, so nothing restarts it on its own; start.sh does."
     ;;
 esac
 STOP_BODY
@@ -491,10 +544,10 @@ refuse_inside_server() {
       ;;
   esac
   cat >&2 <<REFUSED
-error: $script is running inside the locklane server it would stop.
-This shell was opened from a Locklane console tab, so stopping the server would end
-this shell too, and nothing here would finish. Run $script from ssh or a local
-terminal instead. Nothing was changed.
+error: not run -- $script is inside a Locklane console tab (or the IDE terminal opened
+from one), which is inside the very server it would stop.
+Stopping the server from here would end this shell too, and nothing here would finish.
+Run $script from ssh or a local terminal instead. Nothing was changed.
 REFUSED
   exit 2
 } # end refuse_inside_server
@@ -569,10 +622,10 @@ refuse_inside_server() {
       ;;
   esac
   cat >&2 <<REFUSED
-error: $script is running inside the locklane server it would stop.
-This shell was opened from a Locklane console tab, so stopping the server would end
-this shell too, and nothing here would finish. Run $script from ssh or a local
-terminal instead. Nothing was changed.
+error: not run -- $script is inside a Locklane console tab (or the IDE terminal opened
+from one), which is inside the very server it would stop.
+Stopping the server from here would end this shell too, and nothing here would finish.
+Run $script from ssh or a local terminal instead. Nothing was changed.
 REFUSED
   exit 2
 } # end refuse_inside_server
@@ -602,7 +655,37 @@ stop_launchd_agent() {
     fi
     sleep 1
   done
-  echo "error: the launchd agent $label did not stop within 30s." >&2
+  # The grace period is over (#676): finish the job the way systemd's own stop does --
+  # SIGKILL, to the service if launchd still has it and to the pid directly -- then a
+  # few seconds more. Gone is a stop, said to have been forced; still there is an error
+  # that names what is left, so the next report is not as blind as the one before it.
+  echo "The server has not exited after 30s -- forcing it."
+  launchctl kill SIGKILL "$domain" 2>/dev/null || true
+  if [ -n "$pid" ]; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  for _ in $(seq 1 10); do
+    if ! launchctl print "$domain" >/dev/null 2>&1 \
+        && { [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; }; then
+      echo "Stopped (forced after 30s: the server ignored SIGTERM)."
+      return 0
+    fi
+    sleep 1
+  done
+  {
+    echo "error: the launchd agent $label did not stop, even when forced."
+    if launchctl print "$domain" >/dev/null 2>&1; then
+      echo "  agent: still loaded in $domain"
+    else
+      echo "  agent: unloaded"
+    fi
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      echo "  server pid $pid: still alive"
+      echo "  its children: $(pgrep -P "$pid" 2>/dev/null | tr '\n' ' ')"
+    else
+      echo "  server pid ${pid:-?}: gone"
+    fi
+  } >&2
   return 1
 } # end stop_launchd_agent
 
