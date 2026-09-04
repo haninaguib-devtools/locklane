@@ -8,6 +8,14 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.11 — 2026-09-04
+
+### Features
+- Support omp as a fourth known coding agent (#681, #685)
+
+### Fixes
+- Make the project's GitHub account win over the host's git credential helper (#687, #688)
+
 ## v0.2.10 — 2026-09-04
 
 ### Fixes
