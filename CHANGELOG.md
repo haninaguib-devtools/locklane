@@ -8,6 +8,15 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.10 — 2026-09-04
+
+### Fixes
+- Make install, update, stop and uninstall reliable with one downloaded control program (#678, #680)
+- Make stop.sh finish the job: escalate after the grace period and report the state it found (#676, #679)
+- Make the install one-liner behave as an update when locklane is already installed (#675, #677)
+- Keep the service's baked-in PATH single-line when a login-shell startup file prints (#672, #674)
+- Stop blaming a missing gh when a cloning project's workarea does not exist yet (#671, #673)
+
 ## v0.2.9 — 2026-09-03
 
 ### Features
