@@ -535,16 +535,26 @@ GUARD_BODY
 # (`-l`), the same PATH a freshly opened terminal gets, never this installer's own
 # (possibly non-login, e.g. piped through `curl | bash`) environment.
 #
+# The value is read from ONE tagged line, never from the shell's whole stdout (#672):
+# a startup file that prints -- a greeting in ~/.zprofile, a version manager's banner,
+# a `clear` in ~/.bash_logout on the way out -- lands in the same stream, and a
+# newline is not a PATH separator, so the whole capture would become one broken entry
+# and a gh that every terminal finds would be invisible to the service. No tagged line
+# at all (the shell failed, or never ran the command) falls back to this script's own
+# PATH, as before.
+#
 # THIS FUNCTION IS DUPLICATED, BYTE FOR BYTE, IN install.sh AND update.sh -- see
 # write_uninstall_script above for why. Change one, change the other.
 resolve_login_path() {
   local resolved
-  resolved="$("${SHELL:-/bin/sh}" -lc 'echo $PATH' 2>/dev/null)" || resolved=""
-  if [ -z "$resolved" ]; then
-    resolved="$PATH"
-  fi
+  resolved="$("${SHELL:-/bin/sh}" -lc 'printf "\n__LOCKLANE_PATH__=%s\n" "$PATH"' 2>/dev/null \
+    | sed -n 's/^__LOCKLANE_PATH__=//p' | tail -n 1)" || resolved=""
+  case "$resolved" in
+    */*) ;;
+    *) resolved="$PATH" ;;
+  esac
   printf '%s' "$resolved"
-}
+} # end resolve_login_path
 
 # --- Refusing to run from inside the server (#647) ------------------------------
 # A Locklane console tab's shell is a child of the server JVM. On Linux it sits in the
