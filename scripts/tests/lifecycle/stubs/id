@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Stub id for scripts/tests/lifecycle/run.sh. The control program shells out to
+# `id -u` to build its launchd domain target (user/<uid>, gui/<uid>) -- this test
+# harness runs as a single real OS user, so a "two distinct users on the same Mac"
+# scenario (#691) needs a way to make that call answer differently per simulated user.
+# With $STUB_UID set, `id -u` prints it instead of the real uid; every other invocation,
+# and `id -u` with $STUB_UID unset, falls through to the real /usr/bin/id.
+if [ "${1:-}" = "-u" ] && [ -n "${STUB_UID:-}" ]; then
+  printf '%s\n' "$STUB_UID"
+  exit 0
+fi
+exec /usr/bin/id "$@"
