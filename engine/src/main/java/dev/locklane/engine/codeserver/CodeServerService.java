@@ -1,6 +1,8 @@
 package dev.locklane.engine.codeserver;
 
+import dev.locklane.engine.process.ProcessTrees;
 import dev.locklane.engine.pty.SessionRegistry;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +13,9 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -127,11 +132,40 @@ public class CodeServerService {
         }
     }
 
-    /** Stops {@code consoleId}'s running code-server process, if any. A no-op otherwise. */
+    /**
+     * Stops {@code consoleId}'s running code-server process, if any — the whole tree
+     * it spawned, not just the node process the engine started. A no-op otherwise.
+     */
     public void stop(String consoleId) {
         Running stopped = running.remove(consoleId);
         if (stopped != null) {
-            stopped.process().destroy();
+            terminate(List.of(stopped));
+        }
+    }
+
+    /**
+     * Stops every running code-server when the engine shuts down (#678). On Linux the
+     * service's control group would sweep these up anyway; on macOS launchd signals
+     * only the JVM, and without this every IDE the engine ever opened would outlive
+     * it, holding its port and its worktree.
+     */
+    @PreDestroy
+    public void stopAll() {
+        List<Running> all = new ArrayList<>(running.values());
+        running.clear();
+        if (!all.isEmpty()) {
+            terminate(all);
+        }
+    }
+
+    private static final Duration STOP_GRACE = Duration.ofSeconds(5);
+
+    private void terminate(List<Running> processes) {
+        List<ProcessHandle> handles = processes.stream().map(r -> r.process().toHandle()).toList();
+        List<ProcessHandle> left = ProcessTrees.terminate(handles, STOP_GRACE);
+        if (!left.isEmpty()) {
+            log.warn("code-server processes still alive after being stopped: {}",
+                    left.stream().map(ProcessHandle::pid).toList());
         }
     }
 

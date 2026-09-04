@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Stub kill for scripts/tests/lifecycle/run.sh. The control program sends signals
+# through the external kill (env kill) so this stub can stand in: with
+# $STUB_STATE/kill-swallows present a SIGKILL is swallowed -- pretending success while
+# the process lives on, the one shape a real kill can never produce -- and everything
+# else goes to /bin/kill.
+if [ -f "${STUB_STATE:?}/kill-swallows" ]; then
+  case " $* " in
+    *" KILL "*|*" -KILL "*|*" -9 "*|*" SIGKILL "*) exit 0 ;;
+  esac
+fi
+exec /bin/kill "$@"

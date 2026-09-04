@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Stub gh for scripts/tests/lifecycle/run.sh: serves the repository's own scripts as
+# the "newest release" assets, and a small valid jar (a one-entry zip holding 1 MiB of
+# zeros, so both of download_jar's checks -- unzip -t, or PK plus size -- pass).
+# Every call is appended to $STUB_STATE/gh-calls.
+set -uo pipefail
+S="${STUB_STATE:?}"
+ROOT="${LIFECYCLE_ROOT:?}"
+printf '%s\n' "$*" >> "$S/gh-calls"
+write_jar() {
+  {
+    printf '\x50\x4b\x03\x04\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c\xea\x38\xa7\x00\x00\x10\x00\x00\x00\x10\x00\x01\x00\x00\x00\x78'
+    dd if=/dev/zero bs=1048576 count=1 2>/dev/null
+    printf '\x50\x4b\x01\x02\x0a\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1c\xea\x38\xa7\x00\x00\x10\x00\x00\x00\x10\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x78'
+    printf '\x50\x4b\x05\x06\x00\x00\x00\x00\x01\x00\x01\x00\x2f\x00\x00\x00\x1f\x00\x10\x00\x00\x00'
+  } > "$1"
+}
+if [ "${1:-}" = release ] && [ "${2:-}" = download ]; then
+  pattern=""; output=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --pattern) pattern="$2"; shift ;;
+      --output) output="$2"; shift ;;
+    esac
+    shift
+  done
+  case "$pattern" in
+    locklane) cp "$ROOT/scripts/locklane" "$output" ;;
+    update.sh) cp "$ROOT/update.sh" "$output" ;;
+    locklane.jar) write_jar "$output" ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+if [ "${1:-}" = release ] && [ "${2:-}" = view ]; then
+  echo "v9.9.9-stub"
+  exit 0
+fi
+echo "stub gh: unsupported: $*" >&2
+exit 64

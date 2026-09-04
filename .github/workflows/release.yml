@@ -125,15 +125,21 @@ jobs:
           fi
           cp "$src" locklane.jar
 
+      - name: Stage the control program under its fixed release asset name
+        # scripts/locklane is installed as ~/.locklane/locklane (#678): install.sh
+        # fetches it by the asset name `locklane`, and an installed copy refreshes
+        # itself from the same asset before each update.
+        run: cp scripts/locklane locklane
+
       - name: Cut the permanent release for the requested version
         env:
           GH_TOKEN: ${{ github.token }}
-        # update.sh rides along as a second asset (#647): install.sh fetches it from
-        # the same release as the jar, and an installed update.sh refreshes itself
-        # from it before each update, so the script and the jar it installs match.
+        # Three assets, all from the same release so they match: the jar, the control
+        # program (#678), and update.sh -- the file an older install's own update.sh
+        # fetches and execs (#647), which now fetches the control program and hands over.
         run: |
           gh release create "v${VERSION}" \
             --title "v${VERSION}" \
             --notes-file release-notes.md \
             --target "$GITHUB_SHA" \
-            locklane.jar update.sh
+            locklane.jar update.sh locklane

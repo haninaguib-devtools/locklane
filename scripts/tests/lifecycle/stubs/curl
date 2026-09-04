@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Stub curl for scripts/tests/lifecycle/run.sh: no network here. Every fetch fails, so
+# the raw-file fallbacks and the code-server install take their soft-failure paths.
+printf '%s\n' "$*" >> "${STUB_STATE:?}/curl-calls"
+exit 22

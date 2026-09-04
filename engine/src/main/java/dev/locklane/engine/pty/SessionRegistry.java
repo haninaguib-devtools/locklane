@@ -5,6 +5,7 @@ import dev.locklane.engine.persistence.ConsoleResumeSessionRecord;
 import dev.locklane.engine.persistence.ConsoleResumeSessionRepository;
 import dev.locklane.engine.persistence.WorktreeSessionRecord;
 import dev.locklane.engine.persistence.WorktreeSessionRepository;
+import dev.locklane.engine.process.ProcessTrees;
 import dev.locklane.engine.uploads.SessionUploadStorage;
 import dev.locklane.engine.ws.EventBroadcaster;
 import jakarta.annotation.PreDestroy;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -330,10 +332,28 @@ public class SessionRegistry {
         }
     }
 
-    /** Stops every running session. Orphan processes are not left behind on shutdown. */
+    /**
+     * Stops every running session at shutdown — the shells and everything they spawned
+     * (#678). The trees are collected and ended <em>before</em> the shells are closed:
+     * a shell that is destroyed first leaves orphans no longer findable from it, which
+     * on macOS (no control group to sweep them) means an agent or a build still
+     * running after the engine is gone.
+     */
     @PreDestroy
     void closeAll() {
+        List<ProcessHandle> shells = sessions.values().stream()
+                .map(PtySession::processHandle)
+                .flatMap(Optional::stream)
+                .toList();
+        List<ProcessHandle> left = ProcessTrees.terminate(shells, SHUTDOWN_GRACE);
+        if (!left.isEmpty()) {
+            log.warn("console processes still alive after shutdown: {}",
+                    left.stream().map(ProcessHandle::pid).toList());
+        }
         sessions.values().forEach(PtySession::close);
         sessions.clear();
     }
+
+    /** How long shutdown waits for console process trees to exit before killing them. */
+    private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
 }

@@ -132,4 +132,40 @@ class CodeServerServiceTest {
         assertThat(exited).isTrue();
         assertThat(service.start("1-174-rename-toggle")).isEmpty(); // the session's record is gone too
     }
+
+    @Test
+    void stopAllEndsEveryRunningCodeServerAtShutdown(@TempDir Path dbDir) throws Exception {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        repository.recordAttach("1-201-one", dbDir.resolve("wt1"), Instant.now(), "alice");
+        repository.recordAttach("1-202-two", dbDir.resolve("wt2"), Instant.now(), "alice");
+        List<Process> spawned = new ArrayList<>();
+        CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
+                command -> {
+                    // A shell with a child, the shape a real code-server has (node plus
+                    // its extension host): #678 ends the tree, not only the root.
+                    Process process = new ProcessBuilder("/bin/sh", "-c", "sleep 300 & wait").start();
+                    spawned.add(process);
+                    return process;
+                });
+        service.start("1-201-one");
+        service.start("1-202-two");
+        assertThat(spawned).hasSize(2);
+        List<ProcessHandle> descendants = new ArrayList<>();
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline && descendants.size() < 2) {
+            descendants = spawned.stream().flatMap(p -> p.toHandle().descendants()).toList();
+            Thread.sleep(50);
+        }
+        assertThat(descendants).hasSize(2);
+
+        service.stopAll();
+
+        for (Process process : spawned) {
+            assertThat(process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+        for (ProcessHandle descendant : descendants) {
+            assertThat(descendant.isAlive()).as("descendant %d", descendant.pid()).isFalse();
+        }
+        assertThat(service.upstream("1-201-one")).isEmpty();
+    }
 }
