@@ -17,10 +17,10 @@
 }
 
 .controls {
-  padding: 4px 16px 8px;
+  padding: 6px 10px 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .filter-row {
@@ -31,7 +31,8 @@
 .filter-input {
   flex: 1;
   min-width: 0;
-  padding: 5px 8px;
+  height: 24px;
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--panel);
@@ -41,8 +42,8 @@
 
 .refresh {
   flex: none;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--panel);
@@ -111,7 +112,7 @@
 }
 
 .label {
-  padding: 8px 16px 4px;
+  padding: 6px 10px 2px;
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -139,9 +140,10 @@
 .section-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-  padding: 6px 12px 6px 8px;
+  gap: 5px;
+  height: 26px;
+  margin-top: 4px;
+  padding: 3px 8px 3px 6px;
   cursor: pointer;
 }
 
@@ -151,8 +153,7 @@
 
 .section-header.active {
   background: var(--panel);
-  border-left: 2px solid var(--accent);
-  padding-left: 6px;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 /* Bigger than .issue-title (12px) so the project reads as the heading of everything
@@ -163,13 +164,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 12.5px;
   font-weight: 700;
   color: var(--text);
 }
 
 .section-header .issue-count {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 400;
   color: var(--muted);
 }
@@ -297,8 +298,8 @@ ul {
 }
 
 ul.branch {
-  margin-left: 24px;
-  border-left: 1.5px solid var(--border);
+  margin-left: 13px;
+  border-left: 1px solid var(--border);
 }
 
 .row {
@@ -307,11 +308,13 @@ ul.branch {
   text-decoration: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
-  padding: 6px 12px 6px 8px;
+  height: 22px;
+  padding: 0 8px 0 6px;
   cursor: pointer;
   font-size: 12px;
+  line-height: 1;
   position: relative;
 }
 
@@ -320,34 +323,58 @@ ul.branch {
 }
 
 .row.active {
-  background: var(--panel);
-  border-left: 2px solid var(--accent);
-  padding-left: 6px;
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.row.active .issue-number,
+.row.active .issue-state {
+  color: var(--accent);
+}
+
+.row.active .issue-number {
+  font-weight: 700;
 }
 
 .twist,
 .twist-gap {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
 }
 
 .twist {
-  border: none;
-  background: none;
-  color: var(--faint);
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--muted);
   cursor: pointer;
+}
+
+.twist:hover {
+  background: var(--bg);
+}
+
+.twist svg {
+  width: 8px;
+  height: 8px;
+  display: block;
   transition: transform 0.12s ease;
 }
 
-.twist.expanded {
+.twist.expanded svg {
   transform: rotate(90deg);
 }
 
 .issue-number {
   color: var(--faint);
   flex: none;
+  font-size: 11px;
 }
 
 .issue-title {
