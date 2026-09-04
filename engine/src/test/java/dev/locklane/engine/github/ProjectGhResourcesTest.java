@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.GhAccountRepository;
 import dev.locklane.engine.persistence.ProjectRecord;
 import dev.locklane.engine.persistence.ProjectRepository;
+import dev.locklane.engine.persistence.ProjectStatus;
 import dev.locklane.engine.persistence.TestSqliteDatabases;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
@@ -107,6 +108,44 @@ class ProjectGhResourcesTest {
         ProjectRecord project = repository.create("broken", "https://github.com/org/broken.git",
                 dataDir.resolve("broken"), 1L, Instant.now());
         repository.markFailed(project.id());
+        RecordingFactory factory = new RecordingFactory();
+        ProjectGhResources resources = resources(dataDir, repository, factory);
+        resources.forProject(project.id());
+
+        repository.markReady(project.id(), "main");
+        resources.forProject(project.id());
+
+        assertThat(factory.callCount).isEqualTo(1);
+        assertThat(factory.lastPath).isEqualTo(project.workareaPath());
+    }
+
+    // #671: a CLONING project's workarea does not exist yet either -- git clone has not
+    // created it -- so it gets the same empty, uncached context as a FAILED one, and
+    // the first lookup after it turns READY builds the real client.
+
+    @Test
+    void aCloningProjectGetsAnEmptyTreeWithoutBuildingAClient(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = repository.create("fresh", "https://github.com/org/fresh.git",
+                dataDir.resolve("fresh"), 1L, Instant.now());
+        RecordingFactory factory = new RecordingFactory();
+        ProjectGhResources resources = resources(dataDir, repository, factory);
+
+        ProjectGhContext context = resources.forProject(project.id()).orElseThrow();
+
+        assertThat(project.status()).isEqualTo(ProjectStatus.CLONING);
+        assertThat(context.treeService().tree()).isEmpty();
+        assertThat(context.cache().issues()).isEmpty();
+        assertThat(context.cache().pullRequests()).isEmpty();
+        assertThat(factory.callCount).isZero();
+    }
+
+    @Test
+    void aCloningProjectsEmptyContextIsNotCachedSoAReadyProjectGetsARealOne(@TempDir Path dataDir)
+            throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = repository.create("fresh", "https://github.com/org/fresh.git",
+                dataDir.resolve("fresh"), 1L, Instant.now());
         RecordingFactory factory = new RecordingFactory();
         ProjectGhResources resources = resources(dataDir, repository, factory);
         resources.forProject(project.id());

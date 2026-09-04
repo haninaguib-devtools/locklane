@@ -72,12 +72,14 @@ public class ProjectGhResources {
 
     /**
      * Empty for an unknown project id — never resolves any other project's context.
-     * A {@link ProjectStatus#FAILED} project (#569) gets a context that answers with
-     * no issues and no PRs, never cached and never refreshed: its clone did not
-     * complete, so its workarea directory does not exist and running {@code gh} there
+     * A project that is not {@link ProjectStatus#READY} gets a context that answers
+     * with no issues and no PRs, never cached and never refreshed: a
+     * {@link ProjectStatus#FAILED} project's clone did not complete (#569), and a
+     * {@link ProjectStatus#CLONING} project's clone has not created its workarea yet
+     * (#671) — either way the directory does not exist, and running {@code gh} there
      * could only fail with a misleading "is gh installed" warning that hid the real
-     * clone error. Not caching it means a successful retry sees a real context on
-     * the next lookup.
+     * state. Not caching it means the first lookup after the project turns ready (or a
+     * successful retry) sees a real context.
      */
     public Optional<ProjectGhContext> forProject(long projectId) {
         ProjectGhContext existing = contexts.get(projectId);
@@ -85,7 +87,7 @@ public class ProjectGhResources {
             return Optional.of(existing);
         }
         return projectRepository.findById(projectId)
-                .map(project -> project.status() == ProjectStatus.FAILED
+                .map(project -> project.status() != ProjectStatus.READY
                         ? buildWithoutCheckout(project)
                         : contexts.computeIfAbsent(projectId, id -> build(project)));
     }
@@ -205,10 +207,10 @@ public class ProjectGhResources {
         broadcaster.broadcast("githubRefreshStatus", fields);
     }
 
-    /** A context for a project with no checkout to run {@code gh} in (#569): empty issues, empty PRs. */
+    /** A context for a project with no checkout to run {@code gh} in (#569, #671): empty issues, empty PRs. */
     private static ProjectGhContext buildWithoutCheckout(ProjectRecord project) {
-        log.debug("Project {} is FAILED and has no checkout; serving an empty issue tree instead of running gh",
-                project.id());
+        log.debug("Project {} is {} and has no checkout; serving an empty issue tree instead of running gh",
+                project.id(), project.status());
         GhClient client = new NoCheckoutGhClient();
         GhIssueCache cache = new GhIssueCache(client);
         IssueDetailService detailService = new IssueDetailService(cache, client, project.workareaPath().toString());
