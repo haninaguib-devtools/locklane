@@ -223,6 +223,55 @@ scenario_uninstall_service_only_keeps_data() {
   fi
 }
 
+scenario_uninstall_unregistered_but_loaded() {
+  local name="uninstall-unregistered-but-loaded" out rc pid kind
+  for kind in launchd systemd; do
+    if [ "$kind" = systemd ] && in_server_cgroup; then
+      skipped "$name ($kind)" "inside the locklane.service cgroup"
+      continue
+    fi
+
+    # No service.env, no plist, no unit -- a botched manual cleanup's shape -- but the
+    # label is still loaded/active. The verified stop still runs and --all still
+    # deletes: detection must not skip straight to reporting stopped.
+    new_home
+    register_as "$kind" || { bad "$name ($kind, success)" "register"; continue; }
+    pid="$(server_pid "$kind")"
+    rm -f "$HOME/.locklane/service.env"
+    case "$kind" in
+      launchd) rm -f "$HOME/Library/LaunchAgents/com.locklane.server.plist" ;;
+      systemd) rm -f "$HOME/.config/systemd/user/locklane.service" ;;
+    esac
+    out="$("$LL" uninstall --all --yes 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] && ! alive "$pid" && [ ! -d "$HOME/.locklane" ]; then
+      ok "$name ($kind, success)"
+    else
+      bad "$name ($kind, success)" "rc=$rc alive=$(alive "$pid" && echo yes || echo no) dir=$([ -d "$HOME/.locklane" ] && echo present || echo gone) out=$out"
+    fi
+
+    # Same unregistered-but-loaded state, but the server (and the forced kill) never
+    # actually go: this must fail loudly, never claim the old unverified "stopped".
+    new_home
+    [ "$kind" = systemd ] && touch "$STUB_STATE/systemd-no-escalate"
+    register_as "$kind" ignore-term || { bad "$name ($kind, forced-failure)" "register"; continue; }
+    pid="$(server_pid "$kind")"
+    rm -f "$HOME/.locklane/service.env"
+    case "$kind" in
+      launchd) rm -f "$HOME/Library/LaunchAgents/com.locklane.server.plist" ;;
+      systemd) rm -f "$HOME/.config/systemd/user/locklane.service" ;;
+    esac
+    touch "$STUB_STATE/kill-swallows"
+    out="$("$LL" uninstall --all --yes 2>&1)"; rc=$?
+    rm -f "$STUB_STATE/kill-swallows"
+    if [ "$rc" -ne 0 ] && alive "$pid" && [ -d "$HOME/.locklane" ] \
+        && ! contains "$out" "is stopped and no longer registered"; then
+      ok "$name ($kind, forced-failure)"
+    else
+      bad "$name ($kind, forced-failure)" "rc=$rc alive=$(alive "$pid" && echo yes || echo no) dir=$([ -d "$HOME/.locklane" ] && echo present || echo gone) out=$out"
+    fi
+  done
+}
+
 scenario_console_tab_refusal() {
   local name="console-tab-refusal" rc first sub
   for sub in stop uninstall; do
@@ -243,35 +292,47 @@ scenario_console_tab_refusal() {
   done
 }
 
-scenario_wrappers() {
-  local name="wrappers" f lines
+scenario_no_wrappers() {
+  local name="no-wrappers" f
   new_home
   register_as launchd || { bad "$name" "register"; return; }
-  for f in status start stop uninstall; do
-    lines="$(wc -l < "$HOME/.locklane/$f.sh" | tr -d ' ')"
-    if [ "$lines" -gt 4 ] || ! grep -q "^exec \"\$(dirname \"\$0\")/locklane\" $f \"\$@\"$" "$HOME/.locklane/$f.sh" \
-        || [ ! -x "$HOME/.locklane/$f.sh" ]; then
-      bad "$name" "$f.sh is not a three-line wrapper"; return
+  for f in status start stop uninstall update; do
+    if [ -e "$HOME/.locklane/$f.sh" ]; then
+      bad "$name" "$f.sh still exists after register"; return
     fi
   done
-  if ! cmp -s "$HOME/.locklane/update.sh" "$ROOT/update.sh"; then
-    bad "$name" "the written update.sh differs from the repository's update.sh (the release asset)"; return
-  fi
   if ! grep -q '^SERVICE_KIND=launchd$' "$HOME/.locklane/service.env"; then
     bad "$name" "service.env does not record the kind"; return
   fi
   ok "$name"
 }
 
-# An install from before this program: generated scripts, a plist, a running agent,
-# no service.env, no control program. Its own update.sh (the released one) fetches the
-# control program and hands over; `update` migrates the layout.
+scenario_foreign_file_kept() {
+  local name="foreign-file-kept" out
+  new_home
+  printf '#!/bin/sh\necho custom\n' > "$HOME/.locklane/stop.sh"
+  chmod +x "$HOME/.locklane/stop.sh"
+  out="$(LOCKLANE_SERVICE_KIND=launchd "$LL" register 2>&1)"
+  if [ -f "$HOME/.locklane/stop.sh" ] && grep -q custom "$HOME/.locklane/stop.sh" && contains "$out" "stop.sh"; then
+    ok "$name"
+  else
+    bad "$name" "kept=$([ -f "$HOME/.locklane/stop.sh" ] && echo yes || echo no) out=$out"
+  fi
+}
+
+# An install already on the #678 wrapper layout: the five wrapper files register/update
+# used to write (the four small ones carrying their real content, update.sh the actual
+# released asset), a plist, a running agent, no service.env, no control program of its
+# own yet. Its own update.sh (the released one) fetches the control program and hands
+# over; `update` migrates the layout and, since #682, sheds the wrappers for good.
 old_layout() {
   local f
   echo "server.port=8080" > "$HOME/.locklane/application-locklane.properties"
   printf 'old jar' > "$HOME/.locklane/locklane.jar"
   for f in status start stop uninstall; do
-    printf '#!/usr/bin/env bash\n# generated by the old install.sh\necho old\n' > "$HOME/.locklane/$f.sh"
+    printf '#!/usr/bin/env bash\n# Transitional wrapper (#678): the control program is $HOME/.locklane/locklane -- run `locklane %s` directly. This file goes away in a later release.\nexec "$(dirname "$0")/locklane" %s "$@"\n' \
+        "$f" "$f" > "$HOME/.locklane/$f.sh"
+    chmod +x "$HOME/.locklane/$f.sh"
   done
   mkdir -p "$HOME/Library/LaunchAgents"
   printf '<plist/>\n' > "$HOME/Library/LaunchAgents/com.locklane.server.plist"
@@ -283,7 +344,7 @@ old_layout() {
 }
 
 scenario_migrate_old_layout() {
-  local name="migrate-old-layout" out rc old_pid
+  local name="migrate-old-layout" out rc old_pid f
   new_home
   rm -f "$LL"
   cp "$ROOT/update.sh" "$HOME/.locklane/update.sh"; chmod +x "$HOME/.locklane/update.sh"
@@ -293,15 +354,17 @@ scenario_migrate_old_layout() {
   # directory and the re-exec guard is set.
   out="$(cd "$HOME/.locklane" && LOCKLANE_UPDATE_REEXEC=1 ./update.sh 2>&1)"; rc=$?
   if [ "$rc" -eq 0 ] && [ -x "$LL" ] && ! alive "$old_pid" && alive "$(server_pid launchd)" \
-      && grep -q '^SERVICE_KIND=launchd$' "$HOME/.locklane/service.env" \
-      && grep -q 'locklane" stop' "$HOME/.locklane/stop.sh" && grep -q 'locklane" uninstall' "$HOME/.locklane/uninstall.sh" \
-      && cmp -s "$HOME/.locklane/update.sh" "$ROOT/update.sh" \
-      && [ "$(head -c 2 "$HOME/.locklane/locklane.jar")" = PK ] \
-      && contains "$out" "Installed locklane v9.9.9-stub" && grep -q 'Environment\|PATH' "$HOME/Library/LaunchAgents/com.locklane.server.plist"; then
-    ok "$name"
-  else
-    bad "$name" "rc=$rc control=$([ -x "$LL" ] && echo yes || echo no) old-alive=$(alive "$old_pid" && echo yes || echo no) out=$out"
+      && grep -q '^SERVICE_KIND=launchd$' "$HOME/.locklane/service.env"; then
+    for f in status start stop uninstall update; do
+      [ -e "$HOME/.locklane/$f.sh" ] && bad "$name" "$f.sh still exists after migration" && return
+    done
+    if [ "$(head -c 2 "$HOME/.locklane/locklane.jar")" = PK ] \
+        && contains "$out" "Installed locklane v9.9.9-stub" && grep -q 'Environment\|PATH' "$HOME/Library/LaunchAgents/com.locklane.server.plist"; then
+      ok "$name"
+      return
+    fi
   fi
+  bad "$name" "rc=$rc control=$([ -x "$LL" ] && echo yes || echo no) old-alive=$(alive "$old_pid" && echo yes || echo no) out=$out"
 }
 
 scenario_install_hands_over_to_update() {
@@ -379,8 +442,10 @@ scenario_stop_cannot_finish
 scenario_uninstall_refuses_live
 scenario_uninstall_clean
 scenario_uninstall_service_only_keeps_data
+scenario_uninstall_unregistered_but_loaded
 scenario_console_tab_refusal
-scenario_wrappers
+scenario_no_wrappers
+scenario_foreign_file_kept
 scenario_migrate_old_layout
 scenario_install_hands_over_to_update
 scenario_detached_refused

@@ -180,6 +180,24 @@ service_loaded() {
   esac
 }
 
+# Only used when load_state found no record anywhere -- no service.env, no unit file,
+# no plist -- the shape a botched manual cleanup leaves (a plist deleted by hand while
+# the agent is still loaded in gui/$(id -u), say). Probes both service managers
+# directly, on top of whatever load_state already tried from disk, so `uninstall`'s
+# "stopped" claim is never printed against an empty SERVICE_KIND without asking (#682).
+detect_loaded_kind() {
+  if command -v launchctl >/dev/null 2>&1 && launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+    printf 'launchd'
+    return 0
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    case "$(systemctl --user is-active locklane 2>/dev/null || true)" in
+      active|activating|deactivating|reloading) printf 'systemd'; return 0 ;;
+    esac
+  fi
+  return 1
+}
+
 service_state_line() {
   case "$SERVICE_KIND" in
     launchd)
@@ -417,23 +435,31 @@ write_launchd_plist() {
 EOF
 }
 
-# The transitional wrappers: the five names the README and an existing install know.
-# Three lines each, no logic -- they go away in a later release. update.sh is the one
-# exception: its text is the release asset an older install's own update.sh fetches
-# and execs (#647), so it must be able to fetch this program when the directory has
-# none yet. The repository's update.sh is that same text, byte for byte (the harness
-# checks it), so an install always carries the current asset.
-write_wrappers() {
-  local name
+# An installation made before #682 shipped may still have the five transitional
+# wrapper files a pre-#682 register/update once wrote (or a pre-#678 install.sh's own
+# generated scripts, migrated through here). register/update now clean them up once,
+# never write them again -- but only a file this program actually wrote itself:
+# recognized structurally (the four small ones by their one load-bearing exec line,
+# short enough to be nothing else) or by byte content (update.sh, against a copy of
+# the released asset kept here so the check needs no network). Anything else with that
+# name is left alone and named, never guessed at and never force-deleted.
+remove_wrappers() {
+  local name f kept="" tmp
   for name in status start stop uninstall; do
-    cat > "$INSTALL_DIR/$name.sh" <<EOF
-#!/usr/bin/env bash
-# Transitional wrapper (#678): the control program is $INSTALL_DIR/locklane -- run \`locklane $name\` directly. This file goes away in a later release.
-exec "\$(dirname "\$0")/locklane" $name "\$@"
-EOF
-    chmod +x "$INSTALL_DIR/$name.sh"
+    f="$INSTALL_DIR/$name.sh"
+    if [ -f "$f" ]; then
+      if [ "$(wc -l < "$f" | tr -d ' ')" -le 4 ] \
+          && grep -q "^exec \"\$(dirname \"\$0\")/locklane\" $name \"\$@\"\$" "$f"; then
+        rm -f "$f"
+      else
+        kept="$kept $name.sh"
+      fi
+    fi
   done
-  cat > "$INSTALL_DIR/update.sh" <<'EOF'
+  f="$INSTALL_DIR/update.sh"
+  if [ -f "$f" ]; then
+    tmp="$(mktemp)"
+    cat > "$tmp" <<'EOF'
 #!/usr/bin/env bash
 # Updates an installed locklane (#678). This file is also the release asset an older
 # install's update.sh fetches and execs before updating (#647), so it stays
@@ -453,14 +479,23 @@ if [ ! -x "$dir/locklane" ]; then
 fi
 exec "$dir/locklane" update "$@"
 EOF
-  chmod +x "$INSTALL_DIR/update.sh"
+    if cmp -s "$f" "$tmp"; then
+      rm -f "$f"
+    else
+      kept="$kept update.sh"
+    fi
+    rm -f "$tmp"
+  fi
+  if [ -n "$kept" ]; then
+    echo "Left in place (not one of locklane's own transitional wrappers):$kept"
+  fi
 }
 
 # Writes the registration for this host's service manager with a freshly resolved
-# PATH, records it in service.env, writes the wrappers, and starts the server. A server
-# that is loaded is stopped first, verified, so the new registration starts clean --
-# which makes `register` the restart-with-fresh-PATH, and what `update` calls after
-# swapping the jar.
+# PATH, records it in service.env, removes any leftover transitional wrapper, and
+# starts the server. A server that is loaded is stopped first, verified, so the new
+# registration starts clean -- which makes `register` the restart-with-fresh-PATH, and
+# what `update` calls after swapping the jar.
 register_cmd() {
   local kind java_bin resolved_path waited
   load_state
@@ -504,7 +539,7 @@ register_cmd() {
       ;;
   esac
   save_state
-  write_wrappers
+  remove_wrappers
   # The pid may take a moment to appear; say what was actually seen.
   waited=0
   while [ "$waited" -lt 10 ] && ! alive "$(main_pid)"; do
@@ -710,7 +745,8 @@ update_cmd() {
 
   # Only now is the server stopped -- verified -- and the jar swapped under nothing.
   # `register` then rewrites the registration with a fresh PATH, records service.env
-  # (the migration for an install that has none), writes the wrappers, and starts.
+  # (the migration for an install that has none), removes any leftover transitional
+  # wrapper, and starts.
   if ! stop_server; then
     rm -f "$JAR_FILE.new"
     exit 1
@@ -735,6 +771,12 @@ uninstall_cmd() {
   done
   load_state
   refuse_detached_install
+  # load_state found nothing on disk to name a kind -- ask both service managers
+  # directly before trusting that (#682): a label can still be loaded/active with
+  # every on-disk record of it gone.
+  if [ -z "$SERVICE_KIND" ]; then
+    SERVICE_KIND="$(detect_loaded_kind || true)"
+  fi
   if [ -n "$SERVICE_KIND" ]; then
     refuse_inside_server "locklane uninstall"
     # A verified stop, or nothing: a directory deleted under a running server is the
@@ -949,8 +991,6 @@ Installed to $INSTALL_DIR:
   application-locklane.properties   (mode 600; port and origins only)
   locklane.log                      server output
   code-server/                      the web-based IDE a console tab's "Open IDE" action opens
-  status.sh, start.sh, stop.sh, update.sh, uninstall.sh
-                                    transitional wrappers around the commands above
 
 $account_note
 

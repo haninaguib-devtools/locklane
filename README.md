@@ -39,10 +39,7 @@ IDE terminal opened from one) for that reason.
   PATH and restart: run it after editing `application-locklane.properties`, or when a
   CLI the server needs is newly on your PATH.
 
-The five scripts an earlier install knew — `status.sh`, `start.sh`, `stop.sh`,
-`update.sh`, `uninstall.sh` — are still written next to it, as one-line wrappers
-around the commands above. They are transitional and go away in a later release. An
-install made before v0.2.10 moves onto this layout by itself the first time its own
+An install made before v0.2.10 moves onto this layout by itself the first time its own
 `update.sh` (or the install one-liner) runs; one older than v0.2.8 needs the one-liner.
 
 Locklane acts on GitHub through the accounts you sign in to it, not through the host's
