@@ -73,7 +73,9 @@
               (click)="toggleProjectCollapse(section.project.id, $event)"
               [attr.aria-label]="isProjectCollapsed(section.project.id) ? 'Expand project' : 'Collapse project'"
             >
-              ▸
+              <svg viewBox="0 0 8 8" aria-hidden="true">
+                <path d="M2.5 1 L5.5 4 L2.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
             </button>
             <span class="project-label">
               {{ section.project.name }}
@@ -188,7 +190,9 @@
             (click)="toggleCollapse(projectId, node, $event)"
             [attr.aria-label]="isCollapsed(projectId, node) ? 'Expand' : 'Collapse'"
           >
-            ▸
+            <svg viewBox="0 0 8 8" aria-hidden="true">
+              <path d="M2.5 1 L5.5 4 L2.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
           </button>
         } @else {
           <span class="twist-gap"></span>
