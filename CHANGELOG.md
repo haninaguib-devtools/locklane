@@ -8,6 +8,14 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.12 — 2026-09-04
+
+### Features
+- Remove the transitional wrapper scripts and close two low notes from the control-program review (#682, #686)
+
+### Fixes
+- Fix: locklane install requires a GUI session, fails headless (launchctl 125) (#691, #692)
+
 ## v0.2.11 — 2026-09-04
 
 ### Features
