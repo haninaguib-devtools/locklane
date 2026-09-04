@@ -1,42 +1,59 @@
 #!/usr/bin/env bash
-# Stub launchctl for scripts/tests/lifecycle/run.sh. One agent, state in $STUB_STATE:
-#   launchd.loaded   the agent is in the domain
-#   launchd.pid      the pid of the "server" bootstrap spawned
-#   launchd.bootout  bootout was asked for: the agent leaves the domain once the pid is gone
-#   server-mode      how the spawned server behaves: default (dies on TERM),
-#                    ignore-term, with-child (ignores TERM and has a child of its own)
-#   kill-swallows    `launchctl kill` pretends, like the stub kill
+# Stub launchctl for scripts/tests/lifecycle/run.sh. One agent, but state is keyed per
+# DOMAIN TYPE (#691): "user" (user/<uid>, where a fresh registration lands -- it needs
+# no active graphical session) and "gui" (gui/<uid>, the pre-#691 domain), kept
+# independently loadable so a migration scenario can plant an agent in "gui" and confirm
+# scripts/locklane finds and retires it while bringing a new one up in "user". State in
+# $STUB_STATE:
+#   launchd.<domain>.loaded   the agent is bootstrapped into this domain
+#   launchd.<domain>.pid      the pid of the "server" that domain's bootstrap spawned
+#   launchd.<domain>.bootout  bootout was asked for: the agent leaves the domain once the pid is gone
+#   server-mode               how a newly spawned server behaves: default (dies on TERM),
+#                             ignore-term, with-child (ignores TERM and has a child of its own)
+#   kill-swallows             `launchctl kill` pretends, like the stub kill
 # Mirrors the real thing where it matters: bootout returns before the process is gone
-# (with "Operation now in progress"), print lists the service until then, and a
-# second bootstrap of a loaded agent fails.
+# (with "Operation now in progress"), print lists the service until then, a second
+# bootstrap of an already-loaded domain fails, and the two domains are otherwise
+# independent of each other -- the same label can, as an artifact of a not-yet-migrated
+# install, be loaded in both at once.
 set -uo pipefail
 S="${STUB_STATE:?}"
+
+# The domain type ("user" or "gui") out of a "<type>/<uid>[/<label>]" argument.
+domain_of() { printf '%s' "${1%%/*}"; }
+
 spawn_server() {
-  local mode
+  local dom="$1" mode
   mode="$(cat "$S/server-mode" 2>/dev/null || true)"
   case "$mode" in
     ignore-term) nohup bash -c 'trap "" TERM; while :; do sleep 1; done' >/dev/null 2>&1 </dev/null & ;;
     with-child)  nohup bash -c 'trap "" TERM; sleep 300 & wait' >/dev/null 2>&1 </dev/null & ;;
     *)           nohup bash -c 'while :; do sleep 1; done' >/dev/null 2>&1 </dev/null & ;;
   esac
-  echo $! > "$S/launchd.pid"
+  echo $! > "$S/launchd.$dom.pid"
   echo $! >> "$S/pids"
   disown
 }
-pid="$(cat "$S/launchd.pid" 2>/dev/null || true)"
-pid_alive() { [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; }
+pid_of() { cat "$S/launchd.$1.pid" 2>/dev/null || true; }
+alive_in() { local p; p="$(pid_of "$1")"; [ -n "$p" ] && /bin/kill -0 "$p" 2>/dev/null; }
+
+# Every invocation, verbatim -- so a test can confirm the *exact* domain string used
+# (e.g. that it embeds the right uid), not just that the right domain TYPE was hit.
+printf '%s\n' "$*" >> "$S/launchctl.log"
+
 case "${1:-}" in
   print)
-    if [ ! -f "$S/launchd.loaded" ]; then
+    dom="$(domain_of "${2:-}")"
+    if [ ! -f "$S/launchd.$dom.loaded" ]; then
       echo "Could not find service \"com.locklane.server\" in domain for uid: $(id -u)" >&2
       exit 113
     fi
-    if pid_alive; then
-      printf 'com.locklane.server = {\n\tactive count = 1\n\tpath = x\n\tstate = running\n\tpid = %s\n}\n' "$pid"
+    if alive_in "$dom"; then
+      printf 'com.locklane.server = {\n\tactive count = 1\n\tpath = x\n\tstate = running\n\tpid = %s\n}\n' "$(pid_of "$dom")"
       exit 0
     fi
-    if [ -f "$S/launchd.bootout" ]; then
-      rm -f "$S/launchd.loaded" "$S/launchd.bootout"
+    if [ -f "$S/launchd.$dom.bootout" ]; then
+      rm -f "$S/launchd.$dom.loaded" "$S/launchd.$dom.bootout"
       echo "Could not find service \"com.locklane.server\" in domain for uid: $(id -u)" >&2
       exit 113
     fi
@@ -44,29 +61,32 @@ case "${1:-}" in
     exit 0
     ;;
   bootstrap)
-    if [ -f "$S/launchd.loaded" ]; then
+    dom="$(domain_of "${2:-}")"
+    if [ -f "$S/launchd.$dom.loaded" ]; then
       echo "Bootstrap failed: 5: Input/output error" >&2
       exit 5
     fi
     [ -f "${3:-}" ] || { echo "Bootstrap failed: 2: No such file or directory" >&2; exit 2; }
-    touch "$S/launchd.loaded"
-    rm -f "$S/launchd.bootout"
-    spawn_server
+    touch "$S/launchd.$dom.loaded"
+    rm -f "$S/launchd.$dom.bootout"
+    spawn_server "$dom"
     exit 0
     ;;
   bootout)
-    if [ ! -f "$S/launchd.loaded" ]; then
+    dom="$(domain_of "${2:-}")"
+    if [ ! -f "$S/launchd.$dom.loaded" ]; then
       echo "Boot-out failed: 3: No such process" >&2
       exit 3
     fi
-    touch "$S/launchd.bootout"
-    pid_alive && /bin/kill -TERM "$pid" 2>/dev/null
+    touch "$S/launchd.$dom.bootout"
+    alive_in "$dom" && /bin/kill -TERM "$(pid_of "$dom")" 2>/dev/null
     echo "Boot-out failed: 36: Operation now in progress" >&2
     exit 36
     ;;
   kill)
+    dom="$(domain_of "${3:-}")"
     if [ -f "$S/kill-swallows" ]; then exit 0; fi
-    pid_alive && /bin/kill -"${2#SIG}" "$pid" 2>/dev/null
+    alive_in "$dom" && /bin/kill -"${2#SIG}" "$(pid_of "$dom")" 2>/dev/null
     exit 0
     ;;
   *) echo "stub launchctl: unsupported: $*" >&2; exit 64 ;;

@@ -147,13 +147,30 @@ signal_pid() {
   env kill -s "$1" "$2" 2>/dev/null || true
 }
 
+# Where com.locklane.server is CURRENTLY loaded (#691): "user/<uid>", the domain every
+# fresh registration now targets -- it does not require an active graphical (Aqua)
+# session, unlike "gui/<uid>", so the server can be installed, started and stopped from
+# an SSH-only login. Checked first; "gui/<uid>" is checked next, for an install made
+# before #691 that has not yet gone through a stop/restart/register/update cycle to move
+# it over. Empty when loaded in neither -- not an error, just "not running".
+launchd_loaded_domain() {
+  if launchctl print "user/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+    printf 'user/%s' "$(id -u)"
+  elif launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+    printf 'gui/%s' "$(id -u)"
+  fi
+  return 0
+}
+
 # The server's main pid according to the service manager; empty when it has none.
 main_pid() {
   case "$SERVICE_KIND" in
     launchd)
+      local dom
+      dom="$(launchd_loaded_domain)"
       # `|| true`: an unloaded agent makes launchctl fail, and under pipefail that
       # would otherwise abort the caller instead of meaning "no pid".
-      launchctl print "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null \
+      [ -n "$dom" ] && launchctl print "$dom/$AGENT_LABEL" 2>/dev/null \
         | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -n 1 || true
       ;;
     systemd)
@@ -165,11 +182,11 @@ main_pid() {
   return 0
 }
 
-# Whether the service manager still has the server: loaded (launchd) or active or on
-# its way (systemd).
+# Whether the service manager still has the server: loaded (launchd, in either domain --
+# see launchd_loaded_domain) or active or on its way (systemd).
 service_loaded() {
   case "$SERVICE_KIND" in
-    launchd) launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1 ;;
+    launchd) [ -n "$(launchd_loaded_domain)" ] ;;
     systemd)
       case "$(systemctl --user is-active locklane 2>/dev/null || true)" in
         active|activating|deactivating|reloading) return 0 ;;
@@ -182,11 +199,12 @@ service_loaded() {
 
 # Only used when load_state found no record anywhere -- no service.env, no unit file,
 # no plist -- the shape a botched manual cleanup leaves (a plist deleted by hand while
-# the agent is still loaded in gui/$(id -u), say). Probes both service managers
-# directly, on top of whatever load_state already tried from disk, so `uninstall`'s
-# "stopped" claim is never printed against an empty SERVICE_KIND without asking (#682).
+# the agent is still loaded, say). Probes both service managers directly, on top of
+# whatever load_state already tried from disk, so `uninstall`'s "stopped" claim is
+# never printed against an empty SERVICE_KIND without asking (#682). launchd_loaded_domain
+# (#691) already checks both the user/<uid> and gui/<uid> domains.
 detect_loaded_kind() {
-  if command -v launchctl >/dev/null 2>&1 && launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+  if command -v launchctl >/dev/null 2>&1 && [ -n "$(launchd_loaded_domain)" ]; then
     printf 'launchd'
     return 0
   fi
@@ -201,7 +219,9 @@ detect_loaded_kind() {
 service_state_line() {
   case "$SERVICE_KIND" in
     launchd)
-      if service_loaded; then echo "agent $AGENT_LABEL: still loaded in gui/$(id -u)"; else echo "agent $AGENT_LABEL: unloaded"; fi
+      local dom
+      dom="$(launchd_loaded_domain)"
+      if [ -n "$dom" ]; then echo "agent $AGENT_LABEL: still loaded in $dom"; else echo "agent $AGENT_LABEL: unloaded"; fi
       ;;
     systemd)
       echo "service locklane: $(systemctl --user is-active locklane 2>/dev/null || true)"
@@ -251,7 +271,7 @@ REFUSED
 # only then report. Exit 0 means: the service is not loaded, the pid is gone, and no
 # recorded descendant is alive. Exit 1 prints exactly what is left.
 stop_server() {
-  local pid kids forced="" waited=0 k survivors="" bootout_msg="" loaded_before=0
+  local pid kids forced="" waited=0 k survivors="" bootout_msg="" gui_bootout_msg="" loaded_before=0
   pid="$(main_pid)"
   if service_loaded; then loaded_before=1; fi
   if [ "$loaded_before" -eq 0 ] && ! alive "$pid"; then
@@ -268,10 +288,15 @@ stop_server() {
     launchd)
       # bootout is the only stop that sticks for a KeepAlive agent (a plain `launchctl
       # stop` would just have launchd relaunch it), and it also UNLOADS the agent, so a
-      # stopped server does not come back at the next login until `start` loads it
-      # again. It returns before the process has gone -- often with "Operation now in
-      # progress" -- which is why everything below waits and checks.
-      bootout_msg="$(launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
+      # stopped server does not come back until `start` loads it again. It returns
+      # before the process has gone -- often with "Operation now in progress" -- which
+      # is why everything below waits and checks. Both domains are swept (#691): the
+      # second call is a harmless no-op once nothing is left in the pre-migration
+      # gui/<uid> domain, so a stop/restart/register/update also finishes an install's
+      # move to user/<uid> instead of leaving an orphaned old-domain agent behind.
+      bootout_msg="$(launchctl bootout "user/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
+      gui_bootout_msg="$(launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
+      [ -n "$bootout_msg" ] || bootout_msg="$gui_bootout_msg"
       ;;
     systemd)
       # systemd escalates to SIGKILL on its own after its stop timeout and sweeps the
@@ -291,6 +316,7 @@ stop_server() {
   if service_loaded || alive "$pid"; then
     echo "The server has not exited after ${STOP_GRACE}s -- forcing it."
     if [ "$SERVICE_KIND" = launchd ]; then
+      launchctl kill SIGKILL "user/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
       launchctl kill SIGKILL "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
     fi
     if alive "$pid"; then
@@ -532,7 +558,12 @@ register_cmd() {
     launchd)
       write_launchd_plist "$java_bin" "$resolved_path"
       echo "Registering the launchd agent..."
-      if ! launchctl bootstrap "gui/$(id -u)" "$REG_FILE"; then
+      # user/<uid> (#691), not gui/<uid>: it does not need an active graphical session,
+      # so the agent loads over an SSH-only login same as at the console. The
+      # service_loaded check above already stopped (and bootout-swept both domains for)
+      # any prior registration, so an install still on the old gui/<uid> domain is
+      # migrated by this same call.
+      if ! launchctl bootstrap "user/$(id -u)" "$REG_FILE"; then
         rm -f "$REG_FILE"
         die "could not load the launchd agent $AGENT_LABEL (launchctl bootstrap failed)."
       fi
@@ -611,7 +642,7 @@ install_code_server() {
 
 # --- Commands ---------------------------------------------------------------------------
 status_cmd() {
-  local pid
+  local pid dom migrate_note=""
   load_state
   case "$SERVICE_KIND" in
     systemd)
@@ -625,10 +656,14 @@ status_cmd() {
         exit 1
       fi
       pid="$(main_pid)"
+      dom="$(launchd_loaded_domain)"
+      # #691: still on the pre-migration domain -- register/restart/update would move
+      # it to user/<uid>, which (unlike gui/<uid>) does not need a graphical session.
+      case "$dom" in gui/*) migrate_note=" (still in the old $dom domain -- \`locklane register\` moves it to the headless-capable user/\$(id -u) domain)" ;; esac
       if alive "$pid"; then
-        echo "locklane is running as the launchd agent $AGENT_LABEL (pid $pid). Output is logged to $LOG_FILE."
+        echo "locklane is running as the launchd agent $AGENT_LABEL (pid $pid)${migrate_note}. Output is logged to $LOG_FILE."
       else
-        echo "The launchd agent $AGENT_LABEL is loaded but the server is not running right now (launchd relaunches it after a failed exit). Output is logged to $LOG_FILE."
+        echo "The launchd agent $AGENT_LABEL is loaded but the server is not running right now (launchd relaunches it after a failed exit)${migrate_note}. Output is logged to $LOG_FILE."
         exit 1
       fi
       ;;
@@ -654,8 +689,8 @@ start_cmd() {
       fi
       [ -f "$REG_FILE" ] || die "the agent's plist $REG_FILE is missing -- run \`locklane register\` to recreate it."
       echo "Starting the locklane agent..."
-      launchctl bootstrap "gui/$(id -u)" "$REG_FILE"
-      echo "Started. The agent is loaded again, so it also comes back at the next login."
+      launchctl bootstrap "user/$(id -u)" "$REG_FILE"
+      echo "Started. The agent is loaded again."
       ;;
     *)
       die "locklane is not registered with a service manager here -- run \`locklane register\`."
@@ -685,7 +720,9 @@ stop_cmd() {
   refuse_inside_server "locklane stop"
   stop_server
   case "$SERVICE_KIND" in
-    launchd) echo "The agent is unloaded, so it will not come back at the next login until \`locklane start\` loads it again." ;;
+    # #691: unlike gui/<uid>, nothing here auto-reloads user/<uid> at a later login --
+    # `locklane start` (or `register`) is what brings it back.
+    launchd) echo "The agent is unloaded. Run \`locklane start\` to load it again." ;;
     systemd) echo "The service stays enabled and comes back at the next boot; \`locklane start\` brings it back now." ;;
   esac
 }
@@ -995,7 +1032,7 @@ Installed to $INSTALL_DIR:
 $account_note
 
 The server is running on port $port, registered as a $kind service: it restarts on its
-own if it crashes, and comes back at login$([ "$kind" = systemd ] && echo " or boot").
+own if it crashes$([ "$kind" = systemd ] && echo ", and comes back at boot too").
 
   Status:   $INSTALL_DIR/locklane status
   Stop:     $INSTALL_DIR/locklane stop
