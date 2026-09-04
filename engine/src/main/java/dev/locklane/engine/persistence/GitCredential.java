@@ -27,6 +27,14 @@ import java.util.Optional;
  * keeps git's own key handling — the helper would never be consulted, and the token
  * has no business in that process — and a project with no stored token gets plain git,
  * exactly as before, so ambient host credentials still apply where they exist.
+ *
+ * <p>Git queries {@code credential.helper} entries in config order (system, global,
+ * repo-local, then any {@code -c}) and stops at the first one that answers — it does
+ * not replace earlier helpers with a later one. A host with its own system helper (e.g.
+ * macOS's {@code osxkeychain}, installed by Apple's Command Line Tools) would otherwise
+ * answer first and mask the project's own token (#687). Git resets the helper list only
+ * on an <em>empty</em> {@code credential.helper} value, so every form below precedes the
+ * inline helper with one.
  */
 public record GitCredential(List<String> configArguments, Map<String, String> environment) {
 
@@ -53,7 +61,9 @@ public record GitCredential(List<String> configArguments, Map<String, String> en
         if (!isHttps(remoteUrl) || token.isEmpty() || token.get().isBlank()) {
             return NONE;
         }
-        return new GitCredential(List.of("-c", HELPER_KEY + "=" + HELPER_SCRIPT), Map.of("GH_TOKEN", token.get()));
+        return new GitCredential(
+                List.of("-c", HELPER_KEY + "=", "-c", HELPER_KEY + "=" + HELPER_SCRIPT),
+                Map.of("GH_TOKEN", token.get()));
     }
 
     /**
@@ -85,11 +95,12 @@ public record GitCredential(List<String> configArguments, Map<String, String> en
 
     /**
      * The same credential expressed for an interactive session's environment (#572):
-     * {@link #environment()} plus git's {@code GIT_CONFIG_COUNT}/{@code GIT_CONFIG_KEY_0}/
-     * {@code GIT_CONFIG_VALUE_0} triple installing the inline helper, so every plain
-     * {@code git} a shell (or an agent inside it) runs against an HTTPS remote
-     * authenticates as the project's account without a host credential helper or SSH
-     * key, and without anything written into {@code .git/config}. Empty for
+     * {@link #environment()} plus git's {@code GIT_CONFIG_COUNT}/{@code GIT_CONFIG_KEY_n}/
+     * {@code GIT_CONFIG_VALUE_n} pairs installing an empty {@code credential.helper}
+     * reset followed by the inline helper, so every plain {@code git} a shell (or an
+     * agent inside it) runs against an HTTPS remote authenticates as the project's
+     * account — never a host-configured helper such as macOS's {@code osxkeychain}
+     * (#687) — without anything written into {@code .git/config}. Empty for
      * {@link #NONE}: an SSH remote or a missing token adds nothing.
      */
     public Map<String, String> sessionEnvironment() {
@@ -97,9 +108,11 @@ public record GitCredential(List<String> configArguments, Map<String, String> en
             return Map.of();
         }
         Map<String, String> session = new LinkedHashMap<>(environment);
-        session.put("GIT_CONFIG_COUNT", "1");
+        session.put("GIT_CONFIG_COUNT", "2");
         session.put("GIT_CONFIG_KEY_0", HELPER_KEY);
-        session.put("GIT_CONFIG_VALUE_0", HELPER_SCRIPT);
+        session.put("GIT_CONFIG_VALUE_0", "");
+        session.put("GIT_CONFIG_KEY_1", HELPER_KEY);
+        session.put("GIT_CONFIG_VALUE_1", HELPER_SCRIPT);
         return Map.copyOf(session);
     }
 
