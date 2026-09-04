@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Starts and stops one code-server (open-source, web-based VS Code, #627) process per
@@ -62,6 +64,17 @@ public class CodeServerService {
     private final Path codeServerBinary;
     private final ProcessRunner processRunner;
     private final ConcurrentMap<String, Running> running = new ConcurrentHashMap<>();
+
+    /**
+     * Runs {@link #stop}'s termination off the caller's thread, since that caller is a
+     * {@link SessionRegistry} close listener ({@code sessionRegistry.close()} invokes
+     * every listener in turn) and terminating a tree that ignores SIGTERM can take the
+     * full grace-plus-forced-wait before it returns — up to 7s the console-close path
+     * has no reason to sit through. {@link #stopAll()} never uses this: shutdown is
+     * exactly what that bounded wait is for, so it terminates synchronously and closes
+     * this worker afterward, which waits for any stop() still in flight.
+     */
+    private final ExecutorService stopWorker = Executors.newVirtualThreadPerTaskExecutor();
 
     @Autowired
     public CodeServerService(SessionRegistry sessionRegistry, @Value("${locklane.data-dir}") String dataDir) {
@@ -135,11 +148,15 @@ public class CodeServerService {
     /**
      * Stops {@code consoleId}'s running code-server process, if any — the whole tree
      * it spawned, not just the node process the engine started. A no-op otherwise.
+     * Returns as soon as the process is no longer tracked; the termination itself
+     * (which can take up to the grace period plus a forced wait) runs in the
+     * background (#682) so the caller — a {@link SessionRegistry} close listener — is
+     * never held up by a code-server that ignores SIGTERM.
      */
     public void stop(String consoleId) {
         Running stopped = running.remove(consoleId);
         if (stopped != null) {
-            terminate(List.of(stopped));
+            stopWorker.execute(() -> terminate(List.of(stopped)));
         }
     }
 
@@ -147,7 +164,10 @@ public class CodeServerService {
      * Stops every running code-server when the engine shuts down (#678). On Linux the
      * service's control group would sweep these up anyway; on macOS launchd signals
      * only the JVM, and without this every IDE the engine ever opened would outlive
-     * it, holding its port and its worktree.
+     * it, holding its port and its worktree. Unlike {@link #stop}, this runs
+     * synchronously — shutdown is exactly what the bounded wait exists for — and then
+     * closes the worker {@link #stop} uses, which blocks until any termination still
+     * in flight from it has finished.
      */
     @PreDestroy
     public void stopAll() {
@@ -156,6 +176,7 @@ public class CodeServerService {
         if (!all.isEmpty()) {
             terminate(all);
         }
+        stopWorker.close();
     }
 
     private static final Duration STOP_GRACE = Duration.ofSeconds(5);

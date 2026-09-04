@@ -134,6 +134,47 @@ class CodeServerServiceTest {
     }
 
     @Test
+    void closingTheSessionReturnsPromptlyEvenWhenCodeServerIgnoresSigterm(@TempDir Path dbDir) throws Exception {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
+        SessionRegistry registry = new SessionRegistry(repository);
+        List<Process> spawned = new ArrayList<>();
+        CodeServerService service = new CodeServerService(registry, BINARY,
+                command -> {
+                    // Ignores SIGTERM and has a child of its own -- the shape that made
+                    // stop() block the close listener for up to the grace period plus the
+                    // forced-kill wait (#682) before termination moved to a background
+                    // thread.
+                    Process process = new ProcessBuilder("/bin/sh", "-c", "trap \"\" TERM; sleep 300 & wait").start();
+                    spawned.add(process);
+                    return process;
+                });
+
+        service.start("1-174-rename-toggle");
+        List<ProcessHandle> descendants = new ArrayList<>();
+        long spawnDeadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < spawnDeadline && descendants.isEmpty()) {
+            descendants = spawned.get(0).toHandle().descendants().toList();
+            Thread.sleep(50);
+        }
+        assertThat(descendants).hasSize(1);
+
+        long start = System.currentTimeMillis();
+        registry.close("1-174-rename-toggle");
+        long elapsedMillis = System.currentTimeMillis() - start;
+
+        assertThat(elapsedMillis).isLessThan(1000);
+        assertThat(spawned.get(0).waitFor(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        for (ProcessHandle descendant : descendants) {
+            long deadline = System.currentTimeMillis() + 10000;
+            while (descendant.isAlive() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50);
+            }
+            assertThat(descendant.isAlive()).as("descendant %d", descendant.pid()).isFalse();
+        }
+    }
+
+    @Test
     void stopAllEndsEveryRunningCodeServerAtShutdown(@TempDir Path dbDir) throws Exception {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("1-201-one", dbDir.resolve("wt1"), Instant.now(), "alice");
