@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Stub launchctl for scripts/tests/lifecycle/run.sh. One agent, state in $STUB_STATE:
+#   launchd.loaded   the agent is in the domain
+#   launchd.pid      the pid of the "server" bootstrap spawned
+#   launchd.bootout  bootout was asked for: the agent leaves the domain once the pid is gone
+#   server-mode      how the spawned server behaves: default (dies on TERM),
+#                    ignore-term, with-child (ignores TERM and has a child of its own)
+#   kill-swallows    `launchctl kill` pretends, like the stub kill
+# Mirrors the real thing where it matters: bootout returns before the process is gone
+# (with "Operation now in progress"), print lists the service until then, and a
+# second bootstrap of a loaded agent fails.
+set -uo pipefail
+S="${STUB_STATE:?}"
+spawn_server() {
+  local mode
+  mode="$(cat "$S/server-mode" 2>/dev/null || true)"
+  case "$mode" in
+    ignore-term) nohup bash -c 'trap "" TERM; while :; do sleep 1; done' >/dev/null 2>&1 </dev/null & ;;
+    with-child)  nohup bash -c 'trap "" TERM; sleep 300 & wait' >/dev/null 2>&1 </dev/null & ;;
+    *)           nohup bash -c 'while :; do sleep 1; done' >/dev/null 2>&1 </dev/null & ;;
+  esac
+  echo $! > "$S/launchd.pid"
+  echo $! >> "$S/pids"
+  disown
+}
+pid="$(cat "$S/launchd.pid" 2>/dev/null || true)"
+pid_alive() { [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; }
+case "${1:-}" in
+  print)
+    if [ ! -f "$S/launchd.loaded" ]; then
+      echo "Could not find service \"com.locklane.server\" in domain for uid: $(id -u)" >&2
+      exit 113
+    fi
+    if pid_alive; then
+      printf 'com.locklane.server = {\n\tactive count = 1\n\tpath = x\n\tstate = running\n\tpid = %s\n}\n' "$pid"
+      exit 0
+    fi
+    if [ -f "$S/launchd.bootout" ]; then
+      rm -f "$S/launchd.loaded" "$S/launchd.bootout"
+      echo "Could not find service \"com.locklane.server\" in domain for uid: $(id -u)" >&2
+      exit 113
+    fi
+    printf 'com.locklane.server = {\n\tactive count = 0\n\tstate = waiting\n}\n'
+    exit 0
+    ;;
+  bootstrap)
+    if [ -f "$S/launchd.loaded" ]; then
+      echo "Bootstrap failed: 5: Input/output error" >&2
+      exit 5
+    fi
+    [ -f "${3:-}" ] || { echo "Bootstrap failed: 2: No such file or directory" >&2; exit 2; }
+    touch "$S/launchd.loaded"
+    rm -f "$S/launchd.bootout"
+    spawn_server
+    exit 0
+    ;;
+  bootout)
+    if [ ! -f "$S/launchd.loaded" ]; then
+      echo "Boot-out failed: 3: No such process" >&2
+      exit 3
+    fi
+    touch "$S/launchd.bootout"
+    pid_alive && /bin/kill -TERM "$pid" 2>/dev/null
+    echo "Boot-out failed: 36: Operation now in progress" >&2
+    exit 36
+    ;;
+  kill)
+    if [ -f "$S/kill-swallows" ]; then exit 0; fi
+    pid_alive && /bin/kill -"${2#SIG}" "$pid" 2>/dev/null
+    exit 0
+    ;;
+  *) echo "stub launchctl: unsupported: $*" >&2; exit 64 ;;
+esac

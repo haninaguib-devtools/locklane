@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stub java for scripts/tests/lifecycle/run.sh: exists so `register` finds one. The
+# stub service managers spawn their own "server" and never run the plist's command.
+exit 0

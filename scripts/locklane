@@ -1,0 +1,983 @@
+#!/usr/bin/env bash
+# locklane -- the control program for an installed locklane (#678).
+#
+# Installed as ~/.locklane/locklane and shipped as a release asset next to
+# locklane.jar: downloaded, never generated, so every install runs the same code and
+# an update replaces it whole. One file owns the whole lifecycle -- install, update,
+# start, stop, restart, status, uninstall -- and every path that stops the server goes
+# through the one stop routine below (stop_server), which asks the service manager to
+# stop, waits, escalates to SIGKILL, kills whatever the server left behind, and then
+# CHECKS before it says "stopped". Nothing here reports a state it has not verified.
+#
+# How the server was installed -- a systemd user service or a launchd agent -- is
+# recorded in service.env next to this file (SERVICE_KIND, REG_FILE), written by
+# `register`. An install made before this file existed has no service.env yet: the
+# kind is then read from whichever unit or plist is on disk, and the next `update`
+# writes it. There is no "no service manager" mode any more (#678): install refuses
+# on a host that has neither.
+#
+# Usage: locklane <command> [options]   (locklane help lists the commands)
+set -euo pipefail
+
+# Mirrors engine/src/main/resources/application.yml's
+# locklane.release-check.repository -- the repo whose newest permanent release the
+# in-app update banner announces; install and update pull from that same channel (#465).
+REPO="haninaguib-devtools/locklane"
+AGENT_LABEL="com.locklane.server"
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+STATE_FILE="$INSTALL_DIR/service.env"
+PROPS_FILE="$INSTALL_DIR/application-locklane.properties"
+JAR_FILE="$INSTALL_DIR/locklane.jar"
+LOG_FILE="$INSTALL_DIR/locklane.log"
+PID_FILE="$INSTALL_DIR/locklane.pid"
+# How long a stop waits for the server to leave on its own before forcing it, and how
+# long it then waits for SIGKILL to take. Overridable for the test harness, which has
+# no reason to sit through 30 real seconds.
+STOP_GRACE="${LOCKLANE_STOP_GRACE:-30}"
+FORCE_WAIT="${LOCKLANE_FORCE_WAIT:-10}"
+
+SERVICE_KIND=""
+REG_FILE=""
+
+usage() {
+  cat <<USAGE
+Usage: locklane <command>
+
+  status     Say whether the server is running: exit 0 if it is, non-zero if not.
+  start      Start the server the way it was installed. Already running is not an error.
+  stop       Stop the server, and check that it is gone. Already stopped is not an error.
+  restart    stop, then start.
+  update     Pull the newest release, restart the server on it, refresh the IDE.
+  uninstall  Stop and de-register the server; then decide, separately, about the data.
+             Options: --service-only | --all, and --yes to skip --all's typed confirmation.
+  register   (Re)write the service registration with the current login PATH, and start.
+             Run it after editing application-locklane.properties, or when a CLI the
+             server needs is newly on your PATH.
+  install    Used by install.sh: a fresh install (prompts, account, service), or an
+             update when locklane is already installed here.
+
+Run these from a terminal outside Locklane's own console tabs (ssh, or a local
+terminal): a console tab is a child of the server, and the commands that stop the
+server refuse to run from inside it.
+USAGE
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+# --- State ------------------------------------------------------------------------
+# service.env holds two lines, KEY=VALUE, read here without sourcing it -- a file in
+# the install directory is data, never code to execute.
+load_state() {
+  local key value
+  SERVICE_KIND=""
+  REG_FILE=""
+  if [ -f "$STATE_FILE" ]; then
+    while IFS='=' read -r key value || [ -n "$key" ]; do
+      case "$key" in
+        SERVICE_KIND) SERVICE_KIND="$value" ;;
+        REG_FILE) REG_FILE="$value" ;;
+      esac
+    done < "$STATE_FILE"
+  fi
+  # No state file: an install made before this program existed. Read the kind from
+  # what is on disk, exactly as the old scripts did; `register` writes the file.
+  if [ -z "$SERVICE_KIND" ]; then
+    if [ -f "$HOME/.config/systemd/user/locklane.service" ] && command -v systemctl >/dev/null 2>&1; then
+      SERVICE_KIND="systemd"
+      REG_FILE="$HOME/.config/systemd/user/locklane.service"
+    elif [ -f "$HOME/Library/LaunchAgents/$AGENT_LABEL.plist" ] && command -v launchctl >/dev/null 2>&1; then
+      SERVICE_KIND="launchd"
+      REG_FILE="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+    fi
+  fi
+}
+
+save_state() {
+  printf 'SERVICE_KIND=%s\nREG_FILE=%s\n' "$SERVICE_KIND" "$REG_FILE" > "$STATE_FILE"
+}
+
+# The service manager this host can register with, decided by the platform -- or by
+# LOCKLANE_SERVICE_KIND, which the test harness sets to walk the launchd path on Linux.
+host_service_kind() {
+  if [ -n "${LOCKLANE_SERVICE_KIND:-}" ]; then
+    printf '%s' "$LOCKLANE_SERVICE_KIND"
+    return 0
+  fi
+  case "$(uname -s)" in
+    Linux)  command -v systemctl >/dev/null 2>&1 && printf 'systemd' ;;
+    Darwin) command -v launchctl >/dev/null 2>&1 && printf 'launchd' ;;
+  esac
+  return 0
+}
+
+refuse_without_service_manager() {
+  cat >&2 <<NOSVC
+error: no per-user service manager was found on this host.
+locklane runs as a systemd user service (Linux) or a launchd agent (macOS), so the
+server survives logouts, crashes and reboots. Neither systemctl nor launchctl is
+available here -- on WSL2, enable systemd in /etc/wsl.conf ([boot] systemd=true) and
+restart the distribution, then run this again.
+NOSVC
+  exit 1
+}
+
+# --- Process helpers ---------------------------------------------------------------
+alive() {
+  [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null
+}
+
+# Every descendant of a pid, one per line, deepest last. Collected BEFORE the server
+# is signalled: once the parent is gone its orphans are re-parented and no longer
+# findable from it.
+descendants_of() {
+  local child
+  for child in $(pgrep -P "$1" 2>/dev/null || true); do
+    printf '%s\n' "$child"
+    descendants_of "$child"
+  done
+}
+
+# Signals go through the external kill (env finds /bin/kill), never the shell builtin,
+# so the test harness can put a stub on PATH that pretends a signal was delivered.
+# Liveness checks (kill -0, above) stay on the builtin -- those must never lie.
+signal_pid() {
+  env kill -s "$1" "$2" 2>/dev/null || true
+}
+
+# The server's main pid according to the service manager; empty when it has none.
+main_pid() {
+  case "$SERVICE_KIND" in
+    launchd)
+      # `|| true`: an unloaded agent makes launchctl fail, and under pipefail that
+      # would otherwise abort the caller instead of meaning "no pid".
+      launchctl print "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null \
+        | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -n 1 || true
+      ;;
+    systemd)
+      local pid
+      pid="$(systemctl --user show -p MainPID --value locklane 2>/dev/null || true)"
+      case "$pid" in ''|0) ;; *) printf '%s' "$pid" ;; esac
+      ;;
+  esac
+  return 0
+}
+
+# Whether the service manager still has the server: loaded (launchd) or active or on
+# its way (systemd).
+service_loaded() {
+  case "$SERVICE_KIND" in
+    launchd) launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1 ;;
+    systemd)
+      case "$(systemctl --user is-active locklane 2>/dev/null || true)" in
+        active|activating|deactivating|reloading) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+service_state_line() {
+  case "$SERVICE_KIND" in
+    launchd)
+      if service_loaded; then echo "agent $AGENT_LABEL: still loaded in gui/$(id -u)"; else echo "agent $AGENT_LABEL: unloaded"; fi
+      ;;
+    systemd)
+      echo "service locklane: $(systemctl --user is-active locklane 2>/dev/null || true)"
+      ;;
+  esac
+}
+
+# --- Refusing to run from inside the server (#647) ----------------------------------
+# A Locklane console tab's shell is a child of the server JVM. On Linux it sits in the
+# locklane.service cgroup, which `systemctl --user stop` sweeps wholesale; on macOS it
+# descends from the agent's pid, which `launchctl bootout` takes down with the agent.
+# A command that stops the server from such a shell kills itself at its own stop step,
+# and the server stays down with nothing left to restart it. So every command that
+# stops the server refuses to start from there. Exit 2, distinct from the 1 a stop
+# that could not finish returns: "refused to start" is not "tried and failed".
+refuse_inside_server() {
+  local what="$1" agent_pid p
+  case "$SERVICE_KIND" in
+    systemd)
+      grep -qs 'locklane\.service' /proc/self/cgroup || return 0
+      ;;
+    launchd)
+      agent_pid="$(main_pid)"
+      [ -n "$agent_pid" ] || return 0
+      p=$$
+      while [ -n "$p" ] && [ "$p" -gt 1 ] && [ "$p" != "$agent_pid" ]; do
+        p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]')"
+      done
+      [ "$p" = "$agent_pid" ] || return 0
+      ;;
+    *) return 0 ;;
+  esac
+  cat >&2 <<REFUSED
+error: not run -- $what is inside a Locklane console tab (or the IDE terminal opened
+from one), which is inside the very server it would stop.
+Stopping the server from here would end this shell too, and nothing here would finish.
+Run $what from ssh or a local terminal instead. Nothing was changed.
+REFUSED
+  exit 2
+}
+
+# --- The one stop routine ------------------------------------------------------------
+# Ask the service manager to stop the server, wait up to STOP_GRACE seconds for it to
+# go on its own, then force it: SIGKILL to the service (launchd) and to the pid, and to
+# every process the server had spawned -- console shells, whatever ran in them, the
+# code-server IDE -- which on macOS nothing else would ever clean up. Then check, and
+# only then report. Exit 0 means: the service is not loaded, the pid is gone, and no
+# recorded descendant is alive. Exit 1 prints exactly what is left.
+stop_server() {
+  local pid kids forced="" waited=0 k survivors="" bootout_msg="" loaded_before=0
+  pid="$(main_pid)"
+  if service_loaded; then loaded_before=1; fi
+  if [ "$loaded_before" -eq 0 ] && ! alive "$pid"; then
+    echo "locklane is already stopped."
+    return 0
+  fi
+  kids=""
+  if alive "$pid"; then
+    kids="$(descendants_of "$pid")"
+  fi
+
+  echo "Stopping the locklane server${pid:+ (pid $pid)}..."
+  case "$SERVICE_KIND" in
+    launchd)
+      # bootout is the only stop that sticks for a KeepAlive agent (a plain `launchctl
+      # stop` would just have launchd relaunch it), and it also UNLOADS the agent, so a
+      # stopped server does not come back at the next login until `start` loads it
+      # again. It returns before the process has gone -- often with "Operation now in
+      # progress" -- which is why everything below waits and checks.
+      bootout_msg="$(launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
+      ;;
+    systemd)
+      # systemd escalates to SIGKILL on its own after its stop timeout and sweeps the
+      # whole cgroup; the checks below still verify rather than trust it.
+      systemctl --user stop locklane 2>/dev/null || true
+      ;;
+  esac
+
+  while [ "$waited" -lt "$STOP_GRACE" ]; do
+    if ! service_loaded && ! alive "$pid"; then
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  if service_loaded || alive "$pid"; then
+    echo "The server has not exited after ${STOP_GRACE}s -- forcing it."
+    if [ "$SERVICE_KIND" = launchd ]; then
+      launchctl kill SIGKILL "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
+    fi
+    if alive "$pid"; then
+      signal_pid KILL "$pid"
+    fi
+    for k in $kids; do
+      alive "$k" && signal_pid KILL "$k"
+    done
+    waited=0
+    while [ "$waited" -lt "$FORCE_WAIT" ]; do
+      if ! service_loaded && ! alive "$pid"; then
+        break
+      fi
+      sleep 1
+      waited=$((waited + 1))
+    done
+    forced=" (forced after ${STOP_GRACE}s: the server ignored SIGTERM)"
+  fi
+
+  # The server may be gone while what it spawned is not: on macOS launchd only ever
+  # signals the agent's own process. Give the leftovers SIGTERM and a moment, then
+  # SIGKILL -- these are orphans of a server that no longer exists.
+  for k in $kids; do
+    alive "$k" && signal_pid TERM "$k"
+  done
+  waited=0
+  while [ "$waited" -lt "$FORCE_WAIT" ]; do
+    survivors=""
+    for k in $kids; do
+      alive "$k" && survivors="$survivors $k"
+    done
+    [ -z "$survivors" ] && break
+    sleep 1
+    waited=$((waited + 1))
+  done
+  for k in $survivors; do
+    signal_pid KILL "$k"
+  done
+  [ -n "$survivors" ] && sleep 1
+
+  # Verify, then report -- never the other way round.
+  survivors=""
+  for k in $kids; do
+    alive "$k" && survivors="$survivors $k"
+  done
+  if service_loaded || alive "$pid" || [ -n "$survivors" ]; then
+    {
+      echo "error: not stopped -- the locklane server is still here, even when forced."
+      echo "  $(service_state_line)"
+      if alive "$pid"; then
+        echo "  server pid $pid: still alive"
+      else
+        echo "  server pid ${pid:-?}: gone"
+      fi
+      if [ -n "$survivors" ]; then
+        echo "  processes the server spawned, still alive:$survivors"
+      fi
+      if [ -n "$bootout_msg" ]; then
+        echo "  launchctl bootout said: $bootout_msg"
+      fi
+    } >&2
+    return 1
+  fi
+  echo "Stopped${forced}."
+  return 0
+}
+
+# --- Resolving the user's real PATH (#422) ------------------------------------------
+# A service manager starts its unit/agent with its own minimal PATH, not the one an
+# interactive login shell builds up (nvm, homebrew, version-manager shims ...) -- so an
+# AI CLI that is perfectly callable from a terminal is invisible to the service.
+# Resolved from a LOGIN shell (`-l`), the same PATH a freshly opened terminal gets.
+# The value is read from ONE tagged line, never the shell's whole stdout (#672): a
+# startup file that prints would otherwise land in the PATH.
+resolve_login_path() {
+  local resolved
+  resolved="$("${SHELL:-/bin/sh}" -lc 'printf "\n__LOCKLANE_PATH__=%s\n" "$PATH"' 2>/dev/null \
+    | sed -n 's/^__LOCKLANE_PATH__=//p' | tail -n 1)" || resolved=""
+  case "$resolved" in
+    */*) ;;
+    *) resolved="$PATH" ;;
+  esac
+  printf '%s' "$resolved"
+}
+
+# --- Registration -----------------------------------------------------------------
+write_systemd_unit() {
+  local java_bin="$1" resolved_path="$2"
+  mkdir -p "$(dirname "$REG_FILE")"
+  cat > "$REG_FILE" <<EOF
+[Unit]
+Description=locklane
+After=network.target
+
+[Service]
+Type=simple
+# The JVM exits 143 on the SIGTERM a stop sends; without this every stop is logged as a
+# failure and status shows the unit as failed rather than inactive (#647).
+SuccessExitStatus=143
+WorkingDirectory=$INSTALL_DIR
+Environment=PATH=$resolved_path
+ExecStart=$java_bin -jar $JAR_FILE
+Restart=always
+RestartSec=5
+StandardOutput=append:$LOG_FILE
+StandardError=append:$LOG_FILE
+
+[Install]
+WantedBy=default.target
+EOF
+}
+
+write_launchd_plist() {
+  local java_bin="$1" resolved_path="$2"
+  mkdir -p "$(dirname "$REG_FILE")"
+  cat > "$REG_FILE" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$AGENT_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$java_bin</string>
+    <string>-jar</string>
+    <string>$JAR_FILE</string>
+  </array>
+  <key>WorkingDirectory</key><string>$INSTALL_DIR</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$resolved_path</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key><false/>
+  </dict>
+  <key>StandardOutPath</key><string>$LOG_FILE</string>
+  <key>StandardErrorPath</key><string>$LOG_FILE</string>
+</dict>
+</plist>
+EOF
+}
+
+# The transitional wrappers: the five names the README and an existing install know.
+# Three lines each, no logic -- they go away in a later release. update.sh is the one
+# exception: its text is the release asset an older install's own update.sh fetches
+# and execs (#647), so it must be able to fetch this program when the directory has
+# none yet. The repository's update.sh is that same text, byte for byte (the harness
+# checks it), so an install always carries the current asset.
+write_wrappers() {
+  local name
+  for name in status start stop uninstall; do
+    cat > "$INSTALL_DIR/$name.sh" <<EOF
+#!/usr/bin/env bash
+# Transitional wrapper (#678): the control program is $INSTALL_DIR/locklane -- run \`locklane $name\` directly. This file goes away in a later release.
+exec "\$(dirname "\$0")/locklane" $name "\$@"
+EOF
+    chmod +x "$INSTALL_DIR/$name.sh"
+  done
+  cat > "$INSTALL_DIR/update.sh" <<'EOF'
+#!/usr/bin/env bash
+# Updates an installed locklane (#678). This file is also the release asset an older
+# install's update.sh fetches and execs before updating (#647), so it stays
+# self-sufficient: it fetches the control program when this directory has none yet,
+# then hands over to `locklane update`. Otherwise it is a transitional wrapper -- run
+# `locklane update` directly; this file goes away in a later release.
+set -euo pipefail
+dir="$(cd "$(dirname "$0")" && pwd -P)"
+if [ ! -x "$dir/locklane" ]; then
+  echo "Fetching the locklane control program..."
+  if ! gh release download --repo haninaguib-devtools/locklane --pattern locklane \
+      --output "$dir/locklane" --clobber 2>/dev/null; then
+    curl -fsSL https://raw.githubusercontent.com/haninaguib-devtools/locklane/main/scripts/locklane \
+      > "$dir/locklane"
+  fi
+  chmod +x "$dir/locklane"
+fi
+exec "$dir/locklane" update "$@"
+EOF
+  chmod +x "$INSTALL_DIR/update.sh"
+}
+
+# Writes the registration for this host's service manager with a freshly resolved
+# PATH, records it in service.env, writes the wrappers, and starts the server. A server
+# that is loaded is stopped first, verified, so the new registration starts clean --
+# which makes `register` the restart-with-fresh-PATH, and what `update` calls after
+# swapping the jar.
+register_cmd() {
+  local kind java_bin resolved_path waited
+  load_state
+  kind="${SERVICE_KIND:-}"
+  [ -n "$kind" ] || kind="$(host_service_kind)"
+  case "$kind" in
+    systemd) command -v systemctl >/dev/null 2>&1 || refuse_without_service_manager
+             REG_FILE="$HOME/.config/systemd/user/locklane.service" ;;
+    launchd) command -v launchctl >/dev/null 2>&1 || refuse_without_service_manager
+             REG_FILE="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist" ;;
+    *) refuse_without_service_manager ;;
+  esac
+  SERVICE_KIND="$kind"
+  refuse_inside_server "locklane register"
+  java_bin="$(command -v java 2>/dev/null)" || die "java 21 or newer is required -- install a JDK, then run this again."
+  [ -f "$JAR_FILE" ] || die "$JAR_FILE is missing -- run install.sh."
+
+  if service_loaded || alive "$(main_pid)"; then
+    stop_server || return 1
+  fi
+  resolved_path="$(resolve_login_path)"
+  case "$kind" in
+    systemd)
+      write_systemd_unit "$java_bin" "$resolved_path"
+      echo "Registering the systemd user service..."
+      systemctl --user daemon-reload 2>/dev/null || true
+      if ! systemctl --user enable --now locklane; then
+        rm -f "$REG_FILE"
+        die "could not start the systemd user service -- is a user session bus available? (systemctl --user status)"
+      fi
+      # Best-effort: lets the service start at boot even with nobody logged in.
+      loginctl enable-linger "${USER:-$(id -un)}" 2>/dev/null || true
+      ;;
+    launchd)
+      write_launchd_plist "$java_bin" "$resolved_path"
+      echo "Registering the launchd agent..."
+      if ! launchctl bootstrap "gui/$(id -u)" "$REG_FILE"; then
+        rm -f "$REG_FILE"
+        die "could not load the launchd agent $AGENT_LABEL (launchctl bootstrap failed)."
+      fi
+      ;;
+  esac
+  save_state
+  write_wrappers
+  # The pid may take a moment to appear; say what was actually seen.
+  waited=0
+  while [ "$waited" -lt 10 ] && ! alive "$(main_pid)"; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if alive "$(main_pid)"; then
+    echo "Registered and running (pid $(main_pid)). Output is logged to $LOG_FILE."
+  else
+    echo "Registered; the server has not reported a pid yet -- check with: $INSTALL_DIR/locklane status" >&2
+  fi
+}
+
+# --- Downloads ------------------------------------------------------------------------
+# Fetches the newest permanent release's locklane.jar (no tag argument: gh resolves the
+# newest non-prerelease, non-draft release, the one the in-app update banner announces,
+# #465) to locklane.jar.new next to the live jar, and checks that it is a readable
+# archive -- so a failed or truncated download is found while the old server is still
+# running, and never replaces a working jar.
+download_jar() {
+  local new size
+  new="$JAR_FILE.new"
+  rm -f "$new"
+  echo "Downloading locklane.jar (newest release of $REPO)..."
+  if ! gh release download --repo "$REPO" --pattern locklane.jar --output "$new"; then
+    rm -f "$new"
+    echo "error: could not download locklane.jar -- nothing was changed." >&2
+    return 1
+  fi
+  if command -v unzip >/dev/null 2>&1; then
+    if ! unzip -tq "$new" >/dev/null 2>&1; then
+      rm -f "$new"
+      echo "error: the downloaded locklane.jar is not a readable archive -- nothing was changed." >&2
+      return 1
+    fi
+  else
+    size="$(wc -c < "$new" | tr -d '[:space:]')"
+    if [ "$(head -c 2 "$new")" != "PK" ] || [ "$size" -lt 1048576 ]; then
+      rm -f "$new"
+      echo "error: the downloaded locklane.jar is not a readable archive -- nothing was changed." >&2
+      return 1
+    fi
+  fi
+}
+
+# The newest release's tag, for the line printed at the end of an update. `gh release
+# view` needs a logged-in gh, which this host need not have (#610); the unauthenticated
+# REST read is the fallback, and failing both is not worth failing the run.
+newest_release_tag() {
+  local tag
+  tag="$(gh release view --repo "$REPO" --json tagName -q .tagName 2>/dev/null)" || tag=""
+  if [ -z "$tag" ]; then
+    tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+      | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)" || tag=""
+  fi
+  printf '%s' "$tag"
+}
+
+# The open-source, web-based VS Code editor a console tab's "Open IDE" action opens
+# (#627, #628), kept under the install directory so an uninstall removes it too.
+# Soft-failing: the server is what matters, the IDE is an extra on top.
+install_code_server() {
+  echo "Installing code-server..."
+  if ! curl -fsSL https://code-server.dev/install.sh | sh -s -- \
+    --method=standalone --prefix="$INSTALL_DIR/code-server"; then
+    echo "warning: could not install code-server -- the \"Open IDE\" console action won't work until the next update." >&2
+  fi
+}
+
+# --- Commands ---------------------------------------------------------------------------
+status_cmd() {
+  local pid
+  load_state
+  case "$SERVICE_KIND" in
+    systemd)
+      # systemctl's own exit status is the answer: 0 while the service is active, 3
+      # when it is stopped -- and it prints the unit's state and recent log lines.
+      systemctl --user --no-pager status locklane
+      ;;
+    launchd)
+      if ! service_loaded; then
+        echo "locklane is not running: the launchd agent ($AGENT_LABEL) is not loaded. \`locklane start\` loads it."
+        exit 1
+      fi
+      pid="$(main_pid)"
+      if alive "$pid"; then
+        echo "locklane is running as the launchd agent $AGENT_LABEL (pid $pid). Output is logged to $LOG_FILE."
+      else
+        echo "The launchd agent $AGENT_LABEL is loaded but the server is not running right now (launchd relaunches it after a failed exit). Output is logged to $LOG_FILE."
+        exit 1
+      fi
+      ;;
+    *)
+      echo "locklane is not registered with a service manager here. Run install.sh, or \`locklane register\` if locklane.jar is already in $INSTALL_DIR."
+      exit 1
+      ;;
+  esac
+}
+
+start_cmd() {
+  load_state
+  case "$SERVICE_KIND" in
+    systemd)
+      echo "Starting the locklane service..."
+      systemctl --user start locklane
+      echo "Started. Check on it with \`locklane status\`; output is logged to $LOG_FILE."
+      ;;
+    launchd)
+      if service_loaded; then
+        echo "locklane is already running: the launchd agent ($AGENT_LABEL) is loaded."
+        return 0
+      fi
+      [ -f "$REG_FILE" ] || die "the agent's plist $REG_FILE is missing -- run \`locklane register\` to recreate it."
+      echo "Starting the locklane agent..."
+      launchctl bootstrap "gui/$(id -u)" "$REG_FILE"
+      echo "Started. The agent is loaded again, so it also comes back at the next login."
+      ;;
+    *)
+      die "locklane is not registered with a service manager here -- run \`locklane register\`."
+      ;;
+  esac
+}
+
+# An install from before service managers were required (a detached nohup start with a
+# pid file, and no unit or plist) is refused before anything is touched: there is no
+# service manager to hand it to, and stopping it by hand is the person's call.
+refuse_detached_install() {
+  if [ -z "$SERVICE_KIND" ] && [ -f "$PID_FILE" ]; then
+    cat >&2 <<DETACHED
+error: this install runs the server detached (a pid in $PID_FILE) with no service
+manager, which locklane no longer supports. Nothing was changed. To move it over:
+stop the server by hand (kill $(cat "$PID_FILE" 2>/dev/null || echo '<pid>')), remove
+$PID_FILE, and run $INSTALL_DIR/locklane register.
+DETACHED
+    exit 1
+  fi
+}
+
+stop_cmd() {
+  load_state
+  refuse_detached_install
+  [ -n "$SERVICE_KIND" ] || { echo "locklane is not registered with a service manager here; nothing to stop."; return 0; }
+  refuse_inside_server "locklane stop"
+  stop_server
+  case "$SERVICE_KIND" in
+    launchd) echo "The agent is unloaded, so it will not come back at the next login until \`locklane start\` loads it again." ;;
+    systemd) echo "The service stays enabled and comes back at the next boot; \`locklane start\` brings it back now." ;;
+  esac
+}
+
+restart_cmd() {
+  load_state
+  refuse_detached_install
+  [ -n "$SERVICE_KIND" ] || die "locklane is not registered with a service manager here -- run \`locklane register\`."
+  refuse_inside_server "locklane restart"
+  stop_server || exit 1
+  start_cmd
+}
+
+update_cmd() {
+  local new_self tag
+  load_state
+  refuse_detached_install
+  [ -n "$SERVICE_KIND" ] || die "locklane is not registered with a service manager here -- run install.sh."
+  refuse_inside_server "locklane update"
+  command -v gh >/dev/null 2>&1 || die "the GitHub CLI (gh) is required -- install it from https://cli.github.com."
+
+  # This program is how an install is kept current, so the newest release's copy is
+  # fetched first and, when it differs, takes over the run -- once, guarded by the
+  # variable, so a copy can never chase itself. An older install's update.sh sets the
+  # same variable when it hands over here, having just fetched this file.
+  if [ -z "${LOCKLANE_UPDATE_REEXEC:-}" ]; then
+    new_self="$(mktemp "$INSTALL_DIR/locklane.XXXXXX")"
+    if gh release download --repo "$REPO" --pattern locklane --output "$new_self" --clobber 2>/dev/null \
+        && [ -s "$new_self" ]; then
+      if cmp -s "$new_self" "$INSTALL_DIR/locklane"; then
+        rm -f "$new_self"
+      else
+        echo "The newest release carries a newer control program -- switching to it for this run..."
+        chmod 755 "$new_self"
+        mv -f "$new_self" "$INSTALL_DIR/locklane"
+        LOCKLANE_UPDATE_REEXEC=1 exec "$INSTALL_DIR/locklane" update "$@"
+      fi
+    else
+      rm -f "$new_self"
+    fi
+  fi
+
+  # Installs predating #384 left the login password in plaintext here. The engine
+  # consumed it on its very first start and has ignored it since: drop that one line.
+  if [ -f "$PROPS_FILE" ] && grep -Eq '^locklane\.security\.bootstrap-password[[:space:]]*=' "$PROPS_FILE"; then
+    echo "Removing the stored bootstrap password from $PROPS_FILE..."
+    local tmp_props
+    tmp_props="$(mktemp "$PROPS_FILE.XXXXXX")"
+    chmod 600 "$tmp_props"
+    sed -E '/^locklane\.security\.bootstrap-password[[:space:]]*=/d' "$PROPS_FILE" > "$tmp_props"
+    mv "$tmp_props" "$PROPS_FILE"
+  fi
+
+  # Everything that can fail on the network fails here, with the old server untouched.
+  tag="$(newest_release_tag)"
+  download_jar || exit 1
+
+  # Only now is the server stopped -- verified -- and the jar swapped under nothing.
+  # `register` then rewrites the registration with a fresh PATH, records service.env
+  # (the migration for an install that has none), writes the wrappers, and starts.
+  if ! stop_server; then
+    rm -f "$JAR_FILE.new"
+    exit 1
+  fi
+  mv -f "$JAR_FILE.new" "$JAR_FILE"
+  register_cmd || exit 1
+  install_code_server
+  echo "Installed locklane ${tag:-(version unknown)} and restarted the server."
+}
+
+uninstall_cmd() {
+  local mode="" assume_yes=0 answer target home_real
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --service-only) mode="service" ;;
+      --all) mode="all" ;;
+      --yes|-y) assume_yes=1 ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "unknown option '$1'" ;;
+    esac
+    shift
+  done
+  load_state
+  refuse_detached_install
+  if [ -n "$SERVICE_KIND" ]; then
+    refuse_inside_server "locklane uninstall"
+    # A verified stop, or nothing: a directory deleted under a running server is the
+    # failure this program exists to end (#678).
+    if ! stop_server; then
+      echo "error: the server is still running -- nothing was removed. Stop it, then run this again." >&2
+      exit 1
+    fi
+    echo "De-registering the server..."
+    case "$SERVICE_KIND" in
+      systemd)
+        systemctl --user disable locklane 2>/dev/null || true
+        ;;
+    esac
+  fi
+  # Both well-known registration paths are swept, not just the one this install used:
+  # an install that set up one and later moved would otherwise leave the first behind.
+  rm -f "${REG_FILE:-/nonexistent}"
+  rm -f "$HOME/.config/systemd/user/locklane.service"
+  rm -f "$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+  if [ "$SERVICE_KIND" = systemd ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload 2>/dev/null || true
+  fi
+  rm -f "$STATE_FILE"
+  echo "The server is stopped and no longer registered with any service manager."
+
+  # Reads from /dev/tty, not stdin (#354), so this still asks a person when the
+  # command is piped. No terminal and no flag means no guess: nothing is deleted.
+  if [ -z "$mode" ]; then
+    if ! : < /dev/tty 2>/dev/null; then
+      echo "error: no terminal to ask on, and neither --service-only nor --all was given." >&2
+      echo "Nothing was deleted. $INSTALL_DIR is still here." >&2
+      exit 1
+    fi
+    cat <<PROMPT
+
+$INSTALL_DIR holds everything locklane knows: your login accounts, the projects you
+added, and the database they live in. Deleting it cannot be undone, and nothing here
+makes a backup first.
+
+PROMPT
+    printf 'Type delete to remove it, or press Enter to keep it: '
+    read -r answer < /dev/tty || answer=""
+    if [ "$answer" = "delete" ]; then
+      mode="all"
+      assume_yes=1
+    else
+      mode="service"
+    fi
+  fi
+  if [ "$mode" = "all" ] && [ "$assume_yes" -eq 0 ]; then
+    if ! : < /dev/tty 2>/dev/null; then
+      echo "error: --all needs --yes when there is no terminal to confirm on." >&2
+      echo "Nothing was deleted. $INSTALL_DIR is still here." >&2
+      exit 1
+    fi
+    printf 'Type delete to remove %s and everything in it: ' "$INSTALL_DIR"
+    read -r answer < /dev/tty || answer=""
+    if [ "$answer" != "delete" ]; then
+      echo "Not deleted."
+      mode="service"
+    fi
+  fi
+  if [ "$mode" != "all" ]; then
+    cat <<KEPT
+$INSTALL_DIR was kept, with your accounts, projects, and database in it.
+Delete it later with: rm -rf $INSTALL_DIR
+
+Nothing else on this machine was changed: the GitHub CLI and java are untouched,
+and if 'loginctl enable-linger' was turned on at install time it is still on.
+KEPT
+    return 0
+  fi
+
+  # Guarded against an empty path, / and $HOME, compared as RESOLVED paths: one
+  # directory has endlessly many spellings, and a string comparison refuses only the
+  # exact spelling it was shown.
+  [ -n "$INSTALL_DIR" ] || die "refusing to delete an empty path."
+  target="$(cd "$INSTALL_DIR" 2>/dev/null && pwd -P)" || target=""
+  home_real="$(cd "$HOME" 2>/dev/null && pwd -P)" || home_real="$HOME"
+  case "$target" in
+    "") die "could not resolve $INSTALL_DIR -- refusing to delete anything." ;;
+    "/") die "refusing to delete /." ;;
+  esac
+  [ "$target" != "$home_real" ] || die "refusing to delete your home directory."
+  cat <<DONE
+Deleting $target...
+
+locklane is uninstalled. Nothing else on this machine was changed: the GitHub CLI and
+java are untouched, and if 'loginctl enable-linger' was turned on at install time it is
+still on -- turn it off with 'loginctl disable-linger' if nothing else needs it.
+DONE
+  # Last statement, deliberately: it deletes this program too.
+  rm -rf "$target"
+}
+
+# A fresh install: the prompts, the properties file, the login account, the service.
+# The credentials go through the environment into one seed-only run of the jar, never
+# onto disk or the command line (#384). Reached through install.sh, which fetched this
+# program and exec'd it with stdin from /dev/null -- every prompt reads /dev/tty (#354).
+install_cmd() {
+  local kind port extra_origins origins username password password_confirm
+  local seed_log seed_status account_note
+  load_state
+  # Already installed here (a completed install: the properties file plus either the
+  # state file or the old generated uninstaller) -> the newest build, not a second
+  # install: re-asking the port and the login would throw the settings away (#675).
+  if [ -f "$PROPS_FILE" ] && { [ -f "$STATE_FILE" ] || [ -f "$INSTALL_DIR/uninstall.sh" ]; }; then
+    cat <<EOF
+locklane is already installed at $INSTALL_DIR -- updating it instead of installing again.
+Your port, allowed origins and login are kept. To change the port or the origins, edit
+$PROPS_FILE, then run $INSTALL_DIR/locklane restart.
+
+EOF
+    update_cmd
+    return
+  fi
+
+  command -v gh >/dev/null 2>&1 || die "the GitHub CLI (gh) is required -- install it from https://cli.github.com."
+  command -v java >/dev/null 2>&1 || die "java 21 or newer is required -- install a JDK, then re-run the installer."
+  kind="${SERVICE_KIND:-}"
+  [ -n "$kind" ] || kind="$(host_service_kind)"
+  [ -n "$kind" ] || refuse_without_service_manager
+
+  download_jar || exit 1
+
+  port=""
+  while true; do
+    read -r -p "Port to run on [8080]: " port < /dev/tty
+    port="${port:-8080}"
+    case "$port" in
+      ''|*[!0-9]*) echo "Enter a port number." >&2; continue ;;
+    esac
+    [ "$port" -ge 1 ] && [ "$port" -le 65535 ] && break
+    echo "Port must be between 1 and 65535." >&2
+  done
+  read -r -p "Extra allowed origins, comma-separated (localhost:$port is always allowed) []: " extra_origins < /dev/tty
+  origins="http://localhost:$port"
+  if [ -n "$extra_origins" ]; then
+    origins="$origins,$extra_origins"
+  fi
+  read -r -p "Bootstrap username [admin]: " username < /dev/tty
+  username="${username:-admin}"
+  password=""
+  while true; do
+    read -r -s -p "Bootstrap password: " password < /dev/tty
+    echo
+    if [ -z "$password" ]; then
+      echo "Password cannot be empty." >&2
+      continue
+    fi
+    read -r -s -p "Confirm password: " password_confirm < /dev/tty
+    echo
+    if [ "$password" != "$password_confirm" ]; then
+      echo "Passwords did not match -- try again." >&2
+      continue
+    fi
+    break
+  done
+
+  # Mode 600: nothing is gained by making a config file wider than its owner.
+  : > "$PROPS_FILE"
+  chmod 600 "$PROPS_FILE"
+  {
+    echo "server.port=$port"
+    echo "locklane.security.allowed-origins=$origins"
+  } > "$PROPS_FILE"
+
+  # Anything a previous, incomplete install left registered is stopped, verified,
+  # before the jar it may hold open is replaced.
+  if [ -n "$SERVICE_KIND" ] && { service_loaded || alive "$(main_pid)"; }; then
+    refuse_inside_server "install.sh"
+    stop_server || { rm -f "$JAR_FILE.new"; exit 1; }
+  fi
+  mv -f "$JAR_FILE.new" "$JAR_FILE"
+
+  # One run of the jar that seeds the account and stops. Port 0 keeps it off whatever
+  # port anything else may hold. Exit 3 is UserBootstrapper.EXIT_ALREADY_SEEDED: the
+  # database already had an account, so what was typed was not applied.
+  echo "Creating the login account..."
+  seed_log="$INSTALL_DIR/install-seed.log"
+  : > "$seed_log"
+  chmod 600 "$seed_log"
+  seed_status=0
+  (
+    cd "$INSTALL_DIR"
+    LOCKLANE_SECURITY_BOOTSTRAP_USERNAME="$username" \
+    LOCKLANE_SECURITY_BOOTSTRAP_PASSWORD="$password" \
+      java -jar locklane.jar \
+        --locklane.security.seed-only=true \
+        --server.port=0 \
+        --spring.main.banner-mode=off
+  ) < /dev/null > "$seed_log" 2>&1 || seed_status=$?
+  unset password password_confirm
+  case "$seed_status" in
+    0) account_note="The account '$username' is ready -- no password was stored anywhere on disk." ;;
+    3) account_note="An account already existed here, so the username and password you just
+entered were NOT applied -- sign in with the account you already have." ;;
+    *) die "could not create the login account -- the log is at $seed_log" ;;
+  esac
+  rm -f "$seed_log"
+
+  LOCKLANE_SERVICE_KIND="$kind" register_cmd || exit 1
+  install_code_server
+
+  cat <<EOF
+
+Installed to $INSTALL_DIR:
+  locklane                          the control program (locklane help lists its commands)
+  locklane.jar
+  service.env                       how the server is registered (read by locklane)
+  application-locklane.properties   (mode 600; port and origins only)
+  locklane.log                      server output
+  code-server/                      the web-based IDE a console tab's "Open IDE" action opens
+  status.sh, start.sh, stop.sh, update.sh, uninstall.sh
+                                    transitional wrappers around the commands above
+
+$account_note
+
+The server is running on port $port, registered as a $kind service: it restarts on its
+own if it crashes, and comes back at login$([ "$kind" = systemd ] && echo " or boot").
+
+  Status:   $INSTALL_DIR/locklane status
+  Stop:     $INSTALL_DIR/locklane stop
+  Start:    $INSTALL_DIR/locklane start
+  Restart:  $INSTALL_DIR/locklane restart
+  Update:   $INSTALL_DIR/locklane update   (re-running the install command does the same)
+  Remove:   $INSTALL_DIR/locklane uninstall
+EOF
+}
+
+# --- Dispatch --------------------------------------------------------------------------
+command="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$command" in
+  status)    status_cmd ;;
+  start)     start_cmd ;;
+  stop)      stop_cmd ;;
+  restart)   restart_cmd ;;
+  update)    update_cmd "$@" ;;
+  uninstall) uninstall_cmd "$@" ;;
+  register)  register_cmd ;;
+  install)   install_cmd ;;
+  help|-h|--help) usage ;;
+  *) echo "error: unknown command '$command'" >&2; usage >&2; exit 2 ;;
+esac

@@ -13,26 +13,37 @@ login, and leaves it running as a per-user service:
 curl -fsSL https://raw.githubusercontent.com/haninaguib-devtools/locklane/main/install.sh | bash
 ```
 
-Everything lands in `~/.locklane`. Five scripts live there afterwards, and each one
-already knows how the server was installed — as a systemd user service, a launchd agent,
-or a plain detached process — so you never need to. Run them from a terminal outside
-Locklane's own console (ssh, or a local terminal): a console tab is a child of the
-server, so a script that stops the server from there would take itself down with it,
-and the ones that stop it refuse to start from a console tab for that reason.
+Everything lands in `~/.locklane`, and one program there runs the whole lifecycle:
+`~/.locklane/locklane`. It already knows how the server was installed — as a systemd
+user service on Linux or a launchd agent on macOS — so you never need to. Run it from a
+terminal outside Locklane's own console (ssh, or a local terminal): a console tab is a
+child of the server, so a command that stops the server from there would take itself
+down with it, and the commands that stop it refuse to start from a console tab (or the
+IDE terminal opened from one) for that reason.
 
-- `~/.locklane/status.sh` — say whether the server is running (exit 0) or not (non-zero).
-- `~/.locklane/stop.sh` — stop the server. On macOS this also unloads the launchd agent,
-  so it stays down across logins until `start.sh` brings it back.
-- `~/.locklane/start.sh` — start it again. `stop.sh && start.sh` is the restart; there is
-  no separate restart script.
-- `~/.locklane/update.sh` — pull a newer build and restart the server. It first
+- `locklane status` — say whether the server is running (exit 0) or not (non-zero).
+- `locklane stop` — stop the server and check that it is gone: it asks the service
+  manager to stop, waits, forces the server and anything it spawned if it has to, and
+  says "stopped" only once nothing is left. On macOS this also unloads the launchd
+  agent, so it stays down across logins until `locklane start` brings it back.
+- `locklane start` — start it again. `locklane restart` is stop then start.
+- `locklane update` — pull a newer build and restart the server on it. It first
   refreshes itself from the newest release, downloads and checks the new jar while the
   old server keeps running, and only then stops, swaps and restarts, printing the
-  version it installed.
-- `~/.locklane/uninstall.sh` — stop the server and de-register it from the service
-  manager, then ask separately whether to delete `~/.locklane` itself. That directory
-  holds the login accounts, the projects, and the database, so deleting it needs a typed
-  confirmation and is never the default.
+  version it installed. Re-running the install one-liner does the same.
+- `locklane uninstall` — stop the server (verified, or nothing is removed) and
+  de-register it from the service manager, then ask separately whether to delete
+  `~/.locklane` itself. That directory holds the login accounts, the projects, and the
+  database, so deleting it needs a typed confirmation and is never the default.
+- `locklane register` — rewrite the service registration with your current login
+  PATH and restart: run it after editing `application-locklane.properties`, or when a
+  CLI the server needs is newly on your PATH.
+
+The five scripts an earlier install knew — `status.sh`, `start.sh`, `stop.sh`,
+`update.sh`, `uninstall.sh` — are still written next to it, as one-line wrappers
+around the commands above. They are transitional and go away in a later release. An
+install made before v0.2.10 moves onto this layout by itself the first time its own
+`update.sh` (or the install one-liner) runs; one older than v0.2.8 needs the one-liner.
 
 Locklane acts on GitHub through the accounts you sign in to it, not through the host's
 own `gh` login: open the GitHub accounts page (the account menu in the top right, once

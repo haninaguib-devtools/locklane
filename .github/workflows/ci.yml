@@ -226,6 +226,15 @@ jobs:
         if: "!cancelled()"
         run: ./.t-workflow/scripts/check-manifest.sh
 
+      # The lifecycle harness (#678): stub launchctl/systemctl/gh/kill drive
+      # scripts/locklane -- the installed control program -- through every stop,
+      # escalation, uninstall, refusal and migration scenario in a scratch HOME. It
+      # takes seconds and touches no real service manager, so it runs on every PR
+      # regardless of whether the diff has a build input.
+      - name: Lifecycle scripts behave under stub service managers
+        if: "!cancelled()"
+        run: bash scripts/tests/lifecycle/run.sh
+
       # AGENTS.md §Checks item 1 is the single place that names the build command, and
       # scripts/build-inputs.sh is the single place that names what Maven builds (#602,
       # ADR-109 D3): on a pull request the two steps below run only when the diff

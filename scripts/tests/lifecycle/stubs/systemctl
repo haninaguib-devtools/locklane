@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Stub systemctl for scripts/tests/lifecycle/run.sh. One user unit, state in
+# $STUB_STATE: systemd.pid (the "server"), server-mode as for the launchctl stub, and
+# systemd-no-escalate -- when present, `stop` sends SIGTERM and returns at once
+# without systemd's own SIGKILL escalation, so the control program's is exercised.
+set -uo pipefail
+S="${STUB_STATE:?}"
+[ "${1:-}" = "--user" ] && shift
+pid="$(cat "$S/systemd.pid" 2>/dev/null || true)"
+pid_alive() { [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; }
+spawn_server() {
+  local mode
+  mode="$(cat "$S/server-mode" 2>/dev/null || true)"
+  case "$mode" in
+    ignore-term) nohup bash -c 'trap "" TERM; while :; do sleep 1; done' >/dev/null 2>&1 </dev/null & ;;
+    with-child)  nohup bash -c 'trap "" TERM; sleep 300 & wait' >/dev/null 2>&1 </dev/null & ;;
+    *)           nohup bash -c 'while :; do sleep 1; done' >/dev/null 2>&1 </dev/null & ;;
+  esac
+  echo $! > "$S/systemd.pid"
+  echo $! >> "$S/pids"
+  disown
+}
+case "${1:-}" in
+  daemon-reload|disable) exit 0 ;;
+  enable|start)
+    pid_alive || spawn_server
+    exit 0
+    ;;
+  stop)
+    if pid_alive; then
+      /bin/kill -TERM "$pid" 2>/dev/null
+      if [ ! -f "$S/systemd-no-escalate" ]; then
+        sleep 1
+        pid_alive && /bin/kill -KILL "$pid" 2>/dev/null
+        sleep 0.2
+      fi
+    fi
+    exit 0
+    ;;
+  is-active)
+    if pid_alive; then echo active; exit 0; else echo inactive; exit 3; fi
+    ;;
+  show)
+    if pid_alive; then echo "$pid"; else echo 0; fi
+    exit 0
+    ;;
+  status|--no-pager)
+    if pid_alive; then echo "locklane.service - locklane: active (running) pid $pid"; exit 0; fi
+    echo "locklane.service - locklane: inactive (dead)"; exit 3
+    ;;
+  *) echo "stub systemctl: unsupported: $*" >&2; exit 64 ;;
+esac

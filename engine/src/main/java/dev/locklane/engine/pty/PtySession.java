@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -213,6 +214,16 @@ public final class PtySession {
 
     public boolean isAlive() {
         return process.isAlive();
+    }
+
+    /**
+     * The OS handle of this session's shell, for ending the whole tree it spawned at
+     * shutdown (#678) — empty once the process is gone. pty4j's process is not a
+     * {@code java.lang.Process} the JDK can hand a handle for directly, so it goes
+     * through the pid.
+     */
+    Optional<ProcessHandle> processHandle() {
+        return ProcessHandle.of(process.pid());
     }
 
     /** Tells the running process its terminal changed size (SIGWINCH on Unix). */
