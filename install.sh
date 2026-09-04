@@ -726,6 +726,37 @@ else
 fi
 refuse_inside_server "$existing_kind" install.sh "$agent_label"
 
+# --- Already installed here: hand the run to update.sh (#675) ---------------------
+# A person who reaches for the README one-liner on a machine that already has locklane
+# wants the newest build, not a second install: re-asking the port and the login and
+# rewriting application-locklane.properties would throw their settings away, and the
+# seed would refuse anyway (exit 3: an account already exists). So a COMPLETED install
+# fetches the newest release's update.sh exactly as the fresh path does further down
+# and hands the whole run to it. Completed means the properties file AND uninstall.sh,
+# which the fresh path writes last, once the server is up -- a properties file on its
+# own is a first install that died before the seed or the service step, and that one
+# needs the fresh path, prompts and all. exec, so nothing below ever runs on this path;
+# stdin from /dev/null, so under `curl | bash` nothing downstream can read the rest of
+# this script off the pipe (#354). update.sh refreshes itself from the same release
+# first thing and finds this copy identical, which is harmless.
+if [ -f "$INSTALL_DIR/application-locklane.properties" ] && [ -f "$INSTALL_DIR/uninstall.sh" ]; then
+  cat <<EOF
+locklane is already installed at $INSTALL_DIR -- updating it instead of installing again.
+Your port, allowed origins and login are kept. To change the port or the origins, edit
+$INSTALL_DIR/application-locklane.properties, then run $INSTALL_DIR/stop.sh and
+$INSTALL_DIR/start.sh.
+
+EOF
+  echo "Fetching update.sh..."
+  if ! gh release download --repo "$REPO" --pattern update.sh \
+      --output "$INSTALL_DIR/update.sh" --clobber 2>/dev/null; then
+    curl -fsSL "https://raw.githubusercontent.com/$REPO/main/update.sh" \
+      > "$INSTALL_DIR/update.sh"
+  fi
+  chmod +x "$INSTALL_DIR/update.sh"
+  exec "$INSTALL_DIR/update.sh" < /dev/null
+fi
+
 download_jar "$REPO" "$INSTALL_DIR"
 
 # update.sh comes from the same release as the jar, so the two match (#647). Releases
@@ -1032,6 +1063,7 @@ was installed (stop.sh then start.sh is the restart):
 
 Later, pull a newer build with:
   $INSTALL_DIR/update.sh
+(re-running the install command does the same once locklane is installed)
 
 To uninstall — this stops the server and de-registers it, then asks separately whether
 to delete $INSTALL_DIR and the accounts, projects, and database in it:
