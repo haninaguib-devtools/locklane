@@ -24,6 +24,12 @@ describe('AgentStore', () => {
     expect(store.get('b')).toBeNull();
   });
 
+  it('remembers omp like any other known agent', () => {
+    new AgentStore().set('7-main-a1b2c3d4', 'omp');
+
+    expect(new AgentStore().get('7-main-a1b2c3d4')).toBe('omp');
+  });
+
   it('survives unparseable storage content', () => {
     localStorage.setItem(STORAGE_KEY, 'not json');
 

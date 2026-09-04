@@ -65,6 +65,32 @@ class ResumeIdScannerTest {
     }
 
     @Test
+    void capturesAnOmpResumeCommand() {
+        ResumeIdScanner scanner = new ResumeIdScanner(null);
+
+        List<ResumeIdScanner.Capture> captures =
+                scanner.feed(bytes("To continue this session, run omp --resume " + ID + ".\n"));
+
+        assertThat(captures).containsExactly(new ResumeIdScanner.Capture("omp", ID));
+    }
+
+    @Test
+    void capturesAnOmpShortFlagResumeCommand() {
+        ResumeIdScanner scanner = new ResumeIdScanner(null);
+
+        assertThat(scanner.feed(bytes("omp -r " + ID + "\n")))
+                .containsExactly(new ResumeIdScanner.Capture("omp", ID));
+    }
+
+    @Test
+    void capturesAnOmpSessionFlagResumeCommand() {
+        ResumeIdScanner scanner = new ResumeIdScanner(null);
+
+        assertThat(scanner.feed(bytes("omp --session " + ID + "\n")))
+                .containsExactly(new ResumeIdScanner.Capture("omp", ID));
+    }
+
+    @Test
     void anOpenCodeIdsCaseIsPreservedUnlikeAUuids() {
         ResumeIdScanner scanner = new ResumeIdScanner(null);
         String mixedCaseId = "ses_AbCdEf1234567890ABCDEFabcd";
@@ -79,6 +105,14 @@ class ResumeIdScannerTest {
 
         assertThat(scanner.feed(bytes("session id: " + ID + "\n")))
                 .containsExactly(new ResumeIdScanner.Capture("codex", ID));
+    }
+
+    @Test
+    void aLabeledSessionIdIsAttributedToOmpWhenThatIsTheLaunchCommandsTool() {
+        ResumeIdScanner scanner = new ResumeIdScanner(ResumeIdScanner.OMP);
+
+        assertThat(scanner.feed(bytes("session id: " + ID + "\n")))
+                .containsExactly(new ResumeIdScanner.Capture("omp", ID));
     }
 
     @Test
@@ -147,6 +181,7 @@ class ResumeIdScannerTest {
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"claude"})).isEqualTo("claude");
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"/usr/local/bin/codex"})).isEqualTo("codex");
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"/usr/local/bin/opencode"})).isEqualTo("opencode");
+        assertThat(ResumeIdScanner.toolHintFor(new String[] {"/usr/local/bin/omp"})).isEqualTo("omp");
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"/bin/sh", "-i"})).isNull();
         assertThat(ResumeIdScanner.toolHintFor(null)).isNull();
     }

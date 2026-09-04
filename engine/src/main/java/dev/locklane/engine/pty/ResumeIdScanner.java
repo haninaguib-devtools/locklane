@@ -9,11 +9,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Watches one session's output stream for a Claude/Codex/OpenCode resume id (#102,
- * #295) — the id that {@code claude --resume <id>}, {@code codex resume <id>}, or
- * {@code opencode --session <id>} accepts. Current CLI versions print no id at plain
- * startup; ids surface later — a status screen, a crash/exit hint — so the scanner
- * watches the whole stream for the session's lifetime, not a startup banner.
+ * Watches one session's output stream for a Claude/Codex/OpenCode/omp resume id (#102,
+ * #295, #681) — the id that {@code claude --resume <id>}, {@code codex resume <id>},
+ * {@code opencode --session <id>}, or {@code omp --resume <id>} accepts. Current CLI
+ * versions print no id at plain startup; ids surface later — a status screen, a
+ * crash/exit hint — so the scanner watches the whole stream for the session's lifetime,
+ * not a startup banner.
  *
  * <p>Terminal UIs interleave ANSI escape sequences with text and split lines across
  * PTY reads, so raw chunks are accumulated into a bounded rolling window and escape
@@ -34,6 +35,7 @@ final class ResumeIdScanner {
     static final String CLAUDE = "claude";
     static final String CODEX = "codex";
     static final String OPENCODE = "opencode";
+    static final String OMP = "omp";
 
     private static final String UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
     // OpenCode's own ids are ULID-based (`ses_` + 26 base32 characters), not UUIDs; the
@@ -49,6 +51,12 @@ final class ResumeIdScanner {
             Pattern.compile("(?i)\\bcodex\\s+resume\\s+(" + UUID + ")");
     private static final Pattern OPENCODE_RESUME_COMMAND =
             Pattern.compile("(?i)\\bopencode\\s+(?:--session|-s)\\s+(" + OPENCODE_ID + ")");
+    // omp's own ids are UUIDv7 (confirmed from its session storage source, which mints
+    // them via `Bun.randomUUIDv7()`) — the same shape as Claude/Codex, so they reuse
+    // UUID rather than a fourth id pattern. `--resume`, `-r`, and `--session` are all
+    // equivalent per omp's CLI reference.
+    private static final Pattern OMP_RESUME_COMMAND =
+            Pattern.compile("(?i)\\bomp\\s+(?:--resume|-r|--session)\\s+(" + UUID + ")");
     private static final Pattern LABELED_SESSION_ID =
             Pattern.compile("(?i)\\bsession[ _-]?id\\s*[:=]?\\s*(" + ANY_ID + ")");
 
@@ -76,7 +84,7 @@ final class ResumeIdScanner {
     private final StringBuilder window = new StringBuilder();
     private final Set<String> reported = new HashSet<>();
 
-    /** {@code toolHint}: {@link #CLAUDE}, {@link #CODEX}, {@link #OPENCODE}, or null when the launch command names neither. */
+    /** {@code toolHint}: {@link #CLAUDE}, {@link #CODEX}, {@link #OPENCODE}, {@link #OMP}, or null when the launch command names none of them. */
     ResumeIdScanner(String toolHint) {
         this.toolHint = toolHint;
     }
@@ -97,6 +105,9 @@ final class ResumeIdScanner {
         if (basename.startsWith(OPENCODE)) {
             return OPENCODE;
         }
+        if (basename.startsWith(OMP)) {
+            return OMP;
+        }
         return null;
     }
 
@@ -114,6 +125,7 @@ final class ResumeIdScanner {
         collect(captures, CLAUDE_RESUME_COMMAND, plain, CLAUDE);
         collect(captures, CODEX_RESUME_COMMAND, plain, CODEX);
         collect(captures, OPENCODE_RESUME_COMMAND, plain, OPENCODE);
+        collect(captures, OMP_RESUME_COMMAND, plain, OMP);
         if (toolHint != null) {
             collect(captures, LABELED_SESSION_ID, plain, toolHint);
         }

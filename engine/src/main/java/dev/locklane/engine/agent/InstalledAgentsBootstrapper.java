@@ -9,10 +9,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Probes the host `PATH` once at startup (#359) for each currently-supported CLI —
- * `claude`, `codex`, `opencode`, the same names {@code ResumeIdScanner} and
- * {@code TerminalWebSocketHandler} already use — so the Settings dialog's
- * "Default agent" picker (served from {@link InstalledAgentsController}) only offers
- * one a caller can actually launch.
+ * `claude`, `codex`, `opencode`, `omp` (#681), the same names {@code ResumeIdScanner}
+ * already recognizes — so the Settings dialog's "Default agent" picker (served from
+ * {@link InstalledAgentsController}) only offers one a caller can actually launch.
  */
 @Component
 public class InstalledAgentsBootstrapper implements ApplicationRunner {

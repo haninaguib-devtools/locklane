@@ -25,6 +25,12 @@ describe('labelConsoles', () => {
 
     expect(tabs[0].label).toBe('wtree');
   });
+
+  it('tags a tab with omp the same way as any other known agent (#681)', () => {
+    const tabs = labelConsoles([{ id: '1-7-rename-toggle', agent: 'omp' }]);
+
+    expect(tabs[0].label).toBe('wtree · omp');
+  });
 });
 
 describe('labelProjectConsoles (#449)', () => {
