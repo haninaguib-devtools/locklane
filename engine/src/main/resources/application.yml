@@ -102,6 +102,15 @@ locklane:
     # device silently dropping an idle connection) and closed, so the client finally
     # gets a `close` event to reconnect on.
     heartbeat-interval-ms: 20000
+  events:
+    # How often dev.locklane.engine.ws.EventsWebSocketHandler pings each live
+    # /ws/events connection (#665), same mechanism and same default as the terminal
+    # heartbeat above: a connection that misses two of these in a row is presumed
+    # dead (a proxy idle timeout, laptop sleep, or a throttled background tab
+    # silently dropping it) and closed, so EventsService's own reconnect logic
+    # finally gets a `close` event to react to instead of sitting on a socket
+    # nothing will ever answer on again.
+    heartbeat-interval-ms: 20000
   release-check:
     # This repo's own owner/name (#287), for `gh release view --repo` to check for a
     # newer permanent release than the one running. Explicit rather than relying on

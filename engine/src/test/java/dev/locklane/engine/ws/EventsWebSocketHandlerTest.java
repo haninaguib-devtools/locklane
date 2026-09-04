@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Covers #287's "a newly-connecting client is told too" done-when directly, against a
@@ -27,6 +28,7 @@ class EventsWebSocketHandlerTest {
         EventsWebSocketHandler handler =
                 new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0-SNAPSHOT", Optional::empty);
         WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("s");
 
         handler.afterConnectionEstablished(session);
 
@@ -44,6 +46,7 @@ class EventsWebSocketHandlerTest {
                 () -> Optional.of(new ReleaseUpdateChecker.NewerRelease(
                         "0.2.0", "https://github.com/o/r/releases/tag/v0.2.0")));
         WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("s");
 
         handler.afterConnectionEstablished(session);
 
@@ -57,6 +60,7 @@ class EventsWebSocketHandlerTest {
         EventsWebSocketHandler handler =
                 new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", Optional::empty);
         WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("s");
 
         handler.afterConnectionEstablished(session);
 

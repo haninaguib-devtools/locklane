@@ -1,8 +1,6 @@
 package dev.locklane.engine.ws;
 
-import dev.locklane.engine.github.ReleaseUpdateChecker;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.info.BuildProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -13,26 +11,18 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 public class WebSocketConfig implements WebSocketConfigurer {
 
     private final TerminalWebSocketHandler terminalWebSocketHandler;
-    private final EventBroadcaster eventBroadcaster;
-    private final ReleaseUpdateChecker releaseUpdateChecker;
+    // A Spring-managed bean since #665 (unlike before, when this class built it by
+    // hand): its own @Scheduled heartbeat tick only runs if Spring's scheduler
+    // actually owns the bean.
+    private final EventsWebSocketHandler eventsWebSocketHandler;
     private final String[] allowedOrigins;
-    // The events channel's version stamp (#273): BuildProperties#getTime() is stamped
-    // at Maven build time (see engine/pom.xml's build-info execution), so it differs
-    // between any two builds, including two builds of the same commit.
-    private final String versionStamp;
-    // The human-readable version this build was made as (#467): the Maven project
-    // version, e.g. 0.1.0-SNAPSHOT on a dev build, 0.1.0 on a release build.
-    private final String runningVersion;
 
-    public WebSocketConfig(TerminalWebSocketHandler terminalWebSocketHandler, EventBroadcaster eventBroadcaster,
-            ReleaseUpdateChecker releaseUpdateChecker,
-            @Value("${locklane.security.allowed-origins}") String allowedOrigins, BuildProperties buildProperties) {
+    public WebSocketConfig(TerminalWebSocketHandler terminalWebSocketHandler,
+            EventsWebSocketHandler eventsWebSocketHandler,
+            @Value("${locklane.security.allowed-origins}") String allowedOrigins) {
         this.terminalWebSocketHandler = terminalWebSocketHandler;
-        this.eventBroadcaster = eventBroadcaster;
-        this.releaseUpdateChecker = releaseUpdateChecker;
+        this.eventsWebSocketHandler = eventsWebSocketHandler;
         this.allowedOrigins = allowedOrigins.split(",");
-        this.versionStamp = buildProperties.getTime().toString();
-        this.runningVersion = buildProperties.getVersion();
     }
 
     @Override
@@ -43,8 +33,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .setAllowedOrigins(allowedOrigins);
         // The app-wide notification channel (#128), separate from the per-session
         // terminal sockets above.
-        registry.addHandler(new EventsWebSocketHandler(eventBroadcaster, versionStamp, runningVersion,
-                        releaseUpdateChecker::newerReleaseAvailable), "/ws/events")
+        registry.addHandler(eventsWebSocketHandler, "/ws/events")
                 .setAllowedOrigins(allowedOrigins);
     }
 }
