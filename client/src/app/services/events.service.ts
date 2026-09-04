@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, OnDestroy, signal } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 
 /** One message off the app-wide events channel (dev.locklane.engine.ws.EventsWebSocketHandler, /ws/events, #128). */
@@ -123,18 +123,31 @@ const MAX_BACKOFF_MS = 30000;
  * exponential backoff after a drop, since the engine may restart or a laptop may sleep
  * mid-session.
  *
+ * The engine pings this connection on a schedule and closes it if it ever misses two
+ * pongs in a row (`EventsWebSocketHandler`, #665) -- but that alone still leaves a gap
+ * up to twice that interval before a dead connection (a proxy idle timeout, laptop
+ * sleep, or a throttled background tab silently dropping it) produces a `close` event
+ * to reconnect on. `checkConnection()` closes that gap the moment a human is actually
+ * looking again, the same way `TerminalSession.checkConnection()` /
+ * `TerminalComponent.checkConnectionOnForeground` already do for each console tab's
+ * own socket (#279).
+ *
  * `reconnected$` exists so a consumer can trigger a full re-fetch to catch up on
  * whatever happened while the socket was down, rather than trusting the stream to
  * have delivered everything.
  */
 @Injectable({ providedIn: 'root' })
-export class EventsService {
+export class EventsService implements OnDestroy {
   private socket: WebSocket | null = null;
   private backoffMs = INITIAL_BACKOFF_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   // False until the first successful connect -- `reconnected$` fires on every
   // connect after that one, never on the first (there is nothing to catch up on yet).
   private everConnected = false;
+  // Guards against attaching the foreground listeners more than once across repeated
+  // connect() calls (#665) -- connect() itself is already idempotent about the socket,
+  // but that check returns early on a live socket, before this would otherwise run.
+  private foregroundListenersAttached = false;
 
   // The stamp from the first `engineVersion` message ever seen (#273) -- set once and
   // never overwritten, so every later message (one per reconnect) is compared against
@@ -167,9 +180,62 @@ export class EventsService {
 
   /** Opens the connection. Idempotent -- a second call while already open/connecting is a no-op. */
   connect(): void {
+    this.attachForegroundListeners();
     if (this.socket) {
       return;
     }
+    this.open();
+  }
+
+  private attachForegroundListeners(): void {
+    if (this.foregroundListenersAttached) {
+      return;
+    }
+    this.foregroundListenersAttached = true;
+    document.addEventListener('visibilitychange', this.checkConnectionOnForeground);
+    window.addEventListener('focus', this.checkConnectionOnForeground);
+  }
+
+  // `visibilitychange` fires on the document (and can fire while a background tab
+  // stays unfocused, e.g. a whole window minimizing); `focus` fires on the window but
+  // can also fire while still hidden (a devtools panel taking it without the page
+  // itself becoming visible) -- `visibilityState` re-checks that either way, mirroring
+  // TerminalComponent.checkConnectionOnForeground (#279). Named rather than inline so
+  // ngOnDestroy's removeEventListener below actually matches.
+  private readonly checkConnectionOnForeground = (): void => {
+    if (document.visibilityState === 'visible') {
+      this.checkConnection();
+    }
+  };
+
+  /**
+   * This service is a root singleton the running app never destroys -- but a test
+   * that constructs one directly (bypassing Angular's injector) needs a way to detach
+   * its listeners afterwards, or a later test's own dispatch would also reconnect this
+   * one's now-orphaned socket (#665).
+   */
+  ngOnDestroy(): void {
+    document.removeEventListener('visibilitychange', this.checkConnectionOnForeground);
+    window.removeEventListener('focus', this.checkConnectionOnForeground);
+  }
+
+  /**
+   * Re-checks the connection when the tab regains focus/visibility (#665): if it is
+   * not currently open, reconnect right away instead of waiting out whatever backoff
+   * delay is pending -- mirrors `TerminalSession.checkConnection()` (#279). The whole
+   * point of watching for this is to catch up the moment the user comes back, not
+   * after a timer that may itself have been throttled while the tab was backgrounded.
+   */
+  checkConnection(): void {
+    const state = this.socket?.readyState;
+    if (state === WebSocket.CONNECTING || state === WebSocket.OPEN) {
+      return;
+    }
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.backoffMs = INITIAL_BACKOFF_MS;
     this.open();
   }
 
