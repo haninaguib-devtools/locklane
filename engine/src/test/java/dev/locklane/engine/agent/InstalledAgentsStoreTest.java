@@ -20,4 +20,9 @@ class InstalledAgentsStoreTest {
 
         assertThat(store.installed()).containsExactlyInAnyOrder("claude", "codex");
     }
+
+    @Test
+    void knownAgentsIncludesOmp() {
+        assertThat(InstalledAgentsStore.KNOWN_AGENTS).containsExactly("claude", "codex", "opencode", "omp");
+    }
 }
