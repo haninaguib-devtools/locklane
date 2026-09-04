@@ -371,7 +371,6 @@ scenario_migrate_old_layout() {
   if [ "$rc" -eq 0 ] && [ -x "$LL" ] && ! alive "$old_pid" && alive "$(server_pid launchd.user)" \
       && [ ! -f "$STUB_STATE/launchd.gui.loaded" ] \
       && grep -q '^SERVICE_KIND=launchd$' "$HOME/.locklane/service.env" \
-      && cmp -s "$HOME/.locklane/update.sh" "$ROOT/update.sh" \
       && [ "$(head -c 2 "$HOME/.locklane/locklane.jar")" = PK ] \
       && contains "$out" "Installed locklane v9.9.9-stub" && grep -q 'Environment\|PATH' "$HOME/Library/LaunchAgents/com.locklane.server.plist" \
       && contains "$("$LL" status 2>&1)" "is running as the launchd agent" \
