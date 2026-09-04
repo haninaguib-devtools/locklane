@@ -534,9 +534,11 @@ class ProjectConsoleServiceTest {
 
         assertThat(environment).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "GH_TOKEN", "ghp_https_token",
-                "GIT_CONFIG_COUNT", "1",
+                "GIT_CONFIG_COUNT", "2",
                 "GIT_CONFIG_KEY_0", GitCredential.HELPER_KEY,
-                "GIT_CONFIG_VALUE_0", GitCredential.HELPER_SCRIPT));
+                "GIT_CONFIG_VALUE_0", "",
+                "GIT_CONFIG_KEY_1", GitCredential.HELPER_KEY,
+                "GIT_CONFIG_VALUE_1", GitCredential.HELPER_SCRIPT));
         assertThat(service.environmentFor(projectId + "-174-rename-toggle")).isEqualTo(environment);
     }
 

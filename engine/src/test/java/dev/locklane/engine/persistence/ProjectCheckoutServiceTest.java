@@ -197,7 +197,8 @@ class ProjectCheckoutServiceTest {
 
         assertThat(credential.present()).isTrue();
         assertThat(credential.command("clone", project.gitUrl(), "dest"))
-                .containsExactly("git", "-c", "credential.helper=" + ProjectCheckoutService.CREDENTIAL_HELPER_SCRIPT,
+                .containsExactly("git", "-c", "credential.helper=",
+                        "-c", "credential.helper=" + ProjectCheckoutService.CREDENTIAL_HELPER_SCRIPT,
                         "clone", project.gitUrl(), "dest");
         assertThat(credential.environment()).containsEntry("GH_TOKEN", "ghp_secret");
     }
@@ -720,6 +721,26 @@ class ProjectCheckoutServiceTest {
         // after the clone, so a later push or fetch from any worktree authenticates too.
         assertThat(run(project.workareaPath(), "git", "config", "--get", "credential.helper").strip())
                 .isEqualTo(ProjectCheckoutService.CREDENTIAL_HELPER_SCRIPT);
+    }
+
+    // #687: a host's own system-wide credential helper (macOS's osxkeychain) answers
+    // before a later, non-empty credential.helper entry -- git only replaces earlier
+    // entries on an empty one, so the repo-local config must carry both, in order.
+
+    @Test
+    void configureCredentialHelperInstallsAnEmptyResetBeforeTheHelperAndIsIdempotent(@TempDir Path tmp)
+            throws Exception {
+        Path workarea = tmp.resolve("workarea");
+        run(tmp, "git", "init", "-q", workarea.toString());
+        String expected = "\n" + ProjectCheckoutService.CREDENTIAL_HELPER_SCRIPT + "\n";
+
+        assertThat(ProjectCheckoutService.configureCredentialHelper(workarea).failed()).isFalse();
+        assertThat(run(workarea, "git", "config", "--get-all", "credential.helper")).isEqualTo(expected);
+
+        // Re-running on an already-configured checkout leaves exactly these two
+        // entries -- never a growing list.
+        assertThat(ProjectCheckoutService.configureCredentialHelper(workarea).failed()).isFalse();
+        assertThat(run(workarea, "git", "config", "--get-all", "credential.helper")).isEqualTo(expected);
     }
 
     @Test

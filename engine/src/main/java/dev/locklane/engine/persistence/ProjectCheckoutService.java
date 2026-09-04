@@ -595,9 +595,29 @@ public class ProjectCheckoutService {
         log.info("Project {} ready on branch {}", project.id(), branch);
     }
 
-    /** Configures {@link #CREDENTIAL_HELPER_SCRIPT} repo-locally in {@code workarea} (#551). */
-    private static ProcessOutcome configureCredentialHelper(Path workarea) {
-        return run(workarea, "git", "config", "credential.helper", CREDENTIAL_HELPER_SCRIPT);
+    /**
+     * Configures {@code credential.helper} repo-locally in {@code workarea} (#551) as
+     * two entries in order: an empty reset value, then {@link #CREDENTIAL_HELPER_SCRIPT}
+     * — the same shape {@link GitCredential} installs inline and in a session's
+     * environment, and for the same reason (#687): git only replaces earlier
+     * {@code credential.helper} entries — such as a host's own system-wide helper — on
+     * an empty one, never on a later non-empty value. {@code git config <key> <value>}
+     * (a single-value set) cannot express two entries, so this clears whatever is
+     * already configured first ({@code --unset-all}, tolerating its "no such key" exit
+     * 5 the first time this ever runs) and re-adds both, which is idempotent: running
+     * it again on an already-configured checkout leaves exactly these two entries, not
+     * a growing list.
+     */
+    static ProcessOutcome configureCredentialHelper(Path workarea) {
+        ProcessOutcome unset = run(workarea, "git", "config", "--unset-all", "credential.helper");
+        if (unset.failed() && unset.exitCode() != 5) {
+            return unset;
+        }
+        ProcessOutcome reset = run(workarea, "git", "config", "--add", "credential.helper", "");
+        if (reset.failed()) {
+            return reset;
+        }
+        return run(workarea, "git", "config", "--add", "credential.helper", CREDENTIAL_HELPER_SCRIPT);
     }
 
     /**
