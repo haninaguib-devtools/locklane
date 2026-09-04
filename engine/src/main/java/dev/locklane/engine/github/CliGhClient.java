@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -148,6 +149,13 @@ public class CliGhClient implements GhClient {
     }
 
     private String run(String... command) {
+        // Checked up front (#671): ProcessBuilder.start() reports a missing working
+        // directory with the same "error=2, No such file or directory" it reports for a
+        // missing executable, and the catch below would blame gh's PATH for it.
+        if (!Files.isDirectory(workingDirectory)) {
+            throw new GhUnavailableException(
+                    "Could not run gh: the project directory " + workingDirectory + " does not exist", null);
+        }
         try {
             ProcessBuilder builder = new ProcessBuilder(command).directory(workingDirectory.toFile());
             if (token != null && !token.isBlank()) {

@@ -2,13 +2,31 @@ package dev.locklane.engine.github;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Covers #397: the rollup parse keeps each check's name, outcome, and link. */
+/**
+ * Covers #397 (the rollup parse keeps each check's name, outcome, and link) and #671
+ * (a missing working directory is reported as such, never as a missing gh).
+ */
 class CliGhClientTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Test
+    void aMissingWorkingDirectoryIsNamedInsteadOfBlamingGhsPath(@TempDir Path dir) {
+        Path missing = dir.resolve("not-cloned-yet");
+        CliGhClient client = new CliGhClient(missing, null);
+
+        assertThatThrownBy(client::issues)
+                .isInstanceOf(GhClient.GhUnavailableException.class)
+                .hasMessageContaining(missing.toString())
+                .hasMessageNotContaining("PATH");
+    }
 
     @Test
     void keepsEveryChecksNameOutcomeAndLink() throws Exception {
