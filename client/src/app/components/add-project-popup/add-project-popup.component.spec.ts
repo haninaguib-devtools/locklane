@@ -78,6 +78,10 @@ describe('AddProjectPopupComponent', () => {
     fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
     let closed = 0;
     fixture.componentInstance.closed.subscribe(() => closed++);
+    let imported: Project | undefined;
+    fixture.componentInstance.imported.subscribe((p) => (imported = p));
+    let createdEmitted = false;
+    fixture.componentInstance.created.subscribe(() => (createdEmitted = true));
     fixture.componentInstance.submit();
     fixture.detectChanges();
 
@@ -98,20 +102,26 @@ describe('AddProjectPopupComponent', () => {
 
     httpMock.expectOne('/api/projects').flush(PROJECT);
     fixture.detectChanges();
-    expect(fixture.componentInstance.submitting).toBeFalse();
-    expect(compiled.querySelector('.submit-hint')).toBeFalsy();
+    // Import success hands off, not closes: still locked, timer still running --
+    // the host closes the dialog once the sidebar reveal completes.
+    expect(fixture.componentInstance.submitting).toBeTrue();
+    expect(compiled.querySelector('.submit-hint')).toBeTruthy();
+    expect(imported).toEqual(PROJECT);
+    expect(createdEmitted).toBeFalse();
 
     fixture.componentInstance.close();
-    expect(closed).toBe(1);
+    expect(closed).toBe(0);
   }));
 
-  it('submits the URL and name, emitting the created project', () => {
+  it('submits the URL and name, emitting imported and holding the dialog open for the sidebar handoff', () => {
     const fixture = create();
     fixture.componentInstance.gitUrl = ' https://github.com/foo/bar.git ';
     fixture.componentInstance.name = 'bar';
 
     let emitted: Project | undefined;
-    fixture.componentInstance.created.subscribe((p) => (emitted = p));
+    fixture.componentInstance.imported.subscribe((p) => (emitted = p));
+    let createdEmitted = false;
+    fixture.componentInstance.created.subscribe(() => (createdEmitted = true));
     fixture.componentInstance.submit();
 
     expect(fixture.componentInstance.submitting).toBeTrue();
@@ -120,8 +130,9 @@ describe('AddProjectPopupComponent', () => {
     expect(req.request.body).toEqual({ gitUrl: 'https://github.com/foo/bar.git', name: 'bar' });
     req.flush(PROJECT);
 
-    expect(fixture.componentInstance.submitting).toBeFalse();
+    expect(fixture.componentInstance.submitting).toBeTrue();
     expect(emitted).toEqual(PROJECT);
+    expect(createdEmitted).toBeFalse();
   });
 
   it('submitting a blank name still succeeds (the backend derives one)', () => {
@@ -225,24 +236,25 @@ describe('AddProjectPopupComponent', () => {
       const fixture = render();
       flushAccounts([]);
       fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
+      fixture.componentInstance.setMode('create');
+      fixture.componentInstance.org = 'my-org';
+      fixture.componentInstance.newRepoName = 'my-project';
       fixture.detectChanges();
 
       expect(fixture.nativeElement.querySelector('select.github-login')).toBeNull();
       expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('GitHub accounts');
+      expect(submitButton(fixture).disabled).toBeTrue();
+
+      // Import stays enabled with no account -- and checks the mode switch before
+      // submitting, since a success now holds the dialog locked for the handoff.
+      fixture.componentInstance.setMode('import');
+      fixture.detectChanges();
       expect(submitButton(fixture).disabled).toBeFalse();
 
       fixture.componentInstance.submit();
       const importReq = httpMock.expectOne('/api/projects');
       expect(importReq.request.body).toEqual({ gitUrl: 'https://github.com/foo/bar.git', name: '' });
       importReq.flush(PROJECT);
-
-      fixture.componentInstance.setMode('create');
-      fixture.componentInstance.org = 'my-org';
-      fixture.componentInstance.newRepoName = 'my-project';
-      fixture.detectChanges();
-
-      expect(fixture.nativeElement.querySelector('.no-accounts')?.textContent).toContain('GitHub accounts');
-      expect(submitButton(fixture).disabled).toBeTrue();
     });
 
     it('holds the create button disabled until the accounts have loaded', () => {

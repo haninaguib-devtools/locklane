@@ -94,7 +94,7 @@
       <app-github-accounts (closed)="closeGithubAccounts()" />
     }
     @if (showAddProject) {
-      <app-add-project-popup (created)="onProjectCreated($event)" (closed)="onAddProjectClosed()" />
+      <app-add-project-popup (created)="onProjectCreated($event)" (imported)="onProjectImported($event)" (closed)="onAddProjectClosed()" />
     }
   </div>
 }

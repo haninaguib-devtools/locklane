@@ -19,4 +19,4 @@ Importing an existing repo or creating a new one feels dead while the background
 - `AppComponent.onProjectCreated` takes the created `Project` and always reveals it in the sidenav (branchless: both import and create responses are CLONING; a READY response highlighting briefly is harmless).
 
 ## Deviations / notes
-- none
+- Dialog handoff (human's call, 2026-09-05): the first cut closed the import dialog on POST success, leaving a 2-3s dead gap before the sidebar row appeared after its full-list refresh -- the human saw exactly that locally and rejected it. Now the import dialog stays open, locked with its timer running, emitting `imported` instead of `created`; the host closes it from the reveal's `done`, which also fires when the reload fails so the dialog can never trap. `created` is now create-mode only. Verified live against the local dev instance (compose-manager import).

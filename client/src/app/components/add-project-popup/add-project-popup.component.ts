@@ -35,6 +35,10 @@ export class AddProjectPopupComponent implements OnInit, OnDestroy {
 
   @Output() created = new EventEmitter<Project>();
   @Output() closed = new EventEmitter<void>();
+  // Import success (#717): the dialog stays open -- locked, timer running -- until
+  // the host's sidebar reveal completes, so there is no dead gap between the
+  // dialog closing and the new row appearing. The host closes the dialog then.
+  @Output() imported = new EventEmitter<Project>();
 
   mode: AddProjectMode = 'import';
 
@@ -187,8 +191,9 @@ export class AddProjectPopupComponent implements OnInit, OnDestroy {
     this.startSubmit();
     this.projectsService.create(this.gitUrl.trim(), this.name.trim(), this.chosenAccountId()).subscribe({
       next: (project) => {
-        this.finishSubmit();
-        this.created.emit(project);
+        // No finishSubmit: the dialog stays locked with its timer running until
+        // the host closes it after the sidebar reveal (see `imported`).
+        this.imported.emit(project);
       },
       error: (err: HttpErrorResponse) => {
         this.finishSubmit();

@@ -511,7 +511,8 @@ describe('SidenavComponent', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.isProjectCollapsed(2)).toBeTrue();
 
-    fixture.componentInstance.revealProject(2);
+    let done = 0;
+    fixture.componentInstance.revealProject(2, () => done++);
     expect(fixture.componentInstance.isProjectCollapsed(2)).toBeFalse();
     // revealProject refreshes fresh (#545) so the just-created row exists.
     httpMock.expectOne('/api/projects').flush([PROJECT_A, cloning]);
@@ -522,6 +523,7 @@ describe('SidenavComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(fixture.componentInstance.revealedProjectId).toBe(2);
     expect(compiled.querySelector('.project-section.revealed[data-project-id="2"]')).toBeTruthy();
+    expect(done).toBe(1);
 
     // The highlight clears, and settling to READY stops every timer.
     tick(3000);
@@ -531,6 +533,23 @@ describe('SidenavComponent', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.revealedProjectId).toBeNull();
 
+    fixture.destroy();
+  }));
+
+  it('a failed reveal reload still fires done rather than trapping the waiter (#717)', fakeAsync(() => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    let done = 0;
+    fixture.componentInstance.revealProject(9, () => done++);
+    httpMock.expectOne('/api/projects').error(new ProgressEvent('network error'));
+    fixture.detectChanges();
+
+    expect(done).toBe(1);
+    expect(fixture.componentInstance.revealedProjectId).toBeNull();
+    tick(3000);
+    httpMock.expectNone('/api/projects');
     fixture.destroy();
   }));
 

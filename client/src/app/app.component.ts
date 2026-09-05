@@ -260,6 +260,17 @@ export class AppComponent {
     this.overview?.refresh();
   }
 
+  // An import keeps its dialog open -- locked, timer running -- until the sidebar
+  // actually has the new row (#717): the reveal's `done` closes the dialog, so
+  // there is no dead gap between the dialog closing and the row appearing. A
+  // failed reload still closes it (the reveal never traps the waiter).
+  onProjectImported(project: Project): void {
+    this.overview?.refresh();
+    this.sidenav?.revealProject(project.id, () => {
+      this.showAddProject = false;
+    });
+  }
+
   onAddProjectClosed(): void {
     this.showAddProject = false;
   }

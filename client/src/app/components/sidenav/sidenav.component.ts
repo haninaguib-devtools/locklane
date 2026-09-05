@@ -144,6 +144,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   revealedProjectId: number | null = null;
   private revealTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRevealId: number | null = null;
+  private pendingRevealDone: (() => void) | null = null;
   // "<projectId>:<issueNumber>" for every issue with at least one open console
   // (#108), refreshed whenever a console opens or closes anywhere in the app.
   private openConsoleIssues = new Set<string>();
@@ -326,6 +327,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
         error: () => {
           this.error = true;
           onDone();
+          this.dropPendingReveal();
         },
       });
   }
@@ -496,13 +498,16 @@ export class SidenavComponent implements OnInit, OnDestroy {
    * reloads so the row exists, then scrolls it into view and highlights it
    * briefly. Called by the host on every created project -- import and create
    * responses alike are CLONING, and a momentary highlight on a READY row is
-   * harmless.
+   * harmless. `done`, when given, fires once the row is revealed -- or when the
+   * reload failed, so a caller holding UI open on it (the import dialog) can
+   * never be trapped by a reveal that will not complete.
    */
-  revealProject(projectId: number): void {
+  revealProject(projectId: number, done?: () => void): void {
     if (this.projectSectionStore.isCollapsed(projectId)) {
       this.projectSectionStore.toggle(projectId);
     }
     this.pendingRevealId = projectId;
+    this.pendingRevealDone = done ?? null;
     this.refresh();
     if (this.sections.some((s) => s.project.id === projectId)) {
       this.maybeReveal();
@@ -553,7 +558,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
       this.tickTimer = null;
     }
   }
-
   /** Completes a pending reveal once the reloaded list carries the project (#717). */
   private maybeReveal(): void {
     const id = this.pendingRevealId;
@@ -574,6 +578,24 @@ export class SidenavComponent implements OnInit, OnDestroy {
         this.revealedProjectId = null;
       }
     }, 3000);
+    this.takeRevealDone()?.();
+  }
+
+  /**
+   * Releases a pending reveal without revealing -- the reload failed, so the row
+   * may never arrive; the waiter still gets its `done` rather than hanging (#717).
+   */
+  private dropPendingReveal(): void {
+    if (this.pendingRevealId !== null) {
+      this.pendingRevealId = null;
+      this.takeRevealDone()?.();
+    }
+  }
+
+  private takeRevealDone(): (() => void) | null {
+    const done = this.pendingRevealDone;
+    this.pendingRevealDone = null;
+    return done;
   }
 
   private clearReveal(): void {
