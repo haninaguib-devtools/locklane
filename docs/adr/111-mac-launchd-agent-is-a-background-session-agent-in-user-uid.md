@@ -52,7 +52,7 @@ where it was asked to, and only there.
    lifecycle sequence runs in `user/<uid>` after planting a plain older-style agent in
    `gui/<uid>`, asserting it is retired and the new plist carries the session type.
    The stub harness asserts the same in Linux CI, and also that a refused bootstrap
-   keeps the plist (ADR-110 D2).
+   keeps the plist (ADR-110 Decision 2).
 4. **`locklane stop`'s message stays "macOS loads it again at your next login"** —
    `~/Library/LaunchAgents` is scanned when the user's sessions come up, Background
    included — and `README.md` says the same instead of the earlier, wrong "stays down

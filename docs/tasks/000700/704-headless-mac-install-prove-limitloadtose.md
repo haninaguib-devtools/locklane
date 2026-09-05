@@ -67,7 +67,7 @@ requirement if it does not.
   scenarios inverted again and the retirement scenario now plants in `gui`; the macOS
   job's sequence runs in `user/<uid>` after planting a plain older agent in `gui/<uid>`
   and asserts it is retired; the probe step became an assertion. ADR-111 supersedes
-  ADR-110 D1; `CONSTITUTION.md` §4.6 updated; `README.md` § Installing corrected and
+  ADR-110 Decision 1; `CONSTITUTION.md` §4.6 updated; `README.md` § Installing corrected and
   extended.
 - **Accepted trade-off, for the human to keep in mind after the release** (ADR-111
   § Consequences): the server and console-tab tools now run in the Background
