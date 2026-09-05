@@ -9,14 +9,14 @@
         <h2>Default agent</h2>
         <p class="muted">Which agent new consoles launch with by default.</p>
         <div class="agent-toggle" role="group" aria-label="Default agent">
-          @for (agent of installedAgents(); track agent) {
+          @for (agent of installedAgents(); track agent.id) {
             <button
               type="button"
               class="agent-option"
-              [class.chosen]="defaultAgent() === agent"
-              (click)="chooseDefaultAgent(agent)"
+              [class.chosen]="defaultAgent() === agent.id"
+              (click)="chooseDefaultAgent(agent.id)"
             >
-              {{ agentLabels[agent] }}
+              {{ agent.label }}
             </button>
           }
         </div>

@@ -46,6 +46,21 @@ public class ClaudeUsageProvider implements UsageProvider {
     }
 
     @Override
+    public String id() {
+        return "claude";
+    }
+
+    @Override
+    public String label() {
+        return "Claude";
+    }
+
+    @Override
+    public String color() {
+        return "var(--green)";
+    }
+
+    @Override
     public ProviderUsage fetch() {
         Optional<String> token = tokenSource.accessToken();
         if (token.isEmpty()) {

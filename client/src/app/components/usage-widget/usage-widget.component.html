@@ -10,76 +10,44 @@
       >
         <span class="usage-label">usage</span>
         <span class="usage-bars">
-          <span class="mini-bar claude" [class.low]="isLow(s.claude)">
-            <span class="mini-fill" [style.width.%]="barPercentUsed(s.claude)"></span>
-          </span>
-          <span class="mini-bar codex" [class.low]="isLow(s.codex)">
-            <span class="mini-fill" [style.width.%]="barPercentUsed(s.codex)"></span>
-          </span>
-          <span class="mini-bar opencode" [class.low]="isLow(s.opencode)">
-            <span class="mini-fill" [style.width.%]="barPercentUsed(s.opencode)"></span>
-          </span>
+          @for (provider of s.providers; track provider.id) {
+            <span class="mini-bar" [class.low]="isLow(provider)">
+              <span
+                class="mini-fill"
+                [style.width.%]="barPercentUsed(provider)"
+                [style.background]="isLow(provider) ? null : provider.color"
+              ></span>
+            </span>
+          }
         </span>
       </button>
 
       @if (expanded) {
         <div class="usage-panel">
-          <div class="usage-provider">
-            <div class="usage-provider-name">Claude</div>
-            @if (s.claude.available) {
-              @for (row of providerWindows(s.claude); track row.label) {
-                <div class="usage-window-row">
-                  <div class="usage-window-line">
-                    <span class="usage-window-label">{{ row.label }}</span>
-                    <span class="usage-window-meta">{{ resetLabel(row.window) }} &middot; {{ usedLabel(row.window) }}</span>
+          @for (provider of s.providers; track provider.id) {
+            <div class="usage-provider">
+              <div class="usage-provider-name">{{ provider.label }}</div>
+              @if (provider.usage.available) {
+                @for (row of providerWindows(provider); track row.label) {
+                  <div class="usage-window-row">
+                    <div class="usage-window-line">
+                      <span class="usage-window-label">{{ row.label }}</span>
+                      <span class="usage-window-meta">{{ resetLabel(row.window) }} &middot; {{ usedLabel(row.window) }}</span>
+                    </div>
+                    <div class="usage-window-bar" [class.low]="isWindowLow(row.window)">
+                      <div
+                        class="usage-window-fill"
+                        [style.width.%]="percentUsed(row.window)"
+                        [style.background]="isWindowLow(row.window) ? null : provider.color"
+                      ></div>
+                    </div>
                   </div>
-                  <div class="usage-window-bar claude" [class.low]="isWindowLow(row.window)">
-                    <div class="usage-window-fill" [style.width.%]="percentUsed(row.window)"></div>
-                  </div>
-                </div>
+                }
+              } @else {
+                <div class="usage-unavailable">unavailable</div>
               }
-            } @else {
-              <div class="usage-unavailable">unavailable</div>
-            }
-          </div>
-
-          <div class="usage-provider">
-            <div class="usage-provider-name">Codex</div>
-            @if (s.codex.available) {
-              @for (row of providerWindows(s.codex); track row.label) {
-                <div class="usage-window-row">
-                  <div class="usage-window-line">
-                    <span class="usage-window-label">{{ row.label }}</span>
-                    <span class="usage-window-meta">{{ resetLabel(row.window) }} &middot; {{ usedLabel(row.window) }}</span>
-                  </div>
-                  <div class="usage-window-bar codex" [class.low]="isWindowLow(row.window)">
-                    <div class="usage-window-fill" [style.width.%]="percentUsed(row.window)"></div>
-                  </div>
-                </div>
-              }
-            } @else {
-              <div class="usage-unavailable">unavailable</div>
-            }
-          </div>
-
-          <div class="usage-provider">
-            <div class="usage-provider-name">OpenCode</div>
-            @if (s.opencode.available) {
-              @for (row of providerWindows(s.opencode); track row.label) {
-                <div class="usage-window-row">
-                  <div class="usage-window-line">
-                    <span class="usage-window-label">{{ row.label }}</span>
-                    <span class="usage-window-meta">{{ resetLabel(row.window) }} &middot; {{ usedLabel(row.window) }}</span>
-                  </div>
-                  <div class="usage-window-bar opencode" [class.low]="isWindowLow(row.window)">
-                    <div class="usage-window-fill" [style.width.%]="percentUsed(row.window)"></div>
-                  </div>
-                </div>
-              }
-            } @else {
-              <div class="usage-unavailable">unavailable</div>
-            }
-          </div>
+            </div>
+          }
 
           <div class="usage-footer">{{ updatedLabel(s) }}</div>
         </div>

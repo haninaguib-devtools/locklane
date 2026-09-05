@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.agent.InstalledAgentsStore;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,10 +40,13 @@ public class ProjectConsoleController {
 
     private final ProjectConsoleService service;
     private final ConsoleSessionTitles titles;
+    private final InstalledAgentsStore agents;
 
-    public ProjectConsoleController(ProjectConsoleService service, ConsoleSessionTitles titles) {
+    public ProjectConsoleController(ProjectConsoleService service, ConsoleSessionTitles titles,
+            InstalledAgentsStore agents) {
         this.service = service;
         this.titles = titles;
+        this.agents = agents;
     }
 
     /**
@@ -100,7 +104,7 @@ public class ProjectConsoleController {
                 .toList());
         return records.stream()
                 .map(record -> new WorktreeController.ResumeSessionView(record.worktreeId(), record.tool(),
-                        record.resumeId(), record.capturedAt().toString(),
+                        agents.labelFor(record.tool()), record.resumeId(), record.capturedAt().toString(),
                         byConversation.get(record.tool() + ":" + record.resumeId())))
                 .toList();
     }

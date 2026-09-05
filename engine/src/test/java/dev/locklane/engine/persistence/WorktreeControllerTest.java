@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.agent.InstalledAgentsStore;
 import dev.locklane.engine.github.GhClient;
 import dev.locklane.engine.github.GhIssue;
 import dev.locklane.engine.github.GhPullRequest;
@@ -111,7 +112,7 @@ class WorktreeControllerTest {
         WorktreeController controller = controller(dbDir, repository, resumeRepository, List.of());
 
         assertThat(controller.resumeSessions(1, 174, ALICE)).containsExactly(
-                new WorktreeController.ResumeSessionView("1-174-rename-toggle", "claude",
+                new WorktreeController.ResumeSessionView("1-174-rename-toggle", "claude", "Claude",
                         "aaaaaaaa-0000-0000-0000-000000000000", "2026-08-25T12:00:00Z", null));
         assertThat(controller.resumeSessions(1, 175, ALICE)).isEmpty();
     }
@@ -228,7 +229,8 @@ class WorktreeControllerTest {
         // lookup resolves to "no title", the fallback #373 defines as ordinary.
         ConsoleSessionTitles titles = new ConsoleSessionTitles(dbDir.resolve("claude"), dbDir.resolve("codex"),
                 directory -> null);
-        return new WorktreeController(worktreeService, creationService, sessionRegistry, titles);
+        return new WorktreeController(worktreeService, creationService, sessionRegistry, titles,
+                new InstalledAgentsStore());
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {

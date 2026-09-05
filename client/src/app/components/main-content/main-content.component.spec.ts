@@ -202,6 +202,7 @@ describe('MainContentComponent', () => {
     const past: ResumeSession = {
       worktreeId: '1-8-slug',
       tool: 'claude',
+      toolLabel: 'Claude',
       resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
       capturedAt: '2026-08-27T10:00:00Z',
       title: null,
@@ -239,6 +240,7 @@ describe('MainContentComponent', () => {
     const past: ResumeSession = {
       worktreeId: '1-8-slug',
       tool: 'codex',
+      toolLabel: 'Codex',
       resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
       capturedAt: '2026-08-27T10:00:00Z',
       title: null,

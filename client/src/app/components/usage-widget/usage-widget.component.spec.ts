@@ -2,7 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { UsageWidgetComponent } from './usage-widget.component';
-import { UsageSnapshot } from '../../models/usage.model';
+import { ProviderUsage, UsageSnapshot } from '../../models/usage.model';
+
+const UNAVAILABLE: ProviderUsage = { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] };
 
 describe('UsageWidgetComponent', () => {
   let httpMock: HttpTestingController;
@@ -27,14 +29,22 @@ describe('UsageWidgetComponent', () => {
     httpMock.expectOne('/api/usage').flush(snapshot);
   }
 
-  it('renders no row at all when both providers are unavailable', () => {
-    const fixture = init();
-    flush({
-      claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+  function snapshotOf(...providers: { id: string; label: string; color?: string; usage: ProviderUsage }[]): UsageSnapshot {
+    return {
+      providers: providers.map((p) => ({ color: '#000', ...p })),
       updatedAt: new Date().toISOString(),
-    });
+    };
+  }
+
+  it('renders no row at all when every provider is unavailable', () => {
+    const fixture = init();
+    flush(
+      snapshotOf(
+        { id: 'claude', label: 'Claude', usage: UNAVAILABLE },
+        { id: 'codex', label: 'Codex', usage: UNAVAILABLE },
+        { id: 'opencode', label: 'OpenCode', usage: UNAVAILABLE },
+      ),
+    );
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.usage-widget')).toBeNull();
@@ -42,12 +52,17 @@ describe('UsageWidgetComponent', () => {
 
   it('shows the collapsed row when at least one provider has data, and expands on click', () => {
     const fixture = init();
-    flush({
-      claude: { available: true, fiveHour: { percentLeft: 75, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
-      codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      updatedAt: new Date().toISOString(),
-    });
+    flush(
+      snapshotOf(
+        {
+          id: 'claude',
+          label: 'Claude',
+          usage: { available: true, fiveHour: { percentLeft: 75, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
+        },
+        { id: 'codex', label: 'Codex', usage: UNAVAILABLE },
+        { id: 'opencode', label: 'OpenCode', usage: UNAVAILABLE },
+      ),
+    );
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.usage-widget')).not.toBeNull();
@@ -61,12 +76,16 @@ describe('UsageWidgetComponent', () => {
 
   it('shows "unavailable" only for the provider that failed, leaving the other provider\'s data intact', () => {
     const fixture = init();
-    flush({
-      claude: { available: true, fiveHour: { percentLeft: 40, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
-      codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      updatedAt: new Date().toISOString(),
-    });
+    flush(
+      snapshotOf(
+        {
+          id: 'claude',
+          label: 'Claude',
+          usage: { available: true, fiveHour: { percentLeft: 40, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
+        },
+        { id: 'codex', label: 'Codex', usage: UNAVAILABLE },
+      ),
+    );
     fixture.detectChanges();
     fixture.componentInstance.toggle();
     fixture.detectChanges();
@@ -76,14 +95,24 @@ describe('UsageWidgetComponent', () => {
     expect(text).toContain('60% used');
   });
 
-  it('shows OpenCode as a third provider, alongside Claude and Codex', () => {
+  it('renders one provider block per entry in the server-sent list, generically', () => {
     const fixture = init();
-    flush({
-      claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      opencode: { available: true, fiveHour: { percentLeft: 90, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
-      updatedAt: new Date().toISOString(),
-    });
+    flush(
+      snapshotOf(
+        { id: 'claude', label: 'Claude', usage: UNAVAILABLE },
+        { id: 'codex', label: 'Codex', usage: UNAVAILABLE },
+        {
+          id: 'opencode',
+          label: 'OpenCode',
+          usage: { available: true, fiveHour: { percentLeft: 90, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
+        },
+        {
+          id: 'omp',
+          label: 'OMP',
+          usage: { available: true, fiveHour: { percentLeft: 80, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
+        },
+      ),
+    );
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.usage-widget')).not.toBeNull();
@@ -94,30 +123,56 @@ describe('UsageWidgetComponent', () => {
     const names = Array.from(
       fixture.nativeElement.querySelectorAll('.usage-provider-name') as NodeListOf<HTMLElement>,
     ).map((el) => el.textContent);
-    expect(names).toEqual(['Claude', 'Codex', 'OpenCode']);
+    expect(names).toEqual(['Claude', 'Codex', 'OpenCode', 'OMP']);
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('10% used');
+    expect(text).toContain('20% used');
+  });
+
+  it('paints each provider bar with the color the server sent', () => {
+    const fixture = init();
+    flush(
+      snapshotOf({
+        id: 'claude',
+        label: 'Claude',
+        color: 'rgb(1, 2, 3)',
+        usage: { available: true, fiveHour: { percentLeft: 75, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
+      }),
+    );
+    fixture.detectChanges();
+
+    const fill = fixture.nativeElement.querySelector('.mini-fill') as HTMLElement;
+    expect(fill.style.background).toBe('rgb(1, 2, 3)');
   });
 
   it('renders one row per window when weekly data is present, and only the 5-hour row when it is not', () => {
     const fixture = init();
-    flush({
-      claude: {
-        available: true,
-        fiveHour: { percentLeft: 70, resetsAt: new Date().toISOString() },
-        weekly: { percentLeft: 90, resetsAt: new Date().toISOString() },
-        modelWeeklyLimits: [],
-      },
-      codex: {
-        available: true,
-        fiveHour: { percentLeft: 55, resetsAt: new Date().toISOString() },
-        weekly: null,
-        modelWeeklyLimits: [],
-      },
-      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      updatedAt: new Date().toISOString(),
-    });
+    flush(
+      snapshotOf(
+        {
+          id: 'claude',
+          label: 'Claude',
+          usage: {
+            available: true,
+            fiveHour: { percentLeft: 70, resetsAt: new Date().toISOString() },
+            weekly: { percentLeft: 90, resetsAt: new Date().toISOString() },
+            modelWeeklyLimits: [],
+          },
+        },
+        {
+          id: 'codex',
+          label: 'Codex',
+          usage: {
+            available: true,
+            fiveHour: { percentLeft: 55, resetsAt: new Date().toISOString() },
+            weekly: null,
+            modelWeeklyLimits: [],
+          },
+        },
+        { id: 'opencode', label: 'OpenCode', usage: UNAVAILABLE },
+      ),
+    );
     fixture.detectChanges();
     fixture.componentInstance.toggle();
     fixture.detectChanges();
@@ -139,20 +194,24 @@ describe('UsageWidgetComponent', () => {
 
   it('renders one row per per-model weekly limit, generically from the list', () => {
     const fixture = init();
-    flush({
-      claude: {
-        available: true,
-        fiveHour: { percentLeft: 70, resetsAt: new Date().toISOString() },
-        weekly: { percentLeft: 65, resetsAt: new Date().toISOString() },
-        modelWeeklyLimits: [
-          { modelName: 'Fable', window: { percentLeft: 57, resetsAt: new Date().toISOString() } },
-          { modelName: 'Opus', window: { percentLeft: 88, resetsAt: new Date().toISOString() } },
-        ],
-      },
-      codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      updatedAt: new Date().toISOString(),
-    });
+    flush(
+      snapshotOf(
+        {
+          id: 'claude',
+          label: 'Claude',
+          usage: {
+            available: true,
+            fiveHour: { percentLeft: 70, resetsAt: new Date().toISOString() },
+            weekly: { percentLeft: 65, resetsAt: new Date().toISOString() },
+            modelWeeklyLimits: [
+              { modelName: 'Fable', window: { percentLeft: 57, resetsAt: new Date().toISOString() } },
+              { modelName: 'Opus', window: { percentLeft: 88, resetsAt: new Date().toISOString() } },
+            ],
+          },
+        },
+        { id: 'codex', label: 'Codex', usage: UNAVAILABLE },
+      ),
+    );
     fixture.detectChanges();
     fixture.componentInstance.toggle();
     fixture.detectChanges();
@@ -172,12 +231,7 @@ describe('UsageWidgetComponent', () => {
 
   it('computes percent used and reset labels from a window', () => {
     const fixture = init();
-    flush({
-      claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      updatedAt: new Date().toISOString(),
-    });
+    flush(snapshotOf({ id: 'claude', label: 'Claude', usage: UNAVAILABLE }));
     fixture.detectChanges();
 
     const window = { percentLeft: 33.4, resetsAt: new Date(Date.now() + 5 * 60_000).toISOString() };
@@ -191,25 +245,28 @@ describe('UsageWidgetComponent', () => {
 
   it('flags a window as low once it drops under the low-percent threshold', () => {
     const fixture = init();
-    flush({
-      claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-      updatedAt: new Date().toISOString(),
-    });
+    flush(snapshotOf({ id: 'claude', label: 'Claude', usage: UNAVAILABLE }));
     fixture.detectChanges();
 
     const low = {
-      available: true,
-      fiveHour: { percentLeft: 5, resetsAt: new Date().toISOString() },
-      weekly: null,
-      modelWeeklyLimits: [],
+      id: 'claude',
+      label: 'Claude',
+      color: '#000',
+      usage: {
+        available: true,
+        fiveHour: { percentLeft: 5, resetsAt: new Date().toISOString() },
+        weekly: null,
+        modelWeeklyLimits: [],
+      },
     };
     const healthy = {
-      available: true,
-      fiveHour: { percentLeft: 50, resetsAt: new Date().toISOString() },
-      weekly: null,
-      modelWeeklyLimits: [],
+      ...low,
+      usage: {
+        available: true,
+        fiveHour: { percentLeft: 50, resetsAt: new Date().toISOString() },
+        weekly: null,
+        modelWeeklyLimits: [],
+      },
     };
     expect(fixture.componentInstance.isLow(low)).toBeTrue();
     expect(fixture.componentInstance.isLow(healthy)).toBeFalse();

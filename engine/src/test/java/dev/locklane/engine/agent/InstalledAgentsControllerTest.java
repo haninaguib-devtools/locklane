@@ -5,7 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.LinkedHashSet;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -26,18 +26,20 @@ class InstalledAgentsControllerTest {
 
     @Test
     void servesTheDetectedAgentsAsJsonInOrder() throws Exception {
-        when(store.installed()).thenReturn(new LinkedHashSet<>(java.util.List.of("claude", "opencode")));
+        when(store.installed()).thenReturn(List.of(new AgentInfo("claude", "Claude"), new AgentInfo("opencode", "OpenCode")));
 
         mockMvc.perform(get("/api/agents/installed"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.installed[0]").value("claude"))
-                .andExpect(jsonPath("$.installed[1]").value("opencode"))
+                .andExpect(jsonPath("$.installed[0].id").value("claude"))
+                .andExpect(jsonPath("$.installed[0].label").value("Claude"))
+                .andExpect(jsonPath("$.installed[1].id").value("opencode"))
+                .andExpect(jsonPath("$.installed[1].label").value("OpenCode"))
                 .andExpect(jsonPath("$.installed.length()").value(2));
     }
 
     @Test
     void servesAnEmptyListWhenNothingWasDetected() throws Exception {
-        when(store.installed()).thenReturn(java.util.Set.of());
+        when(store.installed()).thenReturn(List.of());
 
         mockMvc.perform(get("/api/agents/installed"))
                 .andExpect(status().isOk())

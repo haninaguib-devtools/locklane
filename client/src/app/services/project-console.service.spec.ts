@@ -58,7 +58,8 @@ describe('ProjectConsoleService', () => {
     const sessions = [
       {
         worktreeId: '1-console-aaaa1111',
-        tool: 'claude' as const,
+        tool: 'claude',
+        toolLabel: 'Claude',
         resumeId: '11111111-1111-1111-1111-111111111111',
         capturedAt: '2026-08-27T10:00:00Z',
         title: null,

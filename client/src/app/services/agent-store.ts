@@ -2,13 +2,15 @@ import { Injectable } from '@angular/core';
 
 const STORAGE_KEY = 'locklane.sessionAgents';
 
-export type Agent = 'claude' | 'codex' | 'opencode' | 'omp' | 'shell';
+// Any id the server's installed-agents list can send (#695), plus 'shell' -- a value
+// the client adds itself for a plain shell session, never a detected CLI.
+export type Agent = string;
 
 /**
  * Which agent each console session was launched with, keyed by session id.
  * Client-only state, persisted in localStorage: the engine deliberately does not
  * persist a session's launch command (#29), so this is what lets tab labels keep
- * showing "claude"/"codex" after a reload. A session opened from another browser
+ * showing an agent's name after a reload. A session opened from another browser
  * (or after storage was cleared) simply has no known agent.
  */
 @Injectable({ providedIn: 'root' })
@@ -34,7 +36,7 @@ function load(): Record<string, Agent> {
     }
     const valid: Record<string, Agent> = {};
     for (const [id, agent] of Object.entries(parsed)) {
-      if (agent === 'claude' || agent === 'codex' || agent === 'opencode' || agent === 'omp' || agent === 'shell') {
+      if (typeof agent === 'string' && agent.length > 0) {
         valid[id] = agent;
       }
     }

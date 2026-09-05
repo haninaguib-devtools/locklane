@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, EventEmitter, Injector, Input, OnChanges, Output, SimpleChanges, inject } from '@angular/core';
+import { Component, EventEmitter, Injector, Input, OnChanges, OnInit, Output, SimpleChanges, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Project, TreeNode } from '../../models/issue.model';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
@@ -35,7 +35,7 @@ export interface IssueCounts {
   templateUrl: './project-summary.component.html',
   styleUrl: './project-summary.component.css',
 })
-export class ProjectSummaryComponent implements OnChanges {
+export class ProjectSummaryComponent implements OnChanges, OnInit {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
   private readonly projectConsoleService = inject(ProjectConsoleService);
@@ -91,6 +91,13 @@ export class ProjectSummaryComponent implements OnChanges {
   openConsoles: OpenProjectConsole[] = [];
   startingConsole = false;
   consoleError = false;
+
+  // #695: "Open console" launches with `defaultAgentStore.agent()` directly, so its
+  // fallback to the first installed agent needs this store's fetch already under way
+  // -- not only triggered from the settings dialog.
+  ngOnInit(): void {
+    this.defaultAgentStore.refreshInstalled();
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId']) {

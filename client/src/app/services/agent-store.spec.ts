@@ -16,15 +16,16 @@ describe('AgentStore', () => {
     expect(new AgentStore().get('7-main-a1b2c3d4')).toBe('claude');
   });
 
-  it('drops entries that are not a known agent name', () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ a: 'claude', b: 'rm -rf' }));
+  it('drops entries that are not a string', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ a: 'claude', b: 42, c: '' }));
     const store = new AgentStore();
 
     expect(store.get('a')).toBe('claude');
     expect(store.get('b')).toBeNull();
+    expect(store.get('c')).toBeNull();
   });
 
-  it('remembers omp like any other known agent', () => {
+  it('remembers any agent id the server ever sent, not just a fixed set', () => {
     new AgentStore().set('7-main-a1b2c3d4', 'omp');
 
     expect(new AgentStore().get('7-main-a1b2c3d4')).toBe('omp');

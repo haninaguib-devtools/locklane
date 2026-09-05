@@ -1,6 +1,6 @@
 import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { UsageService } from '../../services/usage.service';
-import { ProviderUsage, UsageSnapshot, WindowUsage } from '../../models/usage.model';
+import { ProviderSnapshot, UsageSnapshot, WindowUsage } from '../../models/usage.model';
 
 /** How often the widget re-polls; the engine's own cache (#137's Goal) keeps this cheap. */
 const POLL_MS = 60_000;
@@ -37,18 +37,18 @@ export class UsageWidgetComponent implements OnInit, OnDestroy {
   }
 
   hasAnyProvider(snapshot: UsageSnapshot): boolean {
-    return snapshot.claude.available || snapshot.codex.available || snapshot.opencode.available;
+    return snapshot.providers.some((provider) => provider.usage.available);
   }
 
   // The collapsed row's mini bar has room for one number per provider -- the 5-hour
   // window leads since it is the one that actually gates a session; the weekly window
   // only shows once expanded.
-  barPercentUsed(provider: ProviderUsage): number {
-    return this.percentUsed(provider.fiveHour ?? provider.weekly);
+  barPercentUsed(provider: ProviderSnapshot): number {
+    return this.percentUsed(provider.usage.fiveHour ?? provider.usage.weekly);
   }
 
-  isLow(provider: ProviderUsage): boolean {
-    return this.isWindowLow(provider.fiveHour ?? provider.weekly);
+  isLow(provider: ProviderSnapshot): boolean {
+    return this.isWindowLow(provider.usage.fiveHour ?? provider.usage.weekly);
   }
 
   isWindowLow(window: WindowUsage | null): boolean {
@@ -59,15 +59,15 @@ export class UsageWidgetComponent implements OnInit, OnDestroy {
   // account-wide 5-hour and weekly windows first, then one row per model that has its
   // own scoped weekly limit (e.g. "Fable"), sourced generically from the list so a
   // future scoped model shows up without a template change.
-  providerWindows(provider: ProviderUsage): { label: string; window: WindowUsage }[] {
+  providerWindows(provider: ProviderSnapshot): { label: string; window: WindowUsage }[] {
     const rows: { label: string; window: WindowUsage }[] = [];
-    if (provider.fiveHour) {
-      rows.push({ label: '5-hour limit', window: provider.fiveHour });
+    if (provider.usage.fiveHour) {
+      rows.push({ label: '5-hour limit', window: provider.usage.fiveHour });
     }
-    if (provider.weekly) {
-      rows.push({ label: 'Weekly', window: provider.weekly });
+    if (provider.usage.weekly) {
+      rows.push({ label: 'Weekly', window: provider.usage.weekly });
     }
-    for (const limit of provider.modelWeeklyLimits) {
+    for (const limit of provider.usage.modelWeeklyLimits) {
       rows.push({ label: `${limit.modelName} weekly`, window: limit.window });
     }
     return rows;

@@ -126,6 +126,7 @@ describe('IssuesService', () => {
       {
         worktreeId: '1-5-slug',
         tool: 'claude',
+        toolLabel: 'Claude',
         resumeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
         capturedAt: '2026-08-27T10:00:00Z',
         title: null,

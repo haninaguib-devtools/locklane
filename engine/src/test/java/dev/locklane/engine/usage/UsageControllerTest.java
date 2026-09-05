@@ -29,15 +29,24 @@ class UsageControllerTest {
     @Test
     void servesTheSnapshotAsJson() throws Exception {
         ProviderUsage claude = new ProviderUsage(true, new WindowUsage(75.0, Instant.ofEpochSecond(1000)), null, List.of());
-        when(usageService.snapshot()).thenReturn(new UsageSnapshot(claude, ProviderUsage.unavailable(),
-                ProviderUsage.unavailable(), Instant.ofEpochSecond(500)));
+        when(usageService.snapshot()).thenReturn(new UsageSnapshot(List.of(
+                new UsageSnapshot.ProviderSnapshot("claude", "Claude", "var(--green)", claude),
+                new UsageSnapshot.ProviderSnapshot("codex", "Codex", "var(--amber)", ProviderUsage.unavailable()),
+                new UsageSnapshot.ProviderSnapshot("opencode", "OpenCode", "#5f7ea6", ProviderUsage.unavailable())),
+                Instant.ofEpochSecond(500)));
 
         mockMvc.perform(get("/api/usage"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.claude.available").value(true))
-                .andExpect(jsonPath("$.claude.fiveHour.percentLeft").value(75.0))
-                .andExpect(jsonPath("$.claude.weekly").doesNotExist())
-                .andExpect(jsonPath("$.codex.available").value(false))
-                .andExpect(jsonPath("$.opencode.available").value(false));
+                .andExpect(jsonPath("$.providers[0].id").value("claude"))
+                .andExpect(jsonPath("$.providers[0].label").value("Claude"))
+                .andExpect(jsonPath("$.providers[0].color").value("var(--green)"))
+                .andExpect(jsonPath("$.providers[0].usage.available").value(true))
+                .andExpect(jsonPath("$.providers[0].usage.fiveHour.percentLeft").value(75.0))
+                .andExpect(jsonPath("$.providers[0].usage.weekly").doesNotExist())
+                .andExpect(jsonPath("$.providers[1].id").value("codex"))
+                .andExpect(jsonPath("$.providers[1].usage.available").value(false))
+                .andExpect(jsonPath("$.providers[2].id").value("opencode"))
+                .andExpect(jsonPath("$.providers[2].usage.available").value(false))
+                .andExpect(jsonPath("$.providers.length()").value(3));
     }
 }
