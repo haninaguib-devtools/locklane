@@ -8,6 +8,11 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.15 — 2026-09-05
+
+### Fixes
+- Resume omp past sessions instead of launching fresh (#713, #714)
+
 ## v0.2.14 — 2026-09-04
 
 ### Other
