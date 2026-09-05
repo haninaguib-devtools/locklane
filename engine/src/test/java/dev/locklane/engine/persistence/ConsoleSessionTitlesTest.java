@@ -18,6 +18,7 @@ class ConsoleSessionTitlesTest {
     private static final String CLAUDE_ID = "aaaaaaaa-0000-0000-0000-000000000000";
     private static final String CODEX_ID = "bbbbbbbb-0000-0000-0000-000000000000";
     private static final String OPENCODE_ID = "ses_01ABCDEFGHIJKLMNOPQRSTUVWX";
+    private static final String OMP_ID = "01a07088-257e-708f-a453-a7eee5db1e4e";
 
     @Test
     void readsClaudesLatestGeneratedTitleFromTheConversationsOwnTranscript(@TempDir Path tmp) throws IOException {
@@ -159,6 +160,64 @@ class ConsoleSessionTitlesTest {
     }
 
     @Test
+    void readsOmpsGeneratedTitleFromTheConversationsOwnSessionFile(@TempDir Path tmp) throws IOException {
+        writeOmpSession(tmp, OMP_ID, List.of(
+                """
+                {"type":"title","v":1,"title":"Drive 713","source":"auto","updatedAt":"2026-09-05T07:46:44.943Z"}""",
+                """
+                {"type":"session","version":3,"id":"%s","timestamp":"2026-09-05T07:46:05.822Z","cwd":"/tmp/repo","title":"Drive 713","titleSource":"auto"}"""
+                        .formatted(OMP_ID),
+                """
+                {"type":"message","id":"41c031ee","message":{"role":"user"}}"""));
+
+        Map<String, String> titles = ompTitles(tmp).titlesFor(List.of(
+                new ConsoleSessionTitles.Sighting("omp", OMP_ID, tmp)));
+
+        assertThat(titles).containsExactly(entry("omp:" + OMP_ID, "Drive 713"));
+    }
+
+    @Test
+    void readsOmpsLatestTitleWhenItRetitlesAsTheConversationGrows(@TempDir Path tmp) throws IOException {
+        writeOmpSession(tmp, OMP_ID, List.of(
+                """
+                {"type":"title","v":1,"title":"First guess at the topic","source":"auto"}""",
+                """
+                {"type":"session","version":3,"id":"%s","timestamp":"2026-09-05T07:46:05.822Z","cwd":"/tmp/repo","title":"First guess at the topic"}"""
+                        .formatted(OMP_ID),
+                // omp re-titles a conversation as it grows: the last line wins.
+                """
+                {"type":"title","v":1,"title":"Fix the sidenav filter","source":"auto"}"""));
+
+        assertThat(ompTitles(tmp).titlesFor(List.of(
+                new ConsoleSessionTitles.Sighting("omp", OMP_ID, tmp))))
+                .containsExactly(entry("omp:" + OMP_ID, "Fix the sidenav filter"));
+    }
+
+    @Test
+    void hasNoOmpTitleWhenTheSessionFileIsMissingBlankOrHalfWritten(@TempDir Path tmp) throws IOException {
+        // No session file stored at all.
+        assertThat(ompTitles(tmp).titlesFor(List.of(
+                new ConsoleSessionTitles.Sighting("omp", OMP_ID, tmp)))).isEmpty();
+
+        // A blank title is no title.
+        writeOmpSession(tmp, OMP_ID, List.of(
+                """
+                {"type":"title","v":1,"title":"   ","source":"auto"}"""));
+        assertThat(ompTitles(tmp).titlesFor(List.of(
+                new ConsoleSessionTitles.Sighting("omp", OMP_ID, tmp)))).isEmpty();
+
+        // A session file appended to live can end in a partial write.
+        writeOmpSession(tmp, OMP_ID, List.of(
+                """
+                {"type":"title","v":1,"title":"A complete title","source":"auto"}""",
+                """
+                {"type":"title","v":1,"title":"trunc"""));
+        assertThat(ompTitles(tmp).titlesFor(List.of(
+                new ConsoleSessionTitles.Sighting("omp", OMP_ID, tmp))))
+                .containsExactly(entry("omp:" + OMP_ID, "A complete title"));
+    }
+
+    @Test
     void hasNoTitleForAToolWithNoKnownTitleMechanism(@TempDir Path tmp) {
         // A shell console, or a CLI added after this class was written.
         assertThat(titles(tmp).titlesFor(List.of(
@@ -250,6 +309,13 @@ class ConsoleSessionTitlesTest {
         return new ConsoleSessionTitles(tmp.resolve("claude"), tmp.resolve("codex"), directory -> null);
     }
 
+    /** A lookup with both CLI homes and the omp agent directory under {@code tmp}. */
+    private static ConsoleSessionTitles ompTitles(Path tmp) {
+        return new ConsoleSessionTitles(tmp.resolve("claude"), tmp.resolve("codex"), directory -> null,
+                tmp.resolve("omp-agent"));
+    }
+
+
     /** Writes a transcript exactly where Claude keeps one for {@code workingDirectory}. */
     private static void writeClaudeTranscript(Path tmp, Path workingDirectory, String resumeId, List<String> lines)
             throws IOException {
@@ -257,5 +323,13 @@ class ConsoleSessionTitlesTest {
                 .resolve(ConsoleSessionTitles.sanitizeWorkingDirectory(workingDirectory));
         Files.createDirectories(folder);
         Files.writeString(folder.resolve(resumeId + ".jsonl"), String.join("\n", lines) + "\n");
+    }
+
+    /** Writes a session file exactly where omp keeps one: {@code <timestamp>_<id>.jsonl}. */
+    private static void writeOmpSession(Path tmp, String resumeId, List<String> lines) throws IOException {
+        Path folder = tmp.resolve("omp-agent").resolve("sessions").resolve("test-dir");
+        Files.createDirectories(folder);
+        Files.writeString(folder.resolve("2026-09-05T07-46-05-822Z_" + resumeId + ".jsonl"),
+                String.join("\n", lines) + "\n");
     }
 }

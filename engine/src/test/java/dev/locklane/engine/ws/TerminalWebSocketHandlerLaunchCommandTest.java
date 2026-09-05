@@ -27,6 +27,7 @@ class TerminalWebSocketHandlerLaunchCommandTest {
         assertThat(TerminalWebSocketHandler.resolveLaunchCommand("claude", null)).containsExactly("claude");
         assertThat(TerminalWebSocketHandler.resolveLaunchCommand("codex", null)).containsExactly("codex");
         assertThat(TerminalWebSocketHandler.resolveLaunchCommand("opencode", null)).containsExactly("opencode");
+        assertThat(TerminalWebSocketHandler.resolveLaunchCommand("omp", null)).containsExactly("omp");
     }
 
     @Test
@@ -37,6 +38,8 @@ class TerminalWebSocketHandlerLaunchCommandTest {
                 .containsExactly("codex", "resume", UUID);
         assertThat(TerminalWebSocketHandler.resolveLaunchCommand("opencode", OPENCODE_ID))
                 .containsExactly("opencode", "--session", OPENCODE_ID);
+        assertThat(TerminalWebSocketHandler.resolveLaunchCommand("omp", UUID))
+                .containsExactly("omp", "--resume", UUID);
     }
 
     @Test
@@ -48,7 +51,7 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     }
 
     // #537: the seeded first prompt rides as one argv element in each agent's own
-    // "start with this prompt" shape; anything that is not one of the three agents
+    // "start with this prompt" shape; anything that is not one of the four agents
     // gets no seeded command at all.
 
     @Test
@@ -59,6 +62,8 @@ class TerminalWebSocketHandlerLaunchCommandTest {
                 .containsExactly("codex", "do it");
         assertThat(TerminalWebSocketHandler.seededLaunchCommand("opencode", "do it"))
                 .containsExactly("opencode", "--prompt", "do it");
+        assertThat(TerminalWebSocketHandler.seededLaunchCommand("omp", "do it"))
+                .containsExactly("omp", "do it");
     }
 
     @Test

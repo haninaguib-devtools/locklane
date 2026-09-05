@@ -74,12 +74,15 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         TerminalWebSocketHandler.Launch codex = handler.resolveLaunch(consoleId, "codex", null, "template", workDir);
         TerminalWebSocketHandler.Launch opencode =
                 handler.resolveLaunch(consoleId, "opencode", null, "template", workDir);
+        TerminalWebSocketHandler.Launch omp = handler.resolveLaunch(consoleId, "omp", null, "template", workDir);
 
         assertThat(claude.seeded()).isTrue();
         assertThat(claude.command()).containsExactly("claude", ProjectConsoleService.PLAIN_SEED_PROMPT);
         assertThat(codex.command()).containsExactly("codex", ProjectConsoleService.PLAIN_SEED_PROMPT);
         assertThat(opencode.command())
                 .containsExactly("opencode", "--prompt", ProjectConsoleService.PLAIN_SEED_PROMPT);
+        assertThat(omp.seeded()).isTrue();
+        assertThat(omp.command()).containsExactly("omp", ProjectConsoleService.PLAIN_SEED_PROMPT);
         assertThat(ProjectConsoleService.PLAIN_SEED_PROMPT).contains("PROJECT_TEMPLATE.md").contains("push")
                 .doesNotContain("/t-open");
     }

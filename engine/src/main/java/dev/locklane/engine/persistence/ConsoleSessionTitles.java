@@ -43,6 +43,12 @@ import java.util.stream.Stream;
  *   <li><b>OpenCode</b> has a real CLI surface — {@code opencode session list --format
  *       json} — so no private storage is read at all. It answers for the directory it
  *       runs in.</li>
+ *   <li><b>omp</b> writes one {@code <timestamp>_<id>.jsonl} per conversation under
+ *       {@code <agentDir>/sessions/<directory>/} (by default {@code ~/.omp/agent},
+ *       or {@code $PI_CODING_AGENT_DIR}), whose {@code {"type":"title","title":...}}
+ *       line carries the auto-generated title — also embedded in its
+ *       {@code {"type":"session",...}} line. The last such line wins — the title is
+ *       regenerated as a conversation grows.</li>
  * </ul>
  *
  * <p><b>A missing title is the normal case, never an error.</b> A conversation too
@@ -53,9 +59,10 @@ import java.util.stream.Stream;
  * throws, and nothing here is load-bearing: the reopen path never consults a title.
  *
  * <p>Lookups are made in batches ({@link #titlesFor}) rather than one at a time,
- * because the three mechanisms have very different costs: Codex's index and each
+ * because the four mechanisms have very different costs: Codex's index and each
  * OpenCode directory are read once for the whole batch, where a per-row loop would
- * spawn one {@code opencode} process per listed conversation.
+ * spawn one {@code opencode} process per listed conversation; omp's session files
+ * are likewise located with a single walk of the sessions directory.
  */
 @Service
 public class ConsoleSessionTitles {
@@ -65,6 +72,7 @@ public class ConsoleSessionTitles {
     static final String CLAUDE = "claude";
     static final String CODEX = "codex";
     static final String OPENCODE = "opencode";
+    static final String OMP = "omp";
 
     // How Claude names the per-project directory holding a conversation's transcript:
     // every character that is not a letter or digit becomes '-'. Derived by reading the
@@ -84,16 +92,23 @@ public class ConsoleSessionTitles {
     private final Path claudeHome;
     private final Path codexHome;
     private final OpencodeLister opencodeLister;
+    private final Path ompAgentDir;
 
     public ConsoleSessionTitles() {
-        this(defaultClaudeHome(), defaultCodexHome(), ConsoleSessionTitles::runOpencodeSessionList);
+        this(defaultClaudeHome(), defaultCodexHome(), ConsoleSessionTitles::runOpencodeSessionList, defaultOmpAgentDir());
     }
 
     /** Test seam: the two CLI home directories, and however OpenCode's listing is obtained. */
     ConsoleSessionTitles(Path claudeHome, Path codexHome, OpencodeLister opencodeLister) {
+        this(claudeHome, codexHome, opencodeLister, defaultOmpAgentDir());
+    }
+
+    /** Test seam with an explicit omp agent directory for title lookups. */
+    ConsoleSessionTitles(Path claudeHome, Path codexHome, OpencodeLister opencodeLister, Path ompAgentDir) {
         this.claudeHome = claudeHome;
         this.codexHome = codexHome;
         this.opencodeLister = opencodeLister;
+        this.ompAgentDir = ompAgentDir;
     }
 
     /** One conversation to look a title up for: which CLI, which id, and where it ran. */
@@ -111,6 +126,7 @@ public class ConsoleSessionTitles {
         Map<String, String> titles = new LinkedHashMap<>();
         List<Sighting> codexSightings = new ArrayList<>();
         Map<Path, List<Sighting>> opencodeByDirectory = new LinkedHashMap<>();
+        List<Sighting> ompSightings = new ArrayList<>();
 
         for (Sighting sighting : sightings) {
             switch (sighting.tool() == null ? "" : sighting.tool()) {
@@ -120,6 +136,7 @@ public class ConsoleSessionTitles {
                 case OPENCODE -> opencodeByDirectory
                         .computeIfAbsent(sighting.workingDirectory(), directory -> new ArrayList<>())
                         .add(sighting);
+                case OMP -> ompSightings.add(sighting);
                 default -> {
                     // A tool this class knows no title mechanism for -- a shell
                     // console, or a CLI added later -- keeps the timestamp fallback.
@@ -146,6 +163,16 @@ public class ConsoleSessionTitles {
                 }
             }
         });
+
+        if (!ompSightings.isEmpty()) {
+            Map<String, String> byResumeId = ompTitles();
+            for (Sighting sighting : ompSightings) {
+                String title = byResumeId.get(sighting.resumeId());
+                if (title != null) {
+                    titles.put(key(sighting), title);
+                }
+            }
+        }
 
         return titles;
     }
@@ -252,6 +279,71 @@ public class ConsoleSessionTitles {
             }
         }
         return titles;
+    }
+
+    /**
+     * Every titled omp session stored under {@code <agentDir>/sessions}, keyed by
+     * resume id. omp writes one {@code <timestamp>_<id>.jsonl} per conversation, so
+     * the lookup walks the sessions directory once for the whole batch and reads the
+     * title out of each matching file ({@link #ompTitle}) rather than reproducing
+     * omp's per-directory naming. Missing storage reads as "no titles", like every
+     * other lookup here.
+     */
+    private Map<String, String> ompTitles() {
+        Map<String, String> titles = new HashMap<>();
+        if (ompAgentDir == null || !Files.isDirectory(ompAgentDir.resolve("sessions"))) {
+            return titles;
+        }
+        try (Stream<Path> files = Files.walk(ompAgentDir.resolve("sessions"), 2)) {
+            for (Path file : (Iterable<Path>) files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".jsonl"))::iterator) {
+                String name = file.getFileName().toString();
+                int separator = name.lastIndexOf('_');
+                if (separator < 0) {
+                    continue;
+                }
+                String id = name.substring(separator + 1, name.length() - ".jsonl".length());
+                ompTitle(file).ifPresent(title -> titles.put(id, title));
+            }
+        } catch (IOException | RuntimeException e) {
+            log.debug("Could not list {}", ompAgentDir.resolve("sessions"), e);
+        }
+        return titles;
+    }
+
+    /**
+     * The last title omp wrote into this conversation's own session file — its
+     * {@code {"type":"title","title":...}} line, falling back to the title embedded
+     * in its {@code {"type":"session",...}} line. The last non-blank one wins: omp
+     * re-titles a conversation as it grows.
+     */
+    private Optional<String> ompTitle(Path file) {
+        String title = null;
+        try (Stream<String> lines = readLines(file)) {
+            if (lines == null) {
+                return Optional.empty();
+            }
+            for (String line : (Iterable<String>) lines::iterator) {
+                // Cheap reject before parsing: a session file is mostly message and
+                // tool-call objects, and only a couple of lines ever carry a title.
+                if (!line.contains("\"title\"")) {
+                    continue;
+                }
+                JsonNode node = parse(line);
+                if (node == null) {
+                    continue;
+                }
+                String type = node.path("type").asText(null);
+                if ("title".equals(type) || "session".equals(type)) {
+                    String candidate = node.path("title").asText(null);
+                    if (candidate != null && !candidate.isBlank()) {
+                        // Last one wins: omp re-titles a conversation as it grows.
+                        title = candidate;
+                    }
+                }
+            }
+        }
+        return Optional.ofNullable(title);
     }
 
     /** How {@link #opencodeTitles} obtains OpenCode's listing; swapped out in tests. */
@@ -383,5 +475,12 @@ public class ConsoleSessionTitles {
         return configured != null && !configured.isBlank()
                 ? Path.of(configured)
                 : Path.of(System.getProperty("user.home"), ".codex");
+    }
+
+    private static Path defaultOmpAgentDir() {
+        String configured = System.getenv("PI_CODING_AGENT_DIR");
+        return configured != null && !configured.isBlank()
+                ? Path.of(configured)
+                : Path.of(System.getProperty("user.home"), ".omp", "agent");
     }
 }
