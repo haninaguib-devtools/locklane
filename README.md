@@ -15,7 +15,10 @@ curl -fsSL https://raw.githubusercontent.com/haninaguib-devtools/locklane/main/i
 
 Everything lands in `~/.locklane`, and one program there runs the whole lifecycle:
 `~/.locklane/locklane`. It already knows how the server was installed — as a systemd
-user service on Linux or a launchd agent on macOS — so you never need to. Run it from a
+user service on Linux or a launchd agent on macOS — so you never need to. The macOS
+agent is registered as a Background-session agent, so installing, starting and
+stopping it works from an SSH session with nobody logged in at the screen (a Mac that
+has not had any login since it booted is untested). Run it from a
 terminal outside Locklane's own console (ssh, or a local terminal): a console tab is a
 child of the server, so a command that stops the server from there would take itself
 down with it, and the commands that stop it refuse to start from a console tab (or the
@@ -25,7 +28,8 @@ IDE terminal opened from one) for that reason.
 - `locklane stop` — stop the server and check that it is gone: it asks the service
   manager to stop, waits, forces the server and anything it spawned if it has to, and
   says "stopped" only once nothing is left. On macOS this also unloads the launchd
-  agent, so it stays down across logins until `locklane start` brings it back.
+  agent; macOS loads it again at your next login, and `locklane start` brings it back
+  before then.
 - `locklane start` — start it again. `locklane restart` is stop then start.
 - `locklane update` — pull a newer build and restart the server on it. It first
   refreshes itself from the newest release, downloads and checks the new jar while the
