@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.agent.InstalledAgentsStore;
 import dev.locklane.engine.github.GhClient;
 import dev.locklane.engine.github.GhIssue;
 import dev.locklane.engine.github.GhPullRequest;
@@ -402,7 +403,7 @@ class ProjectConsoleControllerTest {
         return new ProjectConsoleController(new ProjectConsoleService(projectRepository, ghAccountRepository,
                 tokenCipher(dbDir), new SessionRegistry(sessionRepository), sessionRepository,
                 new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)), authorization, sweeper),
-                titles);
+                titles, new InstalledAgentsStore());
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {

@@ -2,7 +2,7 @@ import { Component, EventEmitter, HostListener, OnInit, Output, inject, signal }
 import { FormsModule } from '@angular/forms';
 import { AccountService, TwoFactorEnrollment } from '../../services/account.service';
 import { AccentPreset, ACCENT_PRESETS, AccentThemeStore } from '../../services/accent-theme-store';
-import { DEFAULT_AGENT_LABELS, DefaultAgent, DefaultAgentStore } from '../../services/default-agent-store';
+import { DefaultAgent, DefaultAgentStore } from '../../services/default-agent-store';
 
 type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enabled';
 
@@ -40,7 +40,6 @@ export class SettingsDialogComponent implements OnInit {
 
   readonly defaultAgent = this.defaultAgentStore.agent;
   readonly installedAgents = this.defaultAgentStore.installed;
-  readonly agentLabels = DEFAULT_AGENT_LABELS;
 
   readonly accentPresets = ACCENT_PRESETS;
   readonly accentPreset = this.accentThemeStore.preset;

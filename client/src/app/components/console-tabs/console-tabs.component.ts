@@ -51,7 +51,7 @@ export class ConsoleTabsComponent {
   // Read from Settings (#219) by the caller: neither the issue page's Console
   // button (#318) nor the project-console tab strip's "+" (#256) has an agent
   // picker of its own — both launch a new console with this agent directly.
-  @Input() defaultAgent: Agent = 'claude';
+  @Input() defaultAgent: Agent = '';
   // The label on the open button — "+" everywhere except the issue page (#318),
   // which spells it out as "Console" now that it launches one specific thing.
   @Input() openLabel = '+';

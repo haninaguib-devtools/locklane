@@ -18,10 +18,16 @@ export interface ProviderUsage {
   modelWeeklyLimits: ModelWeeklyLimit[];
 }
 
+// Mirrors dev.locklane.engine.usage.UsageSnapshot.ProviderSnapshot.
+export interface ProviderSnapshot {
+  id: string;
+  label: string;
+  color: string;
+  usage: ProviderUsage;
+}
+
 // Mirrors dev.locklane.engine.usage.UsageSnapshot.
 export interface UsageSnapshot {
-  claude: ProviderUsage;
-  codex: ProviderUsage;
-  opencode: ProviderUsage;
+  providers: ProviderSnapshot[];
   updatedAt: string;
 }

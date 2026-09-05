@@ -66,21 +66,30 @@ describe('ProjectSummaryComponent', () => {
     localStorage.removeItem('locklane.lastConsole');
   });
 
+  const ALL_AGENTS = [
+    { id: 'claude', label: 'Claude' },
+    { id: 'codex', label: 'Codex' },
+    { id: 'opencode', label: 'OpenCode' },
+  ];
+
   /**
    * Creates the component for a project id and flushes its requests: the project
-   * list and issue tree always, plus the open-consoles list and the worktree list
-   * (#320) whenever the target project is READY (#221) -- a cloning or failed
-   * project never fetches either.
+   * list and issue tree always, the installed-agents list (#695: `ngOnInit` fetches
+   * it so "Open console" launches with the right fallback default), plus the
+   * open-consoles list and the worktree list (#320) whenever the target project is
+   * READY (#221) -- a cloning or failed project never fetches either.
    */
   function init(
     projects: Project[] = [PROJECT],
     nodes: TreeNode[] = tree(),
     projectId = 1,
     consoles: OpenProjectConsole[] = [],
+    installedAgents = ALL_AGENTS,
   ): ReturnType<typeof TestBed.createComponent<ProjectSummaryComponent>> {
     const fixture = TestBed.createComponent(ProjectSummaryComponent);
     fixture.componentRef.setInput('projectId', projectId);
     fixture.detectChanges();
+    httpMock.expectOne('/api/agents/installed').flush({ installed: installedAgents });
     httpMock.expectOne('/api/projects').flush(projects);
     const ready = projects.find((p) => p.id === projectId)?.status === 'READY';
     if (ready) {
@@ -139,6 +148,7 @@ describe('ProjectSummaryComponent', () => {
     const fixture = TestBed.createComponent(ProjectSummaryComponent);
     fixture.componentRef.setInput('projectId', 1);
     fixture.detectChanges();
+    httpMock.expectOne('/api/agents/installed').flush({ installed: ALL_AGENTS });
     httpMock.expectOne('/api/projects').flush([PROJECT]);
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
     httpMock

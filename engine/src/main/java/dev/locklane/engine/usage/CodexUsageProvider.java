@@ -35,6 +35,21 @@ public class CodexUsageProvider implements UsageProvider {
     }
 
     @Override
+    public String id() {
+        return "codex";
+    }
+
+    @Override
+    public String label() {
+        return "Codex";
+    }
+
+    @Override
+    public String color() {
+        return "var(--amber)";
+    }
+
+    @Override
     public ProviderUsage fetch() {
         Optional<CodexCredentials> credentials = tokenSource.credentials();
         if (credentials.isEmpty()) {

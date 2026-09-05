@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Clock;
+import java.util.List;
 
 /** Wires the usage widget's beans (#137) — plain classes, not {@code @Component}s, so their tests never need Spring. */
 @Configuration
@@ -41,6 +42,6 @@ public class UsageConfig {
             @Qualifier("codexUsageProvider") UsageProvider codexUsageProvider,
             @Qualifier("openCodeUsageProvider") UsageProvider openCodeUsageProvider,
             Clock usageClock) {
-        return new UsageService(claudeUsageProvider, codexUsageProvider, openCodeUsageProvider, usageClock);
+        return new UsageService(List.of(claudeUsageProvider, codexUsageProvider, openCodeUsageProvider), usageClock);
     }
 }

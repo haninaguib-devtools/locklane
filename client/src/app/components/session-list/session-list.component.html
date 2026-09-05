@@ -1,7 +1,7 @@
 <ul class="sessions">
   @for (session of sessions; track session.worktreeId + ':' + session.tool + ':' + session.resumeId) {
     <li class="session">
-      <span class="tool">{{ session.tool }}</span>
+      <span class="tool">{{ session.toolLabel }}</span>
       @if (session.title) {
         <span class="title" [title]="session.capturedAt | date: 'MMM d, y, HH:mm'">{{ session.title }}</span>
       } @else {

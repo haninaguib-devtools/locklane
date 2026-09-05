@@ -82,7 +82,10 @@ export interface TreeResponse {
 // console to attach to.
 export interface ResumeSession {
   worktreeId: string;
-  tool: 'claude' | 'codex' | 'opencode';
+  tool: string;
+  // The server's display label for `tool` (#695), from the same table the settings
+  // picker's buttons are labeled from -- the client never names an agent itself.
+  toolLabel: string;
   resumeId: string;
   capturedAt: string;
   // The short name the CLI generated for the conversation (#373), or null when it has

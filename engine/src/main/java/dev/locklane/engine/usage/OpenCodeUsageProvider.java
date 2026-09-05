@@ -29,6 +29,21 @@ public class OpenCodeUsageProvider implements UsageProvider {
     }
 
     @Override
+    public String id() {
+        return "opencode";
+    }
+
+    @Override
+    public String label() {
+        return "OpenCode";
+    }
+
+    @Override
+    public String color() {
+        return "#5f7ea6";
+    }
+
+    @Override
     public ProviderUsage fetch() {
         Optional<OpenCodeCredentials> credentials = tokenSource.credentials();
         if (credentials.isEmpty()) {

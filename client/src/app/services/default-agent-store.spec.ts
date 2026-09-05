@@ -25,20 +25,14 @@ describe('DefaultAgentStore', () => {
     return TestBed.inject(DefaultAgentStore);
   }
 
-  it('defaults to claude when nothing is stored', () => {
-    expect(create().agent()).toBe('claude');
+  it('starts empty when nothing is stored', () => {
+    expect(create().agent()).toBe('');
   });
 
   it('remembers the choice across instances (i.e. across reloads)', () => {
     create().set('codex');
 
     expect(create().agent()).toBe('codex');
-  });
-
-  it('falls back to claude for unrecognized storage content', () => {
-    localStorage.setItem(STORAGE_KEY, 'gpt-5');
-
-    expect(create().agent()).toBe('claude');
   });
 
   it('updates the signal immediately on set', () => {
@@ -49,43 +43,78 @@ describe('DefaultAgentStore', () => {
     expect(store.agent()).toBe('codex');
   });
 
-  it('defaults installed to all three, and does not fetch until asked', () => {
+  it('defaults installed to empty, and does not fetch until asked', () => {
     const store = create();
 
-    expect(store.installed()).toEqual(['claude', 'codex', 'opencode']);
+    expect(store.installed()).toEqual([]);
     httpMock.expectNone('/api/agents/installed');
   });
 
-  it('fetches the installed set once asked, filtering out anything unrecognized', () => {
+  it('fetches the installed set once asked', () => {
     const store = create();
 
     store.refreshInstalled();
-    httpMock.expectOne('/api/agents/installed').flush({ installed: ['claude', 'gpt-5', 'opencode'] });
+    httpMock
+      .expectOne('/api/agents/installed')
+      .flush({ installed: [{ id: 'claude', label: 'Claude' }, { id: 'opencode', label: 'OpenCode' }] });
 
-    expect(store.installed()).toEqual(['claude', 'opencode']);
+    expect(store.installed()).toEqual([{ id: 'claude', label: 'Claude' }, { id: 'opencode', label: 'OpenCode' }]);
   });
 
   it('does not fetch a second time once already asked', () => {
     const store = create();
 
     store.refreshInstalled();
-    httpMock.expectOne('/api/agents/installed').flush({ installed: ['claude'] });
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
     store.refreshInstalled();
 
     httpMock.expectNone('/api/agents/installed');
   });
 
-  it('keeps the all-agents fallback, and allows a retry, when the fetch fails', () => {
+  it('keeps whatever was known, and allows a retry, when the fetch fails', () => {
     const store = create();
 
     store.refreshInstalled();
     httpMock.expectOne('/api/agents/installed').flush(null, { status: 500, statusText: 'Error' });
 
-    expect(store.installed()).toEqual(['claude', 'codex', 'opencode']);
+    expect(store.installed()).toEqual([]);
 
     store.refreshInstalled();
-    httpMock.expectOne('/api/agents/installed').flush({ installed: ['codex'] });
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'codex', label: 'Codex' }] });
 
-    expect(store.installed()).toEqual(['codex']);
+    expect(store.installed()).toEqual([{ id: 'codex', label: 'Codex' }]);
+  });
+
+  it('falls back to the first installed agent when nothing was stored', () => {
+    const store = create();
+
+    store.refreshInstalled();
+    httpMock
+      .expectOne('/api/agents/installed')
+      .flush({ installed: [{ id: 'codex', label: 'Codex' }, { id: 'claude', label: 'Claude' }] });
+
+    expect(store.agent()).toBe('codex');
+  });
+
+  it('falls back to the first installed agent when the stored one is no longer installed', () => {
+    localStorage.setItem(STORAGE_KEY, 'gpt-5');
+    const store = create();
+
+    store.refreshInstalled();
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
+
+    expect(store.agent()).toBe('claude');
+  });
+
+  it('keeps the stored choice when it is among the installed agents', () => {
+    localStorage.setItem(STORAGE_KEY, 'codex');
+    const store = create();
+
+    store.refreshInstalled();
+    httpMock
+      .expectOne('/api/agents/installed')
+      .flush({ installed: [{ id: 'claude', label: 'Claude' }, { id: 'codex', label: 'Codex' }] });
+
+    expect(store.agent()).toBe('codex');
   });
 });

@@ -13,16 +13,28 @@ class InstalledAgentsStoreTest {
     }
 
     @Test
-    void reflectsWhatWasSet() {
+    void reflectsWhatWasSetInDetectionOrder() {
         InstalledAgentsStore store = new InstalledAgentsStore();
 
-        store.set(Set.of("claude", "codex"));
+        store.set(Set.of("opencode", "claude"));
 
-        assertThat(store.installed()).containsExactlyInAnyOrder("claude", "codex");
+        assertThat(store.installed()).containsExactly(new AgentInfo("claude", "Claude"),
+                new AgentInfo("opencode", "OpenCode"));
     }
 
     @Test
     void knownAgentsIncludesOmp() {
-        assertThat(InstalledAgentsStore.KNOWN_AGENTS).containsExactly("claude", "codex", "opencode", "omp");
+        assertThat(InstalledAgentsStore.KNOWN_AGENTS).containsExactly(new AgentInfo("claude", "Claude"),
+                new AgentInfo("codex", "Codex"), new AgentInfo("opencode", "OpenCode"), new AgentInfo("omp", "OMP"));
+    }
+
+    @Test
+    void labelForReturnsTheKnownLabel() {
+        assertThat(new InstalledAgentsStore().labelFor("omp")).isEqualTo("OMP");
+    }
+
+    @Test
+    void labelForFallsBackToTheIdItselfForAnUnknownAgent() {
+        assertThat(new InstalledAgentsStore().labelFor("gpt-5")).isEqualTo("gpt-5");
     }
 }

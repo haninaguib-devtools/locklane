@@ -26,7 +26,8 @@ public class InstalledAgentsBootstrapper implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        Set<String> found = InstalledAgentDetector.detect(System.getenv("PATH"), InstalledAgentsStore.KNOWN_AGENTS);
+        String[] candidates = InstalledAgentsStore.KNOWN_AGENTS.stream().map(AgentInfo::id).toArray(String[]::new);
+        Set<String> found = InstalledAgentDetector.detect(System.getenv("PATH"), candidates);
         store.set(found);
         log.info("Detected installed agent CLIs on PATH: {}", found);
     }

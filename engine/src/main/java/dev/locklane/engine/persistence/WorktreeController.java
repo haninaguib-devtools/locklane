@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import dev.locklane.engine.agent.InstalledAgentsStore;
 import dev.locklane.engine.pty.SessionRegistry;
 
 import java.security.Principal;
@@ -37,13 +38,15 @@ public class WorktreeController {
     private final WorktreeCreationService creationService;
     private final SessionRegistry sessionRegistry;
     private final ConsoleSessionTitles titles;
+    private final InstalledAgentsStore agents;
 
     public WorktreeController(IssueWorktreeService service, WorktreeCreationService creationService,
-            SessionRegistry sessionRegistry, ConsoleSessionTitles titles) {
+            SessionRegistry sessionRegistry, ConsoleSessionTitles titles, InstalledAgentsStore agents) {
         this.service = service;
         this.creationService = creationService;
         this.sessionRegistry = sessionRegistry;
         this.titles = titles;
+        this.agents = agents;
     }
 
     @GetMapping("/{number}/worktrees")
@@ -82,8 +85,8 @@ public class WorktreeController {
                         creationService.conversationDirectory(projectId, number, record.worktreeId()).orElse(null)))
                 .toList());
         return records.stream()
-                .map(record -> new ResumeSessionView(record.worktreeId(), record.tool(), record.resumeId(),
-                        record.capturedAt().toString(),
+                .map(record -> new ResumeSessionView(record.worktreeId(), record.tool(), agents.labelFor(record.tool()),
+                        record.resumeId(), record.capturedAt().toString(),
                         byConversation.get(record.tool() + ":" + record.resumeId())))
                 .toList();
     }
@@ -113,13 +116,15 @@ public class WorktreeController {
     /**
      * One row of {@link #resumeSessions} — mirrored client-side as {@code
      * ResumeSession}, and shared with {@link ProjectConsoleController}'s own listing so
-     * both pages render through one component. {@code title} is the short name the CLI
-     * generated for the conversation (#373), or null: a conversation too short to have
-     * been titled yet, a Codex older than v0.150.0, or an uninstalled tool all leave it
-     * null, and the client falls back to the tool and captured time.
+     * both pages render through one component. {@code toolLabel} (#695) is
+     * {@link InstalledAgentsStore}'s display label for {@code tool}, so the client shows
+     * it without knowing any agent's name itself. {@code title} is the short name the
+     * CLI generated for the conversation (#373), or null: a conversation too short to
+     * have been titled yet, a Codex older than v0.150.0, or an uninstalled tool all
+     * leave it null, and the client falls back to the tool and captured time.
      */
-    public record ResumeSessionView(String worktreeId, String tool, String resumeId, String capturedAt,
-            String title) {
+    public record ResumeSessionView(String worktreeId, String tool, String toolLabel, String resumeId,
+            String capturedAt, String title) {
     }
 
     /**

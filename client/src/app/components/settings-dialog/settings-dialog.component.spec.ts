@@ -28,15 +28,22 @@ describe('SettingsDialogComponent', () => {
     return fixture;
   }
 
+  const ALL_AGENTS = [
+    { id: 'claude', label: 'Claude' },
+    { id: 'codex', label: 'Codex' },
+    { id: 'opencode', label: 'OpenCode' },
+  ];
+
   /** Also flushes the installed-agents request with all three, since every test but the ones
    *  exercising that picker directly (below) don't care about its value. */
   function flushStatus(fixture: ReturnType<typeof create>, enabled: boolean): void {
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled });
-    httpMock.expectOne('/api/agents/installed').flush({ installed: ['claude', 'codex', 'opencode'] });
+    httpMock.expectOne('/api/agents/installed').flush({ installed: ALL_AGENTS });
     fixture.detectChanges();
   }
 
-  function flushInstalledAgents(fixture: ReturnType<typeof create>, installed: string[]): void {
+  function flushInstalledAgents(fixture: ReturnType<typeof create>, ids: string[]): void {
+    const installed = ALL_AGENTS.filter((agent) => ids.includes(agent.id));
     httpMock.expectOne('/api/agents/installed').flush({ installed });
     fixture.detectChanges();
   }
@@ -85,7 +92,7 @@ describe('SettingsDialogComponent', () => {
     expect(labels).toEqual(['Claude', 'OpenCode']);
   });
 
-  it('renders without error when the saved preference is no longer installed', () => {
+  it('falls back to the first installed agent when the saved preference is no longer installed', () => {
     localStorage.setItem(DEFAULT_AGENT_STORAGE_KEY, 'codex');
     const fixture = create();
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
@@ -95,19 +102,19 @@ describe('SettingsDialogComponent', () => {
 
     expect(options.length).toBe(1);
     expect(options[0].textContent?.trim()).toBe('Claude');
-    expect(options[0].classList.contains('chosen')).toBe(false);
+    expect(options[0].classList.contains('chosen')).toBe(true);
   });
 
-  it('shows all three agents until the installed-agents fetch resolves, and keeps them on failure', () => {
+  it('shows no agent option until the installed-agents fetch resolves, and stays empty on failure', () => {
     const fixture = create();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelectorAll('.agent-option').length).toBe(3);
+    expect(compiled.querySelectorAll('.agent-option').length).toBe(0);
 
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
     httpMock.expectOne('/api/agents/installed').flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
     fixture.detectChanges();
 
-    expect(compiled.querySelectorAll('.agent-option').length).toBe(3);
+    expect(compiled.querySelectorAll('.agent-option').length).toBe(0);
   });
 
   it('renders a title bar and loads the 2FA status', () => {

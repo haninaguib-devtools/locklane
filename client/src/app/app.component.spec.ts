@@ -96,9 +96,7 @@ describe('AppComponent', () => {
   }
 
   const EMPTY_USAGE: UsageSnapshot = {
-    claude: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-    codex: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
-    opencode: { available: false, fiveHour: null, weekly: null, modelWeeklyLimits: [] },
+    providers: [],
     updatedAt: new Date().toISOString(),
   };
 
@@ -140,6 +138,12 @@ describe('AppComponent', () => {
     expect(trees.length).toBe(2);
     trees.forEach((request) => request.flush({ nodes: [], github: GITHUB_OK }));
     flushUsageWidget();
+    // The project summary's "Open console" button (#221, #695) fetches the installed
+    // agents once, on its own `ngOnInit`, whenever the summary (not the overview page,
+    // #197) is what mounted.
+    httpMock
+      .match('/api/agents/installed')
+      .forEach((request) => request.flush({ installed: [{ id: 'claude', label: 'Claude' }] }));
   }
 
   /**
@@ -394,6 +398,9 @@ describe('AppComponent', () => {
     expect(trees.length).toBe(2);
     trees.forEach((request) => request.flush({ nodes: [], github: GITHUB_OK }));
     flushUsageWidget();
+    httpMock
+      .match('/api/agents/installed')
+      .forEach((request) => request.flush({ installed: [{ id: 'claude', label: 'Claude' }] }));
     flushProjectConsoleSessions();
     flushConsoleIndicator();
     fixture.detectChanges();
@@ -496,6 +503,7 @@ describe('AppComponent', () => {
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/issues');
     httpMock.expectOne('/api/projects').flush([PROJECT]);
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
     flushProjectConsoleSessions();
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
@@ -890,8 +898,9 @@ describe('AppComponent', () => {
     // Opening the dialog closes the menu behind it.
     expect(compiled.querySelector('.account-menu')).toBeFalsy();
 
+    // The installed-agents list was already fetched once, by the project summary
+    // that openedApp() mounted first (#695) -- refreshInstalled() here is a no-op.
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
-    httpMock.expectOne('/api/agents/installed').flush({ installed: ['claude', 'codex', 'opencode'] });
     fixture.detectChanges();
 
     compiled.querySelector<HTMLButtonElement>('app-settings-dialog .close')!.click();
