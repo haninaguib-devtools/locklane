@@ -80,6 +80,22 @@ topological order, one after another.
      not excluded on this ground; the bullets below still apply.
    - Blocked by another child of this initiative, not yet resolved → hold; revisit once
      that child's outcome (merged or excluded) is known.
+   - Blocked by another child already **merged** in this run (step 6) → not held, and
+     not judged by that sibling's issue state, which stays open until the aggregate PR
+     reaches the trunk (ADR-004 Decision 3). The rule is ADR-009's first decision,
+     executed by the same gate `/t-work` runs:
+     A blocker that is a sibling child of the same initiative counts as satisfied
+     when that sibling's PR is merged into the initiative's integration branch
+     (`wip/<sibling>-*` onto `wip/<initiative>-integration`, state MERGED) and its latest
+     cold review reads `readiness: ready`; any other blocker — outside the initiative, or a
+     sibling that is open, excluded, or cancelled — is judged exactly as before: closed as
+     completed, or nothing.
+     Build the sibling-dispositions file for every such blocker — `forge:pr-find-by-task
+     <sibling>` for its PR rows, `forge:pr-reviews <pr>` on the merged one, in the shape
+     `check-blocker-gate.sh`'s header documents — and hand it to step 4, where `/t-work`
+     Phase 1 step 2 runs `check-blocker-gate.sh <file> --siblings <initiative-id>
+     <siblings-file>`. Exit 1 there (a sibling merged without a `readiness: ready`
+     review, say) is `/t-work`'s own blocker-gate refusal: excluded, spending no retry.
    - Blocked by another child already **excluded** in this run → excluded immediately,
      cascading, spending no retry — report it as blocked-because-excluded, never as its
      own failure (ADR-004 Decision 2).
@@ -98,7 +114,9 @@ topological order, one after another.
    reuses it; its contract is untouched (issue #39's Non-goals) — `/t-drive` only makes
    sure the branch already exists in the right place before asking `/t-work` to use it.
 4. **Work.** Run `/t-work <child-id>` (Normal mode — branch, record, implement, check,
-   draft PR), directing it to open the draft PR against
+   draft PR), handing it the sibling-dispositions file step 1 built so its blocker gate
+   runs with `--siblings <initiative-id> <siblings-file>` (ADR-009 D1; an empty array
+   when no blocker is a merged sibling), and directing it to open the draft PR against
    `wip/<initiative-id>-integration` instead of the trunk (`/t-work` Phase 3 step 5 —
    `forge:pr-create-draft`'s `<base>` argument names the integration branch directly at
    creation, confirmed to work alongside `--draft`, #113). The PR never lands against

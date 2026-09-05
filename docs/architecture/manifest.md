@@ -76,6 +76,14 @@ tiers:
 The script is itself template-owned, so a future exclusion, inclusion, or narrowing
 change reaches consumers the same way any other template fix does.
 
+Some consumer-owned state lives deliberately *beside* template-owned files rather than
+inside a marked slot: `.t-workflow/required-checks.local`
+(`docs/architecture/local-slots.md` § The required-checks file) sits under `.t-workflow/`
+but outside `.t-workflow/scripts/`, matches no protected pattern, and so is never in the
+list above, never hashed, and never compared against anything — `check-manifest.sh`
+cannot flag it as drift and a sync cannot overwrite it, by construction rather than by
+a marker.
+
 ## Normalized hashing
 
 A template-owned file may carry `<!-- local -->` … `<!-- /local -->` regions

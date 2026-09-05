@@ -4,6 +4,7 @@
 # Idempotent: safe to re-run.
 set -euo pipefail
 
+here="$(cd "$(dirname "$0")" && pwd)"
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 echo "Bootstrapping $repo"
 
@@ -58,6 +59,17 @@ echo "Merge mechanics set: squash-only, delete branch on merge."
 # context: it is a different job, in review-gate.yml, gated on the pull_request_review
 # trigger that job needs and this one doesn't.)
 #
+# The list itself is not written here (#126): `.t-workflow/scripts/required-checks.sh`
+# owns it — the two template contexts above plus whatever a consumer repo lists in
+# `.t-workflow/required-checks.local` (docs/architecture/local-slots.md). This PUT
+# overwrites the live setting, so a consumer context added by hand used to vanish on
+# every re-run; a context in that file is re-asserted instead. Each consumer context
+# gets the same "only once it has a real run on the trunk" guard the template's own
+# contexts get, applied per name (`--asserted`): one listed before its first run is
+# left out — and said so — until it has one, never asserted into a permanent block.
+# /t-ship's Procedure step 5 flips the live setting to the same script's `--list`
+# output when a PR changes it, so the two never disagree about what is required.
+#
 # NOTE: on a PRIVATE repo, branch protection (and rulesets, and CODEOWNERS enforcement)
 # requires a paid plan — GitHub Pro (personal) or Team (org). On free plans it works
 # only on PUBLIC repos. The call below degrades to a warning instead of failing.
@@ -68,15 +80,18 @@ echo "Merge mechanics set: squash-only, delete branch on merge."
 # back to it.
 current=$(gh api "repos/$repo/branches/$trunk/protection/required_status_checks" \
   --jq '{strict: .strict, contexts: .contexts}' 2>/dev/null || echo null)
-if gh api "repos/$repo/commits/$trunk/check-runs" -q '.check_runs[].name' 2>/dev/null \
-   | grep -qx checks; then
-  checks='{"strict": false, "contexts": ["checks", "cold-review"]}'
-  echo "CI has run on $trunk: marking checks and cold-review required checks."
+observed=$(gh api "repos/$repo/commits/$trunk/check-runs" --paginate -q '.check_runs[].name' 2>/dev/null || true)
+if grep -qx checks <<<"$observed"; then
+  contexts=$(printf '%s\n' "$observed" \
+    | "$here/required-checks.sh" --asserted - --local-file "$here/../required-checks.local")
+  checks=$(printf '%s\n' "$contexts" | jq -R . | jq -sc '{strict: false, contexts: .}')
+  echo "CI has run on $trunk: marking required checks: $(printf '%s' "$contexts" | paste -sd, -)"
 elif [ "$current" != null ]; then
   checks="$current"
   echo "CI has not run on $trunk yet: keeping the currently-required checks unchanged:"
   echo "  $current"
-  echo "  Re-run this script after the first CI run to require checks + cold-review."
+  echo "  Re-run this script after the first CI run to require checks + cold-review"
+  echo "  (plus any consumer context listed in .t-workflow/required-checks.local)."
 else
   checks='null'
   echo "CI has not run on $trunk yet and no checks are currently required: leaving unset."
