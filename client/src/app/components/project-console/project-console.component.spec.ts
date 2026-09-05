@@ -57,6 +57,12 @@ describe('ProjectConsoleComponent', () => {
     };
   }
 
+  /** #698: `ngOnInit` fetches this so a "+" click has a real fallback default. */
+  const INSTALLED_AGENTS = [
+    { id: 'claude', label: 'Claude' },
+    { id: 'codex', label: 'Codex' },
+  ];
+
   // Since #537 the page reads the project before its consoles. `projects` is what that
   // read answers; the default (an empty list, the project unknown) leaves every
   // pre-#537 behaviour exactly as it was, which is what the older specs below rely on.
@@ -67,6 +73,7 @@ describe('ProjectConsoleComponent', () => {
     const fixture = TestBed.createComponent(ProjectConsoleComponent);
     fixture.componentRef.setInput('projectId', projectId);
     fixture.detectChanges();
+    httpMock.expectOne('/api/agents/installed').flush({ installed: INSTALLED_AGENTS });
     flushProjects(projects);
     return fixture;
   }
@@ -269,6 +276,23 @@ describe('ProjectConsoleComponent', () => {
     expect(TestBed.inject(LastConsoleStore).get(1)).toBe('1-console-a1b2c3d4');
     // #194: the header consoles widget must learn about it.
     expect(opened).toHaveBeenCalled();
+  });
+
+  it('starts a console with a real agent, not empty, on a page that never visited Settings or project-summary first (#698)', () => {
+    // No `DefaultAgentStore.set()` here, unlike the test above -- this page's own
+    // `ngOnInit` is what has to fetch the installed list and correct the store's
+    // empty stored preference to a real CLI before the auto-start below fires.
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    fixture.detectChanges();
+
+    const req = httpMock.expectOne('/api/projects/1/console');
+    req.flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+    fixture.detectChanges();
+
+    const terminal = fixture.debugElement.query(By.directive(TerminalComponent));
+    expect(terminal.componentInstance.cmd).toBe(INSTALLED_AGENTS[0].id);
+    expect(terminal.componentInstance.cmd).not.toBe('');
   });
 
   it('opens another console from the tab strip\'s "+" and selects it', () => {
@@ -780,6 +804,7 @@ describe('ProjectConsoleComponent', () => {
       const fixture = TestBed.createComponent(ProjectConsoleComponent);
       fixture.componentRef.setInput('projectId', 1);
       fixture.detectChanges();
+      httpMock.expectOne('/api/agents/installed').flush({ installed: INSTALLED_AGENTS });
       httpMock.expectOne('/api/projects').flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
       httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
       fixture.detectChanges();

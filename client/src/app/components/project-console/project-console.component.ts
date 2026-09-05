@@ -122,6 +122,10 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   // while this page is already showing -- the projectId input does not change, so
   // ngOnChanges never fires.
   ngOnInit(): void {
+    // #698: the tab strip's "+" reads `defaultAgentStore.agent()` directly, so its
+    // fallback to the first installed agent needs this store's fetch already under
+    // way here too, the same as #695's fix to project-summary's "Open console".
+    this.defaultAgentStore.refreshInstalled();
     this.queryParamsSub = this.route.queryParamMap.subscribe((params) => {
       if (params.get('new') === null) {
         return;
