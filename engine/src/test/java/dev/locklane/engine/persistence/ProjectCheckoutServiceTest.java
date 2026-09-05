@@ -8,6 +8,7 @@ import dev.locklane.engine.github.GhAccount;
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
 import dev.locklane.engine.template.ProjectTemplate;
+import dev.locklane.engine.ws.EventBroadcaster;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
@@ -18,10 +19,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 /**
  * Exercises real {@code git clone} against a throwaway local repository (no
@@ -64,6 +68,18 @@ class ProjectCheckoutServiceTest {
     }
 
     @Test
+    void aSuccessfulCloneBroadcastsProjectStatusReadyWithTheDefaultBranch(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "trunk");
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectCheckoutService service = serviceWithBroadcaster(tmp, broadcaster);
+
+        ProjectRecord project = service.createProject(origin.toString(), "myproj", 1L);
+
+        verify(broadcaster).broadcast("projectStatus",
+                Map.of("projectId", project.id(), "status", "READY", "defaultBranch", "trunk"));
+    }
+
+    @Test
     void aBlankNameIsDerivedFromTheGitUrl(@TempDir Path tmp) throws Exception {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");
         ProjectCheckoutService service = service(tmp);
@@ -84,6 +100,16 @@ class ProjectCheckoutServiceTest {
         assertThat(found.status()).isEqualTo(ProjectStatus.FAILED);
         assertThat(found.defaultBranch()).isNull();
         assertThat(found.gitUrl()).isEqualTo("/does/not/exist");
+    }
+
+    @Test
+    void aFailedCloneBroadcastsProjectStatusFailed(@TempDir Path tmp) {
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectCheckoutService service = serviceWithBroadcaster(tmp, broadcaster);
+
+        ProjectRecord project = service.createProject("/does/not/exist", "broken", 1L);
+
+        verify(broadcaster).broadcast("projectStatus", Map.of("projectId", project.id(), "status", "FAILED"));
     }
 
     // #546: a failing `git clone` must be diagnosable from the log alone.
@@ -265,6 +291,18 @@ class ProjectCheckoutServiceTest {
     }
 
     @Test
+    void deleteBroadcastsProjectDeleted(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectCheckoutService service = serviceWithBroadcaster(tmp, broadcaster);
+        ProjectRecord project = service.createProject(origin.toString(), "to-delete", 1L);
+
+        service.delete(project.id());
+
+        verify(broadcaster).broadcast("projectDeleted", Map.of("projectId", project.id()));
+    }
+
+    @Test
     void deletingAnUnknownProjectIsNotFound(@TempDir Path tmp) {
         ProjectCheckoutService service = service(tmp);
 
@@ -305,6 +343,18 @@ class ProjectCheckoutServiceTest {
         assertThat(repositoryOver(tmp).findById(project.id())).isEmpty();
         assertThat(project.workareaPath()).doesNotExist();
         assertThat(issueWorktreeService.hasAnySessions(project.id())).isFalse();
+    }
+
+    @Test
+    void forceDeleteBroadcastsProjectDeleted(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "main");
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectCheckoutService service = serviceWithBroadcaster(tmp, broadcaster);
+        ProjectRecord project = service.createProject(origin.toString(), "force-delete-me", 1L);
+
+        service.forceDelete(project.id());
+
+        verify(broadcaster).broadcast("projectDeleted", Map.of("projectId", project.id()));
     }
 
     @Test
@@ -969,6 +1019,14 @@ class ProjectCheckoutServiceTest {
         return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
                 ghAccounts(tmp));
+    }
+
+    /** Like {@link #service(Path)}, but with {@code broadcaster} in place of a no-op one (#721). */
+    private static ProjectCheckoutService serviceWithBroadcaster(Path tmp, EventBroadcaster broadcaster) {
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        return new ProjectCheckoutService(repositoryOver(tmp), tmp.resolve("workarea").toString(), Runnable::run,
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
+                ghAccounts(tmp), broadcaster, "exit 1", "gh");
     }
 
     /** Like {@link #service(Path)}, but substituting the t-workflow install command (#525) — see STUB_INSTALLER. */

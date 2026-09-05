@@ -6,6 +6,7 @@ import { OverviewComponent, aggregateCounts } from './overview.component';
 import { Project, TreeNode } from '../../models/issue.model';
 import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
+import { EventsService } from '../../services/events.service';
 
 describe('OverviewComponent', () => {
 
@@ -64,6 +65,13 @@ describe('OverviewComponent', () => {
     return fixture;
   }
 
+  /** Reaches past EventsService's public API (#129) -- there is no other way to fake an incoming socket message. */
+  function emitAppEvent(event: unknown): void {
+    (TestBed.inject(EventsService) as unknown as { eventsSubject: { next: (e: unknown) => void } }).eventsSubject.next(
+      event,
+    );
+  }
+
   describe('aggregateCounts', () => {
     it('sums totals across every project', () => {
       const a = { total: 4, open: 2, closed: 2, initiatives: 1, tasks: 3 };
@@ -115,7 +123,7 @@ describe('OverviewComponent', () => {
     expect(fixture.componentInstance.rows.length).toBe(1);
   });
 
-  it('re-reads while a row is still cloning, settling to READY without flashing loading (#717)', fakeAsync(() => {
+  it('updates a cloning row off a projectStatus event, without flashing loading or re-polling (#721)', fakeAsync(() => {
     const fixture = init([{ ...PROJECT_A, status: 'CLONING' }]);
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
@@ -124,8 +132,7 @@ describe('OverviewComponent', () => {
     expect(compiled.textContent).toContain('cloning');
     expect(fixture.componentInstance.loading).toBeFalse();
 
-    tick(3000);
-    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    emitAppEvent({ type: 'projectStatus', projectId: 1, status: 'READY', defaultBranch: 'main' });
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     fixture.detectChanges();
 
@@ -137,6 +144,38 @@ describe('OverviewComponent', () => {
     httpMock.expectNone('/api/projects');
     fixture.destroy();
   }));
+
+  it('a projectStatus FAILED event marks that row failed with no counts (#721)', () => {
+    const fixture = init([{ ...PROJECT_A, status: 'CLONING' }]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+    fixture.detectChanges();
+
+    emitAppEvent({ type: 'projectStatus', projectId: 1, status: 'FAILED' });
+
+    expect(fixture.componentInstance.rows[0].project.status).toBe('FAILED');
+    expect(fixture.componentInstance.rows[0].counts).toBeNull();
+  });
+
+  it('a projectStatus event for a project not currently loaded is ignored (#721)', () => {
+    const fixture = init([PROJECT_A]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    fixture.detectChanges();
+
+    emitAppEvent({ type: 'projectStatus', projectId: 999, status: 'READY', defaultBranch: 'main' });
+
+    expect(fixture.componentInstance.rows.length).toBe(1);
+  });
+
+  it('a projectDeleted event drops that row (#721, absorbed from #720)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    fixture.detectChanges();
+
+    emitAppEvent({ type: 'projectDeleted', projectId: 1 });
+
+    expect(fixture.componentInstance.rows.map((r) => r.project.id)).toEqual([2]);
+  });
 
   it('shows an error state when the project list fails to load', () => {
     const fixture = TestBed.createComponent(OverviewComponent);
