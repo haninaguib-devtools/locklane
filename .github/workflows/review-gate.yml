@@ -49,8 +49,13 @@ jobs:
     if: github.event_name == 'pull_request_review' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     # Real work here is seconds; ten minutes is a generous bound so a hang fails loudly
-    # instead of running to GitHub's 6-hour default (#113).
+    # instead of running to GitHub's 6-hour default (#113). The line itself is a
+    # docs/architecture/local-slots.md slot: a consumer with a slower
+    # check-review-gate.sh or a bigger checkout raises this value inside the markers,
+    # and a template sync never overwrites that override (#132).
+    # <!-- local -->
     timeout-minutes: 10
+    # <!-- /local -->
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

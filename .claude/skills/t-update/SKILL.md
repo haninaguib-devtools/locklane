@@ -79,9 +79,10 @@ to update — this skill exists for the repos generated from it.
      `.github/copilot-instructions.md`, `.agents/skills` are recreated as the same
      symlink, never as separate file content);
    - for each changed or added file whose current content *does* carry a
-     `<!-- local -->` marker (`CONSTITUTION.md`, `AGENTS.md`, and `.github/workflows/ci.yml`
-     today — `docs/architecture/local-slots.md` names the current set, and this rule
-     applies to whatever it names next without a further edit here), splice: take the
+     `<!-- local -->` marker (`CONSTITUTION.md`, `AGENTS.md`, `.github/workflows/ci.yml`,
+     and `.gitignore` today — `docs/architecture/local-slots.md` names the current set,
+     and this rule applies to whatever it names next without a further edit here),
+     splice: take the
      target tag's file whole, but replace its `<!-- local -->…<!-- /local -->` region(s)
      with this repo's *current* content for the same region(s) before writing;
    - apply each pending migration in order (step 4's list), running its own
