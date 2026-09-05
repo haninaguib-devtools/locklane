@@ -58,6 +58,31 @@ markers — every gate step, and the explanatory comments around them, is pipeli
 machinery every consumer shares and stays outside, so a sync always brings consumers
 current on it.
 
+## The required-checks file
+
+One per-repo customization is a **separate consumer-owned file** rather than a marked
+region inside a template file: `.t-workflow/required-checks.local`, at the consumer
+repo's root, lists the consumer's own required status checks — one CI context name per
+line, blank lines and `#` comments ignored, the file simply absent when there is nothing
+to add. `.t-workflow/scripts/required-checks.sh --list` prints the union of the
+template's fixed contexts (`checks`, `cold-review`) and that file, and it is the one
+place the list is computed: `github-bootstrap.sh` asserts that union in branch
+protection, applying its "only once a real run exists on the trunk" guard to each
+consumer context by name (`--asserted`), and `/t-ship` Procedure steps 3 and 5 flip the
+live setting to it when a PR changes the list (#126).
+
+It is a file and not a slot because the script that reads it is a template-owned
+executable: a consumer editing between markers inside `github-bootstrap.sh` would be
+editing the tool that syncs it, and `/t-ship` would have nothing to read but that
+script's own text. The file sits under `.t-workflow/` but outside `.t-workflow/scripts/`,
+so it matches no protected pattern (`.t-workflow/scripts/protected-paths.sh`), is never
+in `template-owned-paths.sh --list`, is never hashed into the manifest
+(`docs/architecture/manifest.md`), and is never touched by a sync — a consumer's list
+survives every `/t-update` by construction, with no marker to preserve. A consumer that
+had set a context by hand on the forge before this file existed moves it in via
+`migrations/V2__required-checks-local.md`. This repo, being the template and not a
+consumer, carries no such file.
+
 ## Alias mechanism
 
 `AGENTS.md` is the single source. `CLAUDE.md`, `GEMINI.md`, and

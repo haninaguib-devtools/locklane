@@ -172,6 +172,60 @@ expect_rc "no blockers at all: passes"                0 .t-workflow/scripts/chec
 expect_rc "an open blocker: fails"                    1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json"
 expect_rc "a cancelled (not-planned) blocker: fails — abandoned, not satisfied" \
   1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-cancelled.json"
+printf 'not json' > "$work/blockers-broken.json"
+expect_rc "an unparsable blockers file is a usage error, never an OK" \
+  2 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-broken.json"
+
+# ADR-009 (#127): the driven reading. A blocker that is a sibling child of the same
+# initiative is satisfied when its PR is MERGED, head wip/<sibling>-*, base
+# wip/<initiative>-integration, and its latest review reads `readiness: ready`. The
+# sibling dispositions arrive as a file (--siblings <initiative-id> <file>) in the shape
+# forge:pr-find-by-task and forge:pr-reviews return. Each printf writes one line of
+# JSON with the review body's newlines escaped, so the file parses.
+sib() { printf '[{"number":25,"prs":[{"state":"%s","headRefName":"%s","baseRefName":"%s"}],"reviews":[{"submittedAt":"2026-09-01T00:00:00Z","body":"isolation: fresh session\\n\\nreadiness: %s"}]}]' "$@"; }
+sib MERGED wip/25-foo wip/40-integration ready      > "$work/sib-merged-ready.json"
+sib MERGED wip/25-foo wip/40-integration not-ready  > "$work/sib-merged-notready.json"
+sib MERGED wip/25-foo main                ready     > "$work/sib-merged-trunk.json"
+sib MERGED wip/250-foo wip/40-integration ready     > "$work/sib-merged-wronghead.json"
+sib OPEN   wip/25-foo wip/40-integration ready      > "$work/sib-pr-open.json"
+printf '[{"number":25,"prs":[{"state":"MERGED","headRefName":"wip/25-foo","baseRefName":"wip/40-integration"}],"reviews":[{"submittedAt":"2026-09-02T00:00:00Z","body":"readiness: not-ready"},{"submittedAt":"2026-09-01T00:00:00Z","body":"isolation: fresh session\\n\\nreadiness: ready"}]}]' \
+  > "$work/sib-later-review-notready.json"
+printf '[{"number":25,"state":"OPEN","stateReason":null},{"number":9,"state":"OPEN","stateReason":null}]' \
+  > "$work/blockers-open-plus-outside.json"
+
+expect_rc "driven: sibling merged onto the integration branch + latest review ready: passes" \
+  0 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --siblings 40 "$work/sib-merged-ready.json"
+expect_rc "driven: sibling merged but latest review not-ready: fails" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --siblings 40 "$work/sib-merged-notready.json"
+expect_rc "driven: sibling merged but a later review is not-ready: fails (latest wins)" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --siblings 40 "$work/sib-later-review-notready.json"
+expect_rc "driven: sibling merged onto the trunk, not the integration branch: fails" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --siblings 40 "$work/sib-merged-trunk.json"
+expect_rc "driven: a merged PR whose head is another task's (wip/250-* for #25): fails" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --siblings 40 "$work/sib-merged-wronghead.json"
+expect_rc "driven: sibling's PR still open: fails" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --siblings 40 "$work/sib-pr-open.json"
+expect_rc "driven: sibling cancelled (not-planned), whatever its PR says: fails" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-cancelled.json" --siblings 40 "$work/sib-merged-ready.json"
+expect_rc "driven: an outside blocker still open, even with a satisfied sibling: fails" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open-plus-outside.json" --siblings 40 "$work/sib-merged-ready.json"
+expect_rc "driven: the siblings file is judged under a different initiative id: fails" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --siblings 41 "$work/sib-merged-ready.json"
+expect_rc "driven: an unparsable siblings file is a usage error" \
+  2 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --siblings 40 "$work/blockers-broken.json"
+expect_rc "driven: a non-numeric initiative id is a usage error" \
+  2 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --siblings abc "$work/sib-merged-ready.json"
+
+# --pr-base: CI passes the PR's base ref; an integration-branch PR is not re-judged
+# (the driving session already judged it, ADR-009 D2); any other base judges normally.
+expect_rc "--pr-base wip/40-integration with an open blocker: passes (not re-judged)" \
+  0 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --pr-base wip/40-integration
+expect_rc "--pr-base main with an open blocker: fails (judged normally)" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --pr-base main
+expect_rc "--pr-base wip/40-foo (a task branch, not an integration branch) with an open blocker: fails" \
+  1 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --pr-base wip/40-foo
+expect_rc "--pr-base with no ref is a usage error" \
+  2 .t-workflow/scripts/check-blocker-gate.sh "$work/blockers-open.json" --pr-base
 echo
 
 # --- 7. .t-workflow/scripts/check-review-gate.sh ------------------------------------------
@@ -424,6 +478,51 @@ case "$out_noremote" in
   "main") ok "no origin/HEAD to read falls back to main (got: $out_noremote)" ;;
   *) bad "no origin/HEAD to read falls back to main (got: $out_noremote)" ;;
 esac
+echo
+
+# --- 14. .t-workflow/scripts/required-checks.sh (issue #126) --------------------
+# The one implementation of the required-status-check list github-bootstrap.sh
+# asserts and /t-ship flips to. Pure fixtures: the consumer file and the observed
+# trunk check-run names are both inputs, so no forge call is needed.
+echo "required-checks.sh"
+rc="$root/.t-workflow/scripts/required-checks.sh"
+rc_none="$work/required-checks-none.local"   # deliberately never created
+rc_file="$work/required-checks.local"
+printf '# consumer additions\nmac-lifecycle  # real macOS run\n\n  lint\nchecks\nlint\n' > "$rc_file"
+
+out=$("$rc" --list --local-file "$rc_none")
+if [ "$out" = $'checks\ncold-review' ]; then ok "--list with no consumer file is exactly checks, cold-review"
+else bad "--list with no consumer file is exactly checks, cold-review (got: $(printf '%s' "$out" | paste -sd, -))"; fi
+
+out=$("$rc" --list --local-file "$rc_file")
+if [ "$out" = $'checks\ncold-review\nmac-lifecycle\nlint' ]; then
+  ok "--list with a consumer file is the union, file order, comments/blanks/duplicates dropped"
+else bad "--list with a consumer file is the union (got: $(printf '%s' "$out" | paste -sd, -))"; fi
+
+out=$(printf 'checks\ncold-review\nmac-lifecycle\n' | "$rc" --asserted - --local-file "$rc_file" 2>/dev/null)
+if [ "$out" = $'checks\ncold-review\nmac-lifecycle' ]; then
+  ok "--asserted keeps a consumer context that has a trunk run and drops one that has none"
+else bad "--asserted keeps a consumer context that has a trunk run and drops one that has none (got: $(printf '%s' "$out" | paste -sd, -))"; fi
+
+err=$(printf 'checks\n' | "$rc" --asserted - --local-file "$rc_file" 2>&1 >/dev/null)
+case "$err" in
+  *"'lint'"*"no run on the trunk yet"*) ok "--asserted names each consumer context it leaves out" ;;
+  *) bad "--asserted names each consumer context it leaves out (stderr: $err)" ;;
+esac
+
+out=$(printf '' | "$rc" --asserted - --local-file "$rc_none")
+if [ "$out" = $'checks\ncold-review' ]; then
+  ok "--asserted with no consumer file asserts the template pair regardless of observed names"
+else bad "--asserted with no consumer file asserts the template pair (got: $(printf '%s' "$out" | paste -sd, -))"; fi
+
+printf 'checks\nmac-lifecycle\n' > "$work/observed.txt"
+out=$("$rc" --asserted "$work/observed.txt" --local-file "$rc_file" 2>/dev/null)
+if [ "$out" = $'checks\ncold-review\nmac-lifecycle' ]; then ok "--asserted reads observed names from a file as well as stdin"
+else bad "--asserted reads observed names from a file as well as stdin (got: $(printf '%s' "$out" | paste -sd, -))"; fi
+
+expect_rc "no mode is a usage error"                       2 "$rc"
+expect_rc "--asserted with an unreadable observed file fails" 2 "$rc" --asserted "$work/does-not-exist.txt"
+expect_rc "the consumer file is not a protected path"      1 .t-workflow/scripts/protected-paths.sh .t-workflow/required-checks.local
 echo
 
 echo "$pass passed, $fail failed"

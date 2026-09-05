@@ -26,6 +26,28 @@ implementation before editing files.
    and say so: a blocker **cancelled** rather than completed was abandoned, not
    satisfied, even though it is closed (ADR-001 §D3.2, over the native `blockedBy` field
    plus `stateReason` per ADR-003).
+
+   **Inside a driven initiative (ADR-009 D1), the same gate takes one more input.**
+   A blocker that is a sibling child of the same initiative counts as satisfied
+   when that sibling's PR is merged into the initiative's integration branch
+   (`wip/<sibling>-*` onto `wip/<initiative>-integration`, state MERGED) and its latest
+   cold review reads `readiness: ready`; any other blocker — outside the initiative, or a
+   sibling that is open, excluded, or cancelled — is judged exactly as before: closed as
+   completed, or nothing.
+   Driven — `/t-drive` chaining this stage in the same session for a child of an
+   initiative — run the gate with the sibling-dispositions file `/t-drive` Phase 2 step
+   1 built: `check-blocker-gate.sh <file> --siblings <initiative-id> <siblings-file>`.
+   Standalone, on exit 1, when the issue has an `initiative`-labeled parent
+   (`tracker:view`'s `parent`): build that same file yourself for each failing blocker
+   that is a child of that parent (`forge:pr-find-by-task <sibling>` for its PR rows,
+   `forge:pr-reviews <pr>` on the merged one, in the shape the script's header
+   documents) and re-run the gate with it. Exit 0 the second time means the blocker is
+   merged-but-open: **still stop**, say exactly that — its work is already on
+   `wip/<initiative-id>-integration` and its issue stays open until the aggregate PR
+   reaches the trunk (ADR-004 Decision 3) — and name `/t-drive <initiative-id>` as the
+   way to continue. Exit 1 both times is the refusal above, unchanged. Never apply the
+   driven reading standalone: a session that is not driving has no integration branch
+   to cut this child's branch from.
 3. **Protected surfaces.** If the work will touch a protected path and the issue has no
    `## Plan` section, stop and recommend `/t-plan <id>`. Decide with
    `.t-workflow/scripts/protected-paths.sh <paths>` (`CONSTITUTION.md` §3 in executable form) over

@@ -108,20 +108,30 @@ has already left the pipeline, say which and stop.
      failed, mirroring step 3's own `abort` handling below — report which check failed
      and where to read why, and name `/t-work <id>` (fix mode) as the next command. Never
      reach the merge-confirmation gate on a red or unconcluded check.
-3. **Branch-protection contexts, only if this PR renames them** (#113). Check whether
-   this PR's diff changes the required-status-check `contexts`
-   `.t-workflow/scripts/github-bootstrap.sh` asserts. **Not applicable** (the common
-   case) → continue to step 4. **Applicable** → this PR cannot merge under the *current*
-   live protection, self-referentially: whatever the old contexts named, this PR's own
-   CI no longer produces them (that is the diff), so the old required checks would sit
-   at "expected" forever and block the merge button — the exact #94/#109 failure,
-   self-inflicted on this PR unless the live setting moves before the merge is
-   attempted, not after. Confirm the new context name(s) already have a real run to
-   point at — **this PR's own head sha**, not the trunk (the merge hasn't happened yet):
-   `gh api repos/<owner>/<repo>/commits/<head-sha>/check-runs`, expecting `checks`
-   (from step 1–2 above) and `cold-review` (from precondition 2's review, which must
-   already exist on a protected surface) to both appear. Missing either → stop, name
-   what's missing; do not flip protection against a context nobody has produced.
+3. **Branch-protection contexts, only if this PR changes them** (#113, #126). The
+   required-status-check list has one implementation,
+   `.t-workflow/scripts/required-checks.sh --list` — the template's fixed pair plus
+   whatever this repo lists in `.t-workflow/required-checks.local`
+   (`docs/architecture/local-slots.md`). The list can only change when this PR's diff
+   touches that script or that file (`forge:pr-files <pr>`, already fetched in
+   precondition 0). Neither touched → **not applicable** (the common case), continue to
+   step 4. Either touched → run `required-checks.sh --list` on this branch and compare
+   it with the same list computed from `origin/<trunk>`'s copy of both files (`git show
+   origin/<trunk>:<path>` into a scratch directory); identical → still not applicable.
+   **Applicable** — a renamed template context, or a consumer context added, renamed,
+   or removed in the local file — → this PR cannot merge under
+   the *current* live protection, self-referentially: whatever the old contexts named,
+   this PR's own CI no longer produces them (that is the diff), so the old required
+   checks would sit at "expected" forever and block the merge button — the exact
+   #94/#109 failure, self-inflicted on this PR unless the live setting moves before the
+   merge is attempted, not after. Confirm every name in the **new** list already has a
+   real run to point at — **this PR's own head sha**, not the trunk (the merge hasn't
+   happened yet): `gh api repos/<owner>/<repo>/commits/<head-sha>/check-runs`, expecting
+   `checks` (from step 1–2 above), `cold-review` (from precondition 2's review, which
+   must already exist on a protected surface), and each consumer context to appear — a
+   consumer job that skips itself by path still produces a check-run, and a skipped run
+   is what lets it pass. Missing any → stop, name what's missing; do not flip protection
+   against a context nobody has produced.
    **Do not execute the flip yet** — it happens only after the human's confirmation
    below, folded into the same gate rather than a second one
    (`docs/architecture/confirmation-gates.md`: one gate per turn), since the flip is
@@ -152,22 +162,24 @@ has already left the pipeline, say which and stop.
 5. **On confirmation:** if step 3 found the flip applicable, execute it *now*, before
    attempting the merge — this is what the confirmation just given authorizes, alongside
    the merge itself. Flip the live setting directly to the exact list
-   `.t-workflow/scripts/github-bootstrap.sh` asserts, then read the same endpoint back
-   and confirm it matches:
+   `.t-workflow/scripts/required-checks.sh --list` prints on this branch — the same
+   union `github-bootstrap.sh` asserts (#126) — then read the same endpoint back and
+   confirm it matches:
 
    ```bash
-   echo '{"strict": false, "contexts": [<the new list>]}' |
+   .t-workflow/scripts/required-checks.sh --list | jq -R . | jq -sc '{strict: false, contexts: .}' |
      gh api "repos/<owner>/<repo>/branches/<trunk>/protection/required_status_checks" \
        -X PATCH --input -
    gh api "repos/<owner>/<repo>/branches/<trunk>/protection/required_status_checks" \
      --jq .contexts
    ```
 
-   **Never run `github-bootstrap.sh` here.** Its required-checks gating looks for the
-   new context on the trunk, which cannot exist until this very merge lands — pre-merge
-   it takes its "CI has not run on `<trunk>` yet" branch instead of asserting the new
+   **Never run `github-bootstrap.sh` here.** Its required-checks gating looks for each
+   context's run on the trunk, which cannot exist until this very merge lands — pre-merge
+   it takes its "CI has not run on `<trunk>` yet" branch for a renamed template context,
+   and leaves out a consumer context with no trunk run yet, instead of asserting the new
    list (#113's own ship tripped exactly this). The script is a post-merge true-up only:
-   after the merge, once the trunk's first CI run of the new context concludes, re-run
+   after the merge, once the trunk's first CI run of every new context concludes, re-run
    it and confirm it reports the same list this step just set. Not applicable → nothing
    to do here, continue.
 

@@ -173,11 +173,15 @@ jobs:
       # Re-evaluated on every pull_request sync/reopen/ready-for-review — the closest
       # approximation to "at merge time" available without a merge queue (see the Plan's
       # human_checks on this issue); a human who wants a fresher read before clicking
-      # merge can re-run this job.
+      # merge can re-run this job. A driven child's PR (base wip/<n>-integration) is
+      # not re-judged here: the script's --pr-base flag passes it, because the driving
+      # session's own gate already judged that child with the sibling dispositions CI
+      # does not have (ADR-009 D2, #127).
       - name: Every blocker of this task's issue is closed as completed
         if: "!cancelled() && github.event_name == 'pull_request'"
         env:
           HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
           OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
           GH_TOKEN: ${{ github.token }}
@@ -202,7 +206,7 @@ jobs:
               }
             }' -F owner="$OWNER" -F name="$REPO_NAME" -F num="$id" \
             --jq '.data.repository.issue.blockedBy.nodes' > /tmp/blockers.json
-          bash .t-workflow/scripts/check-blocker-gate.sh /tmp/blockers.json
+          bash .t-workflow/scripts/check-blocker-gate.sh /tmp/blockers.json --pr-base "$BASE_REF"
 
       # Regression coverage for the plumbing behind the gates above: protected-paths.sh's
       # exit codes and quoting, the bucket math, and every check-*.sh script against
