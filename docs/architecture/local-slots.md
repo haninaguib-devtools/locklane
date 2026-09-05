@@ -2,13 +2,15 @@
 
 **Status:** binding convention.
 
-Five places across the pipeline's own files are per-repo **by design**, not
+Seven places across the pipeline's own files are per-repo **by design**, not
 template-owned: `CONSTITUTION.md` §4 (stack & architecture), `AGENTS.md` §Checks item 1
 (the build/test check command), `AGENTS.md` §The pipeline's slot after the `t-*` table
-(consumer-local skill rows), and two spots in `.github/workflows/ci.yml`'s `checks`
+(consumer-local skill rows), two spots in `.github/workflows/ci.yml`'s `checks`
 job — its `timeout-minutes` value, and an extension point at the end of its `steps:`
-list. Everything else in these files is template content, meant to move the same way
-for every consumer. This document fixes the vocabulary and boundary `/t-update`
+list — `.github/workflows/review-gate.yml`'s `cold-review` job `timeout-minutes` value,
+and the end of `.gitignore` (a consumer's own ignore entries). Everything else in
+these files is template content, meant to move the same way for every consumer. This
+document fixes the vocabulary and boundary `/t-update`
 (`.claude/skills/t-update/SKILL.md`, `docs/architecture/manifest.md`) honors when it
 replaces template content without touching what a consumer wrote for itself.
 
@@ -33,11 +35,13 @@ This repo, being itself at Phase 0, keeps the neutral placeholder inside every m
 today: `(reserved: stack and architecture constraints — …)` in `CONSTITUTION.md` §4,
 `(none yet — no stack exists.)` in `AGENTS.md` §Checks item 1, `(reserved: consumer-local
 skills — …)` in `AGENTS.md` §The pipeline's skill-row slot, the template's own default
-`timeout-minutes: 10` in `ci.yml`, and an empty region at the end of `ci.yml`'s `steps:`
-list. A consumer repo replaces each placeholder with its own real content once it
-adopts — its own stack rule, its own build/test command, its own table of local skill
-rows, its own CI timeout, its own trailing build/manifest-check steps
-(`docs/architecture/manifest.md` §The CI lock) — and a later template sync leaves that
+`timeout-minutes: 10` in `ci.yml`, an empty region at the end of `ci.yml`'s `steps:`
+list, the template's own default `timeout-minutes: 10` in `review-gate.yml`, and an
+empty region at the end of `.gitignore`. A consumer repo replaces each
+placeholder with its own real content once it adopts — its own stack rule, its own
+build/test command, its own table of local skill rows, its own CI timeout, its own
+trailing build/manifest-check steps (`docs/architecture/manifest.md` §The CI lock), its
+own review-gate timeout, its own ignore entries — and a later template sync leaves that
 content alone.
 
 **The skill-row slot's own shape**: unlike the other slots, this one is meant to hold a
@@ -53,10 +57,10 @@ as every other row-based content in these files.
 (`./.t-workflow/scripts/consistency-check.sh`, the scope-diff review) and the CI-wiring sentence
 that follows are pipeline machinery every consumer shares — they belong outside the
 marker, so a sync always brings consumers current on them. The same reasoning bounds
-`ci.yml`'s slots: only the two lines/regions a consumer actually customizes are inside
-markers — every gate step, and the explanatory comments around them, is pipeline
-machinery every consumer shares and stays outside, so a sync always brings consumers
-current on it.
+`ci.yml`'s and `review-gate.yml`'s slots: only the lines/regions a consumer actually
+customizes are inside markers — every gate step, and the explanatory comments around
+them, is pipeline machinery every consumer shares and stays outside, so a sync always
+brings consumers current on it.
 
 ## The required-checks file
 

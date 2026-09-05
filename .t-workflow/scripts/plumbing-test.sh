@@ -307,6 +307,18 @@ else bad "an edit inside a comment-prefixed YAML slot does not change the hash";
 if [ "$h_yaml" != "$h_yaml_outside" ]; then ok "an edit outside a comment-prefixed YAML slot changes the hash"
 else bad "an edit outside a comment-prefixed YAML slot changes the hash"; fi
 
+# .gitignore's own local slot (issue #130): a consumer's real entries inside the
+# markers must never register as drift against the template's own (empty-slot) file.
+awk '{ print } /^# <!-- local -->$/ { print "target/"; print "data/"; print "*.db" }' \
+  .gitignore > "$work/gitignore-filled"
+h_gitignore_template=$(.t-workflow/scripts/check-manifest.sh --hash-file .gitignore)
+h_gitignore_filled=$(.t-workflow/scripts/check-manifest.sh --hash-file "$work/gitignore-filled")
+if [ "$h_gitignore_template" = "$h_gitignore_filled" ]; then
+  ok "a consumer's real .gitignore entries inside the local slot do not change the hash"
+else
+  bad "a consumer's real .gitignore entries inside the local slot do not change the hash"
+fi
+
 expect_rc "--hash-file on a symlink-to-directory does not error" \
   0 bash -c 'ln -sfn ../x "$1/link-to-dir" && .t-workflow/scripts/check-manifest.sh --hash-file "$1/link-to-dir"' _ "$work"
 h_link1=$(.t-workflow/scripts/check-manifest.sh --hash-file "$work/link-to-dir")
