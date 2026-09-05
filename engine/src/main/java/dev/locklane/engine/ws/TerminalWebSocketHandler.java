@@ -33,24 +33,24 @@ import java.util.regex.Pattern;
 
 /**
  * Attaches a browser client to a session's {@link PtySession} over WebSocket:
- * {@code /ws/sessions/{sessionId}[?dir=<path>][&cmd=<claude|codex|shell>][&resume=<id>][&seed=template][&cols=<n>&rows=<n>]}.
+ * {@code /ws/sessions/{sessionId}[?dir=<path>][&cmd=<claude|codex|opencode|omp|shell>][&resume=<id>][&seed=template][&cols=<n>&rows=<n>]}.
  * {@code dir} is required only the first time a session is seen; after that its working
  * directory is already known (in-memory if the session is still live, or from SQLite via
  * {@link SessionRegistry#lastKnownWorkingDirectory} after a restart). {@code cmd}
  * chooses what a brand-new session launches — an agent CLI (e.g. {@code claude},
  * {@code codex}, {@code opencode}) or a plain shell (the default, when {@code cmd} is
  * absent or {@code shell}) — and is ignored on a reattach to an already-running session.
- * {@code resume} (#103, #295) makes a brand-new {@code claude}/{@code codex}/
- * {@code opencode} session resume a past conversation instead of starting a blank one
+ * {@code resume} (#103, #295, #681) makes a brand-new {@code claude}/{@code codex}/
+ * {@code opencode}/{@code omp} session resume a past conversation instead of starting a blank one
  * ({@code claude --resume <id>} / {@code codex resume <id>} / {@code opencode --session
- * <id>}, the ids captured by #102); the command is composed here, never accepted as a
+ * <id>} / {@code omp --resume <id>}, the ids captured by #102, #295, #681); the command is composed here, never accepted as a
  * free-form string, and {@code resume} is ignored for any other {@code cmd} or an id not
- * shaped like one. Reattaching to a {@code claude}/{@code codex}/{@code opencode}
- * session whose process did not survive an engine restart resumes on its own (#173):
+ * shaped like one. Reattaching to a {@code claude}/{@code codex}/{@code opencode}/
+ * {@code omp} session whose process did not survive an engine restart resumes on its own (#173):
  * with no explicit {@code resume} and no live process, the most recently captured resume
  * id for that session and tool fills in automatically.
  * {@code seed=template} (#537) makes a brand-new {@code claude}/{@code codex}/{@code
- * opencode} project-console session start with the engine-composed first prompt that
+ * opencode}/{@code omp} project-console session start with the engine-composed first prompt that
  * tells the agent to read the template #536 committed and build the project — composed
  * by {@link ProjectConsoleService#templateSeedPrompt}, never taken from the client —
  * and records the launch on the project so it happens exactly once; ignored for a
@@ -342,7 +342,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * plain reattach stays untouched. Package-visible for tests.
      */
     String[] resolveLaunchCommand(String sessionId, String cmd, String resume) {
-        if (resume == null && cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode"))
+        if (resume == null && cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode") || cmd.equals("omp"))
                 && sessionRegistry.find(sessionId).isEmpty()) {
             resume = sessionRegistry.latestResumeId(sessionId, cmd).orElse(null);
         }
@@ -377,16 +377,16 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     }
 
     private static boolean isAgent(String cmd) {
-        return cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode"));
+        return cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode") || cmd.equals("omp"));
     }
 
     /**
      * The agent's own "start interactively with this first prompt" shape (#537):
-     * {@code claude <prompt>} and {@code codex <prompt>} take it positionally,
+     * {@code claude <prompt>}, {@code codex <prompt>}, and {@code omp <prompt>} take it positionally,
      * {@code opencode --prompt <prompt>} by flag (confirmed against opencode 1.18.25).
      * The prompt travels as one argv element — never through a shell — and is always
      * engine text, so nothing the client sends reaches the process. {@code null} for
-     * anything that is not one of the three agents. Package-visible for tests.
+     * anything that is not one of the four agents. Package-visible for tests.
      */
     static String[] seededLaunchCommand(String cmd, String prompt) {
         if (cmd == null || prompt == null) {
@@ -396,6 +396,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             case "claude" -> new String[] {"claude", prompt};
             case "codex" -> new String[] {"codex", prompt};
             case "opencode" -> new String[] {"opencode", "--prompt", prompt};
+            case "omp" -> new String[] {"omp", prompt};
             default -> null;
         };
     }
@@ -414,6 +415,9 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             }
             if (cmd.equals("opencode")) {
                 return new String[] {"opencode", "--session", resume};
+            }
+            if (cmd.equals("omp")) {
+                return new String[] {"omp", "--resume", resume};
             }
         }
         return new String[] {cmd};

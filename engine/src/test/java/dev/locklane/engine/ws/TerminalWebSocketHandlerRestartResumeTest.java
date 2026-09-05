@@ -17,8 +17,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Covers #173: after an engine restart the live processes are gone but the resume
- * ids captured by #102/#295 are not, so a client reattaching to a
- * claude/codex/opencode session id gets its conversation back — the launch command
+ * ids captured by #102/#295/#681 are not, so a client reattaching to a
+ * claude/codex/opencode/omp session id gets its conversation back — the launch command
  * resolves to the tool's own resume
  * command, filled from the most recently captured id for that session and tool. A
  * session with nothing captured, an explicit {@code resume} parameter, or a process
@@ -75,6 +75,14 @@ class TerminalWebSocketHandlerRestartResumeTest {
 
         assertThat(handler.resolveLaunchCommand("42-worktree", "opencode", null))
                 .containsExactly("opencode", "--session", OPENCODE_ID);
+    }
+
+    @Test
+    void ompResumesWithItsOwnCommandShape() {
+        resumeRepository.record("42-worktree", "omp", NEWER_ID, Instant.parse("2026-08-27T10:00:00Z"));
+
+        assertThat(handler.resolveLaunchCommand("42-worktree", "omp", null))
+                .containsExactly("omp", "--resume", NEWER_ID);
     }
 
     @Test
