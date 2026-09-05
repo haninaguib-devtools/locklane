@@ -19,9 +19,14 @@
 @if (loading) {
   <div class="loading">loading…</div>
 } @else if (cloning) {
-  <!-- #537: the add-project popup lands here while the engine is still creating the
-       project; the console opens itself once it is READY. -->
-  <div class="loading cloning">creating the project… the console will open when it is ready</div>
+    <!-- #537: the add-project popup lands here while the engine is still
+         creating the project; the console opens itself once it is READY.
+         #717 keeps the wait visibly alive with the same spinner, staged hint,
+         and elapsed counter as the dialog and the sidenav row. -->
+    <div class="loading cloning">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>creating the project… {{ cloneStage }} · {{ cloneElapsedSec }}s — the console will open when it is ready</span>
+  </div>
 } @else if (failed) {
   <div class="starter failed">
     <p class="hint">

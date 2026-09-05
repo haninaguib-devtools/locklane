@@ -290,7 +290,7 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
     httpMock.expectOne('/api/templates').flush({ templates: [] });
 
-    fixture.componentInstance.onProjectCreated();
+    fixture.componentInstance.onProjectCreated(PROJECT);
     fixture.detectChanges();
 
     expect(compiled.querySelector('app-add-project-popup')).toBeFalsy();
@@ -788,13 +788,45 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
     httpMock.expectOne('/api/templates').flush({ templates: [] });
 
-    fixture.componentInstance.onProjectCreated();
+    fixture.componentInstance.onProjectCreated(PROJECT);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.showAddProject).toBeFalse();
     httpMock.expectOne('/api/projects').flush([PROJECT]);
     httpMock.expectOne('/api/projects/1/issues/tree?fresh=true').flush({ nodes: [], github: GITHUB_OK });
     httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
+  }));
+
+  it('importing a project keeps the dialog open until the sidebar reveal completes (#717)', fakeAsync(() => {
+    // A project the initial list does not carry, so the reveal must wait for its reload.
+    const CLONING = { ...PROJECT, id: 9, name: 'compose-manager', status: 'CLONING' } as Project;
+    const READY = { ...CLONING, status: 'READY' } as Project;
+    const fixture = openedApp();
+    fixture.componentInstance.openAddProject();
+    fixture.detectChanges();
+    // The popup asks for the host's gh accounts (#532) and project templates (#536) on mount.
+    httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
+    httpMock.expectOne('/api/templates').flush({ templates: [] });
+
+    fixture.componentInstance.onProjectImported(CLONING);
+    fixture.detectChanges();
+
+    // Still open: the reveal reload is in flight.
+    expect(fixture.componentInstance.showAddProject).toBeTrue();
+    httpMock.expectOne('/api/projects').flush([CLONING]);
+    httpMock.expectOne('/api/projects/9/issues/tree?fresh=true').flush({ nodes: [], github: GITHUB_OK });
+    httpMock.match('/api/projects/9/consoles').forEach((request) => request.flush([]));
+    fixture.detectChanges();
+
+    // Row revealed -> the dialog closes.
+    expect(fixture.componentInstance.showAddProject).toBeFalse();
+
+    // Settle to READY so no poll, tick, or highlight timer survives.
+    tick(3000);
+    httpMock.expectOne('/api/projects').flush([READY]);
+    httpMock.expectOne('/api/projects/9/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+    httpMock.match('/api/projects/9/consoles').forEach((request) => request.flush([]));
+    fixture.detectChanges();
   }));
 
   it('toggles the account menu from the avatar, showing the username, a separator, Settings, About and Sign out', fakeAsync(() => {

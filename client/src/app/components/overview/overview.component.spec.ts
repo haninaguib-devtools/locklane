@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
@@ -114,6 +114,29 @@ describe('OverviewComponent', () => {
 
     expect(fixture.componentInstance.rows.length).toBe(1);
   });
+
+  it('re-reads while a row is still cloning, settling to READY without flashing loading (#717)', fakeAsync(() => {
+    const fixture = init([{ ...PROJECT_A, status: 'CLONING' }]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('cloning');
+    expect(fixture.componentInstance.loading).toBeFalse();
+
+    tick(3000);
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.rows[0].project.status).toBe('READY');
+    expect(fixture.componentInstance.loading).toBeFalse();
+    expect(compiled.textContent).toContain('ready');
+
+    tick(3000);
+    httpMock.expectNone('/api/projects');
+    fixture.destroy();
+  }));
 
   it('shows an error state when the project list fails to load', () => {
     const fixture = TestBed.createComponent(OverviewComponent);

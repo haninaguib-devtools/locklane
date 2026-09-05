@@ -23,6 +23,7 @@ import { AuthService } from './services/auth.service';
 import { CurrentProjectService } from './services/current-project.service';
 import { deriveProjectBackgroundTint } from './services/project-accent-tint';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
+import { Project } from './models/issue.model';
 
 const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
 
@@ -251,10 +252,23 @@ export class AppComponent {
   // Both the sidenav and the overview (#197) fetch the project list independently
   // (#44), so a project created from the header or the overview's zero-state needs
   // both refreshed in place rather than relying on either one's own next reload.
-  onProjectCreated(): void {
+  // The sidenav reveal (#717) expands the new row, scrolls it into view, and
+  // highlights it briefly -- the same refresh the old code did, plus the flash.
+  onProjectCreated(project: Project): void {
     this.showAddProject = false;
-    this.sidenav?.refresh();
+    this.sidenav?.revealProject(project.id);
     this.overview?.refresh();
+  }
+
+  // An import keeps its dialog open -- locked, timer running -- until the sidebar
+  // actually has the new row (#717): the reveal's `done` closes the dialog, so
+  // there is no dead gap between the dialog closing and the row appearing. A
+  // failed reload still closes it (the reveal never traps the waiter).
+  onProjectImported(project: Project): void {
+    this.overview?.refresh();
+    this.sidenav?.revealProject(project.id, () => {
+      this.showAddProject = false;
+    });
   }
 
   onAddProjectClosed(): void {

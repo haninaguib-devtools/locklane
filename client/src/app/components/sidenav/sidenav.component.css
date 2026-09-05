@@ -248,6 +248,49 @@
   color: var(--danger, #b3432b);
 }
 
+/* Live clone progress (#717): amber, like the console dot's waiting pulse below. */
+.project-status.cloning {
+  color: var(--amber);
+}
+
+.pulse-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  animation: console-dot-pulse 1.2s ease-in-out infinite;
+  flex: none;
+}
+
+.project-status .pulse-dot {
+  margin-right: 4px;
+  vertical-align: 0;
+}
+
+.cloning-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A just-revealed project section (#717) flashes its header briefly, then the
+   class is removed and the rule stops applying. */
+.project-section.revealed .section-header {
+  animation: reveal-flash 3s ease-out;
+}
+
+@keyframes reveal-flash {
+  0% {
+    background: var(--panel);
+    box-shadow: inset 3px 0 0 var(--amber);
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
 .project-failed {
   display: flex;
   flex-direction: column;

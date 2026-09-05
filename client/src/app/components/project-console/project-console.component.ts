@@ -17,6 +17,7 @@ import { SessionListComponent } from '../session-list/session-list.component';
 import { TerminalComponent } from '../terminal/terminal.component';
 import { Project, ResumeSession } from '../../models/issue.model';
 import { ProjectsService } from '../../services/projects.service';
+import { cloneStageHint } from '../clone-progress';
 
 // How often to re-read the project while it is still CLONING (#537) -- the same
 // cadence as the sidenav's own cloning poll, run here too because nothing shares the
@@ -103,10 +104,14 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   /** True when the project's creation FAILED (#537) -- nothing is started; retry lives on the project page. */
   failed = false;
   private clonePollTimer: ReturnType<typeof setTimeout> | null = null;
+  // Live wait progress (#717): when the CLONING wait started, for the elapsed
+  // counter and staged hint. The 1s tick only wakes change detection -- the
+  // getters read the clock directly.
+  private cloneStartedAt: number | null = null;
+  private cloneTickTimer: ReturnType<typeof setInterval> | null = null;
   // The project id whose seeded console this page instance has already opened (#537):
   // the guard against opening a second one before the engine's own record lands.
   private seededFor: number | null = null;
-
   private queryParamsSub: Subscription | null = null;
   // Set when a `?new` request arrives while the open-console list is still in
   // flight (#370): the start has to wait for that list, or the list's response
@@ -197,6 +202,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.queryParamsSub?.unsubscribe();
     this.stopClonePoll();
+    this.stopCloneTick();
     this.issuesService.notifyProjectStale(this.projectId);
   }
 
@@ -210,6 +216,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     this.failed = false;
     this.project = null;
     this.stopClonePoll();
+    this.stopCloneTick();
     this.projectsService.list().subscribe({
       next: (projects) => {
         const project = projects.find((p) => p.id === projectId) ?? null;
@@ -217,12 +224,17 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
         if (project?.status === 'CLONING') {
           this.loading = false;
           this.cloning = true;
+          if (this.cloneStartedAt === null) {
+            this.cloneStartedAt = Date.now();
+          }
+          this.startCloneTick();
           this.clonePollTimer = setTimeout(() => {
             this.clonePollTimer = null;
             this.load(projectId);
           }, CLONE_POLL_MS);
           return;
         }
+        this.cloneStartedAt = null;
         if (project?.status === 'FAILED') {
           this.loading = false;
           this.failed = true;
@@ -230,14 +242,43 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
         }
         this.loadConsoles(projectId);
       },
-      error: () => this.loadConsoles(projectId),
+      error: () => {
+        this.cloneStartedAt = null;
+        this.loadConsoles(projectId);
+      },
     });
+  }
+
+  /** Seconds since the CLONING wait started (#717); 0 when not waiting. */
+  get cloneElapsedSec(): number {
+    if (this.cloneStartedAt === null) {
+      return 0;
+    }
+    return Math.max(0, Math.floor((Date.now() - this.cloneStartedAt) / 1000));
+  }
+
+  /** Staged line for the CLONING wait (#717) -- same mapping as the dialog and sidenav row. */
+  get cloneStage(): string {
+    return cloneStageHint(this.cloneElapsedSec);
   }
 
   private stopClonePoll(): void {
     if (this.clonePollTimer !== null) {
       clearTimeout(this.clonePollTimer);
       this.clonePollTimer = null;
+    }
+  }
+
+  private startCloneTick(): void {
+    if (this.cloneTickTimer === null) {
+      this.cloneTickTimer = setInterval(() => {}, 1000);
+    }
+  }
+
+  private stopCloneTick(): void {
+    if (this.cloneTickTimer !== null) {
+      clearInterval(this.cloneTickTimer);
+      this.cloneTickTimer = null;
     }
   }
 
