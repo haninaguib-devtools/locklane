@@ -147,17 +147,20 @@ signal_pid() {
   env kill -s "$1" "$2" 2>/dev/null || true
 }
 
-# Where com.locklane.server is CURRENTLY loaded (#691): "user/<uid>", the domain every
-# fresh registration now targets -- it does not require an active graphical (Aqua)
-# session, unlike "gui/<uid>", so the server can be installed, started and stopped from
-# an SSH-only login. Checked first; "gui/<uid>" is checked next, for an install made
-# before #691 that has not yet gone through a stop/restart/register/update cycle to move
-# it over. Empty when loaded in neither -- not an error, just "not running".
+# Where com.locklane.server is CURRENTLY loaded: "gui/<uid>", the domain every
+# registration targets (ADR-110) -- the per-user domain of a graphical (Aqua) login,
+# the one an ordinary LaunchAgent plist can load into. Checked first. "user/<uid>" is
+# checked next, for an install made by v0.2.11-v0.2.13 (#691), which registered there;
+# a stop/restart/register/update cycle moves it back. On a real Mac that bootstrap was
+# refused (launchd 134, "Service cannot load in requested session"), so such an
+# install is normally loaded nowhere -- the check stays so one that did load there is
+# still found and retired. Empty when loaded in neither -- not an error, just "not
+# running".
 launchd_loaded_domain() {
-  if launchctl print "user/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
-    printf 'user/%s' "$(id -u)"
-  elif launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+  if launchctl print "gui/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
     printf 'gui/%s' "$(id -u)"
+  elif launchctl print "user/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
+    printf 'user/%s' "$(id -u)"
   fi
   return 0
 }
@@ -271,7 +274,7 @@ REFUSED
 # only then report. Exit 0 means: the service is not loaded, the pid is gone, and no
 # recorded descendant is alive. Exit 1 prints exactly what is left.
 stop_server() {
-  local pid kids forced="" waited=0 k survivors="" bootout_msg="" gui_bootout_msg="" loaded_before=0
+  local pid kids forced="" waited=0 k survivors="" bootout_msg="" user_bootout_msg="" loaded_before=0
   pid="$(main_pid)"
   if service_loaded; then loaded_before=1; fi
   if [ "$loaded_before" -eq 0 ] && ! alive "$pid"; then
@@ -290,13 +293,14 @@ stop_server() {
       # stop` would just have launchd relaunch it), and it also UNLOADS the agent, so a
       # stopped server does not come back until `start` loads it again. It returns
       # before the process has gone -- often with "Operation now in progress" -- which
-      # is why everything below waits and checks. Both domains are swept (#691): the
-      # second call is a harmless no-op once nothing is left in the pre-migration
-      # gui/<uid> domain, so a stop/restart/register/update also finishes an install's
-      # move to user/<uid> instead of leaving an orphaned old-domain agent behind.
-      bootout_msg="$(launchctl bootout "user/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
-      gui_bootout_msg="$(launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
-      [ -n "$bootout_msg" ] || bootout_msg="$gui_bootout_msg"
+      # is why everything below waits and checks. Both domains are swept: the second
+      # call is a harmless no-op once nothing is left in the user/<uid> domain that
+      # v0.2.11-v0.2.13 registered into (#691, reverted by ADR-110), so a
+      # stop/restart/register/update also retires such a leftover agent instead of
+      # leaving it behind next to the gui/<uid> one.
+      bootout_msg="$(launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
+      user_bootout_msg="$(launchctl bootout "user/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
+      [ -n "$bootout_msg" ] || bootout_msg="$user_bootout_msg"
       ;;
     systemd)
       # systemd escalates to SIGKILL on its own after its stop timeout and sweeps the
@@ -316,8 +320,8 @@ stop_server() {
   if service_loaded || alive "$pid"; then
     echo "The server has not exited after ${STOP_GRACE}s -- forcing it."
     if [ "$SERVICE_KIND" = launchd ]; then
-      launchctl kill SIGKILL "user/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
       launchctl kill SIGKILL "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
+      launchctl kill SIGKILL "user/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
     fi
     if alive "$pid"; then
       signal_pid KILL "$pid"
@@ -523,7 +527,7 @@ EOF
 # registration starts clean -- which makes `register` the restart-with-fresh-PATH, and
 # what `update` calls after swapping the jar.
 register_cmd() {
-  local kind java_bin resolved_path waited
+  local kind java_bin resolved_path waited msg
   load_state
   kind="${SERVICE_KIND:-}"
   [ -n "$kind" ] || kind="$(host_service_kind)"
@@ -558,14 +562,22 @@ register_cmd() {
     launchd)
       write_launchd_plist "$java_bin" "$resolved_path"
       echo "Registering the launchd agent..."
-      # user/<uid> (#691), not gui/<uid>: it does not need an active graphical session,
-      # so the agent loads over an SSH-only login same as at the console. The
-      # service_loaded check above already stopped (and bootout-swept both domains for)
-      # any prior registration, so an install still on the old gui/<uid> domain is
-      # migrated by this same call.
-      if ! launchctl bootstrap "user/$(id -u)" "$REG_FILE"; then
-        rm -f "$REG_FILE"
-        die "could not load the launchd agent $AGENT_LABEL (launchctl bootstrap failed)."
+      # gui/<uid> (ADR-110): the per-user domain of the graphical login, the one an
+      # ordinary LaunchAgent plist loads into. v0.2.11-v0.2.13 targeted user/<uid>
+      # instead (#691) and a real Mac refused it (launchd 134, "Service cannot load in
+      # requested session"). The service_loaded check above already stopped (and
+      # bootout-swept both domains for) any prior registration, so an install those
+      # releases left in user/<uid> is moved back by this same call.
+      #
+      # A refused load leaves the plist where it is (#703): removing it turned one
+      # failed bootstrap into an install that could not start, restart or register at
+      # all. launchctl's own words are printed, and the real reason -- launchctl only
+      # ever says "5: Input/output error" -- is in the system log.
+      if ! msg="$(launchctl bootstrap "gui/$(id -u)" "$REG_FILE" 2>&1 >/dev/null)"; then
+        echo "launchctl said: ${msg:-(nothing)}" >&2
+        die "could not load the launchd agent $AGENT_LABEL (launchctl bootstrap failed).
+The plist was left at $REG_FILE, so nothing else is lost. launchd's own reason is in:
+  log show --last 5m --predicate 'process == \"launchd\"' | grep -i locklane"
       fi
       ;;
   esac
@@ -657,9 +669,9 @@ status_cmd() {
       fi
       pid="$(main_pid)"
       dom="$(launchd_loaded_domain)"
-      # #691: still on the pre-migration domain -- register/restart/update would move
-      # it to user/<uid>, which (unlike gui/<uid>) does not need a graphical session.
-      case "$dom" in gui/*) migrate_note=" (still in the old $dom domain -- \`locklane register\` moves it to the headless-capable user/\$(id -u) domain)" ;; esac
+      # v0.2.11-v0.2.13 registered into user/<uid> (#691); register/restart/update
+      # move it back to gui/<uid> (ADR-110).
+      case "$dom" in user/*) migrate_note=" (loaded in the $dom domain, where v0.2.11-v0.2.13 put it -- \`locklane register\` moves it back to gui/\$(id -u))" ;; esac
       if alive "$pid"; then
         echo "locklane is running as the launchd agent $AGENT_LABEL (pid $pid)${migrate_note}. Output is logged to $LOG_FILE."
       else
@@ -675,6 +687,7 @@ status_cmd() {
 }
 
 start_cmd() {
+  local msg
   load_state
   case "$SERVICE_KIND" in
     systemd)
@@ -689,7 +702,11 @@ start_cmd() {
       fi
       [ -f "$REG_FILE" ] || die "the agent's plist $REG_FILE is missing -- run \`locklane register\` to recreate it."
       echo "Starting the locklane agent..."
-      launchctl bootstrap "user/$(id -u)" "$REG_FILE"
+      if ! msg="$(launchctl bootstrap "gui/$(id -u)" "$REG_FILE" 2>&1 >/dev/null)"; then
+        echo "launchctl said: ${msg:-(nothing)}" >&2
+        die "could not load the launchd agent $AGENT_LABEL (launchctl bootstrap failed). launchd's own reason is in:
+  log show --last 5m --predicate 'process == \"launchd\"' | grep -i locklane"
+      fi
       echo "Started. The agent is loaded again."
       ;;
     *)
@@ -720,9 +737,9 @@ stop_cmd() {
   refuse_inside_server "locklane stop"
   stop_server
   case "$SERVICE_KIND" in
-    # #691: unlike gui/<uid>, nothing here auto-reloads user/<uid> at a later login --
-    # `locklane start` (or `register`) is what brings it back.
-    launchd) echo "The agent is unloaded. Run \`locklane start\` to load it again." ;;
+    # gui/<uid>: macOS reloads ~/Library/LaunchAgents at the next graphical login, so
+    # a stopped agent comes back then; `locklane start` (or `register`) brings it back now.
+    launchd) echo "The agent is unloaded. macOS loads it again at your next login; \`locklane start\` brings it back now." ;;
     systemd) echo "The service stays enabled and comes back at the next boot; \`locklane start\` brings it back now." ;;
   esac
 }

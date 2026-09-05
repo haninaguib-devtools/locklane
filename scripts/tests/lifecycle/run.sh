@@ -90,13 +90,13 @@ scenario_launchd_stop_forced() {
   local name="launchd-stop-forced" out rc pid
   new_home
   register_as launchd ignore-term || { bad "$name" "register"; return; }
-  pid="$(server_pid launchd.user)"
+  pid="$(server_pid launchd.gui)"
   alive "$pid" || { bad "$name" "stub server not running after register"; return; }
   out="$("$LL" stop 2>&1)"; rc=$?
-  if [ "$rc" -eq 0 ] && ! alive "$pid" && contains "$out" "forced" && ! [ -f "$STUB_STATE/launchd.user.loaded" ]; then
+  if [ "$rc" -eq 0 ] && ! alive "$pid" && contains "$out" "forced" && ! [ -f "$STUB_STATE/launchd.gui.loaded" ]; then
     ok "$name"
   else
-    bad "$name" "rc=$rc alive=$(alive "$pid" && echo yes || echo no) loaded=$([ -f "$STUB_STATE/launchd.user.loaded" ] && echo yes || echo no) out=$out"
+    bad "$name" "rc=$rc alive=$(alive "$pid" && echo yes || echo no) loaded=$([ -f "$STUB_STATE/launchd.gui.loaded" ] && echo yes || echo no) out=$out"
   fi
 }
 
@@ -104,7 +104,7 @@ scenario_launchd_stop_graceful() {
   local name="launchd-stop-graceful" out rc pid
   new_home
   register_as launchd || { bad "$name" "register"; return; }
-  pid="$(server_pid launchd.user)"
+  pid="$(server_pid launchd.gui)"
   out="$("$LL" stop 2>&1)"; rc=$?
   if [ "$rc" -eq 0 ] && ! alive "$pid" && contains "$out" "^Stopped\.$" && ! contains "$out" "forced"; then
     ok "$name"
@@ -117,7 +117,7 @@ scenario_launchd_stop_kills_children() {
   local name="launchd-stop-kills-children" out rc pid child
   new_home
   register_as launchd with-child || { bad "$name" "register"; return; }
-  pid="$(server_pid launchd.user)"
+  pid="$(server_pid launchd.gui)"
   child=""
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     child="$(pgrep -P "$pid" 2>/dev/null | head -n 1)"
@@ -166,7 +166,7 @@ scenario_stop_cannot_finish() {
   local name="stop-cannot-finish" out rc pid
   new_home
   register_as launchd ignore-term || { bad "$name" "register"; return; }
-  pid="$(server_pid launchd.user)"
+  pid="$(server_pid launchd.gui)"
   touch "$STUB_STATE/kill-swallows"
   out="$("$LL" stop 2>&1)"; rc=$?
   rm -f "$STUB_STATE/kill-swallows"
@@ -183,7 +183,7 @@ scenario_uninstall_refuses_live() {
   local name="uninstall-refuses-live" out rc pid
   new_home
   register_as launchd ignore-term || { bad "$name" "register"; return; }
-  pid="$(server_pid launchd.user)"
+  pid="$(server_pid launchd.gui)"
   cp -a "$HOME/.locklane" "$T/before"
   touch "$STUB_STATE/kill-swallows"
   out="$("$LL" uninstall --all --yes 2>&1)"; rc=$?
@@ -201,11 +201,11 @@ scenario_uninstall_clean() {
   local name="uninstall-clean" out rc pid
   new_home
   register_as launchd || { bad "$name" "register"; return; }
-  pid="$(server_pid launchd.user)"
+  pid="$(server_pid launchd.gui)"
   out="$("$LL" uninstall --all --yes 2>&1)"; rc=$?
   if [ "$rc" -eq 0 ] && ! alive "$pid" && [ ! -d "$HOME/.locklane" ] \
       && [ ! -f "$HOME/Library/LaunchAgents/com.locklane.server.plist" ] \
-      && [ ! -f "$STUB_STATE/launchd.user.loaded" ] && contains "$out" "no longer registered"; then
+      && [ ! -f "$STUB_STATE/launchd.gui.loaded" ] && contains "$out" "no longer registered"; then
     ok "$name"
   else
     bad "$name" "rc=$rc alive=$(alive "$pid" && echo yes || echo no) dir=$([ -d "$HOME/.locklane" ] && echo present || echo gone) out=$out"
@@ -216,7 +216,7 @@ scenario_uninstall_service_only_keeps_data() {
   local name="uninstall-service-only-keeps-data" out rc pid
   new_home
   register_as launchd || { bad "$name" "register"; return; }
-  pid="$(server_pid launchd.user)"
+  pid="$(server_pid launchd.gui)"
   echo "server.port=8080" > "$HOME/.locklane/application-locklane.properties"
   out="$("$LL" uninstall --service-only 2>&1)"; rc=$?
   if [ "$rc" -eq 0 ] && ! alive "$pid" && [ -f "$HOME/.locklane/application-locklane.properties" ] \
@@ -241,7 +241,7 @@ scenario_uninstall_unregistered_but_loaded() {
     # deletes: detection must not skip straight to reporting stopped.
     new_home
     register_as "$kind" || { bad "$name ($kind, success)" "register"; continue; }
-    pid="$(server_pid "$([ "$kind" = launchd ] && echo launchd.user || echo systemd)")"
+    pid="$(server_pid "$([ "$kind" = launchd ] && echo launchd.gui || echo systemd)")"
     rm -f "$HOME/.locklane/service.env"
     case "$kind" in
       launchd) rm -f "$HOME/Library/LaunchAgents/com.locklane.server.plist" ;;
@@ -259,7 +259,7 @@ scenario_uninstall_unregistered_but_loaded() {
     new_home
     [ "$kind" = systemd ] && touch "$STUB_STATE/systemd-no-escalate"
     register_as "$kind" ignore-term || { bad "$name ($kind, forced-failure)" "register"; continue; }
-    pid="$(server_pid "$([ "$kind" = launchd ] && echo launchd.user || echo systemd)")"
+    pid="$(server_pid "$([ "$kind" = launchd ] && echo launchd.gui || echo systemd)")"
     rm -f "$HOME/.locklane/service.env"
     case "$kind" in
       launchd) rm -f "$HOME/Library/LaunchAgents/com.locklane.server.plist" ;;
@@ -284,7 +284,7 @@ scenario_console_tab_refusal() {
     printf 'SERVICE_KIND=launchd\nREG_FILE=%s\n' "$HOME/Library/LaunchAgents/com.locklane.server.plist" > "$HOME/.locklane/service.env"
     # The "server" is a shell that runs the command itself, so the command's parent
     # chain reaches the pid the stub agent reports -- a console tab's exact shape.
-    bash -c 'echo $$ > "$STUB_STATE/launchd.user.pid"; touch "$STUB_STATE/launchd.user.loaded"; "$1" "$2" > "$3/out" 2>&1; echo $? > "$3/rc"' _ "$LL" "$sub" "$T"
+    bash -c 'echo $$ > "$STUB_STATE/launchd.gui.pid"; touch "$STUB_STATE/launchd.gui.loaded"; "$1" "$2" > "$3/out" 2>&1; echo $? > "$3/rc"' _ "$LL" "$sub" "$T"
     rc="$(cat "$T/rc" 2>/dev/null)"
     first="$(head -n 1 "$T/out" 2>/dev/null)"
     if [ "$rc" = 2 ] && [ "${first#error: not run}" != "$first" ] \
@@ -330,10 +330,10 @@ scenario_foreign_file_kept() {
 # released asset), a plist, a running agent, no service.env, no control program of its
 # own yet. Its own update.sh (the released one) fetches the control program and hands
 # over; `update` migrates the layout and, since #682, sheds the wrappers for good. The
-# agent is planted in the "gui" domain (#691: the pre-#691 registration target), so this
-# doubles as the gui/<uid> -> user/<uid> migration scenario -- update must find and
-# retire it there, not just leave it running alongside a second agent freshly
-# bootstrapped into "user".
+# agent is planted in the "gui" domain, where such an install lived (ADR-110): update
+# must retire that one (its pid gone) and bring a fresh one up in the same domain, not
+# leave the old one running alongside. The user/<uid> retirement (a v0.2.11-v0.2.13
+# install, #691) has its own scenario below.
 old_layout() {
   local f
   echo "server.port=8080" > "$HOME/.locklane/application-locklane.properties"
@@ -368,13 +368,13 @@ scenario_migrate_old_layout() {
       return
     fi
   done
-  if [ "$rc" -eq 0 ] && [ -x "$LL" ] && ! alive "$old_pid" && alive "$(server_pid launchd.user)" \
-      && [ ! -f "$STUB_STATE/launchd.gui.loaded" ] \
+  if [ "$rc" -eq 0 ] && [ -x "$LL" ] && ! alive "$old_pid" && alive "$(server_pid launchd.gui)" \
+      && [ -f "$STUB_STATE/launchd.gui.loaded" ] && [ ! -f "$STUB_STATE/launchd.user.loaded" ] \
       && grep -q '^SERVICE_KIND=launchd$' "$HOME/.locklane/service.env" \
       && [ "$(head -c 2 "$HOME/.locklane/locklane.jar")" = PK ] \
       && contains "$out" "Installed locklane v9.9.9-stub" && grep -q 'Environment\|PATH' "$HOME/Library/LaunchAgents/com.locklane.server.plist" \
       && contains "$("$LL" status 2>&1)" "is running as the launchd agent" \
-      && ! contains "$("$LL" status 2>&1)" "still in the old"; then
+      && ! contains "$("$LL" status 2>&1)" "moves it back"; then
     ok "$name"
   else
     bad "$name" "rc=$rc control=$([ -x "$LL" ] && echo yes || echo no) old-alive=$(alive "$old_pid" && echo yes || echo no) gui-loaded=$([ -f "$STUB_STATE/launchd.gui.loaded" ] && echo yes || echo no) out=$out"
@@ -425,30 +425,89 @@ scenario_status_and_start() {
   out="$("$LL" status 2>&1)"; rc=$?
   [ "$rc" -ne 0 ] && contains "$out" "not running" || { bad "$name" "status while stopped: rc=$rc out=$out"; return; }
   out="$("$LL" start 2>&1)"; rc=$?
-  [ "$rc" -eq 0 ] && alive "$(server_pid launchd.user)" || { bad "$name" "start: rc=$rc out=$out"; return; }
+  [ "$rc" -eq 0 ] && alive "$(server_pid launchd.gui)" || { bad "$name" "start: rc=$rc out=$out"; return; }
   out="$("$LL" start 2>&1)"; rc=$?
   [ "$rc" -eq 0 ] && contains "$out" "already running" || { bad "$name" "second start: rc=$rc out=$out"; return; }
   out="$("$LL" restart 2>&1)"; rc=$?
-  [ "$rc" -eq 0 ] && alive "$(server_pid launchd.user)" || { bad "$name" "restart: rc=$rc out=$out"; return; }
+  [ "$rc" -eq 0 ] && alive "$(server_pid launchd.gui)" || { bad "$name" "restart: rc=$rc out=$out"; return; }
   ok "$name"
 }
 
-scenario_domain_is_user_not_gui() {
-  local name="domain-is-user-not-gui" out
+# ADR-110: the registration domain is gui/<uid>, the one an ordinary LaunchAgent plist
+# can load into on a real Mac. user/<uid> (#691) refused it there (launchd 134).
+scenario_domain_is_gui_not_user() {
+  local name="domain-is-gui-not-user" out
   new_home
   register_as launchd || { bad "$name" "register"; return; }
   out="$(cat "$STUB_STATE/launchctl.log" 2>/dev/null)"
-  if grep -q "^bootstrap user/$(id -u) " <<<"$out" && ! grep -q "^bootstrap gui/" <<<"$out"; then
+  if grep -q "^bootstrap gui/$(id -u) " <<<"$out" && ! grep -q "^bootstrap user/" <<<"$out"; then
     ok "$name"
   else
-    bad "$name" "register did not bootstrap into user/\$(id -u): log=$out"
+    bad "$name" "register did not bootstrap into gui/\$(id -u): log=$out"
+  fi
+}
+
+# An install v0.2.11-v0.2.13 managed to load into user/<uid> (#691) is found there,
+# retired, and re-registered in gui/<uid> by one `register` (ADR-110): status names the
+# leftover domain beforehand and not afterwards, the old pid is gone, both domains are
+# swept and only gui is loaded at the end.
+scenario_retires_user_domain_agent() {
+  local name="retires-user-domain-agent" out rc old_pid
+  new_home
+  mkdir -p "$HOME/Library/LaunchAgents"
+  printf '<plist/>\n' > "$HOME/Library/LaunchAgents/com.locklane.server.plist"
+  printf 'SERVICE_KIND=launchd\nREG_FILE=%s\n' "$HOME/Library/LaunchAgents/com.locklane.server.plist" > "$HOME/.locklane/service.env"
+  touch "$STUB_STATE/launchd.user.loaded"
+  nohup bash -c 'while :; do sleep 1; done' >/dev/null 2>&1 </dev/null &
+  echo $! > "$STUB_STATE/launchd.user.pid"
+  echo $! >> "$STUB_STATE/pids"
+  disown
+  old_pid="$(server_pid launchd.user)"
+  out="$("$LL" status 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] && contains "$out" "moves it back to gui" || { bad "$name" "status before: rc=$rc out=$out"; return; }
+  register_as launchd || { bad "$name" "register"; return; }
+  out="$("$LL" status 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && ! alive "$old_pid" && alive "$(server_pid launchd.gui)" \
+      && [ -f "$STUB_STATE/launchd.gui.loaded" ] && [ ! -f "$STUB_STATE/launchd.user.loaded" ] \
+      && grep -q "^bootout user/$(id -u)/" "$STUB_STATE/launchctl.log" \
+      && contains "$out" "is running as the launchd agent" && ! contains "$out" "moves it back"; then
+    ok "$name"
+  else
+    bad "$name" "rc=$rc old-alive=$(alive "$old_pid" && echo yes || echo no) gui-loaded=$([ -f "$STUB_STATE/launchd.gui.loaded" ] && echo yes || echo no) user-loaded=$([ -f "$STUB_STATE/launchd.user.loaded" ] && echo yes || echo no) out=$out"
+  fi
+}
+
+# A refused bootstrap leaves the plist in place and says where launchd's real reason
+# is (#703): the pre-#703 program deleted the plist, so one refused load left an
+# install that could not start, restart or register. A later register, once the cause
+# is gone, must succeed from that state; `start` reports a refusal the same way.
+scenario_bootstrap_failure_keeps_plist() {
+  local name="bootstrap-failure-keeps-plist" out rc plist
+  new_home
+  plist="$HOME/Library/LaunchAgents/com.locklane.server.plist"
+  touch "$STUB_STATE/bootstrap-fails"
+  out="$(LOCKLANE_SERVICE_KIND=launchd "$LL" register 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] || [ ! -f "$plist" ] || ! contains "$out" "Input/output error" \
+      || ! contains "$out" "log show" || ! contains "$out" "left at $plist"; then
+    bad "$name" "register: rc=$rc plist=$([ -f "$plist" ] && echo kept || echo GONE) out=$out"; return
+  fi
+  rm -f "$STUB_STATE/bootstrap-fails"
+  register_as launchd || { bad "$name" "register after the cause is gone"; return; }
+  alive "$(server_pid launchd.gui)" || { bad "$name" "not running after the second register"; return; }
+  "$LL" stop >/dev/null 2>&1
+  touch "$STUB_STATE/bootstrap-fails"
+  out="$("$LL" start 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && [ -f "$plist" ] && contains "$out" "Input/output error" && contains "$out" "log show"; then
+    ok "$name"
+  else
+    bad "$name" "start: rc=$rc plist=$([ -f "$plist" ] && echo kept || echo GONE) out=$out"
   fi
 }
 
 # Two different users on the same Mac (#691's other Done-when bullet): each gets their
 # own HOME, their own stub state (a real second account gets this for free), and --
 # simulated here via the stub id -- their own uid, so the launchd domain each one
-# registers into is genuinely per-user (user/501 vs user/502), not a hardcoded value.
+# registers into is genuinely per-user (gui/501 vs gui/502), not a hardcoded value.
 # Neither install collides with, nor can stop, the other's.
 scenario_two_users_no_collision() {
   local name="two-users-no-collision" out rc pid1 pid2 home2 stub2 ll2
@@ -460,16 +519,16 @@ scenario_two_users_no_collision() {
   ll2="$home2/.locklane/locklane"
 
   STUB_UID=501 register_as launchd || { bad "$name" "user A register"; return; }
-  pid1="$(server_pid launchd.user)"
+  pid1="$(server_pid launchd.gui)"
   alive "$pid1" || { bad "$name" "user A not running after register"; return; }
 
   out="$(HOME="$home2" STUB_STATE="$stub2" STUB_UID=502 LOCKLANE_SERVICE_KIND=launchd "$ll2" register 2>&1)"; rc=$?
   if [ "$rc" -ne 0 ]; then bad "$name" "user B register: rc=$rc out=$out"; return; fi
-  pid2="$(cat "$stub2/launchd.user.pid" 2>/dev/null)"
+  pid2="$(cat "$stub2/launchd.gui.pid" 2>/dev/null)"
   alive "$pid2" || { bad "$name" "user B not running after register"; return; }
   [ "$pid1" != "$pid2" ] || { bad "$name" "user A and user B share a pid -- not isolated"; return; }
-  if ! grep -q "^bootstrap user/501 " "$STUB_STATE/launchctl.log" 2>/dev/null \
-      || ! grep -q "^bootstrap user/502 " "$stub2/launchctl.log" 2>/dev/null; then
+  if ! grep -q "^bootstrap gui/501 " "$STUB_STATE/launchctl.log" 2>/dev/null \
+      || ! grep -q "^bootstrap gui/502 " "$stub2/launchctl.log" 2>/dev/null; then
     bad "$name" "domain string did not carry each user's own uid"
     return
   fi
@@ -517,7 +576,9 @@ scenario_migrate_old_layout
 scenario_install_hands_over_to_update
 scenario_detached_refused
 scenario_status_and_start
-scenario_domain_is_user_not_gui
+scenario_domain_is_gui_not_user
+scenario_retires_user_domain_agent
+scenario_bootstrap_failure_keeps_plist
 scenario_two_users_no_collision
 
 echo

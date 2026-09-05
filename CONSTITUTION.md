@@ -137,6 +137,10 @@ any other change to this list.
    worktree/console session only to the owner of its project — no role, administrator
    included, is exempt; administrators manage accounts and nothing more (ADR-105,
    superseding the administrator exemption in ADR-101 Decisions 1 and 6).
+6. On macOS the server is a launchd agent in the `gui/<uid>` domain; a refused
+   `launchctl bootstrap` leaves the plist in place; and any change to the launchd
+   registration ships only after `.github/workflows/mac-lifecycle.yml` has passed
+   against a real `launchctl`, never on the stub harness alone (ADR-110).
 <!-- /local -->
 
 ## Amendment
