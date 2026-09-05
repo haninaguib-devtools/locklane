@@ -23,6 +23,7 @@ import { AuthService } from './services/auth.service';
 import { CurrentProjectService } from './services/current-project.service';
 import { deriveProjectBackgroundTint } from './services/project-accent-tint';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
+import { Project } from './models/issue.model';
 
 const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
 
@@ -251,9 +252,11 @@ export class AppComponent {
   // Both the sidenav and the overview (#197) fetch the project list independently
   // (#44), so a project created from the header or the overview's zero-state needs
   // both refreshed in place rather than relying on either one's own next reload.
-  onProjectCreated(): void {
+  // The sidenav reveal (#717) expands the new row, scrolls it into view, and
+  // highlights it briefly -- the same refresh the old code did, plus the flash.
+  onProjectCreated(project: Project): void {
     this.showAddProject = false;
-    this.sidenav?.refresh();
+    this.sidenav?.revealProject(project.id);
     this.overview?.refresh();
   }
 

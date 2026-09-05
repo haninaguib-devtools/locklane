@@ -1,11 +1,12 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, EventEmitter, OnInit, Output, inject } from '@angular/core';
+import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Project } from '../../models/issue.model';
 import { GithubAccount, ProjectTemplate, ProjectsService } from '../../services/projects.service';
 import { deriveProjectName } from './derive-project-name';
+import { cloneStageHint } from '../clone-progress';
 
 export type AddProjectMode = 'import' | 'create';
 
@@ -28,7 +29,7 @@ export type AddProjectMode = 'import' | 'create';
   templateUrl: './add-project-popup.component.html',
   styleUrl: './add-project-popup.component.css',
 })
-export class AddProjectPopupComponent implements OnInit {
+export class AddProjectPopupComponent implements OnInit, OnDestroy {
   private readonly projectsService = inject(ProjectsService);
   private readonly router = inject(Router);
 
@@ -63,6 +64,13 @@ export class AddProjectPopupComponent implements OnInit {
   submitting = false;
   error: string | null = null;
 
+  // Live submit progress (#717): while the request is in flight the dialog locks
+  // (submit, tabs, inputs, close, backdrop, Escape) and shows a spinner plus a
+  // staged hint derived from how long the wait has run. The 1s tick only wakes
+  // change detection -- the getters below read the clock directly.
+  private submitStartedAt: number | null = null;
+  private submitTimer: ReturnType<typeof setInterval> | null = null;
+
   ngOnInit(): void {
     this.projectsService.templates().subscribe({
       next: (templates) => (this.templates = templates),
@@ -80,6 +88,57 @@ export class AddProjectPopupComponent implements OnInit {
         this.accountsLoaded = true;
       },
     });
+  }
+
+  ngOnDestroy(): void {
+    this.stopSubmitTimer();
+  }
+
+  /** Seconds since the in-flight submit started (#717); 0 when idle. */
+  get submitElapsedSec(): number {
+    if (this.submitStartedAt === null) {
+      return 0;
+    }
+    return Math.max(0, Math.floor((Date.now() - this.submitStartedAt) / 1000));
+  }
+
+  /** Staged hint for the in-flight submit (#717) -- same mapping as the sidenav row and console wait. */
+  get submitStageHint(): string {
+    return cloneStageHint(this.submitElapsedSec);
+  }
+
+  /** The close button and the backdrop both route here: locked while submitting (#717). */
+  close(): void {
+    if (this.submitting) {
+      return;
+    }
+    this.closed.emit();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    this.close();
+  }
+
+  private startSubmit(): void {
+    this.submitting = true;
+    this.error = null;
+    this.submitStartedAt = Date.now();
+    this.stopSubmitTimer();
+    this.submitTimer = setInterval(() => {}, 1000);
+  }
+
+  private finishSubmit(): void {
+    this.submitting = false;
+    this.submitStartedAt = null;
+    this.stopSubmitTimer();
+  }
+
+  private stopSubmitTimer(): void {
+    if (this.submitTimer !== null) {
+      clearInterval(this.submitTimer);
+      this.submitTimer = null;
+    }
   }
 
   /** Creating needs an account to create as; the template disables the create button on this (#532). */
@@ -125,15 +184,14 @@ export class AddProjectPopupComponent implements OnInit {
     if (!this.gitUrl.trim()) {
       return;
     }
-    this.submitting = true;
-    this.error = null;
+    this.startSubmit();
     this.projectsService.create(this.gitUrl.trim(), this.name.trim(), this.chosenAccountId()).subscribe({
       next: (project) => {
-        this.submitting = false;
+        this.finishSubmit();
         this.created.emit(project);
       },
       error: (err: HttpErrorResponse) => {
-        this.submitting = false;
+        this.finishSubmit();
         this.error = err.error?.error ?? 'could not create project';
       },
     });
@@ -143,8 +201,7 @@ export class AddProjectPopupComponent implements OnInit {
     if (!this.org.trim() || !this.newRepoName.trim()) {
       return;
     }
-    this.submitting = true;
-    this.error = null;
+    this.startSubmit();
     this.projectsService
       .createNew(
         this.org.trim(),
@@ -155,14 +212,14 @@ export class AddProjectPopupComponent implements OnInit {
       )
       .subscribe({
         next: (project) => {
-          this.submitting = false;
+          this.finishSubmit();
           // Navigate before emitting: the host closes the popup on `created`, and the
           // console page should already be the destination when it does (#537).
           this.router.navigate(['/projects', project.id, 'console']);
           this.created.emit(project);
         },
         error: (err: HttpErrorResponse) => {
-          this.submitting = false;
+          this.finishSubmit();
           this.error = err.error?.error ?? 'could not create project';
         },
       });

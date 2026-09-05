@@ -28,6 +28,7 @@ import {
 } from '../../services/events.service';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
+import { cloneStageHint } from '../clone-progress';
 import { filterPinnedTree, filterTree } from './tree-filter';
 
 /** An `issuesChanged` message off the app-wide events channel (#129). */
@@ -134,6 +135,15 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private openMenuFor: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Live clone progress (#717): first-seen timestamps per cloning project drive the
+  // elapsed-seconds counters, and the 1s tick only wakes change detection -- the
+  // getters read the clock directly. `revealedProjectId` briefly highlights the row
+  // a just-finished import asked to reveal.
+  private cloneFirstSeen = new Map<number, number>();
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  revealedProjectId: number | null = null;
+  private revealTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingRevealId: number | null = null;
   // "<projectId>:<issueNumber>" for every issue with at least one open console
   // (#108), refreshed whenever a console opens or closes anywhere in the app.
   private openConsoleIssues = new Set<string>();
@@ -190,9 +200,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.load(() => (this.loading = false));
   }
-
   ngOnDestroy(): void {
     this.clearPoll();
+    this.clearTick();
+    this.clearReveal();
     this.consoleSub.unsubscribe();
     this.eventsSub.unsubscribe();
     this.staleSub.unsubscribe();
@@ -306,7 +317,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
         next: (sections) => {
           this.sections = sections;
           this.error = false;
+          this.trackCloneProgress();
           onDone();
+          this.maybeReveal();
           this.schedulePollIfNeeded();
           this.refreshConsoleIndicators();
         },
@@ -475,6 +488,98 @@ export class SidenavComponent implements OnInit, OnDestroy {
     if (this.pollTimer !== null) {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
+    }
+  }
+
+  /**
+   * Flashes a just-created project's row into view (#717): expands its section,
+   * reloads so the row exists, then scrolls it into view and highlights it
+   * briefly. Called by the host on every created project -- import and create
+   * responses alike are CLONING, and a momentary highlight on a READY row is
+   * harmless.
+   */
+  revealProject(projectId: number): void {
+    if (this.projectSectionStore.isCollapsed(projectId)) {
+      this.projectSectionStore.toggle(projectId);
+    }
+    this.pendingRevealId = projectId;
+    this.refresh();
+    if (this.sections.some((s) => s.project.id === projectId)) {
+      this.maybeReveal();
+    }
+  }
+
+  /** Seconds since this project was first seen CLONING (#717); 0 when not cloning. */
+  cloneElapsedSecFor(projectId: number): number {
+    const since = this.cloneFirstSeen.get(projectId);
+    if (since === undefined) {
+      return 0;
+    }
+    return Math.max(0, Math.floor((Date.now() - since) / 1000));
+  }
+
+  /** Staged line for a cloning row (#717) -- same mapping as the dialog and console wait. */
+  cloneStageHintFor(projectId: number): string {
+    return cloneStageHint(this.cloneElapsedSecFor(projectId));
+  }
+
+  /**
+   * Records first-seen CLONING timestamps, drops settled projects, and runs a 1s
+   * tick while anything is still cloning so the elapsed counters move (#717).
+   * The tick only wakes change detection -- the getters read the clock directly.
+   */
+  private trackCloneProgress(): void {
+    const now = Date.now();
+    for (const section of this.sections) {
+      if (section.project.status === 'CLONING' && !this.cloneFirstSeen.has(section.project.id)) {
+        this.cloneFirstSeen.set(section.project.id, now);
+      }
+    }
+    for (const id of [...this.cloneFirstSeen.keys()]) {
+      if (!this.sections.some((s) => s.project.id === id && s.project.status === 'CLONING')) {
+        this.cloneFirstSeen.delete(id);
+      }
+    }
+    if (this.cloneFirstSeen.size > 0 && this.tickTimer === null) {
+      this.tickTimer = setInterval(() => {}, 1000);
+    } else if (this.cloneFirstSeen.size === 0) {
+      this.clearTick();
+    }
+  }
+
+  private clearTick(): void {
+    if (this.tickTimer !== null) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
+    }
+  }
+
+  /** Completes a pending reveal once the reloaded list carries the project (#717). */
+  private maybeReveal(): void {
+    const id = this.pendingRevealId;
+    if (id === null) {
+      return;
+    }
+    if (!this.sections.some((s) => s.project.id === id)) {
+      return;
+    }
+    this.pendingRevealId = null;
+    this.revealedProjectId = id;
+    setTimeout(() => {
+      document.querySelector(`[data-project-id="${id}"]`)?.scrollIntoView({ block: 'nearest' });
+    }, 0);
+    this.clearReveal();
+    this.revealTimer = setTimeout(() => {
+      if (this.revealedProjectId === id) {
+        this.revealedProjectId = null;
+      }
+    }, 3000);
+  }
+
+  private clearReveal(): void {
+    if (this.revealTimer !== null) {
+      clearTimeout(this.revealTimer);
+      this.revealTimer = null;
     }
   }
 

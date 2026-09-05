@@ -59,7 +59,12 @@
     }
     <div cdkDropList (cdkDropListDropped)="onProjectSectionDrop($event)">
       @for (section of projectSections; track section.project.id) {
-        <div class="project-section" cdkDrag>
+        <div
+          class="project-section"
+          cdkDrag
+          [attr.data-project-id]="section.project.id"
+          [class.revealed]="revealedProjectId === section.project.id"
+        >
           <div
             class="section-header"
             cdkDragHandle
@@ -84,8 +89,13 @@
               }
             </span>
             @if (section.project.status !== 'READY') {
-              <span class="project-status" [class.failed]="section.project.status === 'FAILED'">
-                {{ section.project.status === 'CLONING' ? 'cloning…' : 'failed' }}
+              <span class="project-status" [class.failed]="section.project.status === 'FAILED'" [class.cloning]="section.project.status === 'CLONING'">
+                @if (section.project.status === 'CLONING') {
+                  <span class="pulse-dot" aria-hidden="true"></span>
+                  <span>cloning… {{ cloneElapsedSecFor(section.project.id) }}s</span>
+                } @else {
+                  failed
+                }
               </span>
             }
             @if (hasOpenConsoleForProject(section.project.id)) {
@@ -136,7 +146,10 @@
               <div class="github-error" role="alert">{{ message }}</div>
             }
             @if (section.project.status === 'CLONING') {
-              <div class="state">cloning the repository…</div>
+              <div class="state cloning-state">
+                <span class="pulse-dot" aria-hidden="true"></span>
+                <span>{{ cloneStageHintFor(section.project.id) }} · {{ cloneElapsedSecFor(section.project.id) }}s</span>
+              </div>
             } @else if (section.project.status === 'FAILED') {
               <div class="state project-failed">
                 <span>could not clone this project</span>

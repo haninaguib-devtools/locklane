@@ -472,6 +472,68 @@ describe('SidenavComponent', () => {
     fixture.destroy();
   }));
 
+  it('a cloning row shows a staged line and ticking elapsed seconds (#717)', fakeAsync(() => {
+    const cloning: Project = { ...PROJECT_A, status: 'CLONING' };
+    const fixture = init([cloning]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    // The 3s clone poll fired, but its re-read is still outstanding: keep waiting.
+    tick(9000);
+    httpMock.expectOne('/api/projects').flush([cloning]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.project-status.cloning')?.textContent).toContain('9s');
+    const line = compiled.querySelector('.cloning-state')?.textContent ?? '';
+    expect(line).toContain('cloning repository…');
+    expect(line).toContain('9s');
+
+    // Settles to READY on the next poll, leaving no poll or tick timer behind.
+    tick(3000);
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+    expect(compiled.querySelector('.cloning-state')).toBeFalsy();
+
+    fixture.destroy();
+  }));
+
+  it('revealProject expands, scrolls to, and briefly highlights the new row (#717)', fakeAsync(() => {
+    const cloning: Project = { ...PROJECT_B, status: 'CLONING' };
+    const fixture = init([PROJECT_A, cloning]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+    fixture.detectChanges();
+
+    TestBed.inject(ProjectSectionStore).toggle(2);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.isProjectCollapsed(2)).toBeTrue();
+
+    fixture.componentInstance.revealProject(2);
+    expect(fixture.componentInstance.isProjectCollapsed(2)).toBeFalse();
+    // revealProject refreshes fresh (#545) so the just-created row exists.
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, cloning]);
+    flushTree(1, tree(), true);
+    flushTree(2, tree(), true);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(fixture.componentInstance.revealedProjectId).toBe(2);
+    expect(compiled.querySelector('.project-section.revealed[data-project-id="2"]')).toBeTruthy();
+
+    // The highlight clears, and settling to READY stops every timer.
+    tick(3000);
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+    fixture.detectChanges();
+    expect(fixture.componentInstance.revealedProjectId).toBeNull();
+
+    fixture.destroy();
+  }));
+
   it('does not poll once every project is already settled', fakeAsync(() => {
     init();
     flushTree(1, tree());

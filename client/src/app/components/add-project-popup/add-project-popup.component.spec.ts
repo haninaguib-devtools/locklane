@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
@@ -68,6 +68,42 @@ describe('AddProjectPopupComponent', () => {
 
     expect(navigate).not.toHaveBeenCalled();
   });
+
+  it('locks the dialog while submitting, with a spinner and staged hint (#717)', fakeAsync(() => {
+    const fixture = create();
+    fixture.detectChanges();
+    httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
+    httpMock.expectOne('/api/templates').flush({ templates: [] });
+
+    fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
+    let closed = 0;
+    fixture.componentInstance.closed.subscribe(() => closed++);
+    fixture.componentInstance.submit();
+    fixture.detectChanges();
+
+    // Locked: the close button, the backdrop, and Escape all no-op while submitting.
+    fixture.componentInstance.close();
+    (fixture.nativeElement as HTMLElement).querySelector('.backdrop')!.dispatchEvent(new MouseEvent('click'));
+    fixture.componentInstance.onEscape();
+    expect(closed).toBe(0);
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector<HTMLButtonElement>('.close')!.disabled).toBeTrue();
+    expect(compiled.querySelector('.actions .spinner')).toBeTruthy();
+    expect(compiled.querySelector('.submit-hint')?.textContent).toContain('contacting GitHub…');
+
+    tick(9000);
+    fixture.detectChanges();
+    expect(compiled.querySelector('.submit-hint')?.textContent).toContain('cloning repository…');
+
+    httpMock.expectOne('/api/projects').flush(PROJECT);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.submitting).toBeFalse();
+    expect(compiled.querySelector('.submit-hint')).toBeFalsy();
+
+    fixture.componentInstance.close();
+    expect(closed).toBe(1);
+  }));
 
   it('submits the URL and name, emitting the created project', () => {
     const fixture = create();

@@ -692,6 +692,35 @@ describe('ProjectConsoleComponent', () => {
       expect(terminal.componentInstance.dir).toBe('/repo-console-a1b2c3d4');
     }));
 
+    it('the cloning wait shows a spinner, staged hint, and elapsed counter (#717)', fakeAsync(() => {
+      const fixture = init(1, [project({ id: 1, status: 'CLONING' })]);
+      fixture.detectChanges();
+
+      // Still cloning across two more polls: the wait stays visibly alive.
+      tick(3000);
+      flushProjects([project({ id: 1, status: 'CLONING' })]);
+      fixture.detectChanges();
+      tick(6000);
+      flushProjects([project({ id: 1, status: 'CLONING' })]);
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const waiting = compiled.querySelector('.cloning');
+      expect(waiting?.querySelector('.spinner')).toBeTruthy();
+      expect(waiting?.textContent).toContain('creating the project');
+      expect(waiting?.textContent).toContain('cloning repository…');
+      expect(waiting?.textContent).toContain('9s');
+
+      // READY settles into the ordinary auto-start, with no timers left behind.
+      tick(3000);
+      flushProjects([project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+      fixture.detectChanges();
+      expect(compiled.querySelector('.cloning')).toBeFalsy();
+    }));
+
     it('opens the seeded console on a later visit while the project still owes it, alongside consoles already open', () => {
       const fixture = init(1, [project(TEMPLATED)]);
       httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-11111111')]);

@@ -290,7 +290,7 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
     httpMock.expectOne('/api/templates').flush({ templates: [] });
 
-    fixture.componentInstance.onProjectCreated();
+    fixture.componentInstance.onProjectCreated(PROJECT);
     fixture.detectChanges();
 
     expect(compiled.querySelector('app-add-project-popup')).toBeFalsy();
@@ -788,7 +788,7 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
     httpMock.expectOne('/api/templates').flush({ templates: [] });
 
-    fixture.componentInstance.onProjectCreated();
+    fixture.componentInstance.onProjectCreated(PROJECT);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.showAddProject).toBeFalse();

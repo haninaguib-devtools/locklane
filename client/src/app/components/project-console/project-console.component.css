@@ -44,6 +44,33 @@ h1 {
   background: var(--window);
 }
 
+/* Live CLONING wait (#717): border spinner plus staged line, replacing the old
+   static text. Same motion language as the add-project dialog's submit button. */
+.loading.cloning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loading.cloning .spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: cloning-spin 0.8s linear infinite;
+  flex: none;
+}
+
+@keyframes cloning-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .starter {
   flex: 1;
   display: flex;
