@@ -1,4 +1,4 @@
-import { Component, EventEmitter, OnInit, Output, inject } from '@angular/core';
+import { Component, EventEmitter, OnDestroy, OnInit, Output, inject } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { Project, TreeNode } from '../../models/issue.model';
@@ -15,6 +15,9 @@ export interface ProjectOverviewRow {
   counts: IssueCounts | null;
 }
 
+/** How often a row still cloning is re-checked, until it settles (#717) -- the same cadence as the sidenav's own cloning poll. */
+const CLONE_POLL_MS = 3000;
+
 // The workspace landing page (#197), shown at '/' in place of the old
 // redirect-into-the-first-project behavior (#43) for anyone logged in with at
 // least one project. It composes its totals client-side from the same
@@ -27,7 +30,7 @@ export interface ProjectOverviewRow {
   templateUrl: './overview.component.html',
   styleUrl: './overview.component.css',
 })
-export class OverviewComponent implements OnInit {
+export class OverviewComponent implements OnInit, OnDestroy {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
   private readonly projectConsoleService = inject(ProjectConsoleService);
@@ -48,6 +51,15 @@ export class OverviewComponent implements OnInit {
   // sidenav's own one-click "+" guard.
   private startingShellFor: number | null = null;
 
+  // Re-reads while any row is still cloning (#717) -- the same cadence as the
+  // sidenav's own cloning poll, run here too because nothing shares that list
+  // with this page. Quiet re-reads never flash the loading state.
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+  ngOnDestroy(): void {
+    this.clearPoll();
+  }
+
   ngOnInit(): void {
     this.load();
   }
@@ -57,9 +69,12 @@ export class OverviewComponent implements OnInit {
     this.load();
   }
 
-  private load(): void {
-    this.loading = true;
+  private load(quiet = false): void {
+    if (!quiet) {
+      this.loading = true;
+    }
     this.error = false;
+    this.clearPoll();
 
     this.projectsService
       .list()
@@ -74,12 +89,28 @@ export class OverviewComponent implements OnInit {
         next: (rows) => {
           this.rows = rows;
           this.loading = false;
+          this.schedulePollIfNeeded();
         },
         error: () => {
           this.error = true;
           this.loading = false;
         },
       });
+  }
+
+  /** Re-checks while any row is still cloning (#717), until every row settles. */
+  private schedulePollIfNeeded(): void {
+    this.clearPoll();
+    if (this.rows.some((r) => r.project.status === 'CLONING')) {
+      this.pollTimer = setTimeout(() => this.load(true), CLONE_POLL_MS);
+    }
+  }
+
+  private clearPoll(): void {
+    if (this.pollTimer !== null) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
   }
 
   // A project still cloning or failed has no issues to count (mirrors
