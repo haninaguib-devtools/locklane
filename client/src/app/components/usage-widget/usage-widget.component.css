@@ -109,7 +109,14 @@
 }
 
 .usage-footer {
+  display: block;
+  width: 100%;
   margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
   font-size: 10px;
+  text-align: left;
   color: var(--faint);
 }

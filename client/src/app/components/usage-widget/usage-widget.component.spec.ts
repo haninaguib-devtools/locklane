@@ -74,6 +74,27 @@ describe('UsageWidgetComponent', () => {
     expect(fixture.nativeElement.querySelector('.usage-panel')).not.toBeNull();
   });
 
+  it('collapses the panel when the footer is clicked, same as the usage row', () => {
+    const fixture = init();
+    flush(
+      snapshotOf({
+        id: 'claude',
+        label: 'Claude',
+        usage: { available: true, fiveHour: { percentLeft: 75, resetsAt: new Date().toISOString() }, weekly: null, modelWeeklyLimits: [] },
+      }),
+    );
+    fixture.detectChanges();
+
+    fixture.componentInstance.toggle();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.usage-panel')).not.toBeNull();
+
+    (fixture.nativeElement.querySelector('.usage-footer') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.usage-panel')).toBeNull();
+  });
+
   it('shows "unavailable" only for the provider that failed, leaving the other provider\'s data intact', () => {
     const fixture = init();
     flush(
