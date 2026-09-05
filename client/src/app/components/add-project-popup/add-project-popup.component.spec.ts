@@ -130,6 +130,108 @@ describe('AddProjectPopupComponent', () => {
     expect(fixture.componentInstance.error).toBe('could not create project');
   });
 
+  describe('locked submitting dialog (#717)', () => {
+    function closeButton(fixture: ReturnType<typeof create>): HTMLButtonElement {
+      return fixture.nativeElement.querySelector('button.close') as HTMLButtonElement;
+    }
+
+    // Rendering runs ngOnInit, which asks for the templates and the gh accounts (both
+    // irrelevant here) -- flushed immediately so httpMock.verify() in the outer
+    // afterEach doesn't see them left open.
+    function renderAndSettle(): ReturnType<typeof create> {
+      const fixture = create();
+      fixture.detectChanges();
+      httpMock.expectOne('/api/github/accounts').flush({ accounts: [] });
+      httpMock.expectOne('/api/templates').flush({ templates: [] });
+      return fixture;
+    }
+
+    beforeEach(() => {
+      jasmine.clock().install();
+      // tick() below must advance Date.now() too, since the staged hint is computed
+      // from it -- mockDate() is what ties the two together.
+      jasmine.clock().mockDate(new Date());
+    });
+    afterEach(() => jasmine.clock().uninstall());
+
+    it('disables the close button, mode tabs, and inputs while submitting, and re-enables them once it settles', () => {
+      const fixture = renderAndSettle();
+      fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
+      fixture.componentInstance.submit();
+      fixture.detectChanges();
+
+      expect(closeButton(fixture).disabled).toBeTrue();
+      expect(
+        (fixture.nativeElement.querySelectorAll('.mode-tab') as NodeListOf<HTMLButtonElement>)[0].disabled,
+      ).toBeTrue();
+      expect((fixture.nativeElement.querySelector('input[name="gitUrl"]') as HTMLInputElement).disabled).toBeTrue();
+
+      httpMock.expectOne('/api/projects').flush(PROJECT);
+      fixture.detectChanges();
+
+      expect(closeButton(fixture).disabled).toBeFalse();
+    });
+
+    it('ignores a backdrop click and Escape while submitting', () => {
+      const fixture = renderAndSettle();
+      let closed = false;
+      fixture.componentInstance.closed.subscribe(() => (closed = true));
+      fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
+      fixture.componentInstance.submit();
+
+      (fixture.nativeElement.querySelector('.backdrop') as HTMLElement).click();
+      fixture.componentInstance.onEscape();
+
+      expect(closed).toBeFalse();
+
+      httpMock.expectOne('/api/projects').flush(PROJECT);
+    });
+
+    it('closes on a backdrop click or Escape when not submitting', () => {
+      const fixture = renderAndSettle();
+      let closed = 0;
+      fixture.componentInstance.closed.subscribe(() => closed++);
+
+      (fixture.nativeElement.querySelector('.backdrop') as HTMLElement).click();
+      fixture.componentInstance.onEscape();
+
+      expect(closed).toBe(2);
+    });
+
+    it('shows a spinner and a staged hint that advances as the request stays outstanding', () => {
+      const fixture = renderAndSettle();
+      fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
+      fixture.componentInstance.submit();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('.spinner')).toBeTruthy();
+      expect(fixture.componentInstance.stageHint).toBe('contacting GitHub…');
+
+      jasmine.clock().tick(3000);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.stageHint).toBe('cloning repository…');
+
+      jasmine.clock().tick(7000);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.stageHint).toBe('preparing workarea…');
+
+      httpMock.expectOne('/api/projects').flush(PROJECT);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.stageHint).toBe('');
+      expect(fixture.nativeElement.querySelector('.spinner')).toBeFalsy();
+    });
+
+    it('stops the tick timer once the request settles, even mid-wait', () => {
+      const fixture = create();
+      fixture.componentInstance.gitUrl = 'https://github.com/foo/bar.git';
+      fixture.componentInstance.submit();
+      httpMock.expectOne('/api/projects').flush(PROJECT);
+
+      expect(() => jasmine.clock().tick(5000)).not.toThrow();
+      expect(fixture.componentInstance.stageHint).toBe('');
+    });
+  });
+
   describe('GitHub account picker (#532, #550)', () => {
     const TWO_ACCOUNTS = [
       { id: 1, login: 'haninaguib', scopes: ['repo'], hasWorkflowScope: false, needsReconnect: false, tokenExpiresAt: null, createdAt: '2026-08-01T00:00:00Z' },

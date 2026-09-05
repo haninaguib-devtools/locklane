@@ -7,6 +7,7 @@ import { ConsolesService } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
 import { LastConsoleStore } from '../../services/last-console-store';
+import { cloneStageHint, elapsedSeconds } from '../add-project-popup/clone-progress';
 import {
   ConsoleTabsComponent,
   OpenConsoleRequest,
@@ -22,6 +23,10 @@ import { ProjectsService } from '../../services/projects.service';
 // cadence as the sidenav's own cloning poll, run here too because nothing shares the
 // sidenav's list with this page.
 const CLONE_POLL_MS = 3000;
+
+/** How often the cloning wait's elapsed counter ticks forward (#717) -- a UI-only
+ * redraw, independent of the network poll above. */
+const CLONE_TICK_MS = 1000;
 
 // One open console's client-side state. `dir` comes from the engine either way;
 // `agent` is only known when this browser launched the session (AgentStore).
@@ -103,6 +108,10 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   /** True when the project's creation FAILED (#537) -- nothing is started; retry lives on the project page. */
   failed = false;
   private clonePollTimer: ReturnType<typeof setTimeout> | null = null;
+  // The cloning wait's elapsed counter (#717): ticked forward once a second while
+  // `cloning` is true, independent of the network poll above.
+  private now = Date.now();
+  private cloneTickTimer: ReturnType<typeof setInterval> | null = null;
   // The project id whose seeded console this page instance has already opened (#537):
   // the guard against opening a second one before the engine's own record lands.
   private seededFor: number | null = null;
@@ -197,7 +206,18 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.queryParamsSub?.unsubscribe();
     this.stopClonePoll();
+    this.stopCloneTick();
     this.issuesService.notifyProjectStale(this.projectId);
+  }
+
+  /** The cloning wait's staged text and elapsed seconds (#717), derived from the
+   * project's own `createdAt` -- estimated client text, not a real engine signal. */
+  get cloningElapsedSeconds(): number {
+    return this.project ? elapsedSeconds(Date.parse(this.project.createdAt), this.now) : 0;
+  }
+
+  get cloningStageHint(): string {
+    return cloneStageHint(this.cloningElapsedSeconds);
   }
 
   // The project first (#537): its status decides whether a console may be asked for
@@ -210,6 +230,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     this.failed = false;
     this.project = null;
     this.stopClonePoll();
+    this.stopCloneTick();
     this.projectsService.list().subscribe({
       next: (projects) => {
         const project = projects.find((p) => p.id === projectId) ?? null;
@@ -217,6 +238,8 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
         if (project?.status === 'CLONING') {
           this.loading = false;
           this.cloning = true;
+          this.now = Date.now();
+          this.cloneTickTimer = setInterval(() => (this.now = Date.now()), CLONE_TICK_MS);
           this.clonePollTimer = setTimeout(() => {
             this.clonePollTimer = null;
             this.load(projectId);
@@ -238,6 +261,13 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     if (this.clonePollTimer !== null) {
       clearTimeout(this.clonePollTimer);
       this.clonePollTimer = null;
+    }
+  }
+
+  private stopCloneTick(): void {
+    if (this.cloneTickTimer !== null) {
+      clearInterval(this.cloneTickTimer);
+      this.cloneTickTimer = null;
     }
   }
 

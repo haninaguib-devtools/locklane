@@ -661,7 +661,8 @@ describe('ProjectConsoleComponent', () => {
 
       const compiled = fixture.nativeElement as HTMLElement;
       expect(fixture.componentInstance.cloning).toBeTrue();
-      expect(compiled.querySelector('.cloning')?.textContent).toContain('creating the project');
+      expect(compiled.querySelector('.cloning')?.textContent).toContain('the console will open when it is ready');
+      expect(compiled.querySelector('.cloning .spinner')).toBeTruthy();
       expect(compiled.querySelector('app-terminal')).toBeFalsy();
       // Nothing is asked of the console endpoints while the project is not READY.
       httpMock.expectNone('/api/projects/1/console/sessions');
@@ -691,6 +692,18 @@ describe('ProjectConsoleComponent', () => {
       expect(terminal.componentInstance.seed).toBe('template');
       expect(terminal.componentInstance.dir).toBe('/repo-console-a1b2c3d4');
     }));
+
+    it('computes the staged hint and elapsed seconds for a CLONING project from its createdAt (#717)', () => {
+      const createdAt = new Date(Date.now() - 5000).toISOString();
+      const fixture = init(1, [project({ ...TEMPLATED, status: 'CLONING', createdAt })]);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.cloningStageHint).toBe('cloning repository…');
+      expect(fixture.componentInstance.cloningElapsedSeconds).toBeGreaterThanOrEqual(4);
+      expect(fixture.nativeElement.querySelector('.cloning .spinner')).toBeTruthy();
+
+      fixture.destroy();
+    });
 
     it('opens the seeded console on a later visit while the project still owes it, alongside consoles already open', () => {
       const fixture = init(1, [project(TEMPLATED)]);

@@ -44,6 +44,26 @@ h1 {
   background: var(--window);
 }
 
+.loading.cloning {
+  gap: 8px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spinner-spin 0.7s linear infinite;
+}
+
+@keyframes spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .starter {
   flex: 1;
   display: flex;

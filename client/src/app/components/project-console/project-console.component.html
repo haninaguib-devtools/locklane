@@ -20,8 +20,13 @@
   <div class="loading">loading…</div>
 } @else if (cloning) {
   <!-- #537: the add-project popup lands here while the engine is still creating the
-       project; the console opens itself once it is READY. -->
-  <div class="loading cloning">creating the project… the console will open when it is ready</div>
+       project; the console opens itself once it is READY. The spinner, staged hint,
+       and elapsed counter (#717) are estimated client text -- the engine reports only
+       CLONING/READY/FAILED, nothing more granular. -->
+  <div class="loading cloning">
+    <span class="spinner" aria-hidden="true"></span>
+    <span role="status">{{ cloningStageHint }} · {{ cloningElapsedSeconds }}s — the console will open when it is ready</span>
+  </div>
 } @else if (failed) {
   <div class="starter failed">
     <p class="hint">

@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { FormsModule } from '@angular/forms';
@@ -11,6 +11,7 @@ import { ProjectsService } from '../../services/projects.service';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
+import { cloneStageHint, elapsedSeconds } from '../add-project-popup/clone-progress';
 import {
   ConsolesService,
   isProjectConsoleSessionId,
@@ -60,6 +61,13 @@ export function formatAgo(iso: string, nowMs: number): string {
 /** How often a project still cloning is re-checked, until it settles (#45). */
 const CLONE_POLL_MS = 3000;
 
+/** How often a still-cloning section's elapsed counter ticks forward (#717) -- purely
+ * a UI redraw, no network call, so it runs far more often than the poll above. */
+const CLONE_TICK_MS = 1000;
+
+/** How long a freshly-appeared project row stays highlighted after being revealed (#717). */
+const REVEAL_HIGHLIGHT_MS = 2500;
+
 /** One issue, resolved to the project id it's selected/pinned/collapsed within (#44). */
 export interface ProjectIssue {
   projectId: number;
@@ -98,6 +106,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly consolesService = inject(ConsolesService);
   private readonly eventsService = inject(EventsService);
   private readonly router = inject(Router);
+  private readonly elementRef = inject(ElementRef<HTMLElement>);
 
   // Highlight only -- navigation is each row's own routerLink (#170), so selection
   // flows in from the URL and never back out through an event.
@@ -133,6 +142,19 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   private openMenuFor: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // The staged-hint/elapsed-counter tick for still-cloning sections (#717): a UI-only
+  // redraw clock, independent of the network poll above.
+  private now = Date.now();
+  private cloneTickTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Which project ids the previous successful load already showed (#717) -- null until
+  // the first load lands, so that load never treats every project as newly appeared.
+  private knownProjectIds: Set<number> | null = null;
+  /** The project id revealed after first appearing in this session's view (#717):
+   * expanded, scrolled into view, briefly highlighted; cleared automatically. */
+  revealedProjectId: number | null = null;
+  private revealTimer: ReturnType<typeof setTimeout> | null = null;
 
   // "<projectId>:<issueNumber>" for every issue with at least one open console
   // (#108), refreshed whenever a console opens or closes anywhere in the app.
@@ -193,6 +215,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.clearPoll();
+    this.clearCloneTick();
+    if (this.revealTimer !== null) {
+      clearTimeout(this.revealTimer);
+    }
     this.consoleSub.unsubscribe();
     this.eventsSub.unsubscribe();
     this.staleSub.unsubscribe();
@@ -304,17 +330,93 @@ export class SidenavComponent implements OnInit, OnDestroy {
       )
       .subscribe({
         next: (sections) => {
+          const newlyAppeared = this.detectNewProject(sections);
           this.sections = sections;
           this.error = false;
           onDone();
           this.schedulePollIfNeeded();
+          this.scheduleCloneTickIfNeeded();
           this.refreshConsoleIndicators();
+          if (newlyAppeared !== null) {
+            this.reveal(newlyAppeared);
+          }
         },
         error: () => {
           this.error = true;
           onDone();
         },
       });
+  }
+
+  /**
+   * Diffs this load's project ids against the previous one (#717): a project id absent
+   * before and present now is brand new to this session's view, so its row is worth
+   * revealing -- most often the one an import/create in this same browser just added,
+   * but also one that appeared via another session or a reconnect, which is a fine
+   * thing to reveal too. The very first load establishes the baseline instead of
+   * flagging every project the sidenav has never seen before.
+   */
+  private detectNewProject(sections: Section[]): number | null {
+    const currentIds = sections.map((s) => s.project.id);
+    const previous = this.knownProjectIds;
+    this.knownProjectIds = new Set(currentIds);
+    if (previous === null) {
+      return null;
+    }
+    const newIds = currentIds.filter((id) => !previous.has(id));
+    return newIds.length > 0 ? newIds[0] : null;
+  }
+
+  /** Expands, highlights, and scrolls to a freshly-appeared project's section (#717). */
+  private reveal(projectId: number): void {
+    if (this.projectSectionStore.isCollapsed(projectId)) {
+      this.projectSectionStore.toggle(projectId);
+    }
+    this.revealedProjectId = projectId;
+    if (this.revealTimer !== null) {
+      clearTimeout(this.revealTimer);
+    }
+    this.revealTimer = setTimeout(() => {
+      this.revealedProjectId = null;
+      this.revealTimer = null;
+    }, REVEAL_HIGHLIGHT_MS);
+    // Deferred one tick so the section's element already exists in this render's DOM.
+    setTimeout(() =>
+      this.elementRef.nativeElement
+        .querySelector(`#project-section-${projectId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }),
+    );
+  }
+
+  isRevealed(projectId: number): boolean {
+    return this.revealedProjectId === projectId;
+  }
+
+  /** Elapsed seconds since a still-cloning project was created (#717) -- an estimate
+   * the staged hint below is keyed off, not a real accounting of the engine's clone. */
+  cloneElapsedSeconds(section: Section): number {
+    return elapsedSeconds(Date.parse(section.project.createdAt), this.now);
+  }
+
+  cloneStageHintFor(section: Section): string {
+    return cloneStageHint(this.cloneElapsedSeconds(section));
+  }
+
+  /** Ticks `now` forward once a second while any section is still cloning (#717), so
+   * every cloning row's elapsed counter advances without waiting on the network poll. */
+  private scheduleCloneTickIfNeeded(): void {
+    this.clearCloneTick();
+    const stillCloning = this.sections.some((s) => s.project.status === 'CLONING');
+    if (stillCloning) {
+      this.cloneTickTimer = setInterval(() => (this.now = Date.now()), CLONE_TICK_MS);
+    }
+  }
+
+  private clearCloneTick(): void {
+    if (this.cloneTickTimer !== null) {
+      clearInterval(this.cloneTickTimer);
+      this.cloneTickTimer = null;
+    }
   }
 
   /**

@@ -1065,6 +1065,51 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1, 2]);
   });
 
+  it('shows the staged hint and elapsed seconds for a still-cloning project, derived from its createdAt (#717)', () => {
+    const cloning: Project = { ...PROJECT_A, status: 'CLONING', createdAt: new Date(Date.now() - 5000).toISOString() };
+    const fixture = init([cloning]);
+    flushTree(1, tree());
+
+    const section = fixture.componentInstance.projectSections[0];
+    expect(fixture.componentInstance.cloneStageHintFor(section)).toBe('cloning repository…');
+    expect(fixture.componentInstance.cloneElapsedSeconds(section)).toBeGreaterThanOrEqual(4);
+  });
+
+  it('does not reveal anything on the very first load (#717)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    expect(fixture.componentInstance.isRevealed(1)).toBeFalse();
+  });
+
+  it('reveals a project newly added since the last load (#717): expands it, scrolls to it, and un-highlights automatically', fakeAsync(() => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    // Pre-collapsed before project 2 ever appeared -- reveal() expands it anyway.
+    TestBed.inject(ProjectSectionStore).toggle(2);
+    const scrollSpy = spyOn(Element.prototype, 'scrollIntoView');
+
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree(), true);
+    httpMock.expectOne('/api/projects/2/issues/tree?fresh=true').flush({ nodes: [], github: GITHUB_OK });
+    flushConsoles();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.isRevealed(2)).toBeTrue();
+    expect(fixture.componentInstance.isProjectCollapsed(2)).toBeFalse();
+    expect(fixture.nativeElement.querySelector('.project-section.revealed')?.id).toBe('project-section-2');
+
+    tick(0);
+    expect(scrollSpy).toHaveBeenCalled();
+
+    tick(2500);
+    expect(fixture.componentInstance.isRevealed(2)).toBeFalse();
+
+    fixture.destroy();
+  }));
+
   it('a focused project only loads and renders that one project, never fetching another (#286)', () => {
     const fixture = TestBed.createComponent(SidenavComponent);
     fixture.componentInstance.focusedProjectId = 2;

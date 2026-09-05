@@ -1,8 +1,8 @@
-<div class="backdrop" (click)="closed.emit()">
+<div class="backdrop" (click)="close()">
   <div class="popup" (click)="$event.stopPropagation()">
     <div class="popup-header">
       <span>add project</span>
-      <button type="button" class="close" (click)="closed.emit()" aria-label="Close">×</button>
+      <button type="button" class="close" [disabled]="submitting" (click)="close()" aria-label="Close">×</button>
     </div>
 
     <div class="mode-tabs">
@@ -30,7 +30,7 @@
       @if (accounts.length > 0) {
         <label>
           GitHub account
-          <select name="githubAccountId" class="github-login" [(ngModel)]="githubAccountId" [disabled]="submitting">
+          <select name="githubAccountId" class="github-login" [(ngModel)]="githubAccountId" [attr.disabled]="submitting ? '' : null">
             @for (account of accounts; track account.id) {
               <option [ngValue]="account.id">{{ account.login }}</option>
             }
@@ -53,7 +53,7 @@
             placeholder="https://github.com/org/repo.git, git@host:org/repo, or org/repo"
             [(ngModel)]="gitUrl"
             (ngModelChange)="onUrlChange()"
-            [disabled]="submitting"
+            [attr.disabled]="submitting ? '' : null"
             autofocus
           />
         </label>
@@ -65,7 +65,7 @@
             placeholder="derived from the URL"
             [(ngModel)]="name"
             (ngModelChange)="onNameChange()"
-            [disabled]="submitting"
+            [attr.disabled]="submitting ? '' : null"
           />
         </label>
         <ng-container *ngTemplateOutlet="accountPicker" />
@@ -73,9 +73,15 @@
         @if (error) {
           <p class="error">{{ error }}</p>
         }
+        @if (submitting) {
+          <p class="stage-hint" role="status">{{ stageHint }}</p>
+        }
 
         <div class="actions">
           <button type="submit" [disabled]="!gitUrl.trim() || submitting">
+            @if (submitting) {
+              <span class="spinner" aria-hidden="true"></span>
+            }
             {{ submitting ? 'adding…' : 'add project' }}
           </button>
         </div>
@@ -89,7 +95,7 @@
             name="org"
             placeholder="your-org"
             [(ngModel)]="org"
-            [disabled]="submitting"
+            [attr.disabled]="submitting ? '' : null"
             autofocus
           />
         </label>
@@ -100,13 +106,13 @@
             name="newRepoName"
             placeholder="my-project"
             [(ngModel)]="newRepoName"
-            [disabled]="submitting"
+            [attr.disabled]="submitting ? '' : null"
           />
         </label>
         <ng-container *ngTemplateOutlet="accountPicker" />
         <label>
           template
-          <select name="template" class="template" [(ngModel)]="template" [disabled]="submitting">
+          <select name="template" class="template" [(ngModel)]="template" [attr.disabled]="submitting ? '' : null">
             <option [ngValue]="null">none</option>
             @for (t of templates; track t.name) {
               <option [ngValue]="t.name" [title]="t.description">{{ t.title }}</option>
@@ -117,16 +123,27 @@
           <p class="hint template-description">{{ templateDescription }}</p>
         }
         <label class="checkbox-label">
-          <input type="checkbox" name="bootstrapTWorkflow" [(ngModel)]="bootstrapTWorkflow" [disabled]="submitting" />
+          <input
+            type="checkbox"
+            name="bootstrapTWorkflow"
+            [(ngModel)]="bootstrapTWorkflow"
+            [attr.disabled]="submitting ? '' : null"
+          />
           bootstrap with t-workflow
         </label>
 
         @if (error) {
           <p class="error">{{ error }}</p>
         }
+        @if (submitting) {
+          <p class="stage-hint" role="status">{{ stageHint }}</p>
+        }
 
         <div class="actions">
           <button type="submit" [disabled]="!org.trim() || !newRepoName.trim() || !canCreate || submitting">
+            @if (submitting) {
+              <span class="spinner" aria-hidden="true"></span>
+            }
             {{ submitting ? 'creating…' : 'create project' }}
           </button>
         </div>

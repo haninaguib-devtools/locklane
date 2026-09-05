@@ -248,6 +248,27 @@
   color: var(--danger, #b3432b);
 }
 
+/* Reuses console-dot-pulse (below) so the cloning badge and a waiting console dot
+   pulse the same way (#717). */
+.project-status.cloning {
+  animation: console-dot-pulse 1.2s ease-in-out infinite;
+}
+
+/* A project row new to this session's view (#717): a brief tinted flash on the header
+   that fades to nothing, so it catches the eye without staying a permanent decoration. */
+.project-section.revealed .section-header {
+  animation: project-reveal 2.5s ease-out;
+}
+
+@keyframes project-reveal {
+  0% {
+    background: rgba(59, 111, 168, 0.18);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
 .project-failed {
   display: flex;
   flex-direction: column;
@@ -291,6 +312,28 @@
   padding: 8px 16px;
   font-size: 12px;
   color: var(--faint);
+}
+
+.cloning-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spinner-spin 0.7s linear infinite;
+}
+
+@keyframes spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 ul {
