@@ -147,12 +147,14 @@ signal_pid() {
   env kill -s "$1" "$2" 2>/dev/null || true
 }
 
-# Where com.locklane.server is CURRENTLY loaded (#691): "user/<uid>", the domain every
-# fresh registration now targets -- it does not require an active graphical (Aqua)
-# session, unlike "gui/<uid>", so the server can be installed, started and stopped from
-# an SSH-only login. Checked first; "gui/<uid>" is checked next, for an install made
-# before #691 that has not yet gone through a stop/restart/register/update cycle to move
-# it over. Empty when loaded in neither -- not an error, just "not running".
+# Where com.locklane.server is CURRENTLY loaded: "user/<uid>", the domain every
+# registration targets (ADR-111) -- the per-user domain that exists without a
+# graphical login, which the plist's LimitLoadToSessionType=Background lets the agent
+# load into (a plist without that key is an Aqua-session agent, and launchd refuses it
+# there with 134 -- what broke v0.2.11-v0.2.13, #691/#703). Checked first. "gui/<uid>"
+# is checked next, for an install made by v0.2.10 or earlier (or hand-patched after
+# #691), which registered there; a stop/restart/register/update cycle moves it over.
+# Empty when loaded in neither -- not an error, just "not running".
 launchd_loaded_domain() {
   if launchctl print "user/$(id -u)/$AGENT_LABEL" >/dev/null 2>&1; then
     printf 'user/%s' "$(id -u)"
@@ -290,10 +292,11 @@ stop_server() {
       # stop` would just have launchd relaunch it), and it also UNLOADS the agent, so a
       # stopped server does not come back until `start` loads it again. It returns
       # before the process has gone -- often with "Operation now in progress" -- which
-      # is why everything below waits and checks. Both domains are swept (#691): the
-      # second call is a harmless no-op once nothing is left in the pre-migration
-      # gui/<uid> domain, so a stop/restart/register/update also finishes an install's
-      # move to user/<uid> instead of leaving an orphaned old-domain agent behind.
+      # is why everything below waits and checks. Both domains are swept: the second
+      # call is a harmless no-op once nothing is left in the gui/<uid> domain that
+      # v0.2.10 and earlier registered into (ADR-111), so a stop/restart/register/update
+      # also retires such an older agent instead of leaving it behind next to the
+      # user/<uid> one.
       bootout_msg="$(launchctl bootout "user/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
       gui_bootout_msg="$(launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>&1 >/dev/null || true)"
       [ -n "$bootout_msg" ] || bootout_msg="$gui_bootout_msg"
@@ -429,6 +432,13 @@ WantedBy=default.target
 EOF
 }
 
+# LimitLoadToSessionType=Background (ADR-111): a LaunchAgent plist without it is an
+# Aqua-session agent, which launchd loads only into gui/<uid> -- the domain of a
+# graphical login -- and refuses in user/<uid> with 134 ("Service cannot load in
+# requested session"). With it, the agent loads into user/<uid>, which exists without
+# anyone at the console, so the server can be registered and started over SSH; macOS
+# also loads it from ~/Library/LaunchAgents at the next login. Proven on a real Mac by
+# .github/workflows/mac-lifecycle.yml before this was written (#704).
 write_launchd_plist() {
   local java_bin="$1" resolved_path="$2"
   mkdir -p "$(dirname "$REG_FILE")"
@@ -450,6 +460,7 @@ write_launchd_plist() {
     <key>PATH</key><string>$resolved_path</string>
   </dict>
   <key>RunAtLoad</key><true/>
+  <key>LimitLoadToSessionType</key><string>Background</string>
   <key>KeepAlive</key>
   <dict>
     <key>SuccessfulExit</key><false/>
@@ -523,7 +534,7 @@ EOF
 # registration starts clean -- which makes `register` the restart-with-fresh-PATH, and
 # what `update` calls after swapping the jar.
 register_cmd() {
-  local kind java_bin resolved_path waited
+  local kind java_bin resolved_path waited msg
   load_state
   kind="${SERVICE_KIND:-}"
   [ -n "$kind" ] || kind="$(host_service_kind)"
@@ -558,14 +569,22 @@ register_cmd() {
     launchd)
       write_launchd_plist "$java_bin" "$resolved_path"
       echo "Registering the launchd agent..."
-      # user/<uid> (#691), not gui/<uid>: it does not need an active graphical session,
-      # so the agent loads over an SSH-only login same as at the console. The
+      # user/<uid> (ADR-111), which the plist's Background session type lets the agent
+      # load into: no graphical login needed. v0.2.11-v0.2.13 targeted the same domain
+      # WITHOUT that key (#691) and a real Mac refused it (launchd 134). The
       # service_loaded check above already stopped (and bootout-swept both domains for)
-      # any prior registration, so an install still on the old gui/<uid> domain is
-      # migrated by this same call.
-      if ! launchctl bootstrap "user/$(id -u)" "$REG_FILE"; then
-        rm -f "$REG_FILE"
-        die "could not load the launchd agent $AGENT_LABEL (launchctl bootstrap failed)."
+      # any prior registration, so an older install in gui/<uid> is moved over by this
+      # same call.
+      #
+      # A refused load leaves the plist where it is (#703): removing it turned one
+      # failed bootstrap into an install that could not start, restart or register at
+      # all. launchctl's own words are printed, and the real reason -- launchctl only
+      # ever says "5: Input/output error" -- is in the system log.
+      if ! msg="$(launchctl bootstrap "user/$(id -u)" "$REG_FILE" 2>&1 >/dev/null)"; then
+        echo "launchctl said: ${msg:-(nothing)}" >&2
+        die "could not load the launchd agent $AGENT_LABEL (launchctl bootstrap failed).
+The plist was left at $REG_FILE, so nothing else is lost. launchd's own reason is in:
+  log show --last 5m --predicate 'process == \"launchd\"' | grep -i locklane"
       fi
       ;;
   esac
@@ -657,9 +676,9 @@ status_cmd() {
       fi
       pid="$(main_pid)"
       dom="$(launchd_loaded_domain)"
-      # #691: still on the pre-migration domain -- register/restart/update would move
-      # it to user/<uid>, which (unlike gui/<uid>) does not need a graphical session.
-      case "$dom" in gui/*) migrate_note=" (still in the old $dom domain -- \`locklane register\` moves it to the headless-capable user/\$(id -u) domain)" ;; esac
+      # v0.2.10 and earlier registered into gui/<uid>; register/restart/update move it
+      # to user/<uid>, which needs no graphical login (ADR-111).
+      case "$dom" in gui/*) migrate_note=" (loaded in the $dom domain, where an older install lived -- \`locklane register\` moves it to user/\$(id -u), which needs no graphical login)" ;; esac
       if alive "$pid"; then
         echo "locklane is running as the launchd agent $AGENT_LABEL (pid $pid)${migrate_note}. Output is logged to $LOG_FILE."
       else
@@ -675,6 +694,7 @@ status_cmd() {
 }
 
 start_cmd() {
+  local msg
   load_state
   case "$SERVICE_KIND" in
     systemd)
@@ -689,7 +709,11 @@ start_cmd() {
       fi
       [ -f "$REG_FILE" ] || die "the agent's plist $REG_FILE is missing -- run \`locklane register\` to recreate it."
       echo "Starting the locklane agent..."
-      launchctl bootstrap "user/$(id -u)" "$REG_FILE"
+      if ! msg="$(launchctl bootstrap "user/$(id -u)" "$REG_FILE" 2>&1 >/dev/null)"; then
+        echo "launchctl said: ${msg:-(nothing)}" >&2
+        die "could not load the launchd agent $AGENT_LABEL (launchctl bootstrap failed). launchd's own reason is in:
+  log show --last 5m --predicate 'process == \"launchd\"' | grep -i locklane"
+      fi
       echo "Started. The agent is loaded again."
       ;;
     *)
@@ -720,9 +744,9 @@ stop_cmd() {
   refuse_inside_server "locklane stop"
   stop_server
   case "$SERVICE_KIND" in
-    # #691: unlike gui/<uid>, nothing here auto-reloads user/<uid> at a later login --
-    # `locklane start` (or `register`) is what brings it back.
-    launchd) echo "The agent is unloaded. Run \`locklane start\` to load it again." ;;
+    # macOS reloads ~/Library/LaunchAgents at the next login, so a stopped agent comes
+    # back then; `locklane start` (or `register`) brings it back now.
+    launchd) echo "The agent is unloaded. macOS loads it again at your next login; \`locklane start\` brings it back now." ;;
     systemd) echo "The service stays enabled and comes back at the next boot; \`locklane start\` brings it back now." ;;
   esac
 }

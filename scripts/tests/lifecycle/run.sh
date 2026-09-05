@@ -330,10 +330,9 @@ scenario_foreign_file_kept() {
 # released asset), a plist, a running agent, no service.env, no control program of its
 # own yet. Its own update.sh (the released one) fetches the control program and hands
 # over; `update` migrates the layout and, since #682, sheds the wrappers for good. The
-# agent is planted in the "gui" domain (#691: the pre-#691 registration target), so this
-# doubles as the gui/<uid> -> user/<uid> migration scenario -- update must find and
-# retire it there, not just leave it running alongside a second agent freshly
-# bootstrapped into "user".
+# agent is planted in the "gui" domain, where such an install lived: update must
+# retire it there (its pid gone, gui unloaded) and bring a fresh one up in "user"
+# (ADR-111), not leave the old one running alongside.
 old_layout() {
   local f
   echo "server.port=8080" > "$HOME/.locklane/application-locklane.properties"
@@ -369,12 +368,13 @@ scenario_migrate_old_layout() {
     fi
   done
   if [ "$rc" -eq 0 ] && [ -x "$LL" ] && ! alive "$old_pid" && alive "$(server_pid launchd.user)" \
-      && [ ! -f "$STUB_STATE/launchd.gui.loaded" ] \
+      && [ -f "$STUB_STATE/launchd.user.loaded" ] && [ ! -f "$STUB_STATE/launchd.gui.loaded" ] \
       && grep -q '^SERVICE_KIND=launchd$' "$HOME/.locklane/service.env" \
+      && grep -q 'LimitLoadToSessionType' "$HOME/Library/LaunchAgents/com.locklane.server.plist" \
       && [ "$(head -c 2 "$HOME/.locklane/locklane.jar")" = PK ] \
       && contains "$out" "Installed locklane v9.9.9-stub" && grep -q 'Environment\|PATH' "$HOME/Library/LaunchAgents/com.locklane.server.plist" \
       && contains "$("$LL" status 2>&1)" "is running as the launchd agent" \
-      && ! contains "$("$LL" status 2>&1)" "still in the old"; then
+      && ! contains "$("$LL" status 2>&1)" "moves it to user"; then
     ok "$name"
   else
     bad "$name" "rc=$rc control=$([ -x "$LL" ] && echo yes || echo no) old-alive=$(alive "$old_pid" && echo yes || echo no) gui-loaded=$([ -f "$STUB_STATE/launchd.gui.loaded" ] && echo yes || echo no) out=$out"
@@ -433,15 +433,76 @@ scenario_status_and_start() {
   ok "$name"
 }
 
-scenario_domain_is_user_not_gui() {
-  local name="domain-is-user-not-gui" out
+# ADR-111: the registration domain is user/<uid>, and the plist declares itself a
+# Background-session agent -- without that key a real Mac refuses the domain (launchd
+# 134, #691/#703). The stub cannot refuse anything; mac-lifecycle.yml proves the pair.
+scenario_domain_is_user_with_background_type() {
+  local name="domain-is-user-with-background-type" out
   new_home
   register_as launchd || { bad "$name" "register"; return; }
   out="$(cat "$STUB_STATE/launchctl.log" 2>/dev/null)"
-  if grep -q "^bootstrap user/$(id -u) " <<<"$out" && ! grep -q "^bootstrap gui/" <<<"$out"; then
+  if grep -q "^bootstrap user/$(id -u) " <<<"$out" && ! grep -q "^bootstrap gui/" <<<"$out" \
+      && grep -q '<key>LimitLoadToSessionType</key><string>Background</string>' "$HOME/Library/LaunchAgents/com.locklane.server.plist"; then
     ok "$name"
   else
-    bad "$name" "register did not bootstrap into user/\$(id -u): log=$out"
+    bad "$name" "register did not bootstrap a Background-session plist into user/\$(id -u): log=$out"
+  fi
+}
+
+# An install from v0.2.10 or earlier (or one hand-patched after #691) loaded into
+# gui/<uid> is found there, retired, and re-registered in user/<uid> by one `register`
+# (ADR-111): status names the older domain beforehand and not afterwards, the old pid
+# is gone, both domains are swept and only user is loaded at the end.
+scenario_retires_gui_domain_agent() {
+  local name="retires-gui-domain-agent" out rc old_pid
+  new_home
+  mkdir -p "$HOME/Library/LaunchAgents"
+  printf '<plist/>\n' > "$HOME/Library/LaunchAgents/com.locklane.server.plist"
+  printf 'SERVICE_KIND=launchd\nREG_FILE=%s\n' "$HOME/Library/LaunchAgents/com.locklane.server.plist" > "$HOME/.locklane/service.env"
+  touch "$STUB_STATE/launchd.gui.loaded"
+  nohup bash -c 'while :; do sleep 1; done' >/dev/null 2>&1 </dev/null &
+  echo $! > "$STUB_STATE/launchd.gui.pid"
+  echo $! >> "$STUB_STATE/pids"
+  disown
+  old_pid="$(server_pid launchd.gui)"
+  out="$("$LL" status 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] && contains "$out" "moves it to user" || { bad "$name" "status before: rc=$rc out=$out"; return; }
+  register_as launchd || { bad "$name" "register"; return; }
+  out="$("$LL" status 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && ! alive "$old_pid" && alive "$(server_pid launchd.user)" \
+      && [ -f "$STUB_STATE/launchd.user.loaded" ] && [ ! -f "$STUB_STATE/launchd.gui.loaded" ] \
+      && grep -q "^bootout gui/$(id -u)/" "$STUB_STATE/launchctl.log" \
+      && contains "$out" "is running as the launchd agent" && ! contains "$out" "moves it to user"; then
+    ok "$name"
+  else
+    bad "$name" "rc=$rc old-alive=$(alive "$old_pid" && echo yes || echo no) user-loaded=$([ -f "$STUB_STATE/launchd.user.loaded" ] && echo yes || echo no) gui-loaded=$([ -f "$STUB_STATE/launchd.gui.loaded" ] && echo yes || echo no) out=$out"
+  fi
+}
+
+# A refused bootstrap leaves the plist in place and says where launchd's real reason
+# is (#703): the pre-#703 program deleted the plist, so one refused load left an
+# install that could not start, restart or register. A later register, once the cause
+# is gone, must succeed from that state; `start` reports a refusal the same way.
+scenario_bootstrap_failure_keeps_plist() {
+  local name="bootstrap-failure-keeps-plist" out rc plist
+  new_home
+  plist="$HOME/Library/LaunchAgents/com.locklane.server.plist"
+  touch "$STUB_STATE/bootstrap-fails"
+  out="$(LOCKLANE_SERVICE_KIND=launchd "$LL" register 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] || [ ! -f "$plist" ] || ! contains "$out" "Input/output error" \
+      || ! contains "$out" "log show" || ! contains "$out" "left at $plist"; then
+    bad "$name" "register: rc=$rc plist=$([ -f "$plist" ] && echo kept || echo GONE) out=$out"; return
+  fi
+  rm -f "$STUB_STATE/bootstrap-fails"
+  register_as launchd || { bad "$name" "register after the cause is gone"; return; }
+  alive "$(server_pid launchd.user)" || { bad "$name" "not running after the second register"; return; }
+  "$LL" stop >/dev/null 2>&1
+  touch "$STUB_STATE/bootstrap-fails"
+  out="$("$LL" start 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && [ -f "$plist" ] && contains "$out" "Input/output error" && contains "$out" "log show"; then
+    ok "$name"
+  else
+    bad "$name" "start: rc=$rc plist=$([ -f "$plist" ] && echo kept || echo GONE) out=$out"
   fi
 }
 
@@ -517,7 +578,9 @@ scenario_migrate_old_layout
 scenario_install_hands_over_to_update
 scenario_detached_refused
 scenario_status_and_start
-scenario_domain_is_user_not_gui
+scenario_domain_is_user_with_background_type
+scenario_retires_gui_domain_agent
+scenario_bootstrap_failure_keeps_plist
 scenario_two_users_no_collision
 
 echo

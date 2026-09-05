@@ -1,0 +1,269 @@
+# The control program against the REAL launchctl, on a real Mac (#703, ADR-110; #704,
+# ADR-111).
+#
+# scripts/tests/lifecycle/run.sh drives scripts/locklane through every scenario with a
+# bash stub for launchctl, so a wrong launchd domain, a plist key launchd rejects, or a
+# deleted plist all pass it. #691 shipped exactly such a change on that harness alone
+# and broke every Mac install on its next `locklane update` (launchd refused the
+# user/<uid> domain with 134, "Service cannot load in requested session"; the program
+# then deleted its own plist). This workflow is the guard: register, status, restart,
+# stop, start and uninstall run against launchd itself on a GitHub macOS runner, with
+# `launchctl print` asserting the agent's state after each step -- in user/<uid>, the
+# domain the plist's LimitLoadToSessionType=Background lets it load into (ADR-111,
+# decided on this job's own experiment, #704), and an older gui/<uid> agent planted
+# beforehand is asserted retired.
+#
+# This is a consumer-local workflow, not part of the synced template: ci.yml is
+# template-owned and its local slots hold only extra *steps* of the ubuntu `checks`
+# job, which cannot host a macOS job. Its context, `mac-lifecycle`, is not in the
+# template's required-checks list (github-bootstrap.sh re-asserts that list whenever it
+# runs); /t-ship's attended CI watch (ADR-008) stops on any red check on the PR, so a
+# failing run still blocks the merge.
+#
+# Path gating is done by the `decide` job, not by a workflow-level `paths:` filter: a
+# workflow skipped by `paths:` reports no status at all, which would block a PR forever
+# if this context were ever made required, while a job skipped by its own `if:`
+# reports "skipped", which passes. The runner minutes are free for a public repository,
+# so the workflow runs on draft PRs too -- the point is the earliest possible hardware
+# signal, and a driven child PR is readied only moments before its merge.
+name: mac-lifecycle
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-lifecycle-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  decide:
+    name: decide
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.paths.outputs.run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Does the diff touch the control program, its harness, or this workflow?
+        id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "$EVENT_NAME event: always run."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git -c core.quotePath=false diff --name-only "origin/$BASE_REF"...HEAD > /tmp/changed
+          if grep -E '^(scripts/locklane|scripts/tests/lifecycle/|\.github/workflows/mac-lifecycle\.yml)' /tmp/changed; then
+            echo "Lifecycle inputs changed (listed above): running on macOS."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No lifecycle input in this diff: skipping the macOS job."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  mac-lifecycle:
+    name: mac-lifecycle
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    runs-on: macos-latest
+    # register waits up to 10s for a pid, a stop up to 30s + 10s; the whole sequence is
+    # a couple of minutes. Fifteen fails a hang loudly instead of running for hours.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Both per-user domains must exist on the runner: user/<uid>, where the agent is
+      # registered (ADR-111), and gui/<uid>, where the older-install retirement below
+      # plants an agent. A runner without one fails here, with a sentence, instead of at
+      # a bootstrap with launchctl's "5: Input/output error".
+      - name: The runner has both per-user launchd domains
+        run: |
+          launchctl print "user/$(id -u)" > /dev/null
+          echo "OK: user/$(id -u) exists for $(id -un)"
+          launchctl print "gui/$(id -u)" > /dev/null
+          echo "OK: gui/$(id -u) exists for $(id -un) (a graphical login)"
+          sw_vers
+
+      # An install directory exactly as install.sh lays it out, with a jar that just
+      # keeps running: the control program needs a locklane.jar to register and java to
+      # run it, and nothing here needs the real server.
+      - name: Lay out ~/.locklane with the control program and a jar that keeps running
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.locklane"
+          cp scripts/locklane "$HOME/.locklane/locklane"
+          chmod 755 "$HOME/.locklane/locklane"
+          src="$(mktemp -d)"
+          cat > "$src/Main.java" <<'JAVA'
+          public class Main {
+            public static void main(String[] args) throws Exception { Thread.sleep(Long.MAX_VALUE); }
+          }
+          JAVA
+          javac -d "$src" "$src/Main.java"
+          jar cfe "$HOME/.locklane/locklane.jar" Main -C "$src" Main.class
+          printf 'server.port=0\n' > "$HOME/.locklane/application-locklane.properties"
+          chmod 600 "$HOME/.locklane/application-locklane.properties"
+          ls -la "$HOME/.locklane"
+
+      # #704's experiment, now an assertion: a LaunchAgent that declares itself a
+      # Background-session agent loads into user/<uid>, the domain that exists without
+      # a graphical login. Its first, report-only run (macOS 26.5.2, run 33944160500)
+      # exited 0 with the probe running and launchd logging "Bootstrap ... succeeded";
+      # ADR-111 rests on that. Should macOS ever refuse it, this step fails and says the
+      # premise changed -- the ADR's revisit trigger, made mechanical.
+      - name: A Background-session probe agent loads into user/<uid> (ADR-111's premise)
+        run: |
+          set -uo pipefail
+          LABEL=com.locklane.probe
+          DOM="user/$(id -u)"
+          PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+          mkdir -p "$HOME/Library/LaunchAgents"
+          cat > "$PLIST" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>Label</key><string>com.locklane.probe</string>
+            <key>ProgramArguments</key><array><string>/bin/sleep</string><string>300</string></array>
+            <key>RunAtLoad</key><true/>
+            <key>LimitLoadToSessionType</key><string>Background</string>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint "$PLIST"
+          echo "== launchctl print $DOM (does the domain exist?)"
+          launchctl print "$DOM" 2>&1 | head -n 5 || true
+          echo "== launchctl bootstrap $DOM $PLIST"
+          rc=0
+          launchctl bootstrap "$DOM" "$PLIST" 2>&1 || rc=$?
+          echo "bootstrap exit=$rc"
+          echo "== launchctl print $DOM/$LABEL"
+          launchctl print "$DOM/$LABEL" 2>&1 | head -n 12 || true
+          echo "== launchctl print gui/$(id -u)/$LABEL (did it land in the gui domain instead?)"
+          launchctl print "gui/$(id -u)/$LABEL" 2>&1 | head -n 5 || true
+          sleep 2
+          echo "== launchd log lines mentioning the probe"
+          log show --last 2m --predicate 'process == "launchd"' 2>/dev/null | grep -i 'locklane.probe\|Bootstrap by' || echo "(nothing)"
+          launchctl bootout "$DOM/$LABEL" 2>&1 || true
+          launchctl bootout "gui/$(id -u)/$LABEL" 2>&1 || true
+          rm -f "$PLIST"
+          echo "RESULT: bootstrap of a LimitLoadToSessionType=Background agent into $DOM exited $rc"
+          if [ "$rc" -ne 0 ]; then
+            echo "FAIL: launchd refused a Background-session agent in $DOM -- ADR-111's premise no longer holds on this macOS."
+            exit 1
+          fi
+
+      - name: register, status, restart, stop, start, uninstall against the real launchctl
+        run: |
+          set -euo pipefail
+          LL="$HOME/.locklane/locklane"
+          LABEL=com.locklane.server
+          DOM="user/$(id -u)"
+          OLD="gui/$(id -u)"
+          PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+
+          loaded_pid() {
+            launchctl print "$DOM/$LABEL" 2>/dev/null \
+              | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -n 1
+          }
+          expect_running() {
+            local p; p="$(loaded_pid)"
+            if [ -z "$p" ] || ! kill -0 "$p" 2>/dev/null; then
+              echo "FAIL after $1: expected a live pid for $LABEL in $DOM, found '${p:-none}'"
+              launchctl print "$DOM/$LABEL" || true
+              exit 1
+            fi
+            echo "OK after $1: $LABEL loaded in $DOM, pid $p alive"
+          }
+          expect_unloaded() {
+            if launchctl print "$DOM/$LABEL" > /dev/null 2>&1; then
+              echo "FAIL after $1: $LABEL is still loaded in $DOM"
+              launchctl print "$DOM/$LABEL" || true
+              exit 1
+            fi
+            if launchctl print "$OLD/$LABEL" > /dev/null 2>&1; then
+              echo "FAIL after $1: $LABEL is still loaded in $OLD"
+              exit 1
+            fi
+            echo "OK after $1: $LABEL is not loaded"
+          }
+
+          # An older install (v0.2.10 or earlier, or one hand-patched after #691) sits in
+          # gui/<uid> with a plain plist: plant exactly that, then let register retire it.
+          echo "== plant an older-style agent in $OLD"
+          mkdir -p "$HOME/Library/LaunchAgents"
+          cat > "$PLIST" <<'OLDPLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>Label</key><string>com.locklane.server</string>
+            <key>ProgramArguments</key><array><string>/bin/sleep</string><string>600</string></array>
+            <key>RunAtLoad</key><true/>
+          </dict>
+          </plist>
+          OLDPLIST
+          launchctl bootstrap "$OLD" "$PLIST"
+          launchctl print "$OLD/$LABEL" > /dev/null
+          old_pid="$(launchctl print "$OLD/$LABEL" | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -n 1)"
+          echo "planted: $LABEL in $OLD, pid ${old_pid:-none}"
+          [ -n "$old_pid" ]
+          "$LL" status || true
+
+          echo "== register"; "$LL" register
+          expect_running register
+          if kill -0 "$old_pid" 2>/dev/null; then echo "FAIL: the older $OLD agent (pid $old_pid) is still alive after register"; exit 1; fi
+          echo "OK after register: the older $OLD agent (pid $old_pid) is gone"
+          grep -q '<key>LimitLoadToSessionType</key><string>Background</string>' "$PLIST"
+          [ -f "$PLIST" ] || { echo "FAIL: $PLIST was not written"; exit 1; }
+          grep -q '^SERVICE_KIND=launchd$' "$HOME/.locklane/service.env"
+          pid1="$(loaded_pid)"
+
+          echo "== status"; "$LL" status
+
+          echo "== restart"; "$LL" restart
+          expect_running restart
+          [ "$(loaded_pid)" != "$pid1" ] || { echo "FAIL: restart kept pid $pid1"; exit 1; }
+
+          echo "== stop"; "$LL" stop
+          expect_unloaded stop
+          if "$LL" status; then echo "FAIL: status exited 0 while stopped"; exit 1; fi
+          [ -f "$PLIST" ] || { echo "FAIL: stop removed $PLIST"; exit 1; }
+
+          echo "== start"; "$LL" start
+          expect_running start
+
+          echo "== uninstall --all --yes"; "$LL" uninstall --all --yes
+          expect_unloaded uninstall
+          [ ! -e "$PLIST" ] || { echo "FAIL: uninstall left $PLIST"; exit 1; }
+          [ ! -e "$HOME/.locklane" ] || { echo "FAIL: uninstall left $HOME/.locklane"; exit 1; }
+          echo "All lifecycle commands succeeded against the real launchctl in $DOM."
+
+      - name: What launchd and the server said (on failure)
+        if: failure()
+        run: |
+          echo "== launchctl print user/$(id -u)/com.locklane.server"
+          launchctl print "user/$(id -u)/com.locklane.server" 2>&1 || true
+          echo "== launchctl print gui/$(id -u)/com.locklane.server"
+          launchctl print "gui/$(id -u)/com.locklane.server" 2>&1 || true
+          echo "== ~/.locklane/locklane.log"
+          cat "$HOME/.locklane/locklane.log" 2>/dev/null || echo "(no log)"
+          echo "== ~/Library/LaunchAgents/com.locklane.server.plist"
+          cat "$HOME/Library/LaunchAgents/com.locklane.server.plist" 2>/dev/null || echo "(no plist)"
+          echo "== launchd log, last 10 minutes, mentioning locklane"
+          log show --last 10m --predicate 'process == "launchd"' 2>/dev/null | grep -i locklane || echo "(nothing)"

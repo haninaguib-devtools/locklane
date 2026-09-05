@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Stub launchctl for scripts/tests/lifecycle/run.sh. One agent, but state is keyed per
-# DOMAIN TYPE (#691): "user" (user/<uid>, where a fresh registration lands -- it needs
-# no active graphical session) and "gui" (gui/<uid>, the pre-#691 domain), kept
-# independently loadable so a migration scenario can plant an agent in "gui" and confirm
-# scripts/locklane finds and retires it while bringing a new one up in "user". State in
-# $STUB_STATE:
+# DOMAIN TYPE: "user" (user/<uid>, where every registration lands -- ADR-111, with the
+# plist's Background session type) and "gui" (gui/<uid>, where v0.2.10 and earlier
+# registered), kept independently loadable so a migration scenario can plant an agent
+# in "gui" and confirm scripts/locklane finds and retires it while bringing a new one
+# up in "user". The stub accepts any plist in any domain; only the real launchctl on
+# .github/workflows/mac-lifecycle.yml can refuse one. State in $STUB_STATE:
 #   launchd.<domain>.loaded   the agent is bootstrapped into this domain
 #   launchd.<domain>.pid      the pid of the "server" that domain's bootstrap spawned
 #   launchd.<domain>.bootout  bootout was asked for: the agent leaves the domain once the pid is gone
 #   server-mode               how a newly spawned server behaves: default (dies on TERM),
 #                             ignore-term, with-child (ignores TERM and has a child of its own)
 #   kill-swallows             `launchctl kill` pretends, like the stub kill
+#   bootstrap-fails           every bootstrap is refused with the one line the real
+#                             launchctl prints for any refusal ("5: Input/output error")
 # Mirrors the real thing where it matters: bootout returns before the process is gone
 # (with "Operation now in progress"), print lists the service until then, a second
 # bootstrap of an already-loaded domain fails, and the two domains are otherwise
@@ -62,7 +65,7 @@ case "${1:-}" in
     ;;
   bootstrap)
     dom="$(domain_of "${2:-}")"
-    if [ -f "$S/launchd.$dom.loaded" ]; then
+    if [ -f "$S/bootstrap-fails" ] || [ -f "$S/launchd.$dom.loaded" ]; then
       echo "Bootstrap failed: 5: Input/output error" >&2
       exit 5
     fi
