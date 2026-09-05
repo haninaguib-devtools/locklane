@@ -113,6 +113,49 @@ jobs:
           chmod 600 "$HOME/.locklane/application-locklane.properties"
           ls -la "$HOME/.locklane"
 
+      # #704's experiment: can a LaunchAgent that declares itself a Background-session
+      # agent load into user/<uid>, the domain that exists without a graphical login?
+      # Report-only on this run: the exit code, launchctl's view of the probe, the
+      # domain, and launchd's own log line are the recorded result; the task branches on
+      # what this prints.
+      - name: Experiment (#704) -- a Background-session probe agent in user/<uid>
+        run: |
+          set -uo pipefail
+          LABEL=com.locklane.probe
+          DOM="user/$(id -u)"
+          PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+          mkdir -p "$HOME/Library/LaunchAgents"
+          cat > "$PLIST" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>Label</key><string>com.locklane.probe</string>
+            <key>ProgramArguments</key><array><string>/bin/sleep</string><string>300</string></array>
+            <key>RunAtLoad</key><true/>
+            <key>LimitLoadToSessionType</key><string>Background</string>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint "$PLIST"
+          echo "== launchctl print $DOM (does the domain exist?)"
+          launchctl print "$DOM" 2>&1 | head -n 5 || true
+          echo "== launchctl bootstrap $DOM $PLIST"
+          rc=0
+          launchctl bootstrap "$DOM" "$PLIST" 2>&1 || rc=$?
+          echo "bootstrap exit=$rc"
+          echo "== launchctl print $DOM/$LABEL"
+          launchctl print "$DOM/$LABEL" 2>&1 | head -n 12 || true
+          echo "== launchctl print gui/$(id -u)/$LABEL (did it land in the gui domain instead?)"
+          launchctl print "gui/$(id -u)/$LABEL" 2>&1 | head -n 5 || true
+          sleep 2
+          echo "== launchd log lines mentioning the probe"
+          log show --last 2m --predicate 'process == "launchd"' 2>/dev/null | grep -i 'locklane.probe\|Bootstrap by' || echo "(nothing)"
+          launchctl bootout "$DOM/$LABEL" 2>&1 || true
+          launchctl bootout "gui/$(id -u)/$LABEL" 2>&1 || true
+          rm -f "$PLIST"
+          echo "EXPERIMENT RESULT: bootstrap of a LimitLoadToSessionType=Background agent into $DOM exited $rc"
+
       - name: register, status, restart, stop, start, uninstall against the real launchctl
         run: |
           set -euo pipefail
