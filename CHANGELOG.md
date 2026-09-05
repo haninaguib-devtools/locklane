@@ -8,6 +8,15 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.13 — 2026-09-04
+
+### Features
+- Let clicking the usage-widget timestamp also collapse it (#696, #699)
+
+### Fixes
+- console-tabs '+' can launch with an empty default agent before Settings/project-summary have fetched the installed list (#698, #700)
+- Make the server the only source of supported coding-agent CLIs, labels and usage providers (#695, #697)
+
 ## v0.2.12 — 2026-09-04
 
 ### Features
