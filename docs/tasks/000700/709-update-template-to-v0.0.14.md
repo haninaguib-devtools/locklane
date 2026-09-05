@@ -45,3 +45,12 @@ and no file was created).
   them before the issue carried a `## Plan`; `/t-work` Phase 3's plan gate then stopped
   it short of pushing and opening the draft PR (same gap as #650). `/t-plan 709` adds
   the plan; `/t-work 709` resumes on this branch to push and open the PR.
+- Fix pass after the cold review (PR #710, finding 1, high): the first manifest listed
+  54 files, omitting the two this sync added (`required-checks.sh`, ADR-009). Cause:
+  `/t-update` step 8's file list was taken from this repo's own
+  `template-owned-paths.sh --list`, which narrows to the *current* manifest's keys
+  (the v0.0.13 fix for the false positive) and so cannot see files that are new at the
+  target tag — the list has to come from the scratch clone of the tag, as step 4 does.
+  Regenerated the manifest from the clone's list (56 files). The plan's "(54 paths)"
+  and `len==54` check carried the same error and were corrected to 56 by a re-plan;
+  Allowed paths unchanged. Worth raising upstream as a `/t-update` step 8 defect.
