@@ -8,6 +8,12 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.14 — 2026-09-04
+
+### Other
+- Update template to v0.0.14 (#709, #710)
+- Mac service registration proven on real hardware (#705, #708)
+
 ## v0.2.13 — 2026-09-04
 
 ### Features
