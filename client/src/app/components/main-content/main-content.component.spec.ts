@@ -5,6 +5,7 @@ import { MainContentComponent } from './main-content.component';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
 import { ActiveTabStore } from '../../services/active-tab-store';
+import { DefaultAgentStore } from '../../services/default-agent-store';
 import { GhIssue, IssueDetail, Project, ResumeSession } from '../../models/issue.model';
 
 describe('MainContentComponent', () => {
@@ -14,6 +15,7 @@ describe('MainContentComponent', () => {
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.activeConsoleByIssue');
     localStorage.removeItem('locklane.activeTabByIssue');
+    localStorage.removeItem('locklane.defaultAgent');
     TestBed.configureTestingModule({
       imports: [MainContentComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -26,6 +28,7 @@ describe('MainContentComponent', () => {
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.activeConsoleByIssue');
     localStorage.removeItem('locklane.activeTabByIssue');
+    localStorage.removeItem('locklane.defaultAgent');
   });
 
   function init(number: number): ReturnType<typeof TestBed.createComponent<MainContentComponent>> {
@@ -79,6 +82,22 @@ describe('MainContentComponent', () => {
     httpMock.expectOne('/api/projects').flush(projects);
     httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush(consoleIds);
   }
+
+  it('fetches the installed-agents list on init, so the "+" button does not launch with an empty agent (#698)', () => {
+    // Neither Settings nor project-summary ran in this session -- `ngOnInit` is the
+    // only thing standing between a fresh load and the store's empty stored default,
+    // which is what the console-tabs "+" button's `[defaultAgent]` binding reads.
+    const fixture = TestBed.createComponent(MainContentComponent);
+    expect(TestBed.inject(DefaultAgentStore).agent()).toBe('');
+
+    fixture.componentInstance.ngOnInit();
+
+    httpMock
+      .expectOne('/api/agents/installed')
+      .flush({ installed: [{ id: 'claude', label: 'Claude' }, { id: 'codex', label: 'Codex' }] });
+
+    expect(TestBed.inject(DefaultAgentStore).agent()).toBe('claude');
+  });
 
   it('restores every open console as a tab, not just the first', () => {
     const fixture = init(7);

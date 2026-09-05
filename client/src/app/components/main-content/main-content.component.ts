@@ -1,4 +1,4 @@
-import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
+import { Component, Input, OnChanges, OnInit, SimpleChanges, inject } from '@angular/core';
 import { GhIssue, IssueDetail, ResumeSession } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
@@ -41,7 +41,7 @@ interface OpenConsole {
   templateUrl: './main-content.component.html',
   styleUrl: './main-content.component.css',
 })
-export class MainContentComponent implements OnChanges {
+export class MainContentComponent implements OnChanges, OnInit {
   private readonly issuesService = inject(IssuesService);
   private readonly projectsService = inject(ProjectsService);
   private readonly consolesService = inject(ConsolesService);
@@ -70,6 +70,13 @@ export class MainContentComponent implements OnChanges {
   startError = false;
   closeError = false;
   revealError = false;
+
+  // #698: the console-tabs "+" button reads `defaultAgentStore.agent()` directly, so
+  // its fallback to the first installed agent needs this store's fetch already under
+  // way on this page too, the same as #695's fix to project-summary's "Open console".
+  ngOnInit(): void {
+    this.defaultAgentStore.refreshInstalled();
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['issueNumber'] || changes['projectId']) {

@@ -110,7 +110,10 @@ describe('AppComponent', () => {
    * callers of this helper load an issue directly from the initial route, so
    * MainContentComponent is already mounted in the same change-detection pass and
    * fires its own project-list fetch (#96) alongside the sidenav's -- two requests
-   * for the same URL, not one.
+   * for the same URL, not one. It also fires the installed-agents fetch on its own
+   * `ngOnInit` (#698), same as the project summary's, via `.match()` since a caller
+   * further down its own test may already have consumed that one-shot fetch from an
+   * earlier mount in the same test.
    */
   function flushSidenav(): void {
     // sidenav + main-content's own project-list fetch + the header's
@@ -120,6 +123,9 @@ describe('AppComponent', () => {
     lists.forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
+    httpMock
+      .match('/api/agents/installed')
+      .forEach((request) => request.flush({ installed: [{ id: 'claude', label: 'Claude' }] }));
   }
 
   /**
@@ -427,6 +433,8 @@ describe('AppComponent', () => {
     lists.forEach((request) => request.flush([TINTED_PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
+    // MainContentComponent's own ngOnInit fetch (#698).
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
     flushConsoleIndicator();
     flushIssue(42);
     fixture.detectChanges();
@@ -453,6 +461,8 @@ describe('AppComponent', () => {
     lists.forEach((request) => request.flush([TINTED_PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
+    // ProjectConsoleComponent's own ngOnInit fetch (#698).
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
     flushConsoleIndicator();
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
@@ -503,7 +513,9 @@ describe('AppComponent', () => {
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/issues');
     httpMock.expectOne('/api/projects').flush([PROJECT]);
-    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
+    // The installed-agents list was already fetched once, by MainContentComponent's
+    // own `ngOnInit` on the initial route (#698, via flushSidenav() above) --
+    // ProjectSummaryComponent's own refreshInstalled() call here is a no-op.
     flushProjectConsoleSessions();
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
@@ -574,6 +586,8 @@ describe('AppComponent', () => {
     lists.forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
+    // ProjectConsoleComponent's own ngOnInit fetch (#698), ahead of the auto-start below.
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
     flushConsoleIndicator();
     fixture.detectChanges();
     // #256: no open console auto-starts one with the default agent -- which the
@@ -607,6 +621,8 @@ describe('AppComponent', () => {
     lists.forEach((request) => request.flush([PROJECT, PROJECT2]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
+    // ProjectConsoleComponent's own ngOnInit fetch (#698).
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
     flushConsoleIndicator();
     fixture.detectChanges();
     httpMock
