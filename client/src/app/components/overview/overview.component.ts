@@ -1,9 +1,16 @@
 import { Component, EventEmitter, OnDestroy, OnInit, Output, inject } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { catchError, forkJoin, map, of, switchMap } from 'rxjs';
+import { Subscription, catchError, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { Project, TreeNode } from '../../models/issue.model';
 import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
+import {
+  EventsService,
+  ProjectDeletedEvent,
+  ProjectStatusEvent,
+  isProjectDeletedEvent,
+  isProjectStatusEvent,
+} from '../../services/events.service';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectConsoleService } from '../../services/project-console.service';
 import { ProjectsService } from '../../services/projects.service';
@@ -14,9 +21,6 @@ export interface ProjectOverviewRow {
   project: Project;
   counts: IssueCounts | null;
 }
-
-/** How often a row still cloning is re-checked, until it settles (#717) -- the same cadence as the sidenav's own cloning poll. */
-const CLONE_POLL_MS = 3000;
 
 // The workspace landing page (#197), shown at '/' in place of the old
 // redirect-into-the-first-project behavior (#43) for anyone logged in with at
@@ -36,6 +40,7 @@ export class OverviewComponent implements OnInit, OnDestroy {
   private readonly projectConsoleService = inject(ProjectConsoleService);
   private readonly agentStore = inject(AgentStore);
   private readonly consolesService = inject(ConsolesService);
+  private readonly eventsService = inject(EventsService);
   private readonly router = inject(Router);
 
   // Emitted by the zero-project empty state's CTA (#227) -- opening the add-project
@@ -51,13 +56,28 @@ export class OverviewComponent implements OnInit, OnDestroy {
   // sidenav's own one-click "+" guard.
   private startingShellFor: number | null = null;
 
-  // Re-reads while any row is still cloning (#717) -- the same cadence as the
-  // sidenav's own cloning poll, run here too because nothing shares that list
-  // with this page. Quiet re-reads never flash the loading state.
-  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  // Updates a cloning row off the engine's `projectStatus` / `projectDeleted`
+  // broadcasts (#721) instead of re-polling; a reconnect does one full reload, since
+  // an event missed while the socket was down is gone for good -- the same pattern
+  // the sidenav's own eventsSub uses.
+  private readonly eventsSub: Subscription;
+
+  constructor() {
+    this.eventsSub = merge(
+      this.eventsService.events$.pipe(
+        filter(isProjectStatusEvent),
+        map((event) => () => this.applyProjectStatusEvent(event)),
+      ),
+      this.eventsService.events$.pipe(
+        filter(isProjectDeletedEvent),
+        map((event) => () => this.applyProjectDeletedEvent(event)),
+      ),
+      this.eventsService.reconnected$.pipe(map(() => () => this.load(true))),
+    ).subscribe((run) => run());
+  }
 
   ngOnDestroy(): void {
-    this.clearPoll();
+    this.eventsSub.unsubscribe();
   }
 
   ngOnInit(): void {
@@ -74,7 +94,6 @@ export class OverviewComponent implements OnInit, OnDestroy {
       this.loading = true;
     }
     this.error = false;
-    this.clearPoll();
 
     this.projectsService
       .list()
@@ -89,7 +108,6 @@ export class OverviewComponent implements OnInit, OnDestroy {
         next: (rows) => {
           this.rows = rows;
           this.loading = false;
-          this.schedulePollIfNeeded();
         },
         error: () => {
           this.error = true;
@@ -98,19 +116,37 @@ export class OverviewComponent implements OnInit, OnDestroy {
       });
   }
 
-  /** Re-checks while any row is still cloning (#717), until every row settles. */
-  private schedulePollIfNeeded(): void {
-    this.clearPoll();
-    if (this.rows.some((r) => r.project.status === 'CLONING')) {
-      this.pollTimer = setTimeout(() => this.load(true), CLONE_POLL_MS);
+  /**
+   * A clone reached READY or FAILED (#721): update that row's project in place --
+   * what replaces the 3s cloning poll that used to notice this instead. READY also
+   * fetches the row's issue counts, absent until now; a project not loaded here is
+   * ignored.
+   */
+  private applyProjectStatusEvent(event: ProjectStatusEvent): void {
+    const index = this.rows.findIndex((r) => r.project.id === event.projectId);
+    if (index === -1) {
+      return;
     }
+    const project: Project = {
+      ...this.rows[index].project,
+      status: event.status,
+      defaultBranch: event.defaultBranch ?? this.rows[index].project.defaultBranch,
+    };
+    if (event.status === 'FAILED') {
+      this.rows[index] = { project, counts: null };
+      return;
+    }
+    this.loadRow(project).subscribe((row) => {
+      this.rows[index] = row;
+    });
   }
 
-  private clearPoll(): void {
-    if (this.pollTimer !== null) {
-      clearTimeout(this.pollTimer);
-      this.pollTimer = null;
-    }
+  /**
+   * A project was deleted (#721, absorbed from #720): drop its row. A project not
+   * loaded here is a no-op.
+   */
+  private applyProjectDeletedEvent(event: ProjectDeletedEvent): void {
+    this.rows = this.rows.filter((r) => r.project.id !== event.projectId);
   }
 
   // A project still cloning or failed has no issues to count (mirrors

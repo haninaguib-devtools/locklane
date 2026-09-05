@@ -1,9 +1,11 @@
 package dev.locklane.engine.persistence;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.github.GhAccount;
 import dev.locklane.engine.process.ProcessOutcome;
 import dev.locklane.engine.security.TokenCipher;
 import dev.locklane.engine.template.ProjectTemplate;
+import dev.locklane.engine.ws.EventBroadcaster;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -114,6 +116,7 @@ public class ProjectCheckoutService {
     private final IssueWorktreeService issueWorktreeService;
     private final TokenCipher tokenCipher;
     private final GhAccountRepository ghAccountRepository;
+    private final EventBroadcaster eventBroadcaster;
     private final String installCommand;
     private final String ghExecutable;
 
@@ -122,9 +125,21 @@ public class ProjectCheckoutService {
             @Value("${locklane.workarea-root}") String workareaRoot,
             @Qualifier("projectCloneExecutor") Executor cloneExecutor,
             IssueWorktreeService issueWorktreeService,
-            TokenCipher tokenCipher, GhAccountRepository ghAccountRepository) {
+            TokenCipher tokenCipher, GhAccountRepository ghAccountRepository, EventBroadcaster eventBroadcaster) {
         this(repository, workareaRoot, cloneExecutor, issueWorktreeService, tokenCipher, ghAccountRepository,
-                T_WORKFLOW_INSTALL_COMMAND, "gh");
+                eventBroadcaster, T_WORKFLOW_INSTALL_COMMAND, "gh");
+    }
+
+    /**
+     * Test-only: a broadcaster with no registered sessions, since most tests here
+     * don't assert on broadcasts — mirrors the same convenience constructor
+     * {@code ProjectGhResources} and {@code SessionRegistry} offer for the same reason.
+     */
+    ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
+            IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher,
+            GhAccountRepository ghAccountRepository) {
+        this(repository, workareaRoot, cloneExecutor, issueWorktreeService, tokenCipher, ghAccountRepository,
+                new EventBroadcaster(new ObjectMapper()), T_WORKFLOW_INSTALL_COMMAND, "gh");
     }
 
     /**
@@ -138,7 +153,7 @@ public class ProjectCheckoutService {
             IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher, GhAccountRepository ghAccountRepository,
             String installCommand) {
         this(repository, workareaRoot, cloneExecutor, issueWorktreeService, tokenCipher, ghAccountRepository,
-                installCommand, "gh");
+                new EventBroadcaster(new ObjectMapper()), installCommand, "gh");
     }
 
     /**
@@ -150,14 +165,45 @@ public class ProjectCheckoutService {
     ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
             IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher, GhAccountRepository ghAccountRepository,
             String installCommand, String ghExecutable) {
+        this(repository, workareaRoot, cloneExecutor, issueWorktreeService, tokenCipher, ghAccountRepository,
+                new EventBroadcaster(new ObjectMapper()), installCommand, ghExecutable);
+    }
+
+    /**
+     * Test-only: substitutes the {@link EventBroadcaster} too, for a test that asserts
+     * on the {@code projectStatus} / {@code projectDeleted} broadcasts themselves.
+     */
+    ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
+            IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher, GhAccountRepository ghAccountRepository,
+            EventBroadcaster eventBroadcaster, String installCommand, String ghExecutable) {
         this.repository = repository;
         this.workareaRoot = Path.of(workareaRoot).normalize();
         this.cloneExecutor = cloneExecutor;
         this.issueWorktreeService = issueWorktreeService;
         this.tokenCipher = tokenCipher;
         this.ghAccountRepository = ghAccountRepository;
+        this.eventBroadcaster = eventBroadcaster;
         this.installCommand = installCommand;
         this.ghExecutable = ghExecutable;
+    }
+
+    /**
+     * Persists the new status and broadcasts {@code projectStatus} (#721) over the
+     * events channel — the one choke point every {@code READY} transition in this
+     * class goes through, so a client subscribed to {@code /ws/events} never has to
+     * poll to notice a clone settling. {@code defaultBranch} rides along so a
+     * subscriber can update in place without a follow-up fetch.
+     */
+    private void markReady(long id, String defaultBranch) {
+        repository.markReady(id, defaultBranch);
+        eventBroadcaster.broadcast("projectStatus",
+                Map.of("projectId", id, "status", ProjectStatus.READY.name(), "defaultBranch", defaultBranch));
+    }
+
+    /** Same as {@link #markReady}, for the {@code FAILED} transition — no default branch to report. */
+    private void markFailed(long id) {
+        repository.markFailed(id);
+        eventBroadcaster.broadcast("projectStatus", Map.of("projectId", id, "status", ProjectStatus.FAILED.name()));
     }
 
     /**
@@ -262,7 +308,7 @@ public class ProjectCheckoutService {
         if (issueWorktreeService.hasAnySessions(id)) {
             return DeleteOutcome.HAS_OPEN_SESSIONS;
         }
-        repository.delete(id);
+        deleteRow(id);
         deleteDirectoryQuietly(existing.get().workareaPath());
         return DeleteOutcome.DELETED;
     }
@@ -287,8 +333,19 @@ public class ProjectCheckoutService {
             return;
         }
         issueWorktreeService.deleteSessionsForProject(id);
-        repository.delete(id);
+        deleteRow(id);
         deleteDirectoryQuietly(existing.get().workareaPath());
+    }
+
+    /**
+     * Removes the project's row and broadcasts {@code projectDeleted} (#721, absorbed
+     * from #720) — the one choke point both {@link #delete} and {@link #forceDelete} go
+     * through, so a client subscribed to {@code /ws/events} drops the row live instead
+     * of waiting on an unrelated reload to notice it is gone.
+     */
+    private void deleteRow(long id) {
+        repository.delete(id);
+        eventBroadcaster.broadcast("projectDeleted", Map.of("projectId", id));
     }
 
     private void clone(ProjectRecord project, Long githubAccountId) {
@@ -319,7 +376,7 @@ public class ProjectCheckoutService {
             if (cloneResult.failed()) {
                 log.warn("git clone failed for project {} from {}: {}", project.id(), project.gitUrl(),
                         cloneResult.describe());
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
             // #551's repo-local helper is configured whenever an account was chosen,
@@ -330,7 +387,7 @@ public class ProjectCheckoutService {
                 if (helperResult.failed()) {
                     log.warn("Could not configure the git credential helper for project {}: {}", project.id(),
                             helperResult.describe());
-                    repository.markFailed(project.id());
+                    markFailed(project.id());
                     return;
                 }
             }
@@ -340,14 +397,14 @@ public class ProjectCheckoutService {
             if (branchResult.failed() || branch.isBlank()) {
                 log.warn("Could not determine the default branch for project {} after clone: {}", project.id(),
                         branchResult.describe());
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
-            repository.markReady(project.id(), branch);
+            markReady(project.id(), branch);
             log.info("Project {} ready on branch {}", project.id(), branch);
         } catch (RuntimeException | IOException e) {
             log.error("Import failed for project {} from {}", project.id(), project.gitUrl(), e);
-            repository.markFailed(project.id());
+            markFailed(project.id());
         }
     }
 
@@ -384,20 +441,20 @@ public class ProjectCheckoutService {
             // never complete the bootstrap push leaves no empty repository behind on
             // GitHub to clean up (#531).
             if (bootstrapTWorkflow && !tokenCanPushWorkflows(project)) {
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
             ProcessOutcome createResult = run(null, ghEnv, ghExecutable, "repo", "create", repoSpec, "--private");
             if (createResult.failed()) {
                 log.warn("gh repo create {} failed for project {} (exit {}): {}", repoSpec, project.id(),
                         createResult.exitCode(), createResult.describe());
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
             setUpLocalRepoAndPush(project, bootstrapTWorkflow, ghEnv, template);
         } catch (RuntimeException | IOException e) {
             log.warn("Failed to create new project {} ({})", project.id(), repoSpec, e);
-            repository.markFailed(project.id());
+            markFailed(project.id());
         }
     }
 
@@ -453,14 +510,14 @@ public class ProjectCheckoutService {
                 if (install.failed()) {
                     log.warn("t-workflow install failed for project {} (exit {}): {}", project.id(),
                             install.exitCode(), install.describe());
-                    repository.markFailed(project.id());
+                    markFailed(project.id());
                     return;
                 }
                 Path produced = scratch.resolve(project.name());
                 if (!Files.isDirectory(produced.resolve(".git"))) {
                     log.warn("t-workflow install for project {} did not produce a git checkout at {}",
                             project.id(), produced);
-                    repository.markFailed(project.id());
+                    markFailed(project.id());
                     return;
                 }
                 Files.move(produced, workarea);
@@ -476,7 +533,7 @@ public class ProjectCheckoutService {
                 if (addResult.failed()) {
                     log.warn("`git add {}` failed for project {}: {}", TEMPLATE_FILE, project.id(),
                             addResult.describe());
-                    repository.markFailed(project.id());
+                    markFailed(project.id());
                     return;
                 }
                 ProcessOutcome commitResult =
@@ -484,7 +541,7 @@ public class ProjectCheckoutService {
                 if (commitResult.failed()) {
                     log.warn("Committing {} failed for project {}: {}", TEMPLATE_FILE, project.id(),
                             commitResult.describe());
-                    repository.markFailed(project.id());
+                    markFailed(project.id());
                     return;
                 }
             }
@@ -500,25 +557,25 @@ public class ProjectCheckoutService {
             ProcessOutcome initResult = run(workarea, "git", "init");
             if (initResult.failed()) {
                 log.warn("`git init` failed for project {}: {}", project.id(), initResult.describe());
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
             ProcessOutcome emailResult = run(workarea, "git", "config", "user.email", "locklane@local");
             if (emailResult.failed()) {
                 log.warn("`git config user.email` failed for project {}: {}", project.id(), emailResult.describe());
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
             ProcessOutcome nameResult = run(workarea, "git", "config", "user.name", "locklane");
             if (nameResult.failed()) {
                 log.warn("`git config user.name` failed for project {}: {}", project.id(), nameResult.describe());
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
             ProcessOutcome addReadmeResult = run(workarea, "git", "add", "README.md");
             if (addReadmeResult.failed()) {
                 log.warn("`git add README.md` failed for project {}: {}", project.id(), addReadmeResult.describe());
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
             if (template.isPresent()) {
@@ -526,14 +583,14 @@ public class ProjectCheckoutService {
                 if (addTemplateResult.failed()) {
                     log.warn("`git add {}` failed for project {}: {}", TEMPLATE_FILE, project.id(),
                             addTemplateResult.describe());
-                    repository.markFailed(project.id());
+                    markFailed(project.id());
                     return;
                 }
             }
             ProcessOutcome commitResult = run(workarea, "git", "commit", "-m", "Initial commit");
             if (commitResult.failed()) {
                 log.warn("`git commit` failed for project {}: {}", project.id(), commitResult.describe());
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
         }
@@ -543,7 +600,7 @@ public class ProjectCheckoutService {
         if (branchResult.exitCode() != 0 || branch.isBlank()) {
             log.warn("Could not determine the default branch for project {}: {}", project.id(),
                     branchResult.describe());
-            repository.markFailed(project.id());
+            markFailed(project.id());
             return;
         }
 
@@ -555,7 +612,7 @@ public class ProjectCheckoutService {
                 log.warn("No GitHub credentials available for project {} ({}) — no GitHub account chosen for it; "
                                 + "choose one for this project before retrying",
                         project.id(), remoteUrl);
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
         }
@@ -564,7 +621,7 @@ public class ProjectCheckoutService {
         if (remoteAddResult.exitCode() != 0) {
             log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(),
                     remoteAddResult.describe());
-            repository.markFailed(project.id());
+            markFailed(project.id());
             return;
         }
 
@@ -578,7 +635,7 @@ public class ProjectCheckoutService {
             if (helperResult.failed()) {
                 log.warn("Could not configure the git credential helper for project {}: {}", project.id(),
                         helperResult.describe());
-                repository.markFailed(project.id());
+                markFailed(project.id());
                 return;
             }
             effectivePushEnv.putAll(credential.environment());
@@ -587,11 +644,11 @@ public class ProjectCheckoutService {
         ProcessOutcome pushResult = run(workarea, effectivePushEnv, credential.command("push", "-u", "origin", branch));
         if (pushResult.exitCode() != 0) {
             log.warn("Push failed for project {} to {}: {}", project.id(), project.gitUrl(), pushResult.describe());
-            repository.markFailed(project.id());
+            markFailed(project.id());
             return;
         }
 
-        repository.markReady(project.id(), branch);
+        markReady(project.id(), branch);
         log.info("Project {} ready on branch {}", project.id(), branch);
     }
 
@@ -685,7 +742,7 @@ public class ProjectCheckoutService {
         if (encryptedToken.isEmpty()) {
             log.warn("No such GitHub account {} for project {} — it may have been removed since the project was "
                     + "requested", githubAccountId, project.id());
-            repository.markFailed(project.id());
+            markFailed(project.id());
             return Optional.empty();
         }
         repository.setGithubAccountId(project.id(), githubAccountId);

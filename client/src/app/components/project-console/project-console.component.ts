@@ -1,9 +1,10 @@
 import { Component, Input, OnChanges, OnDestroy, OnInit, SimpleChanges, inject } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Subscription } from 'rxjs';
+import { Subscription, filter, map, merge } from 'rxjs';
 import { Agent, AgentStore } from '../../services/agent-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
 import { ConsolesService } from '../../services/consoles.service';
+import { EventsService, ProjectStatusEvent, isProjectStatusEvent } from '../../services/events.service';
 import { IssuesService } from '../../services/issues.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
 import { LastConsoleStore } from '../../services/last-console-store';
@@ -18,11 +19,6 @@ import { TerminalComponent } from '../terminal/terminal.component';
 import { Project, ResumeSession } from '../../models/issue.model';
 import { ProjectsService } from '../../services/projects.service';
 import { cloneStageHint } from '../clone-progress';
-
-// How often to re-read the project while it is still CLONING (#537) -- the same
-// cadence as the sidenav's own cloning poll, run here too because nothing shares the
-// sidenav's list with this page.
-const CLONE_POLL_MS = 3000;
 
 // One open console's client-side state. `dir` comes from the engine either way;
 // `agent` is only known when this browser launched the session (AgentStore).
@@ -55,12 +51,13 @@ interface OpenConsole {
 // landing on a console costs no extra request; the trade-off is that the collapsed
 // label cannot carry a count.
 // Since #537 the page first looks the project up: while it is still CLONING (the
-// add-project popup navigates here the moment a create succeeds) it waits, re-reading
-// every few seconds, instead of asking for a console the engine would refuse; once
-// READY, a project created from a template whose seeded console has not been launched
-// yet gets one opened here, without a click, attached with `seed=template` so the
-// engine starts the default agent on its own first prompt -- once per page instance,
-// and never again once the engine has recorded the launch.
+// add-project popup navigates here the moment a create succeeds) it waits, updating
+// off the engine's `projectStatus` broadcast once the clone settles (#721 -- no more
+// re-reading every few seconds), instead of asking for a console the engine would
+// refuse; once READY, a project created from a template whose seeded console has not
+// been launched yet gets one opened here, without a click, attached with
+// `seed=template` so the engine starts the default agent on its own first prompt --
+// once per page instance, and never again once the engine has recorded the launch.
 @Component({
   selector: 'app-project-console',
   standalone: true,
@@ -72,6 +69,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   private readonly service = inject(ProjectConsoleService);
   private readonly projectsService = inject(ProjectsService);
   private readonly consolesService = inject(ConsolesService);
+  private readonly eventsService = inject(EventsService);
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
   readonly defaultAgentStore = inject(DefaultAgentStore);
@@ -103,7 +101,6 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   cloning = false;
   /** True when the project's creation FAILED (#537) -- nothing is started; retry lives on the project page. */
   failed = false;
-  private clonePollTimer: ReturnType<typeof setTimeout> | null = null;
   // Live wait progress (#717): when the CLONING wait started, for the elapsed
   // counter and staged hint. The 1s tick only wakes change detection -- the
   // getters read the clock directly.
@@ -113,10 +110,25 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   // the guard against opening a second one before the engine's own record lands.
   private seededFor: number | null = null;
   private queryParamsSub: Subscription | null = null;
+  // Updates the CLONING wait off the engine's `projectStatus` broadcast (#721) instead
+  // of re-polling; a reconnect does one full reload, since an event missed while the
+  // socket was down is gone for good -- the same pattern the sidenav's own eventsSub
+  // uses.
+  private readonly eventsSub: Subscription;
   // Set when a `?new` request arrives while the open-console list is still in
   // flight (#370): the start has to wait for that list, or the list's response
   // would land on top of the console it just added.
   private pendingNewConsole = false;
+
+  constructor() {
+    this.eventsSub = merge(
+      this.eventsService.events$.pipe(
+        filter(isProjectStatusEvent),
+        map((event) => () => this.applyProjectStatusEvent(event)),
+      ),
+      this.eventsService.reconnected$.pipe(map(() => () => this.load(this.projectId))),
+    ).subscribe((run) => run());
+  }
 
   // The sidenav's "+" (#180) hands off with `?new` rather than minting a session
   // itself (#370): a session the engine has never attached is missing from
@@ -201,7 +213,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   // opened one via `gh` before the engine's own 30s poll would notice (#140).
   ngOnDestroy(): void {
     this.queryParamsSub?.unsubscribe();
-    this.stopClonePoll();
+    this.eventsSub.unsubscribe();
     this.stopCloneTick();
     this.issuesService.notifyProjectStale(this.projectId);
   }
@@ -215,7 +227,6 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     this.cloning = false;
     this.failed = false;
     this.project = null;
-    this.stopClonePoll();
     this.stopCloneTick();
     this.projectsService.list().subscribe({
       next: (projects) => {
@@ -228,10 +239,6 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
             this.cloneStartedAt = Date.now();
           }
           this.startCloneTick();
-          this.clonePollTimer = setTimeout(() => {
-            this.clonePollTimer = null;
-            this.load(projectId);
-          }, CLONE_POLL_MS);
           return;
         }
         this.cloneStartedAt = null;
@@ -249,6 +256,34 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     });
   }
 
+  /**
+   * The project's clone reached READY or FAILED (#721): update the waiting state in
+   * place off the engine's broadcast -- what replaces the 3s re-read that used to poll
+   * for this. Ignored for any project other than the one this page is currently
+   * showing (a stale event for a project this page navigated away from, or one it
+   * never loaded).
+   */
+  private applyProjectStatusEvent(event: ProjectStatusEvent): void {
+    if (this.project === null || this.project.id !== event.projectId) {
+      return;
+    }
+    this.stopCloneTick();
+    this.cloneStartedAt = null;
+    this.project = {
+      ...this.project,
+      status: event.status,
+      defaultBranch: event.defaultBranch ?? this.project.defaultBranch,
+    };
+    if (event.status === 'FAILED') {
+      this.cloning = false;
+      this.failed = true;
+      return;
+    }
+    this.cloning = false;
+    this.failed = false;
+    this.loadConsoles(event.projectId);
+  }
+
   /** Seconds since the CLONING wait started (#717); 0 when not waiting. */
   get cloneElapsedSec(): number {
     if (this.cloneStartedAt === null) {
@@ -260,13 +295,6 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   /** Staged line for the CLONING wait (#717) -- same mapping as the dialog and sidenav row. */
   get cloneStage(): string {
     return cloneStageHint(this.cloneElapsedSec);
-  }
-
-  private stopClonePoll(): void {
-    if (this.clonePollTimer !== null) {
-      clearTimeout(this.clonePollTimer);
-      this.clonePollTimer = null;
-    }
   }
 
   private startCloneTick(): void {

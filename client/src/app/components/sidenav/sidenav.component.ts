@@ -23,8 +23,12 @@ import {
   ConsoleAttentionEvent,
   EventsService,
   GithubRefreshStatusEvent,
+  ProjectDeletedEvent,
+  ProjectStatusEvent,
   isConsoleAttentionEvent,
   isGithubRefreshStatusEvent,
+  isProjectDeletedEvent,
+  isProjectStatusEvent,
 } from '../../services/events.service';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
@@ -57,9 +61,6 @@ export function formatAgo(iso: string, nowMs: number): string {
   }
   return `${Math.round(hours / 24)} d ago`;
 }
-
-/** How often a project still cloning is re-checked, until it settles (#45). */
-const CLONE_POLL_MS = 3000;
 
 /** One issue, resolved to the project id it's selected/pinned/collapsed within (#44). */
 export interface ProjectIssue {
@@ -133,7 +134,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
   deleteError: string | null = null;
 
   private openMenuFor: string | null = null;
-  private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Live clone progress (#717): first-seen timestamps per cloning project drive the
   // elapsed-seconds counters, and the 1s tick only wakes change detection -- the
@@ -191,6 +191,14 @@ export class SidenavComponent implements OnInit, OnDestroy {
         filter(isGithubRefreshStatusEvent),
         map((event) => () => this.applyGithubStatusEvent(event)),
       ),
+      this.eventsService.events$.pipe(
+        filter(isProjectStatusEvent),
+        map((event) => () => this.applyProjectStatusEvent(event)),
+      ),
+      this.eventsService.events$.pipe(
+        filter(isProjectDeletedEvent),
+        map((event) => () => this.applyProjectDeletedEvent(event)),
+      ),
       this.eventsService.reconnected$.pipe(map(() => () => this.load(() => {}))),
     ).subscribe((run) => run());
     this.staleSub = this.issuesService.onProjectStale.subscribe((projectId) =>
@@ -202,7 +210,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.load(() => (this.loading = false));
   }
   ngOnDestroy(): void {
-    this.clearPoll();
     this.clearTick();
     this.clearReveal();
     this.consoleSub.unsubscribe();
@@ -290,7 +297,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
    * `fresh` (#545) bypasses the engine's `GhIssueCache` for every project's tree
    * fetch, the same way `refreshProject` already does for one project alone — for
    * the refresh button, so it shows the current issue list rather than whatever the
-   * cache already held from the last scheduled poll.
+   * cache already held from the last fetch.
    */
   private load(onDone: () => void, fresh = false): void {
     this.projectsService
@@ -321,7 +328,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
           this.trackCloneProgress();
           onDone();
           this.maybeReveal();
-          this.schedulePollIfNeeded();
           this.refreshConsoleIndicators();
         },
         error: () => {
@@ -367,6 +373,40 @@ export class SidenavComponent implements OnInit, OnDestroy {
         lastSuccessAt: event.lastSuccessAt ?? current.lastSuccessAt,
       },
     };
+  }
+
+  /**
+   * A clone reached READY or FAILED (#721): update that project's status (and, for
+   * READY, its default branch) in place -- no re-fetch needed, and this is what
+   * replaces the 3s cloning poll that used to notice this instead. A project not
+   * loaded here is ignored, the same as `issuesChanged`. `trackCloneProgress` re-runs
+   * so a settled project's elapsed-seconds tracking (#717) drops along with it.
+   */
+  private applyProjectStatusEvent(event: ProjectStatusEvent): void {
+    const index = this.sections.findIndex((s) => s.project.id === event.projectId);
+    if (index === -1) {
+      return;
+    }
+    this.sections[index] = {
+      ...this.sections[index],
+      project: {
+        ...this.sections[index].project,
+        status: event.status,
+        defaultBranch: event.defaultBranch ?? this.sections[index].project.defaultBranch,
+      },
+    };
+    this.trackCloneProgress();
+  }
+
+  /**
+   * A project was deleted (#721, absorbed from #720): drop its section so an
+   * out-of-band deletion (another tab, the API, a cascade-deleted account) clears the
+   * row without waiting on some other reload to notice it is gone. A project not
+   * loaded here is a no-op.
+   */
+  private applyProjectDeletedEvent(event: ProjectDeletedEvent): void {
+    this.sections = this.sections.filter((s) => s.project.id !== event.projectId);
+    this.trackCloneProgress();
   }
 
   /**
@@ -475,22 +515,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   hasAttentionWaiting(projectId: number, issueNumber: number): boolean {
     return this.waitingIssues.has(`${projectId}:${issueNumber}`);
-  }
-
-  /** Re-checks project status while any project is still cloning (#45), until it settles. */
-  private schedulePollIfNeeded(): void {
-    this.clearPoll();
-    const stillCloning = this.sections.some((s) => s.project.status === 'CLONING');
-    if (stillCloning) {
-      this.pollTimer = setTimeout(() => this.load(() => {}), CLONE_POLL_MS);
-    }
-  }
-
-  private clearPoll(): void {
-    if (this.pollTimer !== null) {
-      clearTimeout(this.pollTimer);
-      this.pollTimer = null;
-    }
   }
 
   /**

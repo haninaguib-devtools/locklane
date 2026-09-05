@@ -1,5 +1,6 @@
 package dev.locklane.engine.security;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.IssueWorktreeService;
 import dev.locklane.engine.persistence.ProjectCheckoutService;
 import dev.locklane.engine.persistence.ProjectRecord;
@@ -9,6 +10,7 @@ import dev.locklane.engine.persistence.UserCascadeDeleteService;
 import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.UserRepository;
 import dev.locklane.engine.persistence.WorktreeSessionRepository;
+import dev.locklane.engine.ws.EventBroadcaster;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
@@ -155,7 +157,7 @@ class AdminUserControllerTest {
         ProjectCheckoutService checkoutService = new ProjectCheckoutService(projectRepository,
                 tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
-                TestSqliteDatabases.newGhAccountRepository(tmp));
+                TestSqliteDatabases.newGhAccountRepository(tmp), new EventBroadcaster(new ObjectMapper()));
         UserCascadeDeleteService cascadeDeleteService = new UserCascadeDeleteService(projectRepository, checkoutService);
         return new AdminUserController(userRepository, cascadeDeleteService, new BCryptPasswordEncoder());
     }

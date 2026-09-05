@@ -6,6 +6,7 @@ import { provideRouter, Router } from '@angular/router';
 import { provideServiceWorker } from '@angular/service-worker';
 import { AppComponent } from './app.component';
 import { AuthService } from './services/auth.service';
+import { EventsService } from './services/events.service';
 import { SidenavComponent } from './components/sidenav/sidenav.component';
 import { ProjectSummaryComponent } from './components/project-summary/project-summary.component';
 import { Project } from './models/issue.model';
@@ -757,6 +758,13 @@ describe('AppComponent', () => {
     return fixture;
   }
 
+  /** Reaches past EventsService's public API (#129) -- there is no other way to fake an incoming socket message. */
+  function emitAppEvent(event: unknown): void {
+    (TestBed.inject(EventsService) as unknown as { eventsSubject: { next: (e: unknown) => void } }).eventsSubject.next(
+      event,
+    );
+  }
+
   it('shows the avatar button instead of a flat logout button', fakeAsync(() => {
     const fixture = openedApp();
 
@@ -821,12 +829,11 @@ describe('AppComponent', () => {
     // Row revealed -> the dialog closes.
     expect(fixture.componentInstance.showAddProject).toBeFalse();
 
-    // Settle to READY so no poll, tick, or highlight timer survives.
-    tick(3000);
-    httpMock.expectOne('/api/projects').flush([READY]);
-    httpMock.expectOne('/api/projects/9/issues/tree').flush({ nodes: [], github: GITHUB_OK });
-    httpMock.match('/api/projects/9/consoles').forEach((request) => request.flush([]));
+    // Settle to READY off the projectStatus event (#721), so no tick or highlight timer survives.
+    emitAppEvent({ type: 'projectStatus', projectId: READY.id, status: 'READY', defaultBranch: READY.defaultBranch });
     fixture.detectChanges();
+    tick(3000);
+    httpMock.expectNone('/api/projects');
   }));
 
   it('toggles the account menu from the avatar, showing the username, a separator, Settings, About and Sign out', fakeAsync(() => {

@@ -8,6 +8,7 @@ import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
 import { DefaultAgentStore } from '../../services/default-agent-store';
 import { IssuesService } from '../../services/issues.service';
+import { EventsService } from '../../services/events.service';
 import { LastConsoleStore } from '../../services/last-console-store';
 import { TerminalComponent } from '../terminal/terminal.component';
 import { Project } from '../../models/issue.model';
@@ -82,6 +83,13 @@ describe('ProjectConsoleComponent', () => {
     const req = httpMock.expectOne('/api/projects');
     expect(req.request.method).toBe('GET');
     req.flush(projects);
+  }
+
+  /** Reaches past EventsService's public API (#129) -- there is no other way to fake an incoming socket message. */
+  function emitAppEvent(event: unknown): void {
+    (TestBed.inject(EventsService) as unknown as { eventsSubject: { next: (e: unknown) => void } }).eventsSubject.next(
+      event,
+    );
   }
 
   function row(sessionId: string, lastAttachedAt = '2026-08-27T10:00:00Z', displayName: string | null = null) {
@@ -667,16 +675,14 @@ describe('ProjectConsoleComponent', () => {
       httpMock.expectNone('/api/projects/1/console/sessions');
       httpMock.expectNone('/api/projects/1/console');
 
-      // Still cloning on the next read: keep waiting.
-      tick(3000);
-      flushProjects([project({ ...TEMPLATED, status: 'CLONING' })]);
-      fixture.detectChanges();
+      // Still CLONING with no event yet: keep waiting, with no re-poll (#721).
+      tick(6000);
+      httpMock.expectNone('/api/projects');
       expect(fixture.componentInstance.cloning).toBeTrue();
       httpMock.expectNone('/api/projects/1/console/sessions');
 
-      // READY now: the open-console list is read, then the seeded console is minted.
-      tick(3000);
-      flushProjects([project(TEMPLATED)]);
+      // READY now (#721): the projectStatus event reads the open-console list, then mints the seeded console.
+      emitAppEvent({ type: 'projectStatus', projectId: 1, status: 'READY', defaultBranch: 'main' });
       httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
       fixture.detectChanges();
       const start = httpMock.expectOne('/api/projects/1/console');
@@ -696,12 +702,9 @@ describe('ProjectConsoleComponent', () => {
       const fixture = init(1, [project({ id: 1, status: 'CLONING' })]);
       fixture.detectChanges();
 
-      // Still cloning across two more polls: the wait stays visibly alive.
-      tick(3000);
-      flushProjects([project({ id: 1, status: 'CLONING' })]);
-      fixture.detectChanges();
-      tick(6000);
-      flushProjects([project({ id: 1, status: 'CLONING' })]);
+      // Still CLONING with no event yet: the wait stays visibly alive, with no re-poll (#721).
+      tick(9000);
+      httpMock.expectNone('/api/projects');
       fixture.detectChanges();
 
       const compiled = fixture.nativeElement as HTMLElement;
@@ -711,9 +714,8 @@ describe('ProjectConsoleComponent', () => {
       expect(waiting?.textContent).toContain('cloning repository…');
       expect(waiting?.textContent).toContain('9s');
 
-      // READY settles into the ordinary auto-start, with no timers left behind.
-      tick(3000);
-      flushProjects([project({ id: 1 })]);
+      // READY (#721) settles into the ordinary auto-start, with no timers left behind.
+      emitAppEvent({ type: 'projectStatus', projectId: 1, status: 'READY', defaultBranch: 'main' });
       httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
       fixture.detectChanges();
       httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
@@ -816,17 +818,6 @@ describe('ProjectConsoleComponent', () => {
         .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
       fixture.detectChanges();
       expect(fixture.debugElement.query(By.directive(TerminalComponent)).componentInstance.seed).toBe('template');
-    }));
-
-    it('stops the cloning poll when the page is left', fakeAsync(() => {
-      const fixture = init(1, [project({ ...TEMPLATED, status: 'CLONING' })]);
-      fixture.detectChanges();
-
-      fixture.destroy();
-      tick(3000);
-
-      httpMock.expectNone('/api/projects');
-      // ngOnDestroy still tells the sidenav the issue list may be stale (#140).
     }));
 
     it('falls back to the pre-#537 flow when the project read fails', () => {

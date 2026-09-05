@@ -113,6 +113,44 @@ export function isGithubRefreshStatusEvent(event: AppEvent): event is GithubRefr
   );
 }
 
+/**
+ * A `projectStatus` message (#721): a project's clone reached `READY` or `FAILED` --
+ * broadcast from `ProjectCheckoutService`'s one choke point per transition, so the
+ * sidenav, the project console page, and the overview all learn a clone settled the
+ * moment it does, instead of re-polling every few seconds until it does.
+ * `defaultBranch` is present only for `READY` (#582's per-project trunk).
+ */
+export interface ProjectStatusEvent extends AppEvent {
+  type: 'projectStatus';
+  projectId: number;
+  status: 'READY' | 'FAILED';
+  defaultBranch?: string;
+}
+
+export function isProjectStatusEvent(event: AppEvent): event is ProjectStatusEvent {
+  return (
+    event.type === 'projectStatus' &&
+    typeof event['projectId'] === 'number' &&
+    (event['status'] === 'READY' || event['status'] === 'FAILED') &&
+    (event['defaultBranch'] === undefined || typeof event['defaultBranch'] === 'string')
+  );
+}
+
+/**
+ * A `projectDeleted` message (#721, absorbed from #720): a project was deleted --
+ * broadcast from both `ProjectCheckoutService#delete` and `#forceDelete`, so a project
+ * removed out of band (another tab, the API, a cascade-deleted account) drops out of
+ * every open surface without waiting on some other reload to notice it is gone.
+ */
+export interface ProjectDeletedEvent extends AppEvent {
+  type: 'projectDeleted';
+  projectId: number;
+}
+
+export function isProjectDeletedEvent(event: AppEvent): event is ProjectDeletedEvent {
+  return event.type === 'projectDeleted' && typeof event['projectId'] === 'number';
+}
+
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 
