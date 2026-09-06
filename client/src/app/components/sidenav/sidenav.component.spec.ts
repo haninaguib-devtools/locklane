@@ -421,14 +421,22 @@ describe('SidenavComponent', () => {
     flushConsoles();
   });
 
-  it('refresh() is a no-op while a refresh is already in flight', () => {
+  it('refresh() coalesces a call that arrives while one is already in flight (#738)', () => {
     const fixture = init();
     flushTree(1, tree());
 
     fixture.componentInstance.refresh();
     fixture.componentInstance.refresh();
 
-    // Only one in-flight request pair: the second refresh() call was a no-op.
+    // Only one in-flight request pair while the first settles: the second refresh()
+    // call is queued rather than firing its own request right away.
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    flushTree(1, tree(), true);
+    expect(fixture.componentInstance.refreshing).toBeTrue();
+
+    // The queued call now runs for real, rather than being dropped -- a refresh
+    // requested during the first one may need to see state the first started too
+    // early to reflect (#738).
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
     flushTree(1, tree(), true);
     expect(fixture.componentInstance.refreshing).toBeFalse();
@@ -649,6 +657,30 @@ describe('SidenavComponent', () => {
     httpMock.expectNone('/api/projects');
     fixture.destroy();
   }));
+
+  it('revealProject during an already in-flight refresh is not lost once that refresh settles without the new row (#738)', () => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+
+    // Some other refresh (e.g. retryProject, or another reveal) is already in flight
+    // when the new project's create request finishes.
+    fixture.componentInstance.refresh();
+    fixture.componentInstance.revealProject(2);
+
+    // The reveal's own refresh() call is coalesced onto the one already running,
+    // rather than firing a second /api/projects request immediately.
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    flushTree(1, tree(), true);
+
+    // That in-flight refresh started before the project existed, so it can't have
+    // revealed it -- but the coalesced refresh it queued now fires for real.
+    expect(fixture.componentInstance.revealedProjectId).toBeNull();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree(), true);
+    flushTree(2, tree(), true);
+
+    expect(fixture.componentInstance.revealedProjectId).toBe(2);
+  });
 
   it('retryProject calls the retry endpoint and refreshes', () => {
     const fixture = init();
