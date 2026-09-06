@@ -466,8 +466,11 @@ describe('SidenavComponent', () => {
 
     expect(fixture.componentInstance.projectSections[0].project.status).toBe('READY');
     expect(fixture.componentInstance.projectSections[0].project.defaultBranch).toBe('main');
+    // A newly READY row fetches its real tree once (#729) -- one fetch, no poll.
+    flushTree(1, tree());
     tick(3000);
     httpMock.expectNone('/api/projects');
+    httpMock.expectNone('/api/projects/1/issues/tree');
 
     fixture.destroy();
   }));
@@ -482,13 +485,70 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.projectSections[0].project.status).toBe('FAILED');
   });
 
-  it('a projectStatus event for a project not currently loaded is ignored (#721)', () => {
+  it('a projectStatus event for a project not currently loaded leaves the loaded rows alone (#721)', () => {
     const fixture = init([PROJECT_A]);
     flushTree(1, tree());
 
     emitAppEvent({ type: 'projectStatus', projectId: 999, status: 'READY', defaultBranch: 'main' });
 
     expect(fixture.componentInstance.projectSections[0].project.status).toBe('READY');
+    httpMock.expectNone('/api/projects/999/issues/tree');
+  });
+
+  it('a projectStatus event that lands while the reveal reload is still in flight settles the row once the reload lands (#729)', () => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+
+    // Import: the new project is revealed via a fresh reload. The list answers
+    // CLONING, but the trees are still pending when the engine settles the clone.
+    const cloning: Project = { ...PROJECT_B, status: 'CLONING' };
+    fixture.componentInstance.revealProject(2);
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, cloning]);
+    emitAppEvent({ type: 'projectStatus', projectId: 2, status: 'READY', defaultBranch: 'develop' });
+    flushTree(1, tree(), true);
+    httpMock.expectOne('/api/projects/2/issues/tree?fresh=true').flush({ nodes: [], github: GITHUB_OK });
+    flushConsoles();
+
+    const section = fixture.componentInstance.projectSections[1];
+    expect(section.project.id).toBe(2);
+    expect(section.project.status).toBe('READY');
+    expect(section.project.defaultBranch).toBe('develop');
+
+    // The newly READY row loads its real tree instead of sitting empty, without re-polling.
+    httpMock.expectNone('/api/projects');
+    flushTree(2, tree());
+    expect(fixture.componentInstance.projectSections[1].tree.length).toBe(2);
+  });
+
+  it('a projectStatus event that lands before the reveal reload even lists the project is not lost (#729)', () => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+
+    const cloning: Project = { ...PROJECT_B, status: 'CLONING' };
+    fixture.componentInstance.revealProject(2);
+    emitAppEvent({ type: 'projectStatus', projectId: 2, status: 'FAILED' });
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, cloning]);
+    flushTree(1, tree(), true);
+    flushTree(2, [], true);
+
+    expect(fixture.componentInstance.projectSections[1].project.status).toBe('FAILED');
+    httpMock.expectNone('/api/projects/2/issues/tree');
+  });
+
+  it('a held projectStatus event is dropped once its project is deleted (#729)', () => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'projectStatus', projectId: 2, status: 'READY', defaultBranch: 'main' });
+    emitAppEvent({ type: 'projectDeleted', projectId: 2 });
+    const cloning: Project = { ...PROJECT_B, status: 'CLONING' };
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, cloning]);
+    flushTree(1, tree(), true);
+    flushTree(2, [], true);
+
+    expect(fixture.componentInstance.projectSections[1].project.status).toBe('CLONING');
+    httpMock.expectNone('/api/projects/2/issues/tree');
   });
 
   it('a projectDeleted event drops that project\'s section without a manual refresh (#721, absorbed from #720)', () => {
@@ -527,6 +587,7 @@ describe('SidenavComponent', () => {
 
     // Settles to READY on the projectStatus event (#721), leaving no tick timer behind.
     emitAppEvent({ type: 'projectStatus', projectId: 1, status: 'READY', defaultBranch: 'main' });
+    flushTree(1, tree());
     fixture.detectChanges();
     expect(compiled.querySelector('.cloning-state')).toBeFalsy();
 
@@ -566,6 +627,7 @@ describe('SidenavComponent', () => {
 
     // Settling to READY (#721) updates in place, stopping every timer.
     emitAppEvent({ type: 'projectStatus', projectId: 2, status: 'READY', defaultBranch: 'main' });
+    flushTree(2, tree());
     fixture.detectChanges();
 
     fixture.destroy();

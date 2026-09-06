@@ -831,6 +831,9 @@ describe('AppComponent', () => {
 
     // Settle to READY off the projectStatus event (#721), so no tick or highlight timer survives.
     emitAppEvent({ type: 'projectStatus', projectId: READY.id, status: 'READY', defaultBranch: READY.defaultBranch });
+    // The newly READY row fetches its real tree once (#729).
+    httpMock.expectOne('/api/projects/9/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+    httpMock.match('/api/projects/9/consoles').forEach((request) => request.flush([]));
     fixture.detectChanges();
     tick(3000);
     httpMock.expectNone('/api/projects');
