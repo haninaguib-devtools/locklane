@@ -8,6 +8,15 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.16 — 2026-09-05
+
+### Features
+- Publish clone-status events instead of polling for them (#721, #722)
+- Show progress while a project is being imported or created (#717, #718)
+
+### Other
+- Update template to v0.0.15 (#723, #724)
+
 ## v0.2.15 — 2026-09-05
 
 ### Fixes
