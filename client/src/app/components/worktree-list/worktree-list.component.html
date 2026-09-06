@@ -62,3 +62,50 @@
     </table>
   }
 </section>
+
+<section class="shells">
+  <div class="header">
+    <h2>shells</h2>
+  </div>
+
+  @if (shellsLoading) {
+    <div class="state">loading…</div>
+  } @else if (shellsLoadError) {
+    <div class="state">could not load the shell list</div>
+  } @else if (shells.length === 0) {
+    <div class="state">no open shells for this project</div>
+  } @else {
+    <table>
+      <thead>
+        <tr>
+          <th>shell</th>
+          <th>path</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (shell of shells; track shell.sessionId) {
+          <tr>
+            <td>
+              <button type="button" class="shell-link" (click)="openShell(shell)">{{ shellLabel(shell) }}</button>
+            </td>
+            <td class="mono path">{{ shell.workingDirectory }}</td>
+            <td class="actions">
+              <button
+                type="button"
+                class="remove-button"
+                [disabled]="closingShellId === shell.sessionId"
+                (click)="closeShell(shell)"
+              >
+                {{ closingShellId === shell.sessionId ? 'closing…' : 'close' }}
+              </button>
+              @if (closeShellErrors.get(shell.sessionId); as message) {
+                <div class="row-error">{{ message }}</div>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</section>

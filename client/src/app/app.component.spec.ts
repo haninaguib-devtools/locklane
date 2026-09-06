@@ -166,12 +166,14 @@ describe('AppComponent', () => {
   }
 
   /**
-   * The project summary's worktree list (#320) fetches this project's worktrees once
-   * it learns the project is READY -- the same gate as {@link flushProjectConsoleSessions},
-   * so every caller of that flushes this immediately afterward too.
+   * The project summary's worktree list (#320) fetches this project's worktrees, and
+   * its own open shells (#733), once it learns the project is READY -- the same gate
+   * as {@link flushProjectConsoleSessions}, so every caller of that flushes this
+   * immediately afterward too.
    */
   function flushProjectWorktrees(): void {
     httpMock.expectOne('/api/projects/1/worktrees').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
   }
 
   function flushIssue(number: number): void {
