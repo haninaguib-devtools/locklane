@@ -2,15 +2,21 @@
 
 **Status:** binding convention.
 
-Seven places across the pipeline's own files are per-repo **by design**, not
-template-owned: `CONSTITUTION.md` §4 (stack & architecture), `AGENTS.md` §Checks item 1
-(the build/test check command), `AGENTS.md` §The pipeline's slot after the `t-*` table
-(consumer-local skill rows), two spots in `.github/workflows/ci.yml`'s `checks`
-job — its `timeout-minutes` value, and an extension point at the end of its `steps:`
-list — `.github/workflows/review-gate.yml`'s `cold-review` job `timeout-minutes` value,
-and the end of `.gitignore` (a consumer's own ignore entries). Everything else in
-these files is template content, meant to move the same way for every consumer. This
-document fixes the vocabulary and boundary `/t-update`
+Eight places across the pipeline's own files are per-repo **by design**, not
+template-owned: `CONSTITUTION.md` §4 (stack & architecture), `CONSTITUTION.md` §3's own
+protected-path bullet list (a consumer's own protected-path bullets), `AGENTS.md`
+§Checks item 1 (the build/test check command), `AGENTS.md` §The pipeline's slot after
+the `t-*` table (consumer-local skill rows), two spots in `.github/workflows/ci.yml`'s
+`checks` job — its `timeout-minutes` value, and an extension point at the end of its
+`steps:` list — `.github/workflows/review-gate.yml`'s `cold-review` job
+`timeout-minutes` value, and the end of `.gitignore` (a consumer's own ignore entries).
+`CONSTITUTION.md` §3's slot has an executable twin of its own, inside
+`.t-workflow/scripts/protected-paths.sh`'s `patterns` array — the two slots are one rule
+in two forms, the same way the fixed lists around them are (`CONSTITUTION.md` §3), and
+`consistency-check.sh`'s existing symmetry check (§3 ↔ `protected-paths.sh`, both
+directions) already walks both slots along with the fixed bullets/patterns around them.
+Everything else in these files is template content, meant to move the same way for
+every consumer. This document fixes the vocabulary and boundary `/t-update`
 (`.claude/skills/t-update/SKILL.md`, `docs/architecture/manifest.md`) honors when it
 replaces template content without touching what a consumer wrote for itself.
 
@@ -24,25 +30,29 @@ forward unchanged. A file may carry more than one marked region; each is indepen
 
 **In a comment-syntax file, the marker itself is a line comment.** A bare
 `<!-- local -->` line is valid Markdown (used as-is in `CONSTITUTION.md` and
-`AGENTS.md`) but not valid YAML — `ci.yml`'s markers are written `# <!-- local -->`
-and `# <!-- /local -->`, at whatever indentation the surrounding YAML wants, so the
-file parses the same with or without a consumer's own content inside the slot.
+`AGENTS.md`) but not valid YAML, and not valid bash either (the leading `<` reads as a
+redirection operator) — `ci.yml`'s markers are written `# <!-- local -->` and
+`# <!-- /local -->`, at whatever indentation the surrounding YAML wants, and
+`protected-paths.sh`'s pattern-array slot uses the same `#`-prefixed form, so each file
+parses the same with or without a consumer's own content inside its slot.
 `.t-workflow/scripts/check-manifest.sh`'s marker match tolerates leading whitespace and
 an optional `#` for exactly this reason — a bare marker and a commented, indented one
 strip the same way.
 
 This repo, being itself at Phase 0, keeps the neutral placeholder inside every marker
 today: `(reserved: stack and architecture constraints — …)` in `CONSTITUTION.md` §4,
-`(none yet — no stack exists.)` in `AGENTS.md` §Checks item 1, `(reserved: consumer-local
+`(reserved: this consumer's own protected-path bullets — …)` in `CONSTITUTION.md` §3, an
+empty region (comments only) in `protected-paths.sh`'s `patterns` array, `(none yet — no
+stack exists.)` in `AGENTS.md` §Checks item 1, `(reserved: consumer-local
 skills — …)` in `AGENTS.md` §The pipeline's skill-row slot, the template's own default
 `timeout-minutes: 10` in `ci.yml`, an empty region at the end of `ci.yml`'s `steps:`
 list, the template's own default `timeout-minutes: 10` in `review-gate.yml`, and an
 empty region at the end of `.gitignore`. A consumer repo replaces each
 placeholder with its own real content once it adopts — its own stack rule, its own
-build/test command, its own table of local skill rows, its own CI timeout, its own
-trailing build/manifest-check steps (`docs/architecture/manifest.md` §The CI lock), its
-own review-gate timeout, its own ignore entries — and a later template sync leaves that
-content alone.
+protected-path bullets and patterns, its own build/test command, its own table of local
+skill rows, its own CI timeout, its own trailing build/manifest-check steps
+(`docs/architecture/manifest.md` §The CI lock), its own review-gate timeout, its own
+ignore entries — and a later template sync leaves that content alone.
 
 **The skill-row slot's own shape**: unlike the other slots, this one is meant to hold a
 small Markdown *table*, not prose — the consumer's own `l-`-prefixed (or otherwise

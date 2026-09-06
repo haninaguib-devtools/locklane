@@ -78,6 +78,13 @@ where they disagree, that is a defect to fix, not a judgment call to make.
   that file carries binding content)
 - `LICENSE` (the terms everything else in the repository is offered under)
 
+<!-- local -->
+*(reserved: this consumer's own protected-path bullets — one list item per path, each
+with its executable twin added to `.t-workflow/scripts/protected-paths.sh`'s own local
+slot; the "one rule in two forms" sentence above holds here too, checked by
+`consistency-check.sh`.)*
+<!-- /local -->
+
 *(reserved: application surfaces — data-privacy paths, contracts, migrations, grants,
 audit — to be added when the application exists.)*
 
