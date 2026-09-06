@@ -72,6 +72,20 @@ customizes are inside markers — every gate step, and the explanatory comments 
 them, is pipeline machinery every consumer shares and stays outside, so a sync always
 brings consumers current on it.
 
+**The generic-pointer idiom, as the alternative to a new slot**: several template-owned
+files used to name §3's protected surfaces by a fixed, hardcoded list — `AGENTS.md`'s
+promotion-destination sentence, `docs/workflow.md` §2's "What lives where", `t-plan`
+step 2, `t-review` step 5 — so a consumer's own addition to §3 had no marked slot to
+land in across any of them, and editing them by hand outside a slot was exactly the
+unmarked drift `check-manifest.sh` flags. The fix generalized each to a citation of
+`CONSTITUTION.md` §3 (and `protected-paths.sh --list` where a runnable form helps)
+instead of naming surfaces inline — the same idiom `t-work`, `t-status`, `t-ship`, and
+`t-drive` already use for the protected-path check itself, never reading §3 "by eye."
+Reach for this idiom, not a new slot, whenever a fixed list elsewhere in the template
+would otherwise need one more per-consumer addition: a slot is for a consumer's own
+content, but a list of *where §3's own slot already lives* needs no second slot of its
+own.
+
 ## The required-checks file
 
 One per-repo customization is a **separate consumer-owned file** rather than a marked

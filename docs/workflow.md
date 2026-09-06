@@ -18,7 +18,9 @@ ADRs cite them.
 ## 2. What lives where
 
 Knowledge lives in the repository, in every clone: `CONSTITUTION.md`, `AGENTS.md`, `docs/adr/`,
-`docs/architecture/`, `docs/tasks/`, `.claude/skills/`, `.github/`. Process lives in
+`docs/architecture/`, `docs/tasks/`, `.claude/skills/`, `.github/`, and any other
+protected surface `CONSTITUTION.md` §3 names — a consumer's own addition to that list
+lives here too, without needing a mention of its own. Process lives in
 the tracker and the forge — issues, PRs, reviews, CI runs — which is reconstructable, not
 load-bearing. The skills reach both only through named operations that
 `docs/adapters/TRACKER.md` and `docs/adapters/FORGE.md` map to the active backend

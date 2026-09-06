@@ -116,8 +116,8 @@ table below.
   `[<id>] <title> (#<pr>)` — the bracketed issue number ties every commit in
   `git log --oneline` back to its tracker issue.
 - Decisions live in `docs/adr/` (one file per decision, via PR). Anything durable settled
-  in a PR thread is promoted into the record, an ADR, or `docs/architecture/` before
-  merge.
+  in a PR thread is promoted into the record, an ADR, or any other protected surface
+  `CONSTITUTION.md` §3 names, before merge.
 - Out-of-scope work discovered mid-task is never a drive-by change: report it and
   propose an issue, which the human opens or asks you to open (see the tracker rule
   above). Exception (ADR-001): a pure typo or formatting fix in a file already inside the
