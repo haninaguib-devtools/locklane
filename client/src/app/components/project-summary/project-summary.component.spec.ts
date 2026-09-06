@@ -76,8 +76,9 @@ describe('ProjectSummaryComponent', () => {
    * Creates the component for a project id and flushes its requests: the project
    * list and issue tree always, the installed-agents list (#695: `ngOnInit` fetches
    * it so "Open console" launches with the right fallback default), plus the
-   * open-consoles list and the worktree list (#320) whenever the target project is
-   * READY (#221) -- a cloning or failed project never fetches either.
+   * open-consoles list and the worktree list (#320), which also fetches every open
+   * shell (#733), whenever the target project is READY (#221) -- a cloning or failed
+   * project never fetches any of these.
    */
   function init(
     projects: Project[] = [PROJECT],
@@ -99,6 +100,7 @@ describe('ProjectSummaryComponent', () => {
     fixture.detectChanges();
     if (ready) {
       httpMock.expectOne(`/api/projects/${projectId}/worktrees`).flush([]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
     }
     return fixture;
@@ -156,6 +158,7 @@ describe('ProjectSummaryComponent', () => {
       .flush('boom', { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/worktrees').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.error).toBe(false);
@@ -186,6 +189,9 @@ describe('ProjectSummaryComponent', () => {
     expect(req.request.method).toBe('POST');
     req.flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
     fixture.detectChanges();
+    // Starting a console notifies ConsolesService.onOpened (below), which the
+    // worktree list's shell listing also reacts to (#733) to stay live.
+    httpMock.expectOne('/api/shells').flush([]);
 
     expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
       queryParams: { session: 'proj-1-console-abc' },
@@ -203,6 +209,7 @@ describe('ProjectSummaryComponent', () => {
     httpMock
       .expectOne('/api/projects/1/console')
       .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
+    httpMock.expectOne('/api/shells').flush([]);
 
     expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('codex');
   });
@@ -266,6 +273,7 @@ describe('ProjectSummaryComponent', () => {
     httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/2/worktrees').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.project?.name).toBe('proj-b');
