@@ -173,6 +173,13 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // GhIssueCache for that one project's re-fetch, rather than waiting on the
   // engine's own 30s poll to notice an issue the agent may have just opened.
   private readonly staleSub: Subscription;
+  // Clone-settled events (#721) that arrived for a project not loaded yet (#729):
+  // an import reveals its new row via a full reload, and the engine's clone can
+  // settle while that reload is still in flight -- the list already answered with
+  // CLONING, the row does not exist here yet, so the event would be lost and the
+  // row stuck on cloning until the next full reload. Held here until the reload
+  // lands, then applied to the row it was meant for.
+  private readonly pendingStatus = new Map<number, ProjectStatusEvent>();
 
   constructor() {
     this.consoleSub = merge(this.consolesService.onOpened, this.consolesService.onClosed).subscribe(() =>
@@ -326,6 +333,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
           this.sections = sections;
           this.error = false;
           this.trackCloneProgress();
+          this.applyPendingStatusEvents();
           onDone();
           this.maybeReveal();
           this.refreshConsoleIndicators();
@@ -385,8 +393,14 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private applyProjectStatusEvent(event: ProjectStatusEvent): void {
     const index = this.sections.findIndex((s) => s.project.id === event.projectId);
     if (index === -1) {
+      // Not loaded yet -- most likely a reload is in flight that will carry this
+      // project (#729). Keep the event so that reload can apply it; a project that
+      // never shows up again is dropped by its own projectDeleted event.
+      this.pendingStatus.set(event.projectId, event);
       return;
     }
+    this.pendingStatus.delete(event.projectId);
+    const previous = this.sections[index].project.status;
     this.sections[index] = {
       ...this.sections[index],
       project: {
@@ -396,6 +410,24 @@ export class SidenavComponent implements OnInit, OnDestroy {
       },
     };
     this.trackCloneProgress();
+    if (event.status === 'READY' && previous !== 'READY') {
+      // The tree fetched while the project was still cloning is empty; fetch the
+      // real one now so a newly READY row does not sit empty (#729).
+      this.refreshProject(event.projectId);
+    }
+  }
+
+  /**
+   * Applies every clone-settled event held while its project was not loaded (#729),
+   * once a reload has landed. Events for projects the reload still does not carry
+   * stay held for the next one; a later projectDeleted event drops them for good.
+   */
+  private applyPendingStatusEvents(): void {
+    for (const event of Array.from(this.pendingStatus.values())) {
+      if (this.sections.some((s) => s.project.id === event.projectId)) {
+        this.applyProjectStatusEvent(event);
+      }
+    }
   }
 
   /**
@@ -405,6 +437,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
    * loaded here is a no-op.
    */
   private applyProjectDeletedEvent(event: ProjectDeletedEvent): void {
+    this.pendingStatus.delete(event.projectId);
     this.sections = this.sections.filter((s) => s.project.id !== event.projectId);
     this.trackCloneProgress();
   }
