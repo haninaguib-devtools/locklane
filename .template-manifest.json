@@ -1,14 +1,14 @@
 {
   "template": "haninaguib-devtools/t-workflow",
-  "tag": "v0.0.16",
+  "tag": "v0.0.17",
   "migrations_applied": 3,
   "files": {
     ".agents/skills": "symlink:../.claude/skills",
     ".claude/skills/t-cancel/SKILL.md": "35f28003fd170032ae8e83d7ec1508fe008dcf4d8bff8ecd78f632be2ccb8029",
     ".claude/skills/t-drive/SKILL.md": "f9be1834bc0f4ecd297e6e6d8e843a41ca5af793a18dfffc8f404349c839c14f",
     ".claude/skills/t-open/SKILL.md": "7b2390de2962a9d190b35fc30c5981d3d78e203bff0f63ebc3bdf322c5eba01d",
-    ".claude/skills/t-plan/SKILL.md": "982febf361d2efef3afebab3ff3838a91b9f1cf158e801631cdb8fa03de797d1",
-    ".claude/skills/t-review/SKILL.md": "03d43f1a6423c744e2f698345fdfb8469f4bd1ebe376e02a03b6ace9e7df7422",
+    ".claude/skills/t-plan/SKILL.md": "649bece58ea722ea976d9133896b4d6def327c2728fb3ccc81ebaecdeb7fa871",
+    ".claude/skills/t-review/SKILL.md": "bc143a71767dbb31361e026a39794bc9b52d7e68f87e28a739021834c1286177",
     ".claude/skills/t-ship/SKILL.md": "22bbb2993cab631ce5094de98ab0e74d74c55ec6917bf1f512f075307660ad08",
     ".claude/skills/t-status/SKILL.md": "5b88f4bce855ca0d68b73a11bffa525aa90dadd4451ab1c62b11f69353d824ac",
     ".claude/skills/t-update/SKILL.md": "d68bd5cdbc6fcf3ea3f47ec653bc6ba6eba2b20ffddbe4f0d5a1cadfe51d7469",
@@ -35,7 +35,7 @@
     ".t-workflow/scripts/status-snapshot.sh": "06ee1c42d37e241e258995db394db0af58761e9161266f180d08722af6aa3524",
     ".t-workflow/scripts/template-owned-paths.sh": "1af7771cca924b858d0fc5b8a10295f7b0b2e0dbaaf266b20b5a563d129d904f",
     ".t-workflow/scripts/trunk-ref.sh": "cb480385793445dc52f879746bffa975f7ba353b465222c360702f655fcabe29",
-    "AGENTS.md": "b89a76496a179975e6e0c6fa5d18b575d03a3a0e3a9528d9dc026b6144678e83",
+    "AGENTS.md": "47c3132756d4a01206c509b8093a72893b96a696e98e6f2426865b86f0b49258",
     "CLAUDE.md": "symlink:AGENTS.md",
     "CONSTITUTION.md": "5b78a94ba6cfd5e3a1658213f72bfcd2d3db5b1b7dbcc50eda06ffeec04edeac",
     "GEMINI.md": "symlink:AGENTS.md",
@@ -53,11 +53,11 @@
     "docs/adr/009-driven-sibling-blockers-satisfied-by-integration-merge.md": "6d6b84d69700321776d12708661743e33ee806419c6f80179d0af0aaab4f4059",
     "docs/architecture/confirmation-gates.md": "98d666e2e4794b0275b5f285e23faba16577d9d6bb0b60da3e501106baf0648a",
     "docs/architecture/issue-templates.md": "f3ba11c4d2b47402171c8eeb0d98398a545b9baf6b81ff2163a930cb8dc9bf9b",
-    "docs/architecture/local-slots.md": "809ff1ef02f2b5467b4110138159ef78a8d680a925e055c509fe7cffd33acdc3",
+    "docs/architecture/local-slots.md": "01b02c8cde72828e6793d07e293cfb7037199a0c7d7131706d6de7f314c8e2da",
     "docs/architecture/manifest.md": "59e5bf3a61660d891266fc059b1774b3a855c8ca95d280c863e5bace5607d557",
     "docs/architecture/migrations.md": "5e826e52803ea9faab04cb4f92fe6edde42687c45abd0acb778c64a485559b41",
     "docs/tasks/README.md": "3a2b284f76b79da495a3967c1dec1104a3cec04b614cc1146eab3ca31d1c91c9",
     "docs/tasks/TEMPLATE.md": "e917e365524068d132659086696fdbea740d16a4ff313af8049508971c645958",
-    "docs/workflow.md": "6546ba81c34f2c2a876bbdb3d5ab31efe9a6e9d5e2c338ee704163f232ecde7a"
+    "docs/workflow.md": "0b420e41f15ff5e0f692d3938d0b80b72a30566639d292a0cf8ba80401b8ad25"
   }
 }

@@ -69,7 +69,8 @@ holding only the id, so this matters more here than anywhere else.
    (behavior, content, or tests gone without the issue authorizing it); **promotion**
    (anything durable settled in the PR thread is in the record, an ADR, or the docs —
    threads are not storage).
-5. For a **document deliverable** (design doc, ADR), additionally review for
+5. For a **document deliverable** (design doc, ADR, or any other document-shaped
+   protected surface `CONSTITUTION.md` §3 names), additionally review for
    **consistency** (no contradiction with the constitution, accepted ADRs, or other
    architecture docs), **ambiguity** (could two reasonable implementers read it
    differently?), **completeness** (are the known hard cases addressed?). Do **not**
