@@ -117,6 +117,12 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private sections: Section[] = [];
   loading = true;
   refreshing = false;
+  // A `refresh()` came in while one was already in flight (#738) -- queued rather than
+  // dropped, since the in-flight one may have been sent before whatever prompted this
+  // one (most commonly a just-created project's `revealProject`), so its response
+  // can't possibly reflect it. Run once, right after the in-flight one settles, so a
+  // reveal is never left waiting on a load that started too early to ever find its row.
+  private refreshQueued = false;
   error = false;
 
   // Neither persists across reloads, matching the old app (#22's Goal).
@@ -226,10 +232,20 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   refresh(): void {
     if (this.refreshing) {
+      this.refreshQueued = true;
       return;
     }
     this.refreshing = true;
-    this.load(() => (this.refreshing = false), true);
+    this.load(() => this.finishRefresh(), true);
+  }
+
+  /** Runs a queued refresh, if one arrived while this one was in flight (#738). */
+  private finishRefresh(): void {
+    this.refreshing = false;
+    if (this.refreshQueued) {
+      this.refreshQueued = false;
+      this.refresh();
+    }
   }
 
   // The header's one-click "+" (#180): asks the project console page for a brand-new
@@ -341,7 +357,13 @@ export class SidenavComponent implements OnInit, OnDestroy {
         error: () => {
           this.error = true;
           onDone();
-          this.dropPendingReveal();
+          // `onDone` (`finishRefresh`, for a refresh-triggered load) may have just
+          // started a fresh attempt for a queued refresh (#738) -- `refreshing` is
+          // true again in that case, and the pending reveal stays for it rather than
+          // being dropped here.
+          if (!this.refreshing) {
+            this.dropPendingReveal();
+          }
         },
       });
   }
