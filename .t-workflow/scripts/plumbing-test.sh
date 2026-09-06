@@ -537,5 +537,92 @@ expect_rc "--asserted with an unreadable observed file fails" 2 "$rc" --asserted
 expect_rc "the consumer file is not a protected path"      1 .t-workflow/scripts/protected-paths.sh .t-workflow/required-checks.local
 echo
 
+# --- 15. consistency-check.sh: protected-path local-slot symmetry (issue #134) ------------
+# CONSTITUTION.md §3 and protected-paths.sh's patterns array now each carry a
+# `<!-- local -->` slot for a consumer's own protected-path bullets/patterns
+# (docs/architecture/local-slots.md). Check 9's existing "both ways" symmetry between
+# §3 and protected-paths.sh is generic — it scans the whole §3 bullet list and the
+# whole `--list` output, markers included — so it should need no code change to also
+# catch a consumer addition inside the new slot. This proves that, the same way #11
+# above proves the local-skill-row slot's own symmetry check.
+echo "consistency-check.sh (protected-path local-slot symmetry)"
+
+insert_protected_bullet() {
+  # $1 = CONSTITUTION.md path, $2 = bullet line to insert into §3's own local slot
+  awk -v row="$2" '
+    /^## 3\. Protected surfaces/ { insec=1 }
+    /^## 4\./ { insec=0 }
+    { print }
+    insec && /^<!-- local -->$/ && !inserted { print row; inserted=1 }
+  ' "$1" > "$1.new" && mv "$1.new" "$1"
+}
+
+insert_protected_pattern() {
+  # $1 = protected-paths.sh path, $2 = pattern line to insert into its own local slot
+  awk -v row="$2" '
+    { print }
+    /^  # <!-- local -->$/ && !inserted { print row; inserted=1 }
+  ' "$1" > "$1.new" && mv "$1.new" "$1"
+}
+
+bullet="- \`db/migrations/\` (a consumer's own migration files)"
+pattern="  'db/migrations/*'"
+
+fixture_sym_ok="$work/fixture-sym-ok"
+make_fixture_repo "$fixture_sym_ok"
+insert_protected_bullet "$fixture_sym_ok/CONSTITUTION.md" "$bullet"
+insert_protected_pattern "$fixture_sym_ok/.t-workflow/scripts/protected-paths.sh" "$pattern"
+expect_rc "a slot bullet with a matching slot pattern: passes" \
+  0 .t-workflow/scripts/consistency-check.sh "$fixture_sym_ok"
+
+fixture_sym_bulletonly="$work/fixture-sym-bulletonly"
+make_fixture_repo "$fixture_sym_bulletonly"
+insert_protected_bullet "$fixture_sym_bulletonly/CONSTITUTION.md" "$bullet"
+out=$(.t-workflow/scripts/consistency-check.sh "$fixture_sym_bulletonly" 2>&1)
+rc=$?
+if [ "$rc" -ne 0 ]; then ok "a slot bullet with no matching pattern: fails (rc=$rc)"
+else bad "a slot bullet with no matching pattern: fails (rc=$rc)"; fi
+case "$out" in
+  *"protected-paths.sh does not protect it"*"db/migrations/"*) ok "the failure names the unenforced bullet" ;;
+  *) bad "the failure names the unenforced bullet (got: $out)" ;;
+esac
+
+fixture_sym_patternonly="$work/fixture-sym-patternonly"
+make_fixture_repo "$fixture_sym_patternonly"
+insert_protected_pattern "$fixture_sym_patternonly/.t-workflow/scripts/protected-paths.sh" "$pattern"
+out=$(.t-workflow/scripts/consistency-check.sh "$fixture_sym_patternonly" 2>&1)
+rc=$?
+if [ "$rc" -ne 0 ]; then ok "a slot pattern with no matching bullet: fails (rc=$rc)"
+else bad "a slot pattern with no matching bullet: fails (rc=$rc)"; fi
+case "$out" in
+  *"CONSTITUTION.md §3 never names"*"db/migrations/"*) ok "the failure names the unlisted pattern" ;;
+  *) bad "the failure names the unlisted pattern (got: $out)" ;;
+esac
+echo
+
+# --- 16. check-manifest.sh: the real §3/protected-paths.sh slots round-trip --------------
+# The generic marker-stripping in #8 above is format-agnostic by construction; this
+# confirms it holds for these two real, live files specifically — a consumer's filled
+# slot must hash identically to the template's own empty one, or every sync reports
+# drift that was never really there.
+echo "check-manifest.sh (real CONSTITUTION.md / protected-paths.sh slots)"
+
+filled_constitution="$work/CONSTITUTION-filled.md"
+cp CONSTITUTION.md "$filled_constitution"
+insert_protected_bullet "$filled_constitution" "$bullet"
+h_empty=$(.t-workflow/scripts/check-manifest.sh --hash-file CONSTITUTION.md)
+h_filled=$(.t-workflow/scripts/check-manifest.sh --hash-file "$filled_constitution")
+if [ "$h_empty" = "$h_filled" ]; then ok "CONSTITUTION.md: a filled §3 slot hashes the same as the empty one"
+else bad "CONSTITUTION.md: a filled §3 slot hashes the same as the empty one (got $h_filled != $h_empty)"; fi
+
+filled_pp="$work/protected-paths-filled.sh"
+cp .t-workflow/scripts/protected-paths.sh "$filled_pp"
+insert_protected_pattern "$filled_pp" "$pattern"
+h_empty=$(.t-workflow/scripts/check-manifest.sh --hash-file .t-workflow/scripts/protected-paths.sh)
+h_filled=$(.t-workflow/scripts/check-manifest.sh --hash-file "$filled_pp")
+if [ "$h_empty" = "$h_filled" ]; then ok "protected-paths.sh: a filled patterns slot hashes the same as the empty one"
+else bad "protected-paths.sh: a filled patterns slot hashes the same as the empty one (got $h_filled != $h_empty)"; fi
+echo
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

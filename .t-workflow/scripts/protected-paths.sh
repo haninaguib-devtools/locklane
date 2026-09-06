@@ -59,6 +59,10 @@ patterns=(
   '.gitignore'
   'README.md'
   'LICENSE'
+  # <!-- local -->
+  # (reserved: this consumer's own protected-path patterns — one per line, each with its
+  # bullet added to CONSTITUTION.md §3's own local slot.)
+  # <!-- /local -->
 )
 
 if [ "${1:-}" = "--list" ]; then
