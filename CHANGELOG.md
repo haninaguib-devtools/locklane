@@ -8,6 +8,18 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.17 — 2026-09-06
+
+### Features
+- List a project's open shell sessions on its project page (#733, #734)
+
+### Fixes
+- Fix sidenav stuck on cloning after import settles (#729, #730)
+
+### Other
+- Update template to v0.0.17 (#731, #732)
+- Update template to v0.0.16 (#727, #728)
+
 ## v0.2.16 — 2026-09-05
 
 ### Features
