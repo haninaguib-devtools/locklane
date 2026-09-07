@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
 import { ProjectSummaryComponent, countIssues } from './project-summary.component';
-import { Project, TreeNode } from '../../models/issue.model';
+import { Project, ResumeSession, TreeNode } from '../../models/issue.model';
 import { OpenProjectConsole } from '../../services/project-console.service';
 import { OpenShell } from '../../services/shells.service';
 import { AgentStore } from '../../services/agent-store';
@@ -49,6 +49,18 @@ describe('ProjectSummaryComponent', () => {
     return { sessionId, workingDirectory: '/tmp/a', createdAt, lastAttachedAt: createdAt };
   }
 
+  function pastSession(overrides: Partial<ResumeSession> = {}): ResumeSession {
+    return {
+      worktreeId: '1-console-a1b2c3d4',
+      tool: 'claude',
+      toolLabel: 'Claude',
+      resumeId: '11111111-1111-1111-1111-111111111111',
+      capturedAt: '2026-08-27T09:30:00Z',
+      title: null,
+      ...overrides,
+    };
+  }
+
   function shell(overrides: Partial<OpenShell> = {}): OpenShell {
     return {
       sessionId: '1-shell-main-aaaa0001',
@@ -91,9 +103,9 @@ describe('ProjectSummaryComponent', () => {
    * Creates the component for a project id and flushes its requests: the project
    * list and issue tree always, the installed-agents list (#695: `ngOnInit` fetches
    * it so "Open console" launches with the right fallback default), plus the
-   * open-consoles list and the worktree list (#320), which also fetches every open
-   * shell (#733), whenever the target project is READY (#221) -- a cloning or failed
-   * project never fetches any of these.
+   * open-consoles list, the past-sessions list (#752), and the worktree list (#320),
+   * which also fetches every open shell (#733), whenever the target project is READY
+   * (#221) -- a cloning or failed project never fetches any of these.
    */
   function init(
     projects: Project[] = [PROJECT],
@@ -102,6 +114,7 @@ describe('ProjectSummaryComponent', () => {
     consoles: OpenProjectConsole[] = [],
     installedAgents = ALL_AGENTS,
     shells: OpenShell[] = [],
+    pastSessions: ResumeSession[] = [],
   ): ReturnType<typeof TestBed.createComponent<ProjectSummaryComponent>> {
     const fixture = TestBed.createComponent(ProjectSummaryComponent);
     fixture.componentRef.setInput('projectId', projectId);
@@ -111,6 +124,7 @@ describe('ProjectSummaryComponent', () => {
     const ready = projects.find((p) => p.id === projectId)?.status === 'READY';
     if (ready) {
       httpMock.expectOne(`/api/projects/${projectId}/console/sessions`).flush(consoles);
+      httpMock.expectOne(`/api/projects/${projectId}/console/resume-sessions`).flush(pastSessions);
     }
     httpMock.expectOne(`/api/projects/${projectId}/issues/tree`).flush({ nodes: nodes, github: GITHUB_OK });
     fixture.detectChanges();
@@ -193,6 +207,7 @@ describe('ProjectSummaryComponent', () => {
     httpMock.expectOne('/api/agents/installed').flush({ installed: ALL_AGENTS });
     httpMock.expectOne('/api/projects').flush([PROJECT]);
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([]);
     httpMock
       .expectOne('/api/projects/1/issues/tree')
       .flush('boom', { status: 500, statusText: 'Server Error' });
@@ -371,6 +386,7 @@ describe('ProjectSummaryComponent', () => {
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').flush([PROJECT, { ...PROJECT, id: 2, name: 'proj-b' }]);
     httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
+    httpMock.expectOne('/api/projects/2/console/resume-sessions').flush([]);
     httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/2/worktrees').flush([]);
@@ -515,5 +531,107 @@ describe('ProjectSummaryComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'This project has an open worktree or console',
     );
+  });
+
+  describe('past sessions column (#752)', () => {
+    it('shows the list loading before the past-sessions read returns', () => {
+      const fixture = TestBed.createComponent(ProjectSummaryComponent);
+      fixture.componentRef.setInput('projectId', 1);
+      fixture.detectChanges();
+      httpMock.expectOne('/api/agents/installed').flush({ installed: ALL_AGENTS });
+      httpMock.expectOne('/api/projects').flush([PROJECT]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects/1/worktrees').flush([]);
+      httpMock.match('/api/shells').forEach((req) => req.flush([]));
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.querySelector('.sessions-title')?.textContent?.trim()).toBe('past sessions');
+      expect(compiled.querySelector('.sessions-loading')?.textContent).toContain('loading');
+      expect(compiled.querySelector('app-session-list')).toBeFalsy();
+
+      httpMock.expectOne('/api/projects/1/console/resume-sessions').flush([]);
+      fixture.detectChanges();
+      expect(compiled.querySelector('.sessions-loading')).toBeFalsy();
+    });
+
+    it('says so plainly when the project has no past conversations', () => {
+      const fixture = init();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.querySelector('app-session-list')).toBeFalsy();
+      expect(compiled.querySelector('.sessions-empty')?.textContent).toContain(
+        "no past conversations in this project's consoles yet",
+      );
+    });
+
+    it('lists this project’s past conversations, loaded with the rest of the page', () => {
+      const fixture = init([PROJECT], tree(), 1, [], ALL_AGENTS, [], [
+        pastSession({ worktreeId: '1-console-a1b2c3d4', title: 'release notes' }),
+      ]);
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.querySelector('app-session-list')).toBeTruthy();
+      expect(compiled.textContent).toContain('release notes');
+    });
+
+    it('reopens a past conversation and navigates to the console page with it selected, carrying the resume info', () => {
+      const fixture = init([PROJECT], tree(), 1, [], ALL_AGENTS, [], [pastSession()]);
+      const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+      const opened = jasmine.createSpy('onOpened');
+      TestBed.inject(ConsolesService).onOpened.subscribe(opened);
+
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('app-session-list .reopen')!.click();
+
+      const reopen = httpMock.expectOne(
+        (request) =>
+          request.url === '/api/projects/1/console/resume-sessions/reopen' &&
+          request.params.get('from') === '1-console-a1b2c3d4',
+      );
+      expect(reopen.request.method).toBe('POST');
+      reopen.flush({ sessionId: '1-console-a1b2c3d4-resume-99887766', workingDirectory: '/tmp/a' });
+      // notifyOpened() (below) is also what the worktree list's own shell listing
+      // reacts to (#733), the same as starting an ordinary console (#221).
+      httpMock.expectOne('/api/shells').flush([]);
+
+      expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+        queryParams: {
+          session: '1-console-a1b2c3d4-resume-99887766',
+          resume: '11111111-1111-1111-1111-111111111111',
+          tool: 'claude',
+        },
+      });
+      expect(TestBed.inject(AgentStore).get('1-console-a1b2c3d4-resume-99887766')).toBe('claude');
+      expect(opened).toHaveBeenCalled();
+    });
+
+    it('shows an error and re-arms when reopening a past conversation fails', () => {
+      const fixture = init([PROJECT], tree(), 1, [], ALL_AGENTS, [], [pastSession()]);
+      const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        'app-session-list .reopen',
+      )!;
+
+      button.click();
+      httpMock
+        .expectOne(
+          (request) =>
+            request.url === '/api/projects/1/console/resume-sessions/reopen' &&
+            request.params.get('from') === '1-console-a1b2c3d4',
+        )
+        .flush(null, { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.reopenSessionError).toBeTrue();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not reopen that conversation');
+    });
+
+    it('hides the past-sessions column while the project is still cloning, fetching nothing', () => {
+      const fixture = init([{ ...PROJECT, status: 'CLONING' }]);
+
+      expect((fixture.nativeElement as HTMLElement).querySelector('.sessions-rail')).toBeFalsy();
+      httpMock.expectNone('/api/projects/1/console/resume-sessions');
+    });
   });
 });

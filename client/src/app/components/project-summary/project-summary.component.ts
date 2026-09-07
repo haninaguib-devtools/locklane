@@ -1,9 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, EventEmitter, Injector, Input, OnChanges, OnInit, Output, SimpleChanges, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Project, TreeNode } from '../../models/issue.model';
+import { Project, ResumeSession, TreeNode } from '../../models/issue.model';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { WorktreeListComponent } from '../worktree-list/worktree-list.component';
+import { SessionListComponent } from '../session-list/session-list.component';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
@@ -32,7 +33,7 @@ export interface IssueCounts {
 @Component({
   selector: 'app-project-summary',
   standalone: true,
-  imports: [ConfirmDialogComponent, WorktreeListComponent],
+  imports: [ConfirmDialogComponent, WorktreeListComponent, SessionListComponent],
   templateUrl: './project-summary.component.html',
   styleUrl: './project-summary.component.css',
 })
@@ -100,6 +101,16 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   openShells: OpenShell[] = [];
   startingShell = false;
   shellError = false;
+
+  // This project's past console conversations (#752), shown in an always-visible
+  // column the same way an issue's Overview tab shows its own (overview-tab's
+  // sessions-rail) -- unlike that tab, and unlike the project console page's old
+  // disclosure, there is no live terminal here competing for the initial request,
+  // so the list loads with the rest of the page rather than behind a toggle.
+  pastSessions: ResumeSession[] = [];
+  pastSessionsLoading = true;
+  reopeningSession = false;
+  reopenSessionError = false;
 
   // #695: "Open console" launches with `defaultAgentStore.agent()` directly, so its
   // fallback to the first installed agent needs this store's fetch already under way
@@ -177,6 +188,10 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     this.openShells = [];
     this.startingShell = false;
     this.shellError = false;
+    this.pastSessions = [];
+    this.pastSessionsLoading = true;
+    this.reopeningSession = false;
+    this.reopenSessionError = false;
     this.savingAccentColor = false;
     this.accentColorError = null;
 
@@ -188,6 +203,7 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
         if (this.project?.status === 'READY') {
           this.loadConsoles(projectId);
           this.loadShells(projectId);
+          this.loadPastSessions(projectId);
         }
       },
       error: () => {
@@ -226,6 +242,53 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     this.shellsService.list().subscribe({
       next: (shells) => (this.openShells = shells.filter((s) => s.projectId === projectId)),
       error: () => (this.openShells = []),
+    });
+  }
+
+  // A conversation outlives the console it ran in (#101), so this list is read
+  // independently of the open-console list; a failure leaves it simply empty
+  // rather than blocking the rest of the page.
+  private loadPastSessions(projectId: number): void {
+    this.projectConsoleService.resumeSessions(projectId).subscribe({
+      next: (sessions) => {
+        this.pastSessions = sessions;
+        this.pastSessionsLoading = false;
+      },
+      error: () => {
+        this.pastSessions = [];
+        this.pastSessionsLoading = false;
+      },
+    });
+  }
+
+  /**
+   * Reopens a past conversation (#752): the engine mints a brand-new session in the
+   * original console's working directory, then this navigates to the project's
+   * console page with that session selected -- the same handoff `onConsoleButtonClick`
+   * uses for "Open console" -- so the resume itself happens there, where the terminal
+   * lives.
+   */
+  reopenPastSession(session: ResumeSession): void {
+    if (this.reopeningSession) {
+      return;
+    }
+    this.reopeningSession = true;
+    this.reopenSessionError = false;
+    this.projectConsoleService.reopenSession(this.projectId, session.worktreeId).subscribe({
+      next: (started) => {
+        this.reopeningSession = false;
+        this.agentStore.set(started.sessionId, session.tool);
+        this.consolesService.notifyOpened();
+        // `resume`/`tool` ride along in the URL (read once by ProjectConsoleComponent)
+        // because the session's first-ever WebSocket attach is what actually launches
+        // `<tool> --resume <id>` (WorktreeController#reopenSession) -- this page never
+        // mounts a terminal itself, so that attach only happens after this navigation.
+        this.navigateToConsole(started.sessionId, { resume: session.resumeId, tool: session.tool });
+      },
+      error: () => {
+        this.reopeningSession = false;
+        this.reopenSessionError = true;
+      },
     });
   }
 
@@ -277,8 +340,10 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     this.navigateToConsole(target);
   }
 
-  private navigateToConsole(sessionId: string): void {
-    this.router.navigate(['/projects', this.projectId, 'console'], { queryParams: { session: sessionId } });
+  private navigateToConsole(sessionId: string, queryParams: Record<string, string> = {}): void {
+    this.router.navigate(['/projects', this.projectId, 'console'], {
+      queryParams: { session: sessionId, ...queryParams },
+    });
   }
 
   /** The shells button's label (#745): switches while a first mint is in flight. */

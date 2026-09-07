@@ -1,6 +1,23 @@
 .summary {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+/* Loading/error states render before there is a main-col/aside row to sit in --
+   `margin: auto` on a flex item centers it in both axes regardless of direction. */
+.state {
+  margin: auto;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.main-col {
+  flex: 1;
+  min-width: 0;
   overflow-y: auto;
   scrollbar-gutter: stable both-edges;
   padding: 20px 24px;
@@ -12,7 +29,7 @@
 /* margin: auto instead of justify-content: center -- when content is taller than the
    panel, auto margins collapse to 0 (never negative), so the top of the content stays
    reachable at scrollTop: 0 instead of being clipped off-screen (#281). */
-.summary > * {
+.main-col > * {
   margin: auto 0;
 }
 
@@ -21,8 +38,30 @@
   max-width: 720px;
 }
 
-.state {
-  font-size: 13px;
+/* Reuses overview-tab's sessions-rail shape (#752): the same always-visible past-
+   sessions column an issue's Overview tab shows, here beside the project's own
+   summary instead of the issue's details. */
+.sessions-rail {
+  width: 220px;
+  flex: none;
+  border-left: 1px solid var(--border-soft);
+  background: var(--window);
+  overflow: auto;
+  padding: 12px 14px;
+}
+
+.sessions-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.sessions-loading,
+.sessions-empty {
+  font-size: 12px;
   color: var(--faint);
 }
 

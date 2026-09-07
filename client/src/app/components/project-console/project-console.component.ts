@@ -14,9 +14,8 @@ import {
   RenameConsoleRequest,
 } from '../console-tabs/console-tabs.component';
 import { ConsoleTab, labelProjectConsoles } from '../console-tabs/console-labels';
-import { SessionListComponent } from '../session-list/session-list.component';
 import { TerminalComponent } from '../terminal/terminal.component';
-import { Project, ResumeSession } from '../../models/issue.model';
+import { Project } from '../../models/issue.model';
 import { ProjectsService } from '../../services/projects.service';
 import { cloneStageHint } from '../clone-progress';
 
@@ -43,13 +42,14 @@ interface OpenConsole {
 // Since #177 a project can have several consoles open at once, so this
 // page shows the same tab strip an issue's consoles get (#178) -- minus the
 // Overview tab and the main/worktree choice, which only make sense for an issue.
-// Since #372 it also lists the conversations that ran in this project's consoles
-// and can reopen one -- the capability an issue's Overview tab has had since #103
-// -- behind a disclosure under the header, since #256 means this page almost always
-// opens straight into a live console, with no empty state to put the list in. The
-// list is read when that disclosure is first opened rather than on mount, so simply
-// landing on a console costs no extra request; the trade-off is that the collapsed
-// label cannot carry a count.
+// Since #752 the project's own past console conversations -- #372's capability, once
+// listed here behind a "past sessions" disclosure -- live only on the project page
+// (ProjectSummaryComponent), which reaches this page by navigating here with the
+// freshly reopened session named in `?session=`, the same handoff `?session=` already
+// carries for "Open console" (#221); `?resume=`/`?tool=` ride alongside it, read once
+// below, since the very first WebSocket attach -- which happens here, never on the
+// project page -- is what actually launches the tool's own resume command
+// (ProjectConsoleController#reopenSession).
 // Since #537 the page first looks the project up: while it is still CLONING (the
 // add-project popup navigates here the moment a create succeeds) it waits, updating
 // off the engine's `projectStatus` broadcast once the clone settles (#721 -- no more
@@ -61,7 +61,7 @@ interface OpenConsole {
 @Component({
   selector: 'app-project-console',
   standalone: true,
-  imports: [ConsoleTabsComponent, SessionListComponent, TerminalComponent],
+  imports: [ConsoleTabsComponent, TerminalComponent],
   templateUrl: './project-console.component.html',
   styleUrl: './project-console.component.css',
 })
@@ -88,12 +88,6 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   closeError = false;
   renameError = false;
   revealError = false;
-  /** Past conversations captured in this project's consoles (#372), newest first. */
-  pastSessions: ResumeSession[] = [];
-  pastOpen = false;
-  pastLoading = false;
-  /** Whether the list below is a real answer yet -- false until the first read returns. */
-  pastLoaded = false;
 
   /** The project as last read (#537); null until the first read, or when it is not in the caller's list. */
   project: Project | null = null;
@@ -333,24 +327,33 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     this.closeError = false;
     this.renameError = false;
     this.revealError = false;
-    this.pastSessions = [];
-    this.pastOpen = false;
-    this.pastLoading = false;
-    this.pastLoaded = false;
     // `pendingNewConsole` deliberately survives this reset: a "+" click for
     // another project changes the projectId input and the query params in the
     // same navigation, in no guaranteed order (#370).
     this.service.listOpen(projectId).subscribe({
       next: (sessions) => {
         this.loading = false;
-        this.consoles = sessions.map((s) => ({
-          id: s.sessionId,
-          dir: s.workingDirectory,
-          agent: this.agentStore.get(s.sessionId),
-          resume: null,
-          name: s.displayName ?? null,
-          seed: null,
-        }));
+        // The project page's reopen (#752) hands off `?session=<id>` alongside
+        // `?resume=<id>&tool=<tool>` for that one session -- read once here, since
+        // this mapping feeds the very first `<app-terminal>` this session mounts,
+        // whose first WebSocket attach is what actually launches the tool's resume
+        // command (ProjectConsoleController#reopenSession). An ordinary `?session=`
+        // handoff (e.g. "Open console") carries no `?resume=`, so every other
+        // session keeps mapping exactly as before.
+        const requestedSession = this.route.snapshot.queryParamMap.get('session');
+        const requestedResume = this.route.snapshot.queryParamMap.get('resume');
+        const requestedTool = this.route.snapshot.queryParamMap.get('tool');
+        this.consoles = sessions.map((s) => {
+          const isRequested = s.sessionId === requestedSession;
+          return {
+            id: s.sessionId,
+            dir: s.workingDirectory,
+            agent: (isRequested ? requestedTool : null) ?? this.agentStore.get(s.sessionId),
+            resume: isRequested ? requestedResume : null,
+            name: s.displayName ?? null,
+            seed: null,
+          };
+        });
         this.relabel();
         if (this.owesSeededConsole(projectId)) {
           // #537: the template's one seeded console, alongside whatever is already
@@ -377,10 +380,9 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
         // recently attached console, which is what this page showed before it
         // had tabs. (Routing is component-less, so the query param is read off
         // the root route.)
-        const requested = this.route.snapshot.queryParamMap.get('session');
         this.selectConsole(
-          requested && sessions.some((s) => s.sessionId === requested)
-            ? requested
+          requestedSession && sessions.some((s) => s.sessionId === requestedSession)
+            ? requestedSession
             : sessions.reduce(
                 (latest: OpenProjectConsole | null, s) =>
                   !latest || Date.parse(s.lastAttachedAt) > Date.parse(latest.lastAttachedAt) ? s : latest,
@@ -405,71 +407,6 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
     const pending = this.pendingNewConsole;
     this.pendingNewConsole = false;
     return pending;
-  }
-
-  // A conversation outlives the console it ran in (#101), so this list is read
-  // independently of the open-console list; a failure leaves it simply empty rather
-  // than blocking the page.
-  private loadPastSessions(projectId: number): void {
-    this.pastLoading = true;
-    this.service.resumeSessions(projectId).subscribe({
-      next: (sessions) => {
-        this.pastSessions = sessions;
-        this.pastLoading = false;
-        this.pastLoaded = true;
-      },
-      error: () => {
-        this.pastSessions = [];
-        this.pastLoading = false;
-        this.pastLoaded = true;
-      },
-    });
-  }
-
-  // Opening the disclosure is what asks for the list, and asks again every time:
-  // the set grows whenever a console is closed, so a cached answer would go stale
-  // exactly when the user is most likely to want it.
-  togglePast(): void {
-    this.pastOpen = !this.pastOpen;
-    if (this.pastOpen) {
-      this.loadPastSessions(this.projectId);
-    }
-  }
-
-  /**
-   * Reopens a past conversation (#372): the engine mints a brand-new session in the
-   * original console's working directory, and the first attach launches the tool's
-   * own resume command -- the same handoff `main-content.component.ts` makes for an
-   * issue's conversations.
-   */
-  reopenSession(session: ResumeSession): void {
-    this.starting = true;
-    this.startError = false;
-    this.service.reopenSession(this.projectId, session.worktreeId).subscribe({
-      next: (started) => {
-        this.agentStore.set(started.sessionId, session.tool);
-        this.consoles = [
-          ...this.consoles,
-          {
-            id: started.sessionId,
-            dir: started.workingDirectory,
-            agent: session.tool,
-            resume: session.resumeId,
-            name: null,
-            seed: null,
-          },
-        ];
-        this.relabel();
-        this.selectConsole(started.sessionId);
-        this.starting = false;
-        this.pastOpen = false;
-        this.consolesService.notifyOpened();
-      },
-      error: () => {
-        this.starting = false;
-        this.startError = true;
-      },
-    });
   }
 
   /** Retries the empty-state auto-start after a failure -- the only "start" affordance left. */

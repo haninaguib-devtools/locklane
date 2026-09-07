@@ -159,10 +159,13 @@ describe('AppComponent', () => {
    * has resolved that project-list fetch. The header's own console indicator now
    * reads the same endpoint for its project-console rows (#449), so this flushes
    * every pending request to it with the same data, whichever of the two (or
-   * both) are outstanding at call time.
+   * both) are outstanding at call time. The summary's past-sessions column (#752)
+   * fetches alongside it, gated behind the same READY check, so this flushes that
+   * too.
    */
   function flushProjectConsoleSessions(sessions: OpenProjectConsole[] = []): void {
     httpMock.match('/api/projects/1/console/sessions').forEach((request) => request.flush(sessions));
+    httpMock.match('/api/projects/1/console/resume-sessions').forEach((request) => request.flush([]));
   }
 
   /**
