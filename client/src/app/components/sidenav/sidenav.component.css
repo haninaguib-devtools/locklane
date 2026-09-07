@@ -444,7 +444,8 @@ ul.branch {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #3b6fa8;
+  /* The shared blue (#791): the agent tab strip's dot reads the same token. */
+  background: var(--agent-dot);
 }
 
 .console-dot.waiting {

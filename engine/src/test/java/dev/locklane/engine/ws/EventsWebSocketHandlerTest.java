@@ -2,20 +2,30 @@ package dev.locklane.engine.ws;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.github.ReleaseUpdateChecker;
+import dev.locklane.engine.persistence.TestSqliteDatabases;
+import dev.locklane.engine.pty.PtySession;
+import dev.locklane.engine.pty.SessionRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentMatcher;
+import org.mockito.InOrder;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.WebSocketSessionDecorator;
 
+import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -23,8 +33,10 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,8 +53,92 @@ import static org.mockito.Mockito.when;
  * <p>The greeting's {@code heartbeatIntervalMs} (#762) is pinned here too: it is how the
  * client learns the interval its own liveness check counts against, so it must be the
  * configured value, never a number the two sides each hardcode.
+ *
+ * <p>Also covers #790's connect-time catch-up: a new connection is sent exactly one
+ * {@code consoleAttention} {@code waiting} message per live session currently waiting,
+ * none for an active one, in the live broadcast's own shape, after the greeting and
+ * only once the connection is registered for broadcasts.
  */
 class EventsWebSocketHandlerTest {
+
+    @Test
+    void aConnectingClientIsSentOneWaitingEventPerWaitingSessionAndNoneForAnActiveOne(@TempDir Path dbDir,
+            @TempDir Path workDir) {
+        // #790, end to end through the real registry: two sessions ring the bell, one
+        // does not, and the handler is wired to the registry the way Spring wires it.
+        SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
+        PtySession waiting = registry.attach("42-7-waiting", workDir);
+        PtySession alsoWaiting = registry.attach("42-8-also-waiting", workDir);
+        PtySession active = registry.attach("42-9-active", workDir);
+        waiting.write("printf '\\a'\n");
+        alsoWaiting.write("printf '\\a'\n");
+        waitUntil(() -> waiting.attentionState() == PtySession.AttentionState.WAITING
+                && alsoWaiting.attentionState() == PtySession.AttentionState.WAITING, Duration.ofSeconds(5));
+        assertThat(active.attentionState()).isEqualTo(PtySession.AttentionState.ACTIVE);
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
+                Optional::empty, registry::waitingSessionIds);
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("s");
+
+        handler.afterConnectionEstablished(session);
+
+        verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("consoleAttention"),
+                eq(Map.of("sessionId", "42-7-waiting", "state", "waiting")));
+        verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("consoleAttention"),
+                eq(Map.of("sessionId", "42-8-also-waiting", "state", "waiting")));
+        // Exactly one per waiting session: nothing for the active one, no duplicates,
+        // and never a "state: active" line -- the snapshot only ever says "waiting".
+        verify(broadcaster, times(2)).sendTo(any(), eq("consoleAttention"), anyMap());
+        verify(broadcaster, never()).sendTo(any(), eq("consoleAttention"),
+                argThat(fields -> "42-9-active".equals(fields.get("sessionId"))));
+        verify(broadcaster, never()).sendTo(any(), eq("consoleAttention"),
+                argThat(fields -> "active".equals(fields.get("state"))));
+    }
+
+    @Test
+    void theSnapshotIsSentAfterTheGreetingAndOnlyOnceTheConnectionIsRegistered() {
+        // #790's ordering contract: engineVersion first, so a client's staleness check
+        // never waits behind the snapshot; register before the snapshot is read, so a
+        // state change racing the connect is delivered as a broadcast rather than lost.
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        List<String> snapshotReadAfterRegister = new ArrayList<>();
+        AtomicBoolean registered = new AtomicBoolean(false);
+        doAnswer(invocation -> {
+            registered.set(true);
+            return null;
+        }).when(broadcaster).register(any());
+        Supplier<Collection<String>> waitingSessions = () -> {
+            snapshotReadAfterRegister.add(registered.get() ? "after" : "before");
+            return List.of("42-7-slug");
+        };
+        EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
+                Optional::empty, waitingSessions);
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("s");
+
+        handler.afterConnectionEstablished(session);
+
+        assertThat(snapshotReadAfterRegister).containsExactly("after");
+        InOrder inOrder = inOrder(broadcaster);
+        inOrder.verify(broadcaster).sendTo(any(), eq("engineVersion"), anyMap());
+        inOrder.verify(broadcaster).register(argThat(serializedWrapperAround(session)));
+        inOrder.verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("consoleAttention"),
+                eq(Map.of("sessionId", "42-7-slug", "state", "waiting")));
+    }
+
+    @Test
+    void aConnectingClientIsSentNoAttentionEventWhenNoSessionIsWaiting() {
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
+                Optional::empty, List::of);
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("s");
+
+        handler.afterConnectionEstablished(session);
+
+        verify(broadcaster, never()).sendTo(any(), eq("consoleAttention"), anyMap());
+    }
 
     @Test
     void theGreetingCarriesTheBuildStampAndTheRunningVersion() {
@@ -64,7 +160,7 @@ class EventsWebSocketHandlerTest {
         // the interval this handler actually ticks on, not a constant.
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
-                Optional::empty, Clock.systemUTC(), 1234L);
+                Optional::empty, List::of, Clock.systemUTC(), 1234L);
         WebSocketSession session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("s");
 
@@ -189,5 +285,21 @@ class EventsWebSocketHandlerTest {
     private static ArgumentMatcher<WebSocketSession> serializedWrapperAround(WebSocketSession raw) {
         return candidate -> candidate instanceof ConcurrentWebSocketSessionDecorator
                 && WebSocketSessionDecorator.unwrap(candidate) == raw;
+    }
+
+    private static void waitUntil(Supplier<Boolean> condition, Duration timeout) {
+        Instant deadline = Instant.now().plus(timeout);
+        while (Instant.now().isBefore(deadline)) {
+            if (Boolean.TRUE.equals(condition.get())) {
+                return;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        }
+        throw new AssertionError("condition not met within " + timeout);
     }
 }
