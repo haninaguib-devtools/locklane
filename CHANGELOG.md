@@ -8,6 +8,20 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.20 — 2026-09-07
+
+### Features
+- Keyboard shortcuts for back and forward navigation (#775, #777)
+- Rename console to agent in the UI, docs and constitution (#765, #774)
+- Agent picker on the console tab strip's open button (#757, #758)
+
+### Fixes
+- Open IDE shows a 502, then opens the wrong workspace (#776, #778)
+- Widen project page's main column to match the issue page (#767, #768)
+
+### Other
+- Sidenav stops reflecting GitHub changes until the page is reloaded (#759, #773)
+
 ## v0.2.19 — 2026-09-07
 
 ### Features
