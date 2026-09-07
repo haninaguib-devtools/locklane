@@ -8,15 +8,16 @@ import java.util.Set;
  * Answers "is this CLI on the host `PATH`" by scanning `PATH` directories for an
  * executable file named after the CLI (#359) — no process spawned per candidate,
  * just a directory listing, so it is cheap enough to run once at boot for every
- * supported agent.
+ * supported agent. Public since #781: the IDE probe ({@code ide.InstalledIdeDetector})
+ * and the desktop-IDE launcher's {@code systemd-run} check reuse the same scan.
  */
-final class InstalledAgentDetector {
+public final class InstalledAgentDetector {
 
     private InstalledAgentDetector() {
     }
 
     /** {@code candidates} in the order the result should preserve. */
-    static Set<String> detect(String pathEnv, String[] candidates) {
+    public static Set<String> detect(String pathEnv, String[] candidates) {
         Set<String> found = new LinkedHashSet<>();
         if (pathEnv == null || pathEnv.isBlank()) {
             return found;
