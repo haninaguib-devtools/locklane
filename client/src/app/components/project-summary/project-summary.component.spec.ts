@@ -248,8 +248,11 @@ describe('ProjectSummaryComponent', () => {
     // worktree list's shell listing also reacts to (#733) to stay live.
     httpMock.expectOne('/api/shells').flush([]);
 
+    // `dir` rides along (#795): the engine does not list a never-attached session,
+    // so the console page adds the tab from the handoff itself rather than
+    // auto-starting a second console.
     expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
-      queryParams: { session: 'proj-1-console-abc' },
+      queryParams: { session: 'proj-1-console-abc', dir: '/tmp/a' },
     });
     expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('claude');
     expect(opened).toHaveBeenCalled();
@@ -596,9 +599,12 @@ describe('ProjectSummaryComponent', () => {
       // reacts to (#733), the same as starting an ordinary console (#221).
       httpMock.expectOne('/api/shells').flush([]);
 
+      // `dir` is the reopen response's working directory (#795): the console page
+      // needs it to mount the never-attached session's terminal itself.
       expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
         queryParams: {
           session: '1-console-a1b2c3d4-resume-99887766',
+          dir: '/tmp/a',
           resume: '11111111-1111-1111-1111-111111111111',
           tool: 'claude',
         },

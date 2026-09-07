@@ -266,7 +266,11 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
    * original console's working directory, then this navigates to the project's
    * console page with that session selected -- the same handoff `onConsoleButtonClick`
    * uses for "Open console" -- so the resume itself happens there, where the terminal
-   * lives.
+   * lives. The engine only lists a session as open once something has attached to it,
+   * so the freshly minted id is never in that page's open-console list (#795): its
+   * working directory rides along as `?dir=` so the page can add the tab itself, the
+   * way the issue page's own reopen does, instead of falling through to some other
+   * console.
    */
   reopenPastSession(session: ResumeSession): void {
     if (this.reopeningSession) {
@@ -283,7 +287,11 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
         // because the session's first-ever WebSocket attach is what actually launches
         // `<tool> --resume <id>` (WorktreeController#reopenSession) -- this page never
         // mounts a terminal itself, so that attach only happens after this navigation.
-        this.navigateToConsole(started.sessionId, { resume: session.resumeId, tool: session.tool });
+        this.navigateToConsole(started.sessionId, {
+          dir: started.workingDirectory,
+          resume: session.resumeId,
+          tool: session.tool,
+        });
       },
       error: () => {
         this.reopeningSession = false;
@@ -319,7 +327,10 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
         this.startingConsole = false;
         this.agentStore.set(session.sessionId, this.defaultAgentStore.agent());
         this.consolesService.notifyOpened();
-        this.navigateToConsole(session.sessionId);
+        // Same `?dir=` handoff as reopenPastSession (#795): without it the console
+        // page, not finding the never-attached id in its open list, auto-started a
+        // second console and left this one's worktree stranded.
+        this.navigateToConsole(session.sessionId, { dir: session.workingDirectory });
       },
       error: () => {
         this.startingConsole = false;

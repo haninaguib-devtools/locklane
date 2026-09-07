@@ -49,7 +49,11 @@ interface OpenConsole {
 // carries for "Open console" (#221); `?resume=`/`?tool=` ride alongside it, read once
 // below, since the very first WebSocket attach -- which happens here, never on the
 // project page -- is what actually launches the tool's own resume command
-// (ProjectConsoleController#reopenSession).
+// (ProjectConsoleController#reopenSession). Since #795 `?dir=` rides along too: the
+// engine lists a session as open only once something has attached to it, so a
+// freshly minted one is never in this page's open-console list, and the page adds
+// the tab itself from the handoff -- the way the issue page's own reopen does --
+// rather than dropping it (see loadConsoles).
 // Since #537 the page first looks the project up: while it is still CLONING (the
 // add-project popup navigates here the moment a create succeeds) it waits, updating
 // off the engine's `projectStatus` broadcast once the clone settles (#721 -- no more
@@ -188,8 +192,15 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
 
   /** Rewrites the URL without `new`, keeping every other param (`focus`, `session`). */
   private clearNewParam(): void {
+    this.dropQueryParams('new');
+  }
+
+  /** Rewrites the URL without the named params, keeping every other one. */
+  private dropQueryParams(...names: string[]): void {
     const queryParams = { ...this.route.snapshot.queryParams };
-    delete queryParams['new'];
+    for (const name of names) {
+      delete queryParams[name];
+    }
     // #439: build the URL from the route's own (possibly just-updated) project id, not
     // `this.projectId` -- during the race this method exists to help resolve, the
     // input still names the previously-viewed project, and navigating there would
@@ -343,6 +354,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
         const requestedSession = this.route.snapshot.queryParamMap.get('session');
         const requestedResume = this.route.snapshot.queryParamMap.get('resume');
         const requestedTool = this.route.snapshot.queryParamMap.get('tool');
+        const requestedDir = this.route.snapshot.queryParamMap.get('dir');
         this.consoles = sessions.map((s) => {
           const isRequested = s.sessionId === requestedSession;
           return {
@@ -354,6 +366,40 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
             seed: null,
           };
         });
+        // #795: a session the project page has just minted -- a reopened past
+        // conversation, or "Open console" with none open -- has never been attached,
+        // so the engine does not list it yet (the same gap #370 closed for the
+        // sidenav "+"). `?dir=` is what tells such a handoff from a stale `?session=`
+        // (a closed tab, an old bookmark), which keeps falling through to the
+        // most-recent fallback below: the directory has to travel anyway, since the
+        // first attach resolves a never-attached session's working directory from the
+        // client and has nothing recorded to fall back to. The tab is added here the
+        // way the issue page's own reopen adds one to its list, with `resume`/`tool`
+        // applied so its first attach resumes the conversation.
+        const handedOff =
+          requestedSession !== null &&
+          requestedDir !== null &&
+          !sessions.some((s) => s.sessionId === requestedSession);
+        if (handedOff) {
+          this.consoles = [
+            ...this.consoles,
+            {
+              id: requestedSession,
+              dir: requestedDir,
+              agent: requestedTool ?? this.agentStore.get(requestedSession),
+              resume: requestedResume,
+              name: null,
+              seed: null,
+            },
+          ];
+        }
+        if (requestedDir !== null || requestedResume !== null || requestedTool !== null) {
+          // Consumed: a reload must not add the tab again (and re-run the resume
+          // against an id the engine may since have ended), the same reason `?new`
+          // is dropped once acted on (#370). `session` stays -- it is the ordinary
+          // tab-activation handoff, and by then the engine lists the session itself.
+          this.dropQueryParams('dir', 'resume', 'tool');
+        }
         this.relabel();
         if (this.owesSeededConsole(projectId)) {
           // #537: the template's one seeded console, alongside whatever is already
@@ -368,10 +414,12 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
           this.startDefault();
           return;
         }
-        if (sessions.length === 0) {
+        if (this.consoles.length === 0) {
           // #256: landing here with nothing open starts one immediately, using
           // the same default-agent source the sidenav "+" uses -- no picker, no
-          // separate start button.
+          // separate start button. (A handed-off session counts as open here --
+          // #795 -- or "Open console" on a project with none would start a second
+          // one and strand the first's worktree.)
           this.startDefault();
           return;
         }
@@ -381,7 +429,7 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
         // had tabs. (Routing is component-less, so the query param is read off
         // the root route.)
         this.selectConsole(
-          requestedSession && sessions.some((s) => s.sessionId === requestedSession)
+          requestedSession && this.consoles.some((c) => c.id === requestedSession)
             ? requestedSession
             : sessions.reduce(
                 (latest: OpenProjectConsole | null, s) =>
