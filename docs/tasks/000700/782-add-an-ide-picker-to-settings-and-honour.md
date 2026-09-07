@@ -107,10 +107,17 @@ none
   that line — `httpMock.expectOne('/api/ides/installed').flush({ installed: [] });` next
   to the test's existing `/api/account/2fa/status` flush — and nothing else outside
   Scope (agent, 2026-09-07).
-- A direct `npm run test:ci` of the whole client suite (not the recorded check) once hung
-  in this headless console environment — ten failures across `EventsService` foreground
-  listeners, `TerminalComponent` and `ShellsWindowComponent`, then a 30-second browser
-  disconnect at 674 of 831. None of those import anything this task touched, all 71 of
-  their specs pass when run in isolation, and the Maven run afterwards executed the whole
-  suite with only the `AppComponent` failure above. Noted as an environment flake, not
-  acted on (agent, 2026-09-07).
+- **Dead end, then the real cause — a self-inflicted suite-wide flake.** Full client runs
+  (a direct `npm run test:ci`, then three `./mvnw -B test` runs after the spec fix above)
+  failed intermittently in groups that import nothing from this task — `EventsService`
+  foreground listeners, `TerminalComponent` WebGL/foreground, `ShellsWindowComponent`
+  navigation — and ended in a Karma "no message in 30000 ms" disconnect, while all 71 of
+  those specs passed in isolation. It was first written off as host load, and it was not:
+  one new `console-tabs` spec ("a desktop choice viewed away from localhost falls back to
+  code-server on the wire too") clicked Open IDE and flushed a real URL without stubbing
+  `window.open`, so headless Chrome opened an actual second window that stole focus from
+  the Karma page — every spec depending on `document.visibilityState`, window focus, or
+  router navigation that randomly ran after it then failed, and the runner eventually
+  lost the page. Fixed by stubbing `window.open` in that spec like every other Open IDE
+  spec does, and asserting the call. Lesson: a spec that can reach `window.open` must
+  always stub it (agent, 2026-09-07).

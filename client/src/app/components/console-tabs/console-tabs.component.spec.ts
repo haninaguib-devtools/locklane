@@ -616,6 +616,10 @@ describe('ConsoleTabsComponent open-the-ide (#628, #782)', () => {
   });
 
   it('a desktop choice viewed away from localhost falls back to code-server on the wire too (#782)', () => {
+    // Always stub window.open here: a real one in headless Chrome opens a second window
+    // that steals focus from the Karma page and fails every focus/visibility-dependent
+    // spec that happens to run after this one.
+    const openSpy = spyOn(window, 'open');
     const fixture = renderChosen('vscode', 'example.com');
     openMenu(fixture, 1);
 
@@ -624,6 +628,7 @@ describe('ConsoleTabsComponent open-the-ide (#628, #782)', () => {
     const post = httpMock.expectOne('/api/projects/1/consoles/1-7-do-the-thing/open-ide');
     expect(post.request.body).toEqual({ ide: 'code-server' });
     post.flush({ url: '/api/projects/1/consoles/1-7-do-the-thing/ide/' });
+    expect(openSpy).toHaveBeenCalledWith('/api/projects/1/consoles/1-7-do-the-thing/ide/', 'locklane-ide');
   });
 
   it('a failed start shows the error note instead of opening a window', () => {
