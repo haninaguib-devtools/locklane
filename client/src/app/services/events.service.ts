@@ -137,6 +137,24 @@ export function isProjectStatusEvent(event: AppEvent): event is ProjectStatusEve
 }
 
 /**
+ * A `projectCreated` message (#760): a project row was just inserted -- broadcast from
+ * `ProjectCheckoutService` on both creation paths (importing an existing repository,
+ * creating a new one) the moment the row exists, before its clone even starts, so it
+ * always precedes that project's first `projectStatus`. The window that created the
+ * project already reloads to reveal it; this is how every *other* open window learns
+ * the project exists, so the `projectStatus` and `issuesChanged` events that follow
+ * have a row to land on there too.
+ */
+export interface ProjectCreatedEvent extends AppEvent {
+  type: 'projectCreated';
+  projectId: number;
+}
+
+export function isProjectCreatedEvent(event: AppEvent): event is ProjectCreatedEvent {
+  return event.type === 'projectCreated' && typeof event['projectId'] === 'number';
+}
+
+/**
  * A `projectDeleted` message (#721, absorbed from #720): a project was deleted --
  * broadcast from both `ProjectCheckoutService#delete` and `#forceDelete`, so a project
  * removed out of band (another tab, the API, a cascade-deleted account) drops out of
