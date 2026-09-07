@@ -736,17 +736,60 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.refreshing).toBeFalse();
   });
 
-  it('refresh() surfaces a failed project-list request without clearing the existing list', () => {
+  it('refresh() surfaces a failed project-list request without clearing the existing list (#801)', () => {
     const fixture = init();
     flushTree(1, tree());
 
     fixture.componentInstance.refresh();
     httpMock.expectOne('/api/projects').error(new ProgressEvent('network error'));
+    fixture.detectChanges();
 
     expect(fixture.componentInstance.refreshing).toBeFalse();
-    expect(fixture.componentInstance.error).toBeTrue();
+    // Not the sidenav-wide error state: that one only ever covers the first load,
+    // with nothing yet rendered to fall back to replacing.
+    expect(fixture.componentInstance.error).toBeFalse();
+    expect(fixture.componentInstance.listRefreshFailed).toBeTrue();
     const section = fixture.componentInstance.projectSections[0];
     expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 4]);
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.list-refresh-error')?.textContent).toContain('could not refresh issues');
+    expect(compiled.querySelectorAll('.project-section')).toHaveSize(1);
+    const hrefs = Array.from(compiled.querySelectorAll('a.row')).map((row) => row.getAttribute('href'));
+    expect(hrefs).toEqual(['/projects/1/issues/1', '/projects/1/issues/2', '/projects/1/issues/4']);
+  });
+
+  it('the refresh-failed notice clears on the next successful list load (#801)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').error(new ProgressEvent('network error'));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.listRefreshFailed).toBeTrue();
+
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    flushTree(1, tree(), true);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.listRefreshFailed).toBeFalse();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.list-refresh-error')).toBeNull();
+  });
+
+  it("the first load's failure still shows the sidenav-wide error state, not the refresh notice (#801)", () => {
+    const fixture = TestBed.createComponent(SidenavComponent);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects').error(new ProgressEvent('network error'));
+    httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.error).toBeTrue();
+    expect(fixture.componentInstance.listRefreshFailed).toBeFalse();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.state')?.textContent).toContain('could not load issues');
+    expect(compiled.querySelectorAll('.project-section')).toHaveSize(0);
   });
 
   it('a tree fetch that fails during refresh() marks that project failed and keeps its previous tree (#787)', () => {

@@ -152,6 +152,17 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // queued run serves them all, so it is fresh if any of them wanted it fresh.
   private refreshQueuedFresh = false;
   error = false;
+  // A later refresh()'s own /api/projects request failed after the list had already
+  // rendered at least once (#801): the sidenav-wide `error` state above only ever
+  // covers the *first* load, so sections stay in the DOM and this notice covers the
+  // failure instead -- "what you had, plus a notice", the same shape a failed
+  // per-project tree fetch already gets (#787). Cleared on the next successful list
+  // load, same as `error`.
+  listRefreshFailed = false;
+  // Whether the project list has ever loaded successfully (#801): distinguishes a
+  // refresh's failed list request (show listRefreshFailed, keep sections) from the
+  // very first load's failure (show the sidenav-wide `error` state, nothing to keep).
+  private hasLoadedList = false;
 
   // Neither persists across reloads, matching the old app (#22's Goal).
   filterText = '';
@@ -394,6 +405,8 @@ export class SidenavComponent implements OnInit, OnDestroy {
         this.loadingTrees = new Set(relevant.map((p) => p.id));
         this.loading = false;
         this.error = false;
+        this.listRefreshFailed = false;
+        this.hasLoadedList = true;
         this.trackCloneProgress();
 
         let outstanding = relevant.length;
@@ -431,7 +444,15 @@ export class SidenavComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.loading = false;
-        this.error = true;
+        // The sidenav-wide `error` state only ever covers the first load, with
+        // nothing yet rendered to keep; once the list has loaded once, a later
+        // failure leaves the existing sections alone and surfaces a notice instead
+        // (#801).
+        if (this.hasLoadedList) {
+          this.listRefreshFailed = true;
+        } else {
+          this.error = true;
+        }
         onDone();
         // `onDone` (`finishRefresh`, for a refresh-triggered load) may have just
         // started a fresh attempt for a queued refresh (#738) -- `refreshing` is

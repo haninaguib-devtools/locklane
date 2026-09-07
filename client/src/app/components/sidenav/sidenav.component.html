@@ -42,6 +42,9 @@
   } @else if (error) {
     <div class="state">could not load issues</div>
   } @else {
+    @if (listRefreshFailed) {
+      <div class="list-refresh-error" role="alert">could not refresh issues</div>
+    }
     @if (pinnedGroups.length > 0) {
       <div class="label">pinned</div>
       @for (group of pinnedGroups; track group.project.id) {
