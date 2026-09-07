@@ -53,15 +53,26 @@ export function isConsolesChangedEvent(event: AppEvent): event is ConsolesChange
  * (`BuildProperties#getVersion()`, e.g. `0.1.0-SNAPSHOT`) -- display-only, never part
  * of the staleness comparison above. Optional so a client rolled out ahead of its
  * engine still recognizes the old one-field greeting.
+ *
+ * `heartbeatIntervalMs` (#762) is how often the engine sends its `heartbeat` message
+ * on this connection -- what `EventsService`'s own liveness check counts against, so
+ * the two sides agree on the interval without the client hardcoding one. Optional for
+ * the same reason as `release`; an engine that does not send it gets no client-side
+ * liveness check, exactly the behaviour before #762.
  */
 export interface EngineVersionEvent extends AppEvent {
   type: 'engineVersion';
   version: string;
   release?: string;
+  heartbeatIntervalMs?: number;
 }
 
 export function isEngineVersionEvent(event: AppEvent): event is EngineVersionEvent {
-  return event.type === 'engineVersion' && typeof event['version'] === 'string';
+  return (
+    event.type === 'engineVersion' &&
+    typeof event['version'] === 'string' &&
+    (event['heartbeatIntervalMs'] === undefined || typeof event['heartbeatIntervalMs'] === 'number')
+  );
 }
 
 /**
@@ -169,8 +180,24 @@ export function isProjectDeletedEvent(event: AppEvent): event is ProjectDeletedE
   return event.type === 'projectDeleted' && typeof event['projectId'] === 'number';
 }
 
+/**
+ * The type of the engine's application-level liveness message (#762), sent to every
+ * connection on each of its heartbeat ticks (`EventsWebSocketHandler`). Carries no
+ * other fields, and is consumed entirely inside `EventsService` -- it never reaches
+ * `events$`, so no consumer has to know it exists.
+ */
+const HEARTBEAT_TYPE = 'heartbeat';
+
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
+/**
+ * How many heartbeat intervals may pass with nothing received before the connection is
+ * treated as dead (#762) -- the same allowance the engine gives a connection that stops
+ * answering pongs (`TerminalHeartbeat.MISSED_PONGS_BEFORE_CLOSE`): one late heartbeat is
+ * just a loaded engine or a slow network, two in a row is a socket that will never
+ * deliver anything again.
+ */
+const MISSED_HEARTBEATS_BEFORE_RECONNECT = 2;
 
 /**
  * Owns the single connection to the app-wide events channel (#128) -- separate from
@@ -188,6 +215,20 @@ const MAX_BACKOFF_MS = 30000;
  * `TerminalComponent.checkConnectionOnForeground` already do for each console tab's
  * own socket (#279).
  *
+ * Neither of those helps when the engine's close never arrives at all (#762): behind a
+ * proxy the browser's TCP connection and the engine's are separate legs, so when the
+ * browser's leg dies (laptop sleep, a network change) the engine closes its own side
+ * and this socket stays OPEN forever, delivering nothing. Browsers never tell
+ * JavaScript about protocol-level pings, so the engine also sends a `heartbeat` text
+ * message every `heartbeatIntervalMs` (learned from the `engineVersion` greeting), and
+ * this service remembers when it last received *any* message. Once more than
+ * `MISSED_HEARTBEATS_BEFORE_RECONNECT` intervals pass with nothing -- noticed by a timer
+ * that runs every interval, or by `checkConnection()` on returning to the foreground --
+ * it closes the socket itself and reconnects immediately, which fires `reconnected$`
+ * like any other reconnect. Every such decision compares timestamps, never counts
+ * timer firings: a background tab's timer may run late or not at all, and a late
+ * firing must still reach the right answer from how much real time has passed.
+ *
  * `reconnected$` exists so a consumer can trigger a full re-fetch to catch up on
  * whatever happened while the socket was down, rather than trusting the stream to
  * have delivered everything.
@@ -204,6 +245,15 @@ export class EventsService implements OnDestroy {
   // connect() calls (#665) -- connect() itself is already idempotent about the socket,
   // but that check returns early on a live socket, before this would otherwise run.
   private foregroundListenersAttached = false;
+
+  // The liveness check (#762): the interval the engine named in its greeting (null
+  // until one has -- an engine that never does gets no check at all), the timer that
+  // runs the check once per interval, and when the current socket last delivered
+  // anything at all. The interval is kept across reconnects, so a reconnected socket
+  // is watched from the moment it opens, before its own greeting arrives.
+  private heartbeatIntervalMs: number | null = null;
+  private livenessTimer: ReturnType<typeof setInterval> | null = null;
+  private lastMessageAt = 0;
 
   // The stamp from the first `engineVersion` message ever seen (#273) -- set once and
   // never overwritten, so every later message (one per reconnect) is compared against
@@ -273,6 +323,10 @@ export class EventsService implements OnDestroy {
   ngOnDestroy(): void {
     document.removeEventListener('visibilitychange', this.checkConnectionOnForeground);
     window.removeEventListener('focus', this.checkConnectionOnForeground);
+    if (this.livenessTimer !== null) {
+      clearInterval(this.livenessTimer);
+      this.livenessTimer = null;
+    }
   }
 
   /**
@@ -281,11 +335,84 @@ export class EventsService implements OnDestroy {
    * delay is pending -- mirrors `TerminalSession.checkConnection()` (#279). The whole
    * point of watching for this is to catch up the moment the user comes back, not
    * after a timer that may itself have been throttled while the tab was backgrounded.
+   *
+   * An OPEN socket is not taken at its word (#762): if it has delivered nothing for
+   * more than `MISSED_HEARTBEATS_BEFORE_RECONNECT` heartbeat intervals -- a laptop that
+   * just woke from a long sleep, typically -- it is dead on the far side, and it is
+   * closed and replaced right here rather than waiting for the liveness timer's next
+   * run. A socket still connecting is left alone either way.
    */
   checkConnection(): void {
     const state = this.socket?.readyState;
-    if (state === WebSocket.CONNECTING || state === WebSocket.OPEN) {
+    if (state === WebSocket.CONNECTING) {
       return;
+    }
+    if (state === WebSocket.OPEN && !this.isStale()) {
+      return;
+    }
+    this.reconnectNow();
+  }
+
+  /**
+   * True once the current socket has gone more than the allowed number of heartbeat
+   * intervals without delivering any message (#762). Always a comparison of real
+   * timestamps -- never a count of how many times the liveness timer has fired, so a
+   * timer that ran late (or not at all) in a throttled background tab still decides
+   * correctly from the time that actually passed. False until the engine has named
+   * its interval.
+   */
+  private isStale(): boolean {
+    return (
+      this.heartbeatIntervalMs !== null &&
+      Date.now() - this.lastMessageAt > this.heartbeatIntervalMs * MISSED_HEARTBEATS_BEFORE_RECONNECT
+    );
+  }
+
+  // The liveness timer's own check (#762): only an OPEN socket can be silently dead --
+  // a closed one already reconnects through `onclose`, and a connecting one is not
+  // expected to have delivered anything yet.
+  private readonly checkLiveness = (): void => {
+    if (this.socket?.readyState === WebSocket.OPEN && this.isStale()) {
+      this.reconnectNow();
+    }
+  };
+
+  /**
+   * Starts (or restarts, if the engine now names a different interval) the timer that
+   * runs `checkLiveness` once per heartbeat interval (#762). Once per interval is
+   * enough: the check judges elapsed time, so the decision lands on the first run
+   * after the allowance is exceeded regardless of how often the timer manages to fire.
+   */
+  private armLivenessCheck(intervalMs: number): void {
+    if (!(intervalMs > 0)) {
+      return;
+    }
+    if (this.livenessTimer !== null && this.heartbeatIntervalMs === intervalMs) {
+      return;
+    }
+    if (this.livenessTimer !== null) {
+      clearInterval(this.livenessTimer);
+    }
+    this.heartbeatIntervalMs = intervalMs;
+    this.livenessTimer = setInterval(this.checkLiveness, intervalMs);
+  }
+
+  /**
+   * Drops whatever socket is current -- a dead-but-OPEN one (#762), or one already
+   * closed or closing -- and opens a fresh one immediately, with the backoff reset and
+   * any pending backoff reconnect cancelled. The old socket's handlers are detached
+   * first: on a dead connection the browser may take a long time to complete the close
+   * it was asked for, and its eventual `close` event must not be mistaken for the new
+   * socket's.
+   */
+  private reconnectNow(): void {
+    const stale = this.socket;
+    this.socket = null;
+    if (stale) {
+      stale.onopen = null;
+      stale.onmessage = null;
+      stale.onclose = null;
+      stale.close();
     }
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
@@ -299,8 +426,17 @@ export class EventsService implements OnDestroy {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const socket = new WebSocket(`${proto}://${location.host}/ws/events`);
     this.socket = socket;
+    // The liveness allowance starts from here (#762): a socket that opens but then
+    // delivers nothing -- not even its greeting -- is as dead as one that went quiet
+    // later, and must be judged from when it started, not from the previous socket's
+    // last message.
+    this.lastMessageAt = Date.now();
 
     socket.onopen = () => {
+      if (this.socket !== socket) {
+        return;
+      }
+      this.lastMessageAt = Date.now();
       this.backoffMs = INITIAL_BACKOFF_MS;
       if (this.everConnected) {
         this.reconnectedSubject.next();
@@ -309,14 +445,27 @@ export class EventsService implements OnDestroy {
     };
 
     socket.onmessage = (event: MessageEvent<string>) => {
+      if (this.socket !== socket) {
+        return;
+      }
+      // Any message at all proves the connection is alive (#762) -- recorded before
+      // parsing, so even a malformed one counts.
+      this.lastMessageAt = Date.now();
       try {
         const parsed = JSON.parse(event.data) as AppEvent;
+        if (parsed.type === HEARTBEAT_TYPE) {
+          // Consumed entirely by the timestamp above; no consumer ever sees it.
+          return;
+        }
         if (isEngineVersionEvent(parsed)) {
           this.engineVersionSignal.set(parsed);
           if (this.bootVersion === null) {
             this.bootVersion = parsed.version;
           } else if (parsed.version !== this.bootVersion) {
             this.versionChangedSubject.next();
+          }
+          if (parsed.heartbeatIntervalMs !== undefined) {
+            this.armLivenessCheck(parsed.heartbeatIntervalMs);
           }
         }
         this.eventsSubject.next(parsed);
@@ -326,8 +475,13 @@ export class EventsService implements OnDestroy {
     };
 
     // A network error is always followed by the close event per the WebSocket spec,
-    // so scheduling the reconnect there alone covers both cases.
+    // so scheduling the reconnect there alone covers both cases. A socket this service
+    // already replaced (#762's reconnectNow detaches this handler, but a close racing
+    // that detachment can still land) never speaks for the current one.
     socket.onclose = () => {
+      if (this.socket !== socket) {
+        return;
+      }
       this.socket = null;
       this.scheduleReconnect();
     };
