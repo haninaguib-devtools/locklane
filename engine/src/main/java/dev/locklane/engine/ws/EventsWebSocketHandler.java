@@ -52,6 +52,13 @@ import java.util.function.Supplier;
  * {@code @Component} (unlike before #665) so its {@link Scheduled} tick is actually
  * picked up by Spring's scheduler, the same requirement {@link TerminalWebSocketHandler}
  * is already built around.
+ *
+ * <p>What gets registered — with the broadcaster and the heartbeat alike — is the
+ * serializing wrapper {@link TerminalHeartbeat#serialized} puts around the connection
+ * (#761), never the raw session: a broadcast from a scheduler, HTTP, or PTY drain
+ * thread and the heartbeat's ping then take one lock per connection instead of colliding
+ * inside Tomcat. The greeting goes through the same wrapper, so no write to a connection
+ * ever bypasses it.
  */
 @Component
 public class EventsWebSocketHandler extends TextWebSocketHandler {
@@ -93,7 +100,8 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) {
+    public void afterConnectionEstablished(WebSocketSession connection) {
+        WebSocketSession session = TerminalHeartbeat.serialized(connection);
         broadcaster.sendTo(session, "engineVersion",
                 Map.of("version", versionStamp, "release", runningVersion));
         newerRelease.get().ifPresent(release ->
@@ -125,6 +133,9 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        // Spring hands back the raw session, not the wrapper afterConnectionEstablished
+        // registered; both registries key by id, which the wrapper delegates, so this
+        // still removes the right entry.
         broadcaster.unregister(session);
         heartbeat.untrack(session);
     }
