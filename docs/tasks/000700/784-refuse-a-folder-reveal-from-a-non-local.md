@@ -48,4 +48,14 @@ none
   the matcher exists. (agent, 2026-09-07)
 
 ## Deviations / notes
-- none
+- `./mvnw -B test` FAILS at commit `7fc23e2`, in the `client` module, before the engine
+  module is reached: Angular's production build reports `bundle initial exceeded maximum
+  budget. Budget 1.10 MB was not met by 346 bytes` (`client/angular.json`'s `initial`
+  `maximumError`). The same error fails CI's `checks` job on `main` at `1839dca`
+  (#806's merge), and this branch changes no file under `client/`, so it is a
+  pre-existing defect on `main`, not this task's. Fixing it means touching
+  `client/angular.json` or shrinking the initial bundle, both outside this task's Scope,
+  so it is not fixed here; the engine module's own suite was run separately
+  (`./mvnw -B -pl engine -am -Dskip.npm test`) and passes. Proposed issue for the human
+  to open: "Client production build exceeds the 1.1 MB initial-bundle budget" (bug). The
+  check is recorded as FAIL, never softened. (agent, 2026-09-07)
