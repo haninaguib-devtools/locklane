@@ -196,8 +196,7 @@
         [class.active]="isSelected(projectId, node.number)"
         [attr.data-project-id]="projectId"
         [attr.data-issue-number]="node.number"
-        (keydown.arrowdown)="onRowArrowKey($event, 1)"
-        (keydown.arrowup)="onRowArrowKey($event, -1)"
+        (keydown)="onRowKeydown($event)"
       >
         @if (node.children.length > 0) {
           <button

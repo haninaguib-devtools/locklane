@@ -876,8 +876,12 @@ export class SidenavComponent implements OnInit, OnDestroy {
    * navigation its routerLink would. Bound per-row, so this never fires from anywhere
    * else in the app (the filter `<input>` included).
    */
-  onRowArrowKey(event: KeyboardEvent, direction: -1 | 1): void {
+  onRowKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+      return;
+    }
     event.preventDefault();
+    const direction = event.key === 'ArrowDown' ? 1 : -1;
     const rows = Array.from(document.querySelectorAll<HTMLElement>('a.row'));
     const index = rows.indexOf(event.currentTarget as HTMLElement);
     const next = rows[index + direction];
