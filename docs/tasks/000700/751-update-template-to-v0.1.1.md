@@ -21,8 +21,30 @@ template, moving from the pinned `v0.0.17` to `v0.1.1`.
 - Filling in the new `AGENTS.md` "Reviewer model" local slot with anything other than
   the template's neutral default — this repo has no reviewer-model preference yet.
 
+## Origin
+none
+
+## Verification
+none
+
+## Feedback
+none
+
 ## Decisions made along the way
 - none
 
 ## Deviations / notes
-- none
+- Issue #751 was opened and this branch worked without first going through `/t-plan`,
+  even though the sync touches nearly every protected surface in the repo
+  (`CONSTITUTION.md` §3) — a `/t-plan` pass is required first for exactly that case,
+  and `/t-work`'s own Phase 1 gate should have caught the omission and did not. A cold
+  review caught it instead; `/t-plan 751` then wrote the `## Plan` section
+  retroactively, covering the diff that already existed, and a scoped re-review
+  confirmed the gap was closed with no other findings.
+- This record was originally written from `docs/tasks/TEMPLATE.md` as it stood before
+  this sync applied — the pre-sync template had no `## Origin`/`## Verification`/
+  `## Feedback` sections, and `/t-update`'s own procedure creates the record (step 6)
+  before copying in the new template shape (step 7). `v0.1.1`'s own `TEMPLATE.md`
+  adds those three sections and CI's `check-record.sh` now requires them on every task
+  record, including this one — this pass adds them (all `none`: no external origin, no
+  named-role verification on the plan, no feedback pass) to satisfy that new check.
