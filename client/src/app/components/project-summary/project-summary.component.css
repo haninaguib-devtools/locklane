@@ -15,27 +15,16 @@
   color: var(--faint);
 }
 
+/* Fills the width left beside .sessions-rail, the same way overview-tab's .main-col
+   does (#767) -- no max-width cap and no centering, so content flows from the top-left
+   and stays reachable at scrollTop: 0 (the clipping #281 fixed cannot recur without a
+   centering rule to cause it). */
 .main-col {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
   scrollbar-gutter: stable both-edges;
   padding: 20px 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-/* margin: auto instead of justify-content: center -- when content is taller than the
-   panel, auto margins collapse to 0 (never negative), so the top of the content stays
-   reachable at scrollTop: 0 instead of being clipped off-screen (#281). */
-.main-col > * {
-  margin: auto 0;
-}
-
-.content {
-  width: 100%;
-  max-width: 720px;
 }
 
 /* Reuses overview-tab's sessions-rail shape (#752): the same always-visible past-
