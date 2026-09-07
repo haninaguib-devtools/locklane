@@ -31,4 +31,12 @@ project's main worktree (`issueNumber: null`, `workingDirectory` = the project's
 - none
 
 ## Deviations / notes
-- none
+- Touched `client/src/app/app.component.spec.ts` outside the issue's declared Scope
+  (`client/src/app/components/project-summary/`), test-only: adding the shells button's
+  own `ShellsService.list()` fetch to `ProjectSummaryComponent.load()` made
+  `AppComponent`'s existing test-double helpers under-flush `/api/shells` in four specs
+  that mount the project summary and navigate away before the worktree list ever
+  renders (so only the summary's own new fetch is pending, never the worktree list's).
+  Added a `flushProjectShells()` helper there and called it alongside the existing
+  `flushProjectConsoleSessions()` in those four specs — a one-line-per-site test fix
+  directly caused by this task's own diff, not a feature or scope change.
