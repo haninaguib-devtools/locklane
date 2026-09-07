@@ -7,15 +7,26 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.net.ServerSocket;
 import java.nio.file.Path;
 import java.security.Principal;
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ConsolesControllerTest {
 
     private static final Principal ALICE = () -> "alice";
+
+    /**
+     * Stub listeners {@link #codeServerService} binds, kept alive for the class's
+     * whole run (#776): an unreferenced {@link ServerSocket} is eligible for the JVM
+     * to reclaim -- and close -- before {@code CodeServerService.start}'s own wait for
+     * a connection gets to it.
+     */
+    private static final List<ServerSocket> CODE_SERVER_STUBS = new CopyOnWriteArrayList<>();
 
     @Test
     void returnsEveryVisibleConsoleAcrossIssuesInTheProjectRegardlessOfWhoAttached(@TempDir Path dbDir) {
@@ -77,7 +88,8 @@ class ConsolesControllerTest {
     void openIdeReturnsTheProxiedIdePathForAVisibleConsole(@TempDir Path dbDir) {
         createProject(dbDir, "alice"); // project 1
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
+        Path worktree = dbDir.resolve("wt1");
+        repository.recordAttach("1-174-rename-toggle", worktree, Instant.now(), "alice");
         ConsolesController controller = new ConsolesController(worktreeService(dbDir, repository), launcher(repository),
                 codeServerService(repository));
 
@@ -85,8 +97,12 @@ class ConsolesControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         // The engine's own proxied path (#655), relative and slash-terminated -- never
-        // the loopback address the process itself listens on.
-        assertThat(response.getBody().url()).isEqualTo("/api/projects/1/consoles/1-174-rename-toggle/ide/");
+        // the loopback address the process itself listens on -- carrying the console's
+        // worktree as a `folder` query parameter (#776) so a bookmark or a bare refresh
+        // still opens this console's own workspace.
+        assertThat(response.getBody().url()).isEqualTo(
+                "/api/projects/1/consoles/1-174-rename-toggle/ide/?folder="
+                        + java.net.URLEncoder.encode(worktree.toString(), java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @Test
@@ -118,9 +134,21 @@ class ConsolesControllerTest {
         return new FileManagerLauncher(new SessionRegistry(repository));
     }
 
-    /** Spawns the harmless, instantly-exiting {@code true} instead of code-server itself. */
+    /**
+     * Spawns the harmless, instantly-exiting {@code true} instead of code-server
+     * itself, with a stub listener on the port it was told to bind to (#776) so
+     * {@code CodeServerService.start}'s own wait for a connection succeeds.
+     */
     private static CodeServerService codeServerService(WorktreeSessionRepository repository) {
         return new CodeServerService(new SessionRegistry(repository), Path.of("/unused/code-server"),
-                command -> new ProcessBuilder("true").start());
+                command -> {
+                    for (String arg : command) {
+                        if (arg.startsWith("127.0.0.1:")) {
+                            CODE_SERVER_STUBS.add(new ServerSocket(Integer.parseInt(arg.substring("127.0.0.1:".length()))));
+                            break;
+                        }
+                    }
+                    return new ProcessBuilder("true").start();
+                });
     }
 }

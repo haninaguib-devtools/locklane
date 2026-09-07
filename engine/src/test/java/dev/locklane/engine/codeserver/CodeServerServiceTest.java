@@ -6,26 +6,61 @@ import dev.locklane.engine.pty.SessionRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.net.ServerSocket;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CodeServerServiceTest {
 
     private static final Path BINARY = Path.of("/opt/code-server/bin/code-server");
 
+    /** Extracts the port a spawned command's {@code --bind-addr 127.0.0.1:<port>} names. */
+    private static int portFrom(String[] command) {
+        for (String arg : command) {
+            if (arg.startsWith("127.0.0.1:")) {
+                return Integer.parseInt(arg.substring("127.0.0.1:".length()));
+            }
+        }
+        throw new IllegalStateException("no 127.0.0.1:<port> token in " + java.util.Arrays.toString(command));
+    }
+
+    /**
+     * Binds a stub listener at the port {@code command} names, standing in for
+     * code-server actually coming up (#776) so {@code start()}'s own wait for a
+     * connection succeeds. Added to {@code stubs} rather than returned bare -- an
+     * unreferenced {@link ServerSocket} is eligible for the JVM to reclaim (and close)
+     * before {@code start()}'s polling loop gets to it, a real flake this test class
+     * hit once already.
+     */
+    private static void listenOn(String[] command, List<ServerSocket> stubs) throws IOException {
+        stubs.add(new ServerSocket(portFrom(command)));
+    }
+
+    private static void closeAll(List<ServerSocket> stubs) throws IOException {
+        for (ServerSocket stub : stubs) {
+            stub.close();
+        }
+    }
+
     @Test
-    void startsCodeServerBoundToLoopbackAtTheConsolesWorktree(@TempDir Path dbDir) {
+    void startsCodeServerBoundToLoopbackAtTheConsolesWorktree(@TempDir Path dbDir) throws Exception {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Path worktree = dbDir.resolve("wt1");
         repository.recordAttach("1-174-rename-toggle", worktree, Instant.now(), "alice");
         List<String[]> invocations = new ArrayList<>();
+        List<ServerSocket> stubs = new ArrayList<>();
         CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
                 command -> {
                     invocations.add(command);
+                    listenOn(command, stubs);
                     return new ProcessBuilder("true").start();
                 });
 
@@ -38,18 +73,21 @@ class CodeServerServiceTest {
         assertThat(invocations).hasSize(1);
         String[] command = invocations.get(0);
         assertThat(command[0]).isEqualTo(BINARY.toString());
-        assertThat(command).contains("--bind-addr", "--auth", "none", worktree.toString());
+        assertThat(command).contains("--bind-addr", "--auth", "none", "--ignore-last-opened", worktree.toString());
         assertThat(String.join(" ", command)).contains("127.0.0.1:");
+        closeAll(stubs);
     }
 
     @Test
-    void reusesTheAlreadyRunningProcessForASecondStart(@TempDir Path dbDir) {
+    void reusesTheAlreadyRunningProcessForASecondStart(@TempDir Path dbDir) throws Exception {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         List<String[]> invocations = new ArrayList<>();
+        List<ServerSocket> stubs = new ArrayList<>();
         CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
                 command -> {
                     invocations.add(command);
+                    listenOn(command, stubs);
                     return new ProcessBuilder("true").start();
                 });
 
@@ -58,6 +96,7 @@ class CodeServerServiceTest {
 
         assertThat(second).isEqualTo(first);
         assertThat(invocations).hasSize(1);
+        closeAll(stubs);
     }
 
     @Test
@@ -77,13 +116,15 @@ class CodeServerServiceTest {
     }
 
     @Test
-    void upstreamAnswersOnlyForARunningProcessAndNeverStartsOne(@TempDir Path dbDir) {
+    void upstreamAnswersOnlyForARunningProcessAndNeverStartsOne(@TempDir Path dbDir) throws Exception {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         List<String[]> invocations = new ArrayList<>();
+        List<ServerSocket> stubs = new ArrayList<>();
         CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
                 command -> {
                     invocations.add(command);
+                    listenOn(command, stubs);
                     return new ProcessBuilder("true").start();
                 });
 
@@ -97,6 +138,7 @@ class CodeServerServiceTest {
         assertThat(service.upstream("1-174-rename-toggle")).isEqualTo(started);
         service.stop("1-174-rename-toggle");
         assertThat(service.upstream("1-174-rename-toggle")).isEmpty();
+        closeAll(stubs);
     }
 
     @Test
@@ -115,8 +157,10 @@ class CodeServerServiceTest {
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         SessionRegistry registry = new SessionRegistry(repository);
         List<Process> spawned = new ArrayList<>();
+        List<ServerSocket> stubs = new ArrayList<>();
         CodeServerService service = new CodeServerService(registry, BINARY,
                 command -> {
+                    listenOn(command, stubs);
                     // Sleeps well past this test's lifetime, so a leftover destroy() is
                     // exercised for real rather than racing an already-exited process.
                     Process process = new ProcessBuilder("sleep", "30").start();
@@ -128,9 +172,10 @@ class CodeServerServiceTest {
         registry.close("1-174-rename-toggle");
 
         assertThat(spawned).hasSize(1);
-        boolean exited = spawned.get(0).waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+        boolean exited = spawned.get(0).waitFor(5, TimeUnit.SECONDS);
         assertThat(exited).isTrue();
         assertThat(service.start("1-174-rename-toggle")).isEmpty(); // the session's record is gone too
+        closeAll(stubs);
     }
 
     @Test
@@ -139,8 +184,10 @@ class CodeServerServiceTest {
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         SessionRegistry registry = new SessionRegistry(repository);
         List<Process> spawned = new ArrayList<>();
+        List<ServerSocket> stubs = new ArrayList<>();
         CodeServerService service = new CodeServerService(registry, BINARY,
                 command -> {
+                    listenOn(command, stubs);
                     // Ignores SIGTERM and has a child of its own -- the shape that made
                     // stop() block the close listener for up to the grace period plus the
                     // forced-kill wait (#682) before termination moved to a background
@@ -164,7 +211,7 @@ class CodeServerServiceTest {
         long elapsedMillis = System.currentTimeMillis() - start;
 
         assertThat(elapsedMillis).isLessThan(1000);
-        assertThat(spawned.get(0).waitFor(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        assertThat(spawned.get(0).waitFor(10, TimeUnit.SECONDS)).isTrue();
         for (ProcessHandle descendant : descendants) {
             long deadline = System.currentTimeMillis() + 10000;
             while (descendant.isAlive() && System.currentTimeMillis() < deadline) {
@@ -172,6 +219,7 @@ class CodeServerServiceTest {
             }
             assertThat(descendant.isAlive()).as("descendant %d", descendant.pid()).isFalse();
         }
+        closeAll(stubs);
     }
 
     @Test
@@ -180,8 +228,10 @@ class CodeServerServiceTest {
         repository.recordAttach("1-201-one", dbDir.resolve("wt1"), Instant.now(), "alice");
         repository.recordAttach("1-202-two", dbDir.resolve("wt2"), Instant.now(), "alice");
         List<Process> spawned = new ArrayList<>();
+        List<ServerSocket> stubs = new ArrayList<>();
         CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
                 command -> {
+                    listenOn(command, stubs);
                     // A shell with a child, the shape a real code-server has (node plus
                     // its extension host): #678 ends the tree, not only the root.
                     Process process = new ProcessBuilder("/bin/sh", "-c", "sleep 300 & wait").start();
@@ -202,11 +252,54 @@ class CodeServerServiceTest {
         service.stopAll();
 
         for (Process process : spawned) {
-            assertThat(process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(process.waitFor(5, TimeUnit.SECONDS)).isTrue();
         }
         for (ProcessHandle descendant : descendants) {
             assertThat(descendant.isAlive()).as("descendant %d", descendant.pid()).isFalse();
         }
         assertThat(service.upstream("1-201-one")).isEmpty();
+        closeAll(stubs);
+    }
+
+    @Test
+    void startWaitsForCodeServerToAcceptConnectionsBeforeReturning(@TempDir Path dbDir) throws Exception {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
+        List<ServerSocket> stubs = new ArrayList<>();
+        CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
+                command -> {
+                    // The stub listener stands in for code-server itself binding the
+                    // port (#776) -- start() must not return before this is up.
+                    listenOn(command, stubs);
+                    return new ProcessBuilder("sleep", "30").start();
+                });
+
+        var upstream = service.start("1-174-rename-toggle");
+
+        assertThat(upstream).isPresent();
+        closeAll(stubs);
+    }
+
+    @Test
+    void startFailsAndUntracksWhenCodeServerNeverListens(@TempDir Path dbDir) throws Exception {
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
+        List<Process> spawned = new ArrayList<>();
+        CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
+                command -> {
+                    // Never binds the port service.start() is waiting on.
+                    Process process = new ProcessBuilder("sleep", "30").start();
+                    spawned.add(process);
+                    return process;
+                },
+                Duration.ofMillis(300));
+
+        assertThatThrownBy(() -> service.start("1-174-rename-toggle"))
+                .isInstanceOf(CodeServerService.CodeServerLaunchException.class);
+
+        // Stopped -- the process that never listened does not outlive the failed start --
+        // and untracked, so a later call is a fresh attempt rather than reusing nothing.
+        assertThat(spawned.get(0).waitFor(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(service.upstream("1-174-rename-toggle")).isEmpty();
     }
 }

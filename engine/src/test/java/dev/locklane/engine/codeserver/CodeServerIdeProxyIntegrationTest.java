@@ -142,7 +142,9 @@ class CodeServerIdeProxyIntegrationTest {
         HttpResponse<String> opened = send(post(url("/api/projects/" + projectId + "/consoles/" + consoleId + "/open-ide"), aliceCookie));
         assertThat(opened.statusCode()).isEqualTo(200);
         String idePath = "/api/projects/" + projectId + "/consoles/" + consoleId + "/ide/";
-        assertThat(opened.body()).isEqualTo("{\"url\":\"" + idePath + "\"}");
+        // Carries the console's own worktree as a `folder` query parameter (#776).
+        String encodedFolder = java.net.URLEncoder.encode(worktree.toString(), StandardCharsets.UTF_8);
+        assertThat(opened.body()).isEqualTo("{\"url\":\"" + idePath + "?folder=" + encodedFolder + "\"}");
 
         // Anonymous: 401 from the security entry point, never IDE content.
         assertThat(send(get(url(idePath), null)).statusCode()).isEqualTo(401);

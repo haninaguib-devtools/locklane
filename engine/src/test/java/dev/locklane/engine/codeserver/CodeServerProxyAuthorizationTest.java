@@ -9,8 +9,11 @@ import dev.locklane.engine.pty.SessionRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.net.ServerSocket;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,6 +23,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the same fixtures {@code ConsolesControllerTest} uses.
  */
 class CodeServerProxyAuthorizationTest {
+
+    /**
+     * Stub listeners {@link #codeServerService} binds, kept alive for the class's
+     * whole run (#776): an unreferenced {@link ServerSocket} is eligible for the JVM
+     * to reclaim -- and close -- before {@code CodeServerService.start}'s own wait for
+     * a connection gets to it.
+     */
+    private static final List<ServerSocket> CODE_SERVER_STUBS = new CopyOnWriteArrayList<>();
 
     @Test
     void resolvesTheRunningUpstreamForTheProjectsOwnerOnly(@TempDir Path dbDir) {
@@ -57,8 +68,17 @@ class CodeServerProxyAuthorizationTest {
         return new IssueWorktreeService(repository, authorization);
     }
 
+    /** A stub listener on the port named by {@code --bind-addr} so {@code start()}'s own wait for a connection succeeds (#776). */
     private static CodeServerService codeServerService(WorktreeSessionRepository repository) {
         return new CodeServerService(new SessionRegistry(repository), Path.of("/unused/code-server"),
-                command -> new ProcessBuilder("true").start());
+                command -> {
+                    for (String arg : command) {
+                        if (arg.startsWith("127.0.0.1:")) {
+                            CODE_SERVER_STUBS.add(new ServerSocket(Integer.parseInt(arg.substring("127.0.0.1:".length()))));
+                            break;
+                        }
+                    }
+                    return new ProcessBuilder("true").start();
+                });
     }
 }
