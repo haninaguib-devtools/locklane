@@ -4,6 +4,7 @@
   } @else if (error || !project) {
     <div class="state">could not load this project</div>
   } @else {
+    <div class="main-col">
     <div class="content">
       <div class="header">
         <h1>{{ project.name }}</h1>
@@ -103,6 +104,22 @@
         <app-worktree-list [projectId]="projectId" />
       }
     </div>
+    </div>
+    @if (project.status === 'READY') {
+      <aside class="sessions-rail">
+        <h3 class="sessions-title">past sessions</h3>
+        @if (pastSessionsLoading) {
+          <div class="sessions-loading">loading…</div>
+        } @else if (pastSessions.length) {
+          <app-session-list [sessions]="pastSessions" [busy]="reopeningSession" (reopen)="reopenPastSession($event)" />
+        } @else {
+          <div class="sessions-empty">no past conversations in this project's consoles yet</div>
+        }
+        @if (reopenSessionError) {
+          <div class="action-error">could not reopen that conversation — try again</div>
+        }
+      </aside>
+    }
   }
 </section>
 
