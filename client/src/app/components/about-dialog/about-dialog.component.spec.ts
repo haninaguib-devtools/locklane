@@ -4,12 +4,19 @@ import { RunningVersionService } from '../../services/running-version.service';
 
 describe('AboutDialogComponent (#575)', () => {
   let runningVersion: string | null;
+  let releaseUrl: string | null;
 
   beforeEach(() => {
     runningVersion = null;
+    releaseUrl = null;
     TestBed.configureTestingModule({
       imports: [AboutDialogComponent],
-      providers: [{ provide: RunningVersionService, useValue: { version: () => runningVersion } }],
+      providers: [
+        {
+          provide: RunningVersionService,
+          useValue: { version: () => runningVersion, releaseUrl: () => releaseUrl },
+        },
+      ],
     });
   });
 
@@ -45,6 +52,29 @@ describe('AboutDialogComponent (#575)', () => {
     fixture.detectChanges();
 
     expect(text(fixture, '.version')).toBe('version 0.1.12');
+  });
+
+  it('links the version to its GitHub release page when one is known (#799)', () => {
+    runningVersion = '0.2.20';
+    releaseUrl = 'https://github.com/haninaguib-devtools/locklane/releases/tag/v0.2.20';
+    const fixture = open();
+
+    const link = (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('.version a');
+    expect(link?.textContent?.trim()).toBe('version 0.2.20');
+    expect(link?.getAttribute('href')).toBe(
+      'https://github.com/haninaguib-devtools/locklane/releases/tag/v0.2.20',
+    );
+    expect(link?.getAttribute('target')).toBe('_blank');
+    expect(link?.getAttribute('rel')).toBe('noopener');
+  });
+
+  it('shows the version as plain text, with no link, for a dev build (no releaseUrl)', () => {
+    runningVersion = '0.2.20-SNAPSHOT';
+    releaseUrl = null;
+    const fixture = open();
+
+    expect(text(fixture, '.version')).toBe('version 0.2.20-SNAPSHOT');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.version a')).toBeNull();
   });
 
   it('closes from the Close button, the backdrop, and Escape', () => {

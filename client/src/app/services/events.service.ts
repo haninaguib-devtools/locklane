@@ -59,19 +59,25 @@ export function isConsolesChangedEvent(event: AppEvent): event is ConsolesChange
  * the two sides agree on the interval without the client hardcoding one. Optional for
  * the same reason as `release`; an engine that does not send it gets no client-side
  * liveness check, exactly the behaviour before #762.
+ *
+ * `releaseUrl` (#799) is the running release's own GitHub Releases page, for the About
+ * dialog to link the version to -- absent for a `-SNAPSHOT` build (no page exists) and
+ * for an engine too old to send it, both of which the dialog renders as plain text.
  */
 export interface EngineVersionEvent extends AppEvent {
   type: 'engineVersion';
   version: string;
   release?: string;
   heartbeatIntervalMs?: number;
+  releaseUrl?: string;
 }
 
 export function isEngineVersionEvent(event: AppEvent): event is EngineVersionEvent {
   return (
     event.type === 'engineVersion' &&
     typeof event['version'] === 'string' &&
-    (event['heartbeatIntervalMs'] === undefined || typeof event['heartbeatIntervalMs'] === 'number')
+    (event['heartbeatIntervalMs'] === undefined || typeof event['heartbeatIntervalMs'] === 'number') &&
+    (event['releaseUrl'] === undefined || typeof event['releaseUrl'] === 'string')
   );
 }
 

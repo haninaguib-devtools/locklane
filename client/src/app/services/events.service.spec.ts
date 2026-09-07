@@ -173,6 +173,28 @@ describe('EventsService', () => {
     expect(service.engineVersion()).toEqual({ type: 'engineVersion', version: 'a', release: '0.1.11' });
   });
 
+  it('keeps releaseUrl alongside release when the greeting carries one (#799)', () => {
+    const service = newService();
+    service.connect();
+
+    latestSocket().triggerMessage(
+      '{"type":"engineVersion","version":"a","release":"0.2.20",' +
+        '"releaseUrl":"https://github.com/o/r/releases/tag/v0.2.20"}',
+    );
+
+    expect(service.engineVersion()?.releaseUrl).toBe('https://github.com/o/r/releases/tag/v0.2.20');
+  });
+
+  it('still recognizes an engineVersion greeting with no releaseUrl, from an older engine (#799)', () => {
+    const service = newService();
+    service.connect();
+
+    latestSocket().triggerMessage('{"type":"engineVersion","version":"a","release":"0.1.11"}');
+
+    expect(service.engineVersion()?.release).toBe('0.1.11');
+    expect(service.engineVersion()?.releaseUrl).toBeUndefined();
+  });
+
   it("replaces engineVersion with each reconnect's greeting, release included (#595)", () => {
     const service = newService();
     service.connect();

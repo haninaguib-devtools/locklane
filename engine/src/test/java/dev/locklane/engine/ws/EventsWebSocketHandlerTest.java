@@ -144,7 +144,7 @@ class EventsWebSocketHandlerTest {
     void theGreetingCarriesTheBuildStampAndTheRunningVersion() {
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         EventsWebSocketHandler handler =
-                new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0-SNAPSHOT", Optional::empty);
+                new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0-SNAPSHOT", "o/r", Optional::empty);
         WebSocketSession session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("s");
 
@@ -159,15 +159,49 @@ class EventsWebSocketHandlerTest {
         // #762: the client arms its own liveness check from this value, so it must be
         // the interval this handler actually ticks on, not a constant.
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
-        EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
-                Optional::empty, List::of, Clock.systemUTC(), 1234L);
+        EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", "o/r",
+                Optional::empty, Clock.systemUTC(), 1234L);
         WebSocketSession session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("s");
 
         handler.afterConnectionEstablished(session);
 
         verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("engineVersion"),
-                eq(Map.of("version", "stamp", "release", "0.1.0", "heartbeatIntervalMs", 1234L)));
+                eq(Map.of("version", "stamp", "release", "0.1.0", "heartbeatIntervalMs", 1234L,
+                        "releaseUrl", "https://github.com/o/r/releases/tag/v0.1.0")));
+    }
+
+    @Test
+    void theGreetingCarriesTheRunningVersionsOwnReleaseUrlWhenItIsNotASnapshot() {
+        // #799: the running build's own Releases-page link, assembled from the
+        // configured repository and the release version — never fetched over the
+        // network, unlike ReleaseUpdateChecker's newer-release lookup.
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        EventsWebSocketHandler handler =
+                new EventsWebSocketHandler(broadcaster, "stamp", "0.2.20", "o/r", Optional::empty);
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("s");
+
+        handler.afterConnectionEstablished(session);
+
+        verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("engineVersion"),
+                eq(Map.of("version", "stamp", "release", "0.2.20", "heartbeatIntervalMs", 20_000L,
+                        "releaseUrl", "https://github.com/o/r/releases/tag/v0.2.20")));
+    }
+
+    @Test
+    void theGreetingOmitsReleaseUrlForASnapshotBuild() {
+        // A -SNAPSHOT build was never tagged, so it has no release page to link to.
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        EventsWebSocketHandler handler =
+                new EventsWebSocketHandler(broadcaster, "stamp", "0.2.20-SNAPSHOT", "o/r", Optional::empty);
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("s");
+
+        handler.afterConnectionEstablished(session);
+
+        verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("engineVersion"),
+                eq(Map.of("version", "stamp", "release", "0.2.20-SNAPSHOT", "heartbeatIntervalMs", 20_000L)));
     }
 
     @Test
@@ -176,7 +210,7 @@ class EventsWebSocketHandlerTest {
         // broadcast does (#466), so a client connecting after detection sees the
         // identical banner, link included.
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
-        EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
+        EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", "o/r",
                 () -> Optional.of(new ReleaseUpdateChecker.NewerRelease(
                         "0.2.0", "https://github.com/o/r/releases/tag/v0.2.0")));
         WebSocketSession session = mock(WebSocketSession.class);
@@ -192,7 +226,7 @@ class EventsWebSocketHandlerTest {
     void aConnectionIsToldNothingWhenNoNewerReleaseIsKnownYet() {
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         EventsWebSocketHandler handler =
-                new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", Optional::empty);
+                new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", "o/r", Optional::empty);
         WebSocketSession session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("s");
 
@@ -207,7 +241,7 @@ class EventsWebSocketHandlerTest {
         // greeting included, goes through the one wrapper so no write bypasses its lock.
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         EventsWebSocketHandler handler =
-                new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", Optional::empty);
+                new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", "o/r", Optional::empty);
         WebSocketSession session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("s");
 
@@ -227,7 +261,7 @@ class EventsWebSocketHandlerTest {
         // so this proves the handler's own registration is what serializes the writes.
         EventBroadcaster broadcaster = new EventBroadcaster(new ObjectMapper());
         EventsWebSocketHandler handler =
-                new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", Optional::empty);
+                new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0", "o/r", Optional::empty);
         AtomicBoolean writing = new AtomicBoolean(false);
         AtomicInteger overlaps = new AtomicInteger();
         AtomicInteger delivered = new AtomicInteger();

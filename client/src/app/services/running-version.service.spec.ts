@@ -47,4 +47,25 @@ describe('RunningVersionService', () => {
 
     expect(service.version()).toBeNull();
   });
+
+  it('exposes the releaseUrl alongside the version when the greeting carries one (#799)', () => {
+    engineVersion.set({
+      type: 'engineVersion',
+      version: 'stamp',
+      release: '0.2.20',
+      releaseUrl: 'https://github.com/o/r/releases/tag/v0.2.20',
+    });
+
+    const service = TestBed.inject(RunningVersionService);
+
+    expect(service.releaseUrl()).toBe('https://github.com/o/r/releases/tag/v0.2.20');
+  });
+
+  it('has no releaseUrl for a snapshot build or an older engine that never sends one', () => {
+    engineVersion.set({ type: 'engineVersion', version: 'stamp', release: '0.2.20-SNAPSHOT' });
+
+    const service = TestBed.inject(RunningVersionService);
+
+    expect(service.releaseUrl()).toBeNull();
+  });
 });

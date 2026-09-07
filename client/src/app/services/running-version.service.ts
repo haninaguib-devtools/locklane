@@ -16,10 +16,14 @@ import { EventsService } from './events.service';
  * the first reader arrives, and follows every reconnect's greeting, so an engine
  * upgraded while the app stays open shows its new version, even in a dialog already
  * open. `null` until the first greeting, and for an engine too old to send `release`.
+ *
+ * `releaseUrl` (#799) is that version's own GitHub Releases page, alongside it --
+ * `null` for a `-SNAPSHOT` build (no page exists) and for an engine too old to send it.
  */
 @Injectable({ providedIn: 'root' })
 export class RunningVersionService {
   private readonly events = inject(EventsService);
 
   readonly version = computed(() => this.events.engineVersion()?.release ?? null);
+  readonly releaseUrl = computed(() => this.events.engineVersion()?.releaseUrl ?? null);
 }

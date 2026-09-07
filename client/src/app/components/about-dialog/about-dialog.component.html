@@ -6,7 +6,11 @@
       <div class="name">LockLane</div>
       <div class="version" title="The locklane version this engine is running">
         @if (version(); as version) {
-          version {{ version }}
+          @if (releaseUrl(); as releaseUrl) {
+            <a [href]="releaseUrl" target="_blank" rel="noopener">version {{ version }}</a>
+          } @else {
+            version {{ version }}
+          }
         } @else {
           version unknown
         }
