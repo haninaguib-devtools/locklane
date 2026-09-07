@@ -8,6 +8,17 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.19 — 2026-09-07
+
+### Features
+- Move past sessions from project console page to project page (#752, #754)
+- Make project page repository URL open in a new tab (#749, #750)
+- Sidenav: arrow-key navigation between selected issues (#747, #748)
+- Add 'Open shells' button to project summary (#745, #746)
+
+### Other
+- Update template to v0.1.1 (#751, #753)
+
 ## v0.2.18 — 2026-09-06
 
 ### Features
