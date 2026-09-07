@@ -8,6 +8,15 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.18 — 2026-09-06
+
+### Features
+- Add Window Controls Overlay support to shells-window (#741, #742)
+
+### Fixes
+- Sidenav does not show newly created project until manual refresh (#738, #740)
+- Fix Codex usage not reporting in the usage widget (#737, #739)
+
 ## v0.2.17 — 2026-09-06
 
 ### Features
