@@ -194,6 +194,10 @@
         class="row"
         [routerLink]="['/projects', projectId, 'issues', node.number]"
         [class.active]="isSelected(projectId, node.number)"
+        [attr.data-project-id]="projectId"
+        [attr.data-issue-number]="node.number"
+        (keydown.arrowdown)="onRowArrowKey($event, 1)"
+        (keydown.arrowup)="onRowArrowKey($event, -1)"
       >
         @if (node.children.length > 0) {
           <button

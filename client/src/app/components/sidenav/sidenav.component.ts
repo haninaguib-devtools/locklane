@@ -102,8 +102,18 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
 
   // Highlight only -- navigation is each row's own routerLink (#170), so selection
-  // flows in from the URL and never back out through an event.
-  @Input() selected: ProjectIssue | null = null;
+  // flows in from the URL and never back out through an event. The setter also moves
+  // DOM focus onto the newly-selected row (#747), so arrow keys work immediately after
+  // a click without a second click to focus it first.
+  private _selected: ProjectIssue | null = null;
+  @Input()
+  set selected(value: ProjectIssue | null) {
+    this._selected = value;
+    this.focusSelectedRow();
+  }
+  get selected(): ProjectIssue | null {
+    return this._selected;
+  }
 
   /** The project whose own summary page is showing, with no issue selected (#85). */
   @Input() selectedProject: number | null = null;
@@ -353,6 +363,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
           onDone();
           this.maybeReveal();
           this.refreshConsoleIndicators();
+          // The selected input can arrive before the tree that carries its row does
+          // (e.g. loading a URL straight onto an issue) -- try again once it's loaded.
+          this.focusSelectedRow();
         },
         error: () => {
           this.error = true;
@@ -825,6 +838,54 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   isSelected(projectId: number, issueNumber: number): boolean {
     return this.selected !== null && this.selected.projectId === projectId && this.selected.issueNumber === issueNumber;
+  }
+
+  /**
+   * Moves DOM focus onto the currently-selected row, once it exists (#747). Deferred a
+   * tick -- like `maybeReveal`'s scroll -- since a binding that just arrived hasn't
+   * necessarily been rendered into the DOM yet by the time this runs.
+   */
+  private focusSelectedRow(): void {
+    const target = this._selected;
+    if (target === null) {
+      return;
+    }
+    setTimeout(() => {
+      if (
+        this._selected === null ||
+        this._selected.projectId !== target.projectId ||
+        this._selected.issueNumber !== target.issueNumber
+      ) {
+        return; // selection moved on before this ran
+      }
+      this.rowElement(target.projectId, target.issueNumber)?.focus();
+    });
+  }
+
+  private rowElement(projectId: number, issueNumber: number): HTMLElement | null {
+    return document.querySelector<HTMLElement>(
+      `a.row[data-project-id="${projectId}"][data-issue-number="${issueNumber}"]`,
+    );
+  }
+
+  /**
+   * Arrow-key navigation between sidenav rows (#747): moves focus to the next/previous
+   * row in DOM order -- which already reflects render order (expand/collapse, the text
+   * filter, the pinned section, project-section boundaries included), since a row not
+   * currently visible is simply not in the DOM -- then clicks it to drive the same
+   * navigation its routerLink would. Bound per-row, so this never fires from anywhere
+   * else in the app (the filter `<input>` included).
+   */
+  onRowArrowKey(event: KeyboardEvent, direction: -1 | 1): void {
+    event.preventDefault();
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('a.row'));
+    const index = rows.indexOf(event.currentTarget as HTMLElement);
+    const next = rows[index + direction];
+    if (next === undefined) {
+      return;
+    }
+    next.focus();
+    next.click();
   }
 
   private menuKey(projectId: number, issueNumber: number): string {

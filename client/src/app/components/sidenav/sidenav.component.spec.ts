@@ -193,6 +193,96 @@ describe('SidenavComponent', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  it('selecting a row moves DOM focus onto it (#747)', fakeAsync(() => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    fixture.componentInstance.selected = { projectId: 1, issueNumber: 4 };
+    tick();
+
+    const row = fixture.nativeElement.querySelector('a.row[data-issue-number="4"]');
+    expect(document.activeElement).toBe(row);
+  }));
+
+  it('ArrowDown moves focus and drives the same navigation as clicking the next row (#747)', fakeAsync(() => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+
+    // Render order: initiative #1, its open child #2, standalone #4 (#3 hidden by hideShipped).
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('a.row')) as HTMLAnchorElement[];
+    rows[0].focus();
+    rows[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+
+    expect(document.activeElement).toBe(rows[1]);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(String(navigate.calls.mostRecent().args[0])).toBe('/projects/1/issues/2');
+  }));
+
+  it('ArrowUp moves focus and drives the same navigation as clicking the previous row (#747)', fakeAsync(() => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('a.row')) as HTMLAnchorElement[];
+    rows[1].focus();
+    rows[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+
+    expect(document.activeElement).toBe(rows[0]);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(String(navigate.calls.mostRecent().args[0])).toBe('/projects/1/issues/1');
+  }));
+
+  it('ArrowDown skips a collapsed row\'s hidden children, following visible render order (#747)', fakeAsync(() => {
+    const fixture = init();
+    flushTree(1, tree());
+    TestBed.inject(CollapseStore).toggle(1, 1); // collapse initiative #1
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('a.row')) as HTMLAnchorElement[];
+    // Collapsed: child #2 is out of the DOM entirely, same as closed #3.
+    expect(rows.map((r) => r.getAttribute('href'))).toEqual(['/projects/1/issues/1', '/projects/1/issues/4']);
+
+    rows[0].focus();
+    rows[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+
+    expect(document.activeElement).toBe(rows[1]);
+    expect(String(navigate.calls.mostRecent().args[0])).toBe('/projects/1/issues/4');
+  }));
+
+  it('ArrowDown/ArrowUp do nothing at the ends of the visible list (#747)', fakeAsync(() => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('a.row')) as HTMLAnchorElement[];
+    rows[rows.length - 1].focus();
+    rows[rows.length - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+
+    expect(document.activeElement).toBe(rows[rows.length - 1]);
+    expect(navigate).not.toHaveBeenCalled();
+  }));
+
+  it('arrow keys keep their normal behavior in the filter input, not just outside a row (#747)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigateByUrl').and.resolveTo(true);
+
+    const input = fixture.nativeElement.querySelector('.filter-input') as HTMLInputElement;
+    input.focus();
+    const event = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBeFalse();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('isSelected only matches the exact project/issue pair', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
