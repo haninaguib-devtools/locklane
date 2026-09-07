@@ -3,6 +3,7 @@ package dev.locklane.engine.ws;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.UserRepository;
+import dev.locklane.engine.pty.SessionRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +47,9 @@ class EventsWebSocketHandlerIntegrationTest {
 
     @Autowired
     private BuildProperties buildProperties;
+
+    @Autowired
+    private SessionRegistry sessionRegistry;
 
     @Value("${locklane.events.heartbeat-interval-ms}")
     private long heartbeatIntervalMs;
@@ -118,6 +122,14 @@ class EventsWebSocketHandlerIntegrationTest {
         // send, in the same server-side thread), so the count check below is immediate.
         waitUntil(() -> !client.messages.isEmpty(), Duration.ofSeconds(5));
         waitUntil(() -> eventBroadcaster.registeredSessionCount() == 1, Duration.ofSeconds(5));
+        // #790: registration is no longer the end of the connect-time traffic -- the
+        // waiting-agents snapshot is sent only after it, one consoleAttention line per
+        // live session currently waiting, and in this shared Spring context those are
+        // whatever sessions earlier test classes left running and now quiescent. Wait
+        // for every one of those lines to land too, so the count below is the whole
+        // connect sequence and not a point part-way through it.
+        waitUntil(() -> sessionRegistry.waitingSessionIds().stream().allMatch(client::hasWaitingSnapshotFor),
+                Duration.ofSeconds(5));
         long messagesBeforeClose = client.eventMessageCount();
 
         session.close();
@@ -166,6 +178,24 @@ class EventsWebSocketHandlerIntegrationTest {
          */
         long eventMessageCount() {
             return messages.stream().filter(m -> !m.equals("{\"type\":\"heartbeat\"}")).count();
+        }
+
+        /**
+         * Whether the connect-time snapshot's {@code consoleAttention} line for this
+         * session (#790) has arrived. Parsed rather than matched as a string: the
+         * payload's fields come from {@code Map.of}, which guarantees no key order.
+         */
+        boolean hasWaitingSnapshotFor(String sessionId) {
+            return messages.stream().anyMatch(m -> {
+                try {
+                    JsonNode node = new ObjectMapper().readTree(m);
+                    return node.path("type").asText().equals("consoleAttention")
+                            && node.path("sessionId").asText().equals(sessionId)
+                            && node.path("state").asText().equals("waiting");
+                } catch (java.io.IOException e) {
+                    return false;
+                }
+            });
         }
     }
 }

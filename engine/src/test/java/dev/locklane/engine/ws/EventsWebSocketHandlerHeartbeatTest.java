@@ -14,6 +14,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -190,7 +191,7 @@ class EventsWebSocketHandlerHeartbeatTest {
     }
 
     private static EventsWebSocketHandler handler(Clock clock, EventBroadcaster broadcaster) {
-        return new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0-SNAPSHOT", Optional::empty, clock,
+        return new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0-SNAPSHOT", Optional::empty, List::of, clock,
                 INTERVAL_MS);
     }
 
