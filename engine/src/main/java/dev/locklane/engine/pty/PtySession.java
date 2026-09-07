@@ -255,6 +255,16 @@ public final class PtySession {
     }
 
     /**
+     * This session's attention state right now (#790). {@link #subscribeAttention}
+     * never replays the current state, so this is how a client that connects to the
+     * events channel after the last change catches up — {@code SessionRegistry}
+     * reads it to build the snapshot a new connection is sent.
+     */
+    public AttentionState attentionState() {
+        return attention.get();
+    }
+
+    /**
      * Re-evaluates the quiescence fallback (#130): output that has gone quiet for
      * {@link #QUIESCENCE_THRESHOLD_MS} with no input sent since marks the session as
      * waiting, for an agent that never rings the bell. Never called on a timer inside

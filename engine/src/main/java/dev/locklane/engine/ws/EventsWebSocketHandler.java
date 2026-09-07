@@ -2,6 +2,7 @@ package dev.locklane.engine.ws;
 
 import dev.locklane.engine.github.ReleaseUpdateChecker;
 import dev.locklane.engine.github.ReleaseUpdateChecker.NewerRelease;
+import dev.locklane.engine.pty.SessionRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +16,8 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.time.Clock;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -42,6 +45,19 @@ import java.util.function.Supplier;
  * learn the engine already knows about a newer release. The replayed message is built
  * from the same {@link NewerRelease} the broadcast was (#466) — version and Releases-page
  * url — so a late joiner sees the identical banner, link included.
+ *
+ * <p>A connection is also caught up on which agents are waiting for the user (#790):
+ * {@code consoleAttention} is otherwise push-only, broadcast by {@link SessionRegistry}
+ * only at the moment a session's state changes (#130), so a page opened, reloaded or
+ * reconnected after an agent rang the bell would show it as calm until it rang again.
+ * The new connection is sent one {@code consoleAttention} message with
+ * {@code state: "waiting"} per live session currently waiting — the exact shape the
+ * live broadcast uses, so every consumer catches up with no new message type — and
+ * nothing for a session that is active. The snapshot is taken only <em>after</em> the
+ * connection is registered for broadcasts, so a state change racing the connect is
+ * delivered by the broadcast or the snapshot (at worst by both, which is idempotent),
+ * never lost between the two. Same audience as the broadcast: every connected client,
+ * regardless of project.
  *
  * <p>Also runs {@link TerminalHeartbeat} on every live connection (#665), the same
  * mechanism {@link TerminalWebSocketHandler} uses for {@code /ws/sessions/*} (#279):
@@ -88,34 +104,48 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
     private final String versionStamp;
     private final String runningVersion;
     private final Supplier<Optional<NewerRelease>> newerRelease;
+    // #790: the ids of the live sessions waiting for attention, read fresh on every
+    // connect — a supplier for the same reason newerRelease is: the set changes
+    // throughout the engine's lifetime.
+    private final Supplier<Collection<String>> waitingSessions;
     private final TerminalHeartbeat heartbeat;
     private final long heartbeatIntervalMs;
 
     @Autowired
     public EventsWebSocketHandler(EventBroadcaster broadcaster, BuildProperties buildProperties,
-            ReleaseUpdateChecker releaseUpdateChecker, Clock clock,
+            ReleaseUpdateChecker releaseUpdateChecker, SessionRegistry sessionRegistry, Clock clock,
             @Value("${locklane.events.heartbeat-interval-ms}") long heartbeatIntervalMs) {
         this(broadcaster, buildProperties.getTime().toString(), buildProperties.getVersion(),
-                releaseUpdateChecker::newerReleaseAvailable, clock, heartbeatIntervalMs);
+                releaseUpdateChecker::newerReleaseAvailable, sessionRegistry::waitingSessionIds, clock,
+                heartbeatIntervalMs);
     }
 
     /**
-     * Test-only: a fixed stamp/version and a fake supplier, without needing a real
-     * {@link BuildProperties} or {@link ReleaseUpdateChecker} — mirrors
+     * Test-only: a fixed stamp/version and a fake release supplier, with no session
+     * waiting, without needing a real {@link BuildProperties}, {@link
+     * ReleaseUpdateChecker} or {@link SessionRegistry} — mirrors
      * {@link TerminalWebSocketHandler}'s own test-only constructor.
      */
     EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
             Supplier<Optional<NewerRelease>> newerRelease) {
-        this(broadcaster, versionStamp, runningVersion, newerRelease, Clock.systemUTC(), 20_000L);
+        this(broadcaster, versionStamp, runningVersion, newerRelease, List::of);
+    }
+
+    /** Test-only: as above, with a fake supplier of the waiting session ids (#790). */
+    EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
+            Supplier<Optional<NewerRelease>> newerRelease, Supplier<Collection<String>> waitingSessions) {
+        this(broadcaster, versionStamp, runningVersion, newerRelease, waitingSessions, Clock.systemUTC(), 20_000L);
     }
 
     /** Package-visible so a heartbeat test can drive this with a controllable {@link Clock}. */
     EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
-            Supplier<Optional<NewerRelease>> newerRelease, Clock clock, long heartbeatIntervalMs) {
+            Supplier<Optional<NewerRelease>> newerRelease, Supplier<Collection<String>> waitingSessions,
+            Clock clock, long heartbeatIntervalMs) {
         this.broadcaster = broadcaster;
         this.versionStamp = versionStamp;
         this.runningVersion = runningVersion;
         this.newerRelease = newerRelease;
+        this.waitingSessions = waitingSessions;
         this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
         this.heartbeatIntervalMs = heartbeatIntervalMs;
     }
@@ -131,6 +161,12 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
                         Map.of("version", release.version(), "url", release.url())));
         broadcaster.register(session);
         heartbeat.track(session);
+        // #790: read only now that the connection is registered, so a change that
+        // races this connect reaches it as a broadcast even when the read below
+        // misses it; the same change arriving twice is harmless.
+        for (String sessionId : waitingSessions.get()) {
+            broadcaster.sendTo(session, "consoleAttention", Map.of("sessionId", sessionId, "state", "waiting"));
+        }
     }
 
     @Override

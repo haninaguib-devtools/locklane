@@ -99,6 +99,21 @@ class PtySessionAttentionTest {
     }
 
     @Test
+    void attentionStateReadsTheCurrentStateWithoutASubscription(@TempDir Path workDir) {
+        // #790: the accessor is what the events channel's connect-time snapshot reads,
+        // since a subscription never replays the state at subscribe time.
+        PtySession session = new PtySession("attention-accessor", workDir,
+                new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
+        assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.ACTIVE);
+
+        session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
+        assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.WAITING);
+
+        session.markFocused();
+        assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.ACTIVE);
+    }
+
+    @Test
     void focusClearsAttentionWithoutWritingToTheProcess(@TempDir Path workDir) {
         PtySession session = new PtySession("attention-focus", workDir,
                 new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);

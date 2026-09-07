@@ -222,6 +222,22 @@ public class SessionRegistry {
     }
 
     /**
+     * The ids of every live session currently waiting for attention (#790) — what
+     * {@code EventsWebSocketHandler} sends a newly connected client as its
+     * {@code consoleAttention} snapshot, so a page opened or reconnected after a
+     * session rang the bell shows it as waiting without the live broadcast having to
+     * fire again. Live sessions only: a session with a persisted record but no process
+     * in this engine (the case right after a restart) has no attention state to
+     * report. The order is whatever the registry's map yields; nothing depends on it.
+     */
+    public List<String> waitingSessionIds() {
+        return sessions.entrySet().stream()
+                .filter(entry -> entry.getValue().attentionState() == PtySession.AttentionState.WAITING)
+                .map(Map.Entry::getKey)
+                .toList();
+    }
+
+    /**
      * The working directory last recorded for a session, even when this process has
      * no live session for it right now — the case right after a restart, before
      * anyone has reattached.
