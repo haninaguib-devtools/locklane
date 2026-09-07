@@ -118,6 +118,17 @@ public class ProjectGhResources {
      * has no checkout to run {@code gh} in, and {@link #forProject} would hand back an
      * empty, uncached context for it anyway.
      *
+     * <p>Runs once immediately when the engine starts (#786) -- {@code initialDelay =
+     * 0} below, rather than waiting out the first {@link #REFRESH_INTERVAL_MS} the way
+     * every later tick does -- so a person signing back in right after an install or
+     * update finds every ready project's cache already warm instead of paying the
+     * cold-fetch delay. That first run happens on the scheduler's own thread pool
+     * (sized in {@code application.yml} precisely so a slow tick here cannot starve
+     * the other scheduled jobs, #763), so it never delays engine startup itself, and a
+     * project whose fetch is slow or fails still leaves every other project to warm
+     * normally -- the same per-project isolation this method already gave the
+     * periodic poll, applying unchanged to its first run.
+     *
      * <p>Diffs each project's cache against its previous state and publishes
      * `issuesChanged` (#129) where it moved, and `githubRefreshStatus` (#619) where
      * the fetch's outcome moved -- started failing, stopped failing, or failing with
@@ -132,7 +143,7 @@ public class ProjectGhResources {
      * still answers 401 tells the renewer, which marks the account as needing
      * reconnection so nothing retries it again.
      */
-    @Scheduled(fixedDelay = REFRESH_INTERVAL_MS, initialDelay = REFRESH_INTERVAL_MS)
+    @Scheduled(fixedDelay = REFRESH_INTERVAL_MS, initialDelay = 0)
     void refreshAll() {
         for (ProjectRecord project : projectRepository.findAll()) {
             if (project.status() != ProjectStatus.READY) {
