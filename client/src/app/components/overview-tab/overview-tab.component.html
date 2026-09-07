@@ -62,7 +62,7 @@
   </div>
   @if (sessions.length) {
     <aside class="sessions-rail">
-      <h3 class="sessions-title">past sessions</h3>
+      <h3 class="sessions-title">past conversations</h3>
       <app-session-list [sessions]="sessions" [busy]="busy" (reopen)="reopen.emit($event)" />
     </aside>
   }

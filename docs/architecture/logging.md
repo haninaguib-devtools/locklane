@@ -3,7 +3,7 @@
 **Status:** binding convention.
 
 The engine's server log (`~/.locklane/locklane.log`) is the only place a failure can be
-diagnosed after the fact — the console shows a failed state or a generic HTTP error,
+diagnosed after the fact — the app shows a failed state or a generic HTTP error,
 never the cause. This page states the rule that closes that gap: every error or
 degraded outcome the engine produces gets logged, with its cause, at the level its
 meaning warrants.

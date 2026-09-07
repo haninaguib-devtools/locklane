@@ -23,7 +23,7 @@
           class="tab-name"
           type="text"
           [attr.maxlength]="maxNameLength"
-          aria-label="console tab name"
+          aria-label="agent tab name"
           [value]="draftName"
           (input)="onRenameInput($any($event.target).value)"
           (click)="$event.stopPropagation()"
@@ -48,7 +48,7 @@
       <button
         type="button"
         class="tab-close-quick"
-        aria-label="close console tab"
+        aria-label="close agent tab"
         (click)="closeTab(tab.id, $event)"
       >
         ×
@@ -109,7 +109,7 @@
         type="button"
         class="plus"
         [disabled]="starting"
-        aria-label="open a new console"
+        aria-label="open a new agent"
         [attr.aria-haspopup]="offersPicker ? 'menu' : null"
         [attr.aria-expanded]="offersPicker ? pickerOpen : null"
         (click)="plusClicked($event)"
@@ -120,7 +120,7 @@
         <!-- #757: one entry per installed agent, the same list Settings shows. Never
              `shell` -- the client adds that itself for plain shells, it is not a CLI
              the engine detected. -->
-        <div class="agent-picker" role="menu" aria-label="agent for the new console">
+        <div class="agent-picker" role="menu" aria-label="agent CLI for the new agent">
           @for (agent of installedAgents; track agent.id) {
             <button
               type="button"
@@ -138,17 +138,17 @@
 </div>
 
 @if (shellOpenFailed) {
-  <div class="shell-error">could not open a shell at that console's worktree — try again</div>
+  <div class="shell-error">could not open a shell at that agent's worktree — try again</div>
 }
 
 @if (ideOpenFailed) {
-  <div class="ide-error">could not open the IDE for that console — try again</div>
+  <div class="ide-error">could not open the IDE for that agent — try again</div>
 }
 
 @if (pendingCloseId !== null) {
   <app-confirm-dialog
-    title="Close console?"
-    message="Close this console? The session will be terminated and cannot be reattached."
+    title="Close agent?"
+    message="Close this agent? It will be terminated and cannot be reattached."
     confirmLabel="Close"
     [danger]="true"
     (confirmed)="confirmClose()"

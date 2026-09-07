@@ -275,7 +275,7 @@ export class ConsoleTabsComponent {
         if (byIssue) {
           return byIssue.workingDirectory;
         }
-        throw new Error(`no worktree directory known for console '${tab.id}'`);
+        throw new Error(`no worktree directory known for agent '${tab.id}'`);
       }),
     );
   }

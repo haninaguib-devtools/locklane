@@ -28,7 +28,7 @@
       }
 
       @if (consoleError) {
-        <div class="action-error">could not start a console — try again</div>
+        <div class="action-error">could not start an agent — try again</div>
       }
 
       @if (shellError) {
@@ -105,13 +105,13 @@
     </div>
     @if (project.status === 'READY') {
       <aside class="sessions-rail">
-        <h3 class="sessions-title">past sessions</h3>
+        <h3 class="sessions-title">past conversations</h3>
         @if (pastSessionsLoading) {
           <div class="sessions-loading">loading…</div>
         } @else if (pastSessions.length) {
           <app-session-list [sessions]="pastSessions" [busy]="reopeningSession" (reopen)="reopenPastSession($event)" />
         } @else {
-          <div class="sessions-empty">no past conversations in this project's consoles yet</div>
+          <div class="sessions-empty">no past conversations in this project's agents yet</div>
         }
         @if (reopenSessionError) {
           <div class="action-error">could not reopen that conversation — try again</div>

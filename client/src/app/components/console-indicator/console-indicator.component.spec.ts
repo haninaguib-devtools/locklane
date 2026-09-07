@@ -111,7 +111,7 @@ describe('ConsoleIndicatorComponent', () => {
 
     expect(fixture.componentInstance.entries()).toEqual([
       { sessionId: '1-7-rename-toggle', projectId: 1, issueNumber: 7, title: 'Seven' },
-      { sessionId: '1-console-a1b2c3d4', projectId: 1, issueNumber: null, title: 'Project - console' },
+      { sessionId: '1-console-a1b2c3d4', projectId: 1, issueNumber: null, title: 'Project - agent' },
     ]);
   });
 
@@ -128,7 +128,7 @@ describe('ConsoleIndicatorComponent', () => {
       [projectConsole('1-console-a1b2c3d4'), projectConsole('1-console-e5f6a7b8')],
     );
 
-    expect(fixture.componentInstance.entries().map((e) => e.title)).toEqual(['Project - console', 'Project - console 2']);
+    expect(fixture.componentInstance.entries().map((e) => e.title)).toEqual(['Project - agent', 'Project - agent 2']);
   });
 
   it("refetches its rows on a tab rename, so a project console's row updates without a reload (#456)", () => {
@@ -137,14 +137,14 @@ describe('ConsoleIndicatorComponent', () => {
       [],
       [projectConsole('1-console-a1b2c3d4'), projectConsole('1-console-e5f6a7b8')],
     );
-    expect(fixture.componentInstance.entries().map((e) => e.title)).toEqual(['Project - console', 'Project - console 2']);
+    expect(fixture.componentInstance.entries().map((e) => e.title)).toEqual(['Project - agent', 'Project - agent 2']);
 
     TestBed.inject(ConsolesService).notifyRenamed();
 
     flushProjectEntries(1, [], [], [projectConsole('1-console-a1b2c3d4', 'release notes'), projectConsole('1-console-e5f6a7b8')]);
     expect(fixture.componentInstance.entries().map((e) => e.title)).toEqual([
       'Project - release notes',
-      'Project - console 2',
+      'Project - agent 2',
     ]);
   });
 
@@ -197,7 +197,7 @@ describe('ConsoleIndicatorComponent', () => {
     fixture.detectChanges();
 
     const button: HTMLButtonElement = fixture.nativeElement.querySelector('.badge');
-    expect(button.textContent?.trim()).toBe('console');
+    expect(button.textContent?.trim()).toBe('agent');
   });
 
   it('shows "consoles (N)" when two or more consoles are open', () => {
@@ -205,7 +205,7 @@ describe('ConsoleIndicatorComponent', () => {
     fixture.detectChanges();
 
     const button: HTMLButtonElement = fixture.nativeElement.querySelector('.badge');
-    expect(button.textContent?.trim()).toBe('consoles (2)');
+    expect(button.textContent?.trim()).toBe('agents (2)');
   });
 
   it('clicking the trigger with exactly one console navigates directly instead of opening the picker (#215)', () => {

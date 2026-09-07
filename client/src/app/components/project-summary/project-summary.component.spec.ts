@@ -228,14 +228,14 @@ describe('ProjectSummaryComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('.console-button')).toBeFalsy();
   });
 
-  it('reads "Open console" and starts one, landing on it with the default agent, when none is open (#221)', () => {
+  it('reads "Open agent" and starts one, landing on it with the default agent, when none is open (#221)', () => {
     const fixture = init();
     const opened = jasmine.createSpy('onOpened');
     TestBed.inject(ConsolesService).onOpened.subscribe(opened);
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
     const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
-    expect(button.textContent?.trim()).toBe('Open console');
+    expect(button.textContent?.trim()).toBe('Open agent');
     button.click();
     fixture.detectChanges();
 
@@ -278,17 +278,17 @@ describe('ProjectSummaryComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.consoleError).toBeTrue();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not start a console');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not start an agent');
     expect(button.disabled).toBeFalse();
   });
 
-  it('reads "Open consoles" and navigates to the most recently interacted-with one when any are open (#221)', () => {
+  it('reads "Open agents" and navigates to the most recently interacted-with one when any are open (#221)', () => {
     const fixture = init([PROJECT], tree(), 1, [session('proj-1-console-a'), session('proj-1-console-b')]);
     TestBed.inject(LastConsoleStore).set(1, 'proj-1-console-b');
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
     const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
-    expect(button.textContent?.trim()).toBe('Open consoles');
+    expect(button.textContent?.trim()).toBe('Open agents');
     button.click();
 
     expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
@@ -548,7 +548,7 @@ describe('ProjectSummaryComponent', () => {
       fixture.detectChanges();
 
       const compiled = fixture.nativeElement as HTMLElement;
-      expect(compiled.querySelector('.sessions-title')?.textContent?.trim()).toBe('past sessions');
+      expect(compiled.querySelector('.sessions-title')?.textContent?.trim()).toBe('past conversations');
       expect(compiled.querySelector('.sessions-loading')?.textContent).toContain('loading');
       expect(compiled.querySelector('app-session-list')).toBeFalsy();
 
@@ -563,7 +563,7 @@ describe('ProjectSummaryComponent', () => {
       const compiled = fixture.nativeElement as HTMLElement;
       expect(compiled.querySelector('app-session-list')).toBeFalsy();
       expect(compiled.querySelector('.sessions-empty')?.textContent).toContain(
-        "no past conversations in this project's consoles yet",
+        "no past conversations in this project's agents yet",
       );
     });
 

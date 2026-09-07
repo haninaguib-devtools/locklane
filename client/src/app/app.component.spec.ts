@@ -680,7 +680,7 @@ describe('AppComponent', () => {
     flushProjectWorktrees();
 
     const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
-    expect(button.textContent?.trim()).toBe('Open consoles');
+    expect(button.textContent?.trim()).toBe('Open agents');
     button.click();
     tick();
     fixture.detectChanges();
