@@ -156,7 +156,7 @@ describe('ProjectConsoleComponent', () => {
     const tabs = Array.from(compiled.querySelectorAll<HTMLButtonElement>('.tab')).map((b) =>
       b.textContent!.trim(),
     );
-    expect(tabs).toEqual(['console', 'console 2']);
+    expect(tabs).toEqual(['agent', 'agent 2']);
   });
 
   it('activates the console named by the consoles page\'s ?session handoff (#179)', fakeAsync(() => {
@@ -261,7 +261,7 @@ describe('ProjectConsoleComponent', () => {
     fixture.detectChanges();
 
     const tab = (fixture.nativeElement as HTMLElement).querySelector('.tab')!;
-    expect(tab.textContent!.trim()).toBe('console');
+    expect(tab.textContent!.trim()).toBe('agent');
   });
 
   it('starts a console with no picker of any kind when the project has no open console (#256)', () => {
@@ -416,7 +416,7 @@ describe('ProjectConsoleComponent', () => {
       .flush(null, { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
-    expect(compiled.textContent).toContain('could not close that console');
+    expect(compiled.textContent).toContain('could not close that agent');
     expect(compiled.querySelectorAll('app-terminal').length).toBe(1);
   });
 
@@ -459,7 +459,7 @@ describe('ProjectConsoleComponent', () => {
 
     expect(fixture.componentInstance.startError).toBeTrue();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('could not start a console');
+    expect(compiled.textContent).toContain('could not start an agent');
 
     compiled.querySelector<HTMLButtonElement>('.retry')!.click();
     httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
@@ -523,7 +523,7 @@ describe('ProjectConsoleComponent', () => {
     ).map((b) => b.textContent!.trim());
     // Labels carry no agent suffix (#456), so the freshly-minted one looks the
     // same as the two reattached ones this browser did not launch.
-    expect(tabs).toEqual(['console', 'console 2', 'console 3']);
+    expect(tabs).toEqual(['agent', 'agent 2', 'agent 3']);
   }));
 
   it('gives a ?new console the Settings default agent, with no picker (#219, #370)', fakeAsync(() => {
@@ -906,7 +906,7 @@ describe('ProjectConsoleComponent', () => {
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('console');
+    expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('agent');
     const renamedSpy = spyOn(TestBed.inject(ConsolesService), 'notifyRenamed');
 
     typeAndCommit(fixture, renameField(fixture), '  release notes  ');
@@ -953,7 +953,7 @@ describe('ProjectConsoleComponent', () => {
     typeAndCommit(fixture, renameField(fixture), '   ');
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('console');
+    expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('agent');
     const request = httpMock.expectOne('/api/projects/1/console/1-console-a1b2c3d4/name');
     expect(request.request.body).toEqual({ name: '' });
     request.flush(null);
@@ -993,7 +993,7 @@ describe('ProjectConsoleComponent', () => {
     fixture.detectChanges();
 
     // No request at all -- httpMock.verify() in afterEach is what asserts that.
-    expect((fixture.nativeElement as HTMLElement).querySelector('.tab')!.textContent!.trim()).toBe('console');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.tab')!.textContent!.trim()).toBe('agent');
   });
 
 });

@@ -70,6 +70,6 @@ export function labelConsoles(consoles: ConsoleInfo[]): ConsoleTab[] {
 export function labelProjectConsoles(consoles: (ConsoleInfo & { name?: string | null })[]): ConsoleTab[] {
   return consoles.map((c, i) => {
     const index = i > 0 ? ` ${i + 1}` : '';
-    return { ...c, label: `console${index}` };
+    return { ...c, label: `agent${index}` };
   });
 }

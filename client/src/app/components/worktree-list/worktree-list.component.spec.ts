@@ -77,11 +77,11 @@ describe('WorktreeListComponent', () => {
     expect(text).toContain('attached');
   });
 
-  it('shows "console" instead of an issue number for a project-console worktree (#339)', () => {
+  it('shows "agent" instead of an issue number for a project-console worktree (#339)', () => {
     const fixture = init([row({ worktreeId: '1-console-abcd1234', issueNumber: null, workingDirectory: '/work/1-console-abcd1234' })]);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
-    expect(text).toContain('console');
+    expect(text).toContain('agent');
     expect(text).not.toContain('#null');
     expect(text).toContain('/work/1-console-abcd1234');
   });

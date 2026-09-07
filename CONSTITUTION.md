@@ -116,8 +116,8 @@ any other change to this list.
 1. Spring Boot engine + Angular PWA client + SQLite for durable non-binding state, with
    one persistent PTY (pseudo-terminal) session per git worktree, reattachable from any
    browser, from anywhere — never a job queue (ADR-100).
-2. A console-created, per-issue worktree is removed automatically once its issue is
-   confirmed closed, its git status is clean, and no console session is attached — a
+2. An agent-created, per-issue worktree is removed automatically once its issue is
+   confirmed closed, its git status is clean, and no agent session is attached — a
    narrow, guarded exception to the pipeline's own "left alone permanently" default
    (ADR-102). Once such a worktree is removed, its local `wip/<id>-<slug>` branch is
    deleted too, but only via `git branch -d`: a fully merged branch goes, an unmerged
@@ -136,7 +136,7 @@ any other change to this list.
    The task that lands each surface (#238–#242) adds its §3 bullet and its
    `protected-paths.sh` pattern together, per §3's own "one rule in two forms"
    invariant.
-4. A project-console worktree (no issue of its own) is removed on tab close, and by
+4. A project-agent worktree (no issue of its own) is removed on tab close, and by
    the same periodic sweep as a backstop, once its session has ended and its git
    status is clean, and either its HEAD is detached and an ancestor of the project's
    default branch on origin, or a branch is checked out whose work has already landed
@@ -145,7 +145,7 @@ any other change to this list.
    same as before — a second, distinct guarded exception to ADR-005, alongside point
    2's rather than folded into it (ADR-104, amended by ADR-107 and ADR-108).
 5. A project is visible and operable only to the account that owns it, and a
-   worktree/console session only to the owner of its project — no role, administrator
+   worktree/agent session only to the owner of its project — no role, administrator
    included, is exempt; administrators manage accounts and nothing more (ADR-105,
    superseding the administrator exemption in ADR-101 Decisions 1 and 6).
 6. On macOS the server is a launchd agent in the `user/<uid>` domain, its plist
@@ -154,6 +154,15 @@ any other change to this list.
    plist in place; and any change to the launchd registration ships only after
    `.github/workflows/mac-lifecycle.yml` has passed against a real `launchctl`, never
    on the stub harness alone (ADR-110 Decisions 2 and 3).
+7. Wherever a person reads the product, a tab running an AI coding agent is an
+   *agent*, a plain shell is a *shell*, a resumable past agent conversation is a
+   *conversation*, *session* is the engine's own word for any persistent PTY and is
+   never shown to a user, and *agent CLI* names the program an agent runs where a
+   sentence must tell it from a running agent. On-the-wire and persisted names —
+   session id shapes, database schema, REST paths, WebSocket event names, route
+   paths, localStorage keys — are compatibility surfaces the vocabulary never forces
+   to change, and pre-existing ADRs, CHANGELOG entries and task records keep their
+   wording (ADR-112).
 <!-- /local -->
 
 ## Amendment

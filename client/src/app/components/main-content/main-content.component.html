@@ -9,7 +9,7 @@
     [starting]="starting"
     [defaultAgent]="defaultAgentStore.agent()"
     [installedAgents]="defaultAgentStore.installed()"
-    openLabel="Console"
+    openLabel="Agent"
     [hideOpenWhenActive]="true"
     (selectedChange)="onTabSelected($event)"
     (open)="openConsole($event)"
@@ -17,10 +17,10 @@
     (reveal)="revealConsole($event)"
   />
   @if (startError) {
-    <div class="action-error">could not open a console — try again</div>
+    <div class="action-error">could not open an agent — try again</div>
   }
   @if (closeError) {
-    <div class="action-error">could not close that console — try again</div>
+    <div class="action-error">could not close that agent — try again</div>
   }
   @if (revealError) {
     <div class="action-error">could not open the file manager — try again</div>

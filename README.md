@@ -19,10 +19,10 @@ user service on Linux or a launchd agent on macOS — so you never need to. The 
 agent is registered as a Background-session agent, so installing, starting and
 stopping it works from an SSH session with nobody logged in at the screen (a Mac that
 has not had any login since it booted is untested). Run it from a
-terminal outside Locklane's own console (ssh, or a local terminal): a console tab is a
-child of the server, so a command that stops the server from there would take itself
-down with it, and the commands that stop it refuse to start from a console tab (or the
-IDE terminal opened from one) for that reason.
+terminal outside Locklane itself (ssh, or a local terminal): an agent tab is a child of
+the server, so a command that stops the server from there would take itself down with
+it, and the commands that stop it refuse to start from an agent tab or a shell tab (or
+the IDE terminal opened from one) for that reason.
 
 - `locklane status` — say whether the server is running (exit 0) or not (non-zero).
 - `locklane stop` — stop the server and check that it is gone: it asks the service

@@ -8,12 +8,12 @@
       aria-haspopup="dialog"
       [attr.aria-expanded]="open()"
       [attr.aria-label]="
-        'Open consoles, ' + count + ' ' + (count === 1 ? 'session' : 'sessions') + (hasWaitingEntry() ? ', waiting for you' : '')
+        'Open agents, ' + count + ' ' + (count === 1 ? 'agent' : 'agents') + (hasWaitingEntry() ? ', waiting for you' : '')
       "
       (click)="onTriggerClick()"
     >
       <span class="dot" aria-hidden="true"></span>
-      {{ count === 1 ? 'console' : 'consoles (' + count + ')' }}
+      {{ count === 1 ? 'agent' : 'agents (' + count + ')' }}
     </button>
 
     @if (open()) {
@@ -22,8 +22,8 @@
       <div class="picker" role="dialog" aria-modal="true" aria-labelledby="console-picker-title">
         <div class="picker-head">
           <div>
-            <h2 id="console-picker-title">Open consoles</h2>
-            <p>Choose a console to jump back into.</p>
+            <h2 id="console-picker-title">Open agents</h2>
+            <p>Choose an agent to jump back into.</p>
           </div>
           <kbd class="keycap">esc</kbd>
         </div>

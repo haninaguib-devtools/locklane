@@ -105,13 +105,13 @@
                 (click)="openProjectConsoles(section.project.id, $event)"
                 [attr.aria-label]="
                   hasAttentionWaitingForProject(section.project.id)
-                    ? 'This project has a console waiting for you'
-                    : 'This project has an open console'
+                    ? 'This project has an agent waiting for you'
+                    : 'This project has an open agent'
                 "
                 [attr.title]="
                   hasAttentionWaitingForProject(section.project.id)
-                    ? 'This project has a console waiting for you'
-                    : 'This project has an open console'
+                    ? 'This project has an agent waiting for you'
+                    : 'This project has an open agent'
                 "
               >
                 <span
@@ -125,8 +125,8 @@
                 type="button"
                 class="new-console"
                 (click)="openNewConsole(section.project.id, $event)"
-                aria-label="Open a new console for this project"
-                title="Open a new console for this project"
+                aria-label="Open a new agent for this project"
+                title="Open a new agent for this project"
               >
                 +
               </button>
@@ -220,7 +220,7 @@
           <span
             class="console-dot"
             [class.waiting]="hasAttentionWaiting(projectId, node.number)"
-            [title]="hasAttentionWaiting(projectId, node.number) ? 'Waiting for you' : 'Has an open console'"
+            [title]="hasAttentionWaiting(projectId, node.number) ? 'Waiting for you' : 'Has an open agent'"
           ></span>
         }
         @if (!(hideShipped && node.state === 'OPEN')) {

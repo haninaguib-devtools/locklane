@@ -297,7 +297,7 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     if (this.startingConsole) {
       return 'starting…';
     }
-    return this.openConsoles.length > 0 ? 'Open consoles' : 'Open console';
+    return this.openConsoles.length > 0 ? 'Open agents' : 'Open agent';
   }
 
   onConsoleButtonClick(): void {
