@@ -11,6 +11,7 @@ import dev.locklane.engine.template.ProjectTemplate;
 import dev.locklane.engine.ws.EventBroadcaster;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.InOrder;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
@@ -24,6 +25,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
@@ -76,6 +78,23 @@ class ProjectCheckoutServiceTest {
         ProjectRecord project = service.createProject(origin.toString(), "myproj", 1L);
 
         verify(broadcaster).broadcast("projectStatus",
+                Map.of("projectId", project.id(), "status", "READY", "defaultBranch", "trunk"));
+    }
+
+    @Test
+    void createProjectBroadcastsProjectCreatedBeforeTheCloneSettles(@TempDir Path tmp) throws Exception {
+        Path origin = initBareOriginWithDefaultBranch(tmp, "trunk");
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectCheckoutService service = serviceWithBroadcaster(tmp, broadcaster);
+
+        ProjectRecord project = service.createProject(origin.toString(), "myproj", 1L);
+
+        // #760: announced as soon as the row exists, ahead of the clone's own
+        // projectStatus -- so a window that reloads its list on the first event has a
+        // row for the second one to land on.
+        InOrder inOrder = inOrder(broadcaster);
+        inOrder.verify(broadcaster).broadcast("projectCreated", Map.of("projectId", project.id()));
+        inOrder.verify(broadcaster).broadcast("projectStatus",
                 Map.of("projectId", project.id(), "status", "READY", "defaultBranch", "trunk"));
     }
 
@@ -469,6 +488,22 @@ class ProjectCheckoutServiceTest {
 
     private static final ProjectTemplate TEMPLATE =
             new ProjectTemplate("node-server", "Node server", "Express", "# Node server\n\nBuild it.\n");
+
+    @Test
+    void createNewProjectBroadcastsProjectCreatedAsSoonAsTheRowExists(@TempDir Path tmp) {
+        WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectCheckoutService service = new ProjectCheckoutService(repositoryOver(tmp),
+                tmp.resolve("workarea").toString(), command -> { /* never run -- would shell out to gh for real */ },
+                new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
+                ghAccounts(tmp), broadcaster, "exit 1", "gh");
+
+        ProjectRecord project = service.createNewProject("my-org", "my-project", false, 1L);
+
+        // #760: the row is announced synchronously, before the async create-and-push
+        // even starts (here: never) -- the same moment the import path announces its own.
+        verify(broadcaster).broadcast("projectCreated", Map.of("projectId", project.id()));
+    }
 
     @Test
     void createNewProjectRecordsTheTemplateNameOnTheRow(@TempDir Path tmp) {

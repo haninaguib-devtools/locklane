@@ -583,14 +583,48 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.projectSections[0].project.status).toBe('FAILED');
   });
 
-  it('a projectStatus event for a project not currently loaded leaves the loaded rows alone (#721)', () => {
+  it('a projectStatus event for a project the reload still does not carry leaves the loaded rows alone (#721, #760)', () => {
     const fixture = init([PROJECT_A]);
     flushTree(1, tree());
 
     emitAppEvent({ type: 'projectStatus', projectId: 999, status: 'READY', defaultBranch: 'main' });
 
+    // Unlisted here, so the list is reloaded (#760) -- but it still does not carry
+    // 999 (another account's project, say), and nothing else changes.
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    flushTree(1, tree());
+
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1]);
     expect(fixture.componentInstance.projectSections[0].project.status).toBe('READY');
     httpMock.expectNone('/api/projects/999/issues/tree');
+  });
+
+  it('a projectStatus READY for a project not listed here reloads the list and, once the row exists, fetches its tree (#760)', () => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+
+    // Another window created project 2 and its clone just settled. This window
+    // never listed it, and no reload of its own is in flight -- before #760 the
+    // event was held for a reload that was never going to come.
+    emitAppEvent({ type: 'projectStatus', projectId: 2, status: 'READY', defaultBranch: 'develop' });
+
+    // The event-driven reload does not bypass the engine's cache (no fresh=true):
+    // the list changed, not every project's cached tree.
+    const cloning: Project = { ...PROJECT_B, status: 'CLONING' };
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, cloning]);
+    flushTree(1, tree());
+    flushTree(2, []);
+
+    const section = fixture.componentInstance.projectSections[1];
+    expect(section.project.id).toBe(2);
+    expect(section.project.status).toBe('READY');
+    expect(section.project.defaultBranch).toBe('develop');
+
+    // The held event settled the row once it existed, and the newly READY row loads
+    // its real tree instead of sitting empty -- one fetch, no further reload.
+    httpMock.expectNone('/api/projects');
+    flushTree(2, tree());
+    expect(fixture.componentInstance.projectSections[1].tree.length).toBe(2);
   });
 
   it('a projectStatus event that lands while the reveal reload is still in flight settles the row once the reload lands (#729)', () => {
@@ -637,13 +671,14 @@ describe('SidenavComponent', () => {
     const fixture = init([PROJECT_A]);
     flushTree(1, tree());
 
+    // The unlisted event starts the reload itself (#760); the delete lands before
+    // that reload does, so the held event must not be applied to the row it brings.
     emitAppEvent({ type: 'projectStatus', projectId: 2, status: 'READY', defaultBranch: 'main' });
     emitAppEvent({ type: 'projectDeleted', projectId: 2 });
     const cloning: Project = { ...PROJECT_B, status: 'CLONING' };
-    fixture.componentInstance.refresh();
     httpMock.expectOne('/api/projects').flush([PROJECT_A, cloning]);
-    flushTree(1, tree(), true);
-    flushTree(2, [], true);
+    flushTree(1, tree());
+    flushTree(2, []);
 
     expect(fixture.componentInstance.projectSections[1].project.status).toBe('CLONING');
     httpMock.expectNone('/api/projects/2/issues/tree');
@@ -979,13 +1014,107 @@ describe('SidenavComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('.github-error')).toBeNull();
   });
 
-  it('an issuesChanged event for a project not currently loaded is ignored', () => {
-    init();
+  it('an issuesChanged event for a project not listed here reloads the list instead of being dropped (#760)', () => {
+    const fixture = init([PROJECT_A]);
     flushTree(1, tree());
 
-    emitAppEvent({ type: 'issuesChanged', projectId: 999 });
+    // Project 2 was created in another window and this one never listed it: there
+    // is no row to fetch a tree into, so the list itself is reloaded.
+    emitAppEvent({ type: 'issuesChanged', projectId: 2 });
 
-    httpMock.expectNone('/api/projects/999/issues/tree');
+    httpMock.expectNone('/api/projects/2/issues/tree');
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1, 2]);
+    expect(fixture.componentInstance.mainNodesFor(fixture.componentInstance.projectSections[1]).map((n) => n.number)).toEqual([1, 4]);
+  });
+
+  it('a projectCreated event reloads the list, so a project created in another window appears here (#760)', () => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'projectCreated', projectId: 2 });
+
+    // Not fresh (#545): the list changed, not every project's cached tree.
+    const cloning: Project = { ...PROJECT_B, status: 'CLONING' };
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, cloning]);
+    flushTree(1, tree());
+    flushTree(2, []);
+
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1, 2]);
+    expect(fixture.componentInstance.projectSections[1].project.status).toBe('CLONING');
+  });
+
+  it('a projectCreated event during an in-flight refresh queues behind it rather than racing it (#738, #760)', () => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+
+    fixture.componentInstance.refresh();
+    emitAppEvent({ type: 'projectCreated', projectId: 2 });
+
+    // One list request in flight: the event's reload waits for the running one...
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    flushTree(1, tree(), true);
+    // ...then runs for real, since the running one may have been sent before the
+    // row existed. Only the event asked for this run, so it is not fresh.
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+
+    expect(fixture.componentInstance.refreshing).toBeFalse();
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1, 2]);
+  });
+
+  it('a focused sidenav ignores projectCreated, issuesChanged, and projectStatus for any other project (#286, #760)', () => {
+    const fixture = TestBed.createComponent(SidenavComponent);
+    fixture.componentInstance.focusedProjectId = 1;
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+
+    // A focused window lists exactly one project -- a reload could never carry
+    // another, so these are not a reason to run one.
+    emitAppEvent({ type: 'projectCreated', projectId: 3 });
+    emitAppEvent({ type: 'issuesChanged', projectId: 2 });
+    emitAppEvent({ type: 'projectStatus', projectId: 3, status: 'READY', defaultBranch: 'main' });
+
+    httpMock.expectNone('/api/projects');
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1]);
+  });
+
+  it('an in-flight issuesChanged re-fetch lands on the right project after a reload replaced the list (#760)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+
+    emitAppEvent({ type: 'issuesChanged', projectId: 2 });
+    const inFlight = httpMock.expectOne('/api/projects/2/issues/tree');
+
+    // A reconnect replaces `sections` -- in a different order -- while that
+    // re-fetch is still in flight, so project 2's row is now at index 0.
+    emitReconnected();
+    httpMock.expectOne('/api/projects').flush([PROJECT_B, PROJECT_A]);
+    flushTree(2, tree());
+    flushTree(1, tree());
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([2, 1]);
+
+    const updated: TreeNode[] = [
+      ...tree(),
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
+    ];
+    inFlight.flush({ nodes: updated, github: GITHUB_OK });
+    flushConsoles();
+
+    // Before #760 the response was written to the index captured at request time
+    // (1), handing project 2's tree to project 1's row.
+    const [first, second] = fixture.componentInstance.projectSections;
+    expect(first.project.id).toBe(2);
+    expect(fixture.componentInstance.mainNodesFor(first).map((n) => n.number)).toEqual([1, 4, 5]);
+    expect(second.project.id).toBe(1);
+    expect(fixture.componentInstance.mainNodesFor(second).map((n) => n.number)).toEqual([1, 4]);
   });
 
   it('a project-stale notification (#140) re-fetches that project\'s tree with fresh=true', () => {

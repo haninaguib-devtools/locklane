@@ -23,10 +23,12 @@ import {
   ConsoleAttentionEvent,
   EventsService,
   GithubRefreshStatusEvent,
+  ProjectCreatedEvent,
   ProjectDeletedEvent,
   ProjectStatusEvent,
   isConsoleAttentionEvent,
   isGithubRefreshStatusEvent,
+  isProjectCreatedEvent,
   isProjectDeletedEvent,
   isProjectStatusEvent,
 } from '../../services/events.service';
@@ -133,6 +135,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // can't possibly reflect it. Run once, right after the in-flight one settles, so a
   // reveal is never left waiting on a load that started too early to ever find its row.
   private refreshQueued = false;
+  // Whether any of the queued callers asked for a cache-bypassing reload (#760): one
+  // queued run serves them all, so it is fresh if any of them wanted it fresh.
+  private refreshQueuedFresh = false;
   error = false;
 
   // Neither persists across reloads, matching the old app (#22's Goal).
@@ -181,9 +186,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private waitingProjectConsoleSessions = new Set<string>();
   private readonly consoleSub: Subscription;
   // "Notify, then fetch" (#129): the event carries no issue data, so a matching
-  // project re-fetches its own tree over the existing REST endpoint. A reconnect
-  // instead does one full reload, since events missed while the socket was down
-  // are gone for good.
+  // project re-fetches its own tree over the existing REST endpoint -- and a project
+  // not listed here reloads the whole list instead (#760), as does a `projectCreated`.
+  // A reconnect instead does one full reload, since events missed while the socket
+  // was down are gone for good.
   private readonly eventsSub: Subscription;
   // Leaving the new project-level console (#140) asks the sidenav to bust the
   // GhIssueCache for that one project's re-fetch, rather than waiting on the
@@ -194,7 +200,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // settle while that reload is still in flight -- the list already answered with
   // CLONING, the row does not exist here yet, so the event would be lost and the
   // row stuck on cloning until the next full reload. Held here until the reload
-  // lands, then applied to the row it was meant for.
+  // lands, then applied to the row it was meant for. In a window that is *not* the
+  // creating one no such reload is in flight, so `applyProjectStatusEvent` starts
+  // one (#760) rather than holding the event for a reload that would never come.
   private readonly pendingStatus = new Map<number, ProjectStatusEvent>();
 
   constructor() {
@@ -204,7 +212,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.eventsSub = merge(
       this.eventsService.events$.pipe(
         filter(isIssuesChangedEvent),
-        map((event) => () => this.refreshProject(event.projectId)),
+        map((event) => () => this.applyIssuesChangedEvent(event)),
       ),
       this.eventsService.events$.pipe(
         filter(isConsoleAttentionEvent),
@@ -221,6 +229,10 @@ export class SidenavComponent implements OnInit, OnDestroy {
       this.eventsService.events$.pipe(
         filter(isProjectDeletedEvent),
         map((event) => () => this.applyProjectDeletedEvent(event)),
+      ),
+      this.eventsService.events$.pipe(
+        filter(isProjectCreatedEvent),
+        map((event) => () => this.applyProjectCreatedEvent(event)),
       ),
       this.eventsService.reconnected$.pipe(map(() => () => this.load(() => {}))),
     ).subscribe((run) => run());
@@ -240,21 +252,32 @@ export class SidenavComponent implements OnInit, OnDestroy {
     this.staleSub.unsubscribe();
   }
 
-  refresh(): void {
+  /**
+   * Reloads the project list and every tree. `fresh` (#545) bypasses the engine's
+   * GhIssueCache for each tree fetch -- the default, for the refresh button and a
+   * just-created project's reveal, so they show what GitHub has right now. An
+   * event-driven reload (#760) passes `false`: the event says the *list* changed,
+   * not that every project's cached tree is stale, and a cache-bypassing reload in
+   * every open window per event would cost one GitHub fetch per project per window.
+   */
+  refresh(fresh = true): void {
     if (this.refreshing) {
       this.refreshQueued = true;
+      this.refreshQueuedFresh = this.refreshQueuedFresh || fresh;
       return;
     }
     this.refreshing = true;
-    this.load(() => this.finishRefresh(), true);
+    this.load(() => this.finishRefresh(), fresh);
   }
 
   /** Runs a queued refresh, if one arrived while this one was in flight (#738). */
   private finishRefresh(): void {
     this.refreshing = false;
     if (this.refreshQueued) {
+      const fresh = this.refreshQueuedFresh;
       this.refreshQueued = false;
-      this.refresh();
+      this.refreshQueuedFresh = false;
+      this.refresh(fresh);
     }
   }
 
@@ -382,16 +405,62 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * An `issuesChanged` (#129) for a project listed here re-fetches that one tree in
+   * place. For a project this sidenav does not list (#760) it reloads the whole list
+   * instead: the project was created in another window (or its `projectCreated`
+   * never arrived), and dropping the event would leave it -- and every issue in it
+   * from then on -- invisible here until someone reloads the page.
+   */
+  private applyIssuesChangedEvent(event: IssuesChangedEvent): void {
+    if (this.hasSection(event.projectId)) {
+      this.refreshProject(event.projectId);
+    } else if (this.couldList(event.projectId)) {
+      this.refresh(false);
+    }
+  }
+
+  /**
+   * A project was created somewhere (#760) -- in this window, where `revealProject`
+   * is already reloading (so this one queues behind it, #738), or in another, where
+   * nothing else was ever going to fetch the new row. Reload so it exists here too.
+   */
+  private applyProjectCreatedEvent(event: ProjectCreatedEvent): void {
+    if (this.couldList(event.projectId)) {
+      this.refresh(false);
+    }
+  }
+
+  /**
+   * Whether a project could ever appear in this sidenav: a focused window (#286)
+   * lists exactly one project, so an event about any other is never a reason to
+   * reload -- the reload could not carry it.
+   */
+  private couldList(projectId: number): boolean {
+    return this.focusedProjectId === null || this.focusedProjectId === projectId;
+  }
+
+  private hasSection(projectId: number): boolean {
+    return this.sections.some((s) => s.project.id === projectId);
+  }
+
+  /**
    * Re-fetches one project's issue tree in place (#129) — a no-op if that project
    * isn't loaded (yet). `fresh` (#140) bypasses the engine's GhIssueCache for this
    * one fetch.
    */
   private refreshProject(projectId: number, fresh = false): void {
-    const index = this.sections.findIndex((s) => s.project.id === projectId);
-    if (index === -1) {
+    if (!this.hasSection(projectId)) {
       return;
     }
     this.issuesService.treeWithStatus(projectId, fresh).subscribe((response) => {
+      // Looked up again now, not at request time (#760): a reload that replaced
+      // `sections` while this fetch was in flight may have moved this project to
+      // another index -- or dropped it -- and writing to the old index would hand
+      // this tree to whatever project sits there now.
+      const index = this.sections.findIndex((s) => s.project.id === projectId);
+      if (index === -1) {
+        return;
+      }
       this.sections[index] = { ...this.sections[index], tree: response.nodes, github: response.github };
       this.refreshConsoleIndicators();
     });
@@ -422,16 +491,27 @@ export class SidenavComponent implements OnInit, OnDestroy {
    * A clone reached READY or FAILED (#721): update that project's status (and, for
    * READY, its default branch) in place -- no re-fetch needed, and this is what
    * replaces the 3s cloning poll that used to notice this instead. A project not
-   * loaded here is ignored, the same as `issuesChanged`. `trackCloneProgress` re-runs
-   * so a settled project's elapsed-seconds tracking (#717) drops along with it.
+   * loaded here is held until a reload carries it (#729) -- and that reload is
+   * started here when none is in flight (#760). `trackCloneProgress` re-runs so a
+   * settled project's elapsed-seconds tracking (#717) drops along with it.
    */
   private applyProjectStatusEvent(event: ProjectStatusEvent): void {
     const index = this.sections.findIndex((s) => s.project.id === event.projectId);
     if (index === -1) {
-      // Not loaded yet -- most likely a reload is in flight that will carry this
-      // project (#729). Keep the event so that reload can apply it; a project that
-      // never shows up again is dropped by its own projectDeleted event.
+      if (!this.couldList(event.projectId)) {
+        return;
+      }
+      // Not loaded yet. Keep the event so the reload that carries this project can
+      // apply it (#729); a project that never shows up again is dropped by its own
+      // projectDeleted event. In the creating window that reload is already in
+      // flight (`revealProject`); in every other window nothing was going to fetch
+      // the row this event is about, so start one (#760). A reload already running
+      // is left alone: the held event rides on it, and re-fetching everything
+      // behind it would be the re-polling #729 removed.
       this.pendingStatus.set(event.projectId, event);
+      if (!this.refreshing) {
+        this.refresh(false);
+      }
       return;
     }
     this.pendingStatus.delete(event.projectId);

@@ -171,7 +171,8 @@ public class ProjectCheckoutService {
 
     /**
      * Test-only: substitutes the {@link EventBroadcaster} too, for a test that asserts
-     * on the {@code projectStatus} / {@code projectDeleted} broadcasts themselves.
+     * on the {@code projectCreated} / {@code projectStatus} / {@code projectDeleted}
+     * broadcasts themselves.
      */
     ProjectCheckoutService(ProjectRepository repository, String workareaRoot, Executor cloneExecutor,
             IssueWorktreeService issueWorktreeService, TokenCipher tokenCipher, GhAccountRepository ghAccountRepository,
@@ -207,6 +208,20 @@ public class ProjectCheckoutService {
     }
 
     /**
+     * Broadcasts {@code projectCreated} (#760) the moment a project row exists — the
+     * one choke point both {@link #createProject} and {@link #createNewProject} go
+     * through, before the clone is even dispatched, so it always precedes the row's
+     * own {@code projectStatus}. The window that created the project reloads on its
+     * own to reveal the row; every <em>other</em> window subscribed to
+     * {@code /ws/events} learns the project exists only from this, and without it
+     * would drop the {@code projectStatus} / {@code issuesChanged} events that follow
+     * for a project it never listed.
+     */
+    private void announceCreated(ProjectRecord project) {
+        eventBroadcaster.broadcast("projectCreated", Map.of("projectId", project.id()));
+    }
+
+    /**
      * Persists a new project in {@link ProjectStatus#CLONING} and starts cloning it
      * asynchronously. {@code requestedName} blank/{@code null} derives a name from
      * {@code gitUrl}; the workarea directory name is derived from the (derived or
@@ -232,6 +247,7 @@ public class ProjectCheckoutService {
         Path workareaPath = uniqueWorkareaPath(ownerUserId, slug(name));
 
         ProjectRecord project = repository.create(name, trimmedUrl, workareaPath, ownerUserId, Instant.now());
+        announceCreated(project);
         cloneExecutor.execute(() -> clone(project, githubAccountId));
         return project;
     }
@@ -277,6 +293,7 @@ public class ProjectCheckoutService {
 
         ProjectRecord project = repository.create(trimmedName, gitUrl, workareaPath, ownerUserId, Instant.now(),
                 chosen.map(ProjectTemplate::name).orElse(null));
+        announceCreated(project);
         cloneExecutor.execute(() -> createRepoAndPush(project, trimmedOrg, bootstrapTWorkflow, githubAccountId, chosen));
         return project;
     }
