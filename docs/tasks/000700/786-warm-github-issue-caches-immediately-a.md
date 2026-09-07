@@ -54,4 +54,14 @@ none
   cannot starve the other six scheduled jobs sharing that pool.
 
 ## Deviations / notes
-none
+- Running the full suite (`./mvnw -B test`) surfaces one benign new log line:
+  `ProjectConsoleWebSocketIntegrationTest`'s `@SpringBootTest` context (cached and
+  reused across its test methods) keeps a READY project row pointing at a JUnit
+  `@TempDir` that a later test method's teardown deletes; once warm-up starts
+  immediately rather than 30 s in, the scheduled poll is far more likely to catch
+  that project mid-run and log `GhIssueCache`'s existing WARN ("Issue/PR refresh
+  failed; continuing to serve the previously cached data") for a directory that no
+  longer exists. No test failed (0 failures across 892 tests) and no behavior is
+  new — `GhIssueCache.refresh()`'s existing failure handling already covers exactly
+  this case — so left as is rather than changed; noting it here so it isn't mistaken
+  for a new defect if seen again.
