@@ -1,0 +1,74 @@
+import { TestBed } from '@angular/core/testing';
+import { AttentionStore } from './attention-store';
+import { EventsService } from './events.service';
+
+describe('AttentionStore (#791)', () => {
+  let store: AttentionStore;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+    store = TestBed.inject(AttentionStore);
+  });
+
+  /** Reaches past EventsService's public API (#129) -- there is no other way to fake an incoming socket message. */
+  function emitAppEvent(event: unknown): void {
+    (TestBed.inject(EventsService) as unknown as { eventsSubject: { next: (e: unknown) => void } }).eventsSubject.next(
+      event,
+    );
+  }
+
+  it('reports nothing waiting until an event arrives', () => {
+    expect(store.isWaiting('1-7-rename-toggle')).toBeFalse();
+    expect(store.waiting().size).toBe(0);
+  });
+
+  it('a waiting event marks that session, an active event clears it', () => {
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting' });
+    expect(store.isWaiting('1-7-rename-toggle')).toBeTrue();
+    expect(store.isWaiting('1-8-other')).toBeFalse();
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'active' });
+    expect(store.isWaiting('1-7-rename-toggle')).toBeFalse();
+  });
+
+  it('tracks sessions independently: one going active does not clear another still waiting', () => {
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-a', state: 'waiting' });
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-b', state: 'waiting' });
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-a', state: 'active' });
+
+    expect(store.isWaiting('1-console-a')).toBeFalse();
+    expect(store.isWaiting('1-console-b')).toBeTrue();
+    expect(Array.from(store.waiting())).toEqual(['1-console-b']);
+  });
+
+  it('ignores every other event type, and a malformed consoleAttention message', () => {
+    emitAppEvent({ type: 'consolesChanged', projectId: 1 });
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle' });
+    emitAppEvent({ type: 'consoleAttention', sessionId: 7, state: 'waiting' });
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'idle' });
+
+    expect(store.waiting().size).toBe(0);
+  });
+
+  it('exposes the set as a signal that only changes when the state actually changes', () => {
+    const before = store.waiting();
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'active' });
+    expect(store.waiting()).toBe(before); // already not waiting: no new set
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting' });
+    const afterWaiting = store.waiting();
+    expect(afterWaiting).not.toBe(before);
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting' });
+    expect(store.waiting()).toBe(afterWaiting); // repeat: same set, no notification
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'active' });
+    expect(store.waiting()).not.toBe(afterWaiting);
+    expect(store.isWaiting('1-7-rename-toggle')).toBeFalse();
+  });
+
+  it('applies an event handed to it directly, the same as one off the channel', () => {
+    store.apply({ type: 'consoleAttention', sessionId: '2-9-other-project', state: 'waiting' });
+    expect(store.isWaiting('2-9-other-project')).toBeTrue();
+  });
+});

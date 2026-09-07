@@ -4,13 +4,14 @@ import { NgTemplateOutlet } from '@angular/common';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { Subscription, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
-import { GithubRefreshStatus, Project, TreeNode } from '../../models/issue.model';
+import { Subscription, filter, forkJoin, map, merge } from 'rxjs';
+import { GithubRefreshStatus, Project, TreeNode, TreeResponse } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
+import { AttentionStore } from '../../services/attention-store';
 import {
   ConsolesService,
   isProjectConsoleSessionId,
@@ -20,13 +21,11 @@ import {
 } from '../../services/consoles.service';
 import {
   AppEvent,
-  ConsoleAttentionEvent,
   EventsService,
   GithubRefreshStatusEvent,
   ProjectCreatedEvent,
   ProjectDeletedEvent,
   ProjectStatusEvent,
-  isConsoleAttentionEvent,
   isGithubRefreshStatusEvent,
   isProjectCreatedEvent,
   isProjectDeletedEvent,
@@ -70,12 +69,23 @@ export interface ProjectIssue {
   issueNumber: number;
 }
 
+/**
+ * Where one project's own issue-tree request stands (#787): `loading` until its
+ * first tree has ever arrived, then `loaded`, or `failed` when the last request
+ * for it errored. Each section carries its own, so one slow or failing project's
+ * tree never holds back, or hides, the others.
+ */
+export type TreeState = 'loading' | 'loaded' | 'failed';
+
 export interface Section {
   project: Project;
   tree: TreeNode[];
   // The outcome of the engine's most recent GitHub fetch for this project (#619).
   github: GithubRefreshStatus;
+  treeState: TreeState;
 }
+
+const GITHUB_UNKNOWN: GithubRefreshStatus = { failing: false, failure: null, lastSuccessAt: null };
 
 interface PinnedGroup {
   project: Project;
@@ -101,6 +111,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly projectSectionStore = inject(ProjectSectionStore);
   private readonly consolesService = inject(ConsolesService);
   private readonly eventsService = inject(EventsService);
+  // The one shared "which sessions are waiting" store (#791): the dots below read
+  // from it rather than this component keeping its own copy fed from `events$`.
+  private readonly attentionStore = inject(AttentionStore);
   private readonly router = inject(Router);
 
   // Highlight only -- navigation is each row's own routerLink (#170), so selection
@@ -139,6 +152,17 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // queued run serves them all, so it is fresh if any of them wanted it fresh.
   private refreshQueuedFresh = false;
   error = false;
+  // A later refresh()'s own /api/projects request failed after the list had already
+  // rendered at least once (#801): the sidenav-wide `error` state above only ever
+  // covers the *first* load, so sections stay in the DOM and this notice covers the
+  // failure instead -- "what you had, plus a notice", the same shape a failed
+  // per-project tree fetch already gets (#787). Cleared on the next successful list
+  // load, same as `error`.
+  listRefreshFailed = false;
+  // Whether the project list has ever loaded successfully (#801): distinguishes a
+  // refresh's failed list request (show listRefreshFailed, keep sections) from the
+  // very first load's failure (show the sidenav-wide `error` state, nothing to keep).
+  private hasLoadedList = false;
 
   // Neither persists across reloads, matching the old app (#22's Goal).
   filterText = '';
@@ -174,16 +198,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // so it can never land in openConsoleIssues; tracked separately and merged into
   // hasOpenConsoleForProject below.
   private openConsoleProjects = new Set<number>();
-  // "<projectId>:<issueNumber>" for every issue with a console currently waiting for
-  // attention (#130) -- a bell, or output gone quiet with no input since. Kept as its
-  // own set (rather than folded into openConsoleIssues) since a dot can need to pulse
-  // independent of whether the console list has otherwise changed.
-  private waitingIssues = new Set<string>();
-  // Raw session ids of project-level consoles currently waiting for attention (#450).
-  // Keyed off the session id itself, like the header's console-indicator, rather than
-  // the project id: with two project consoles open, one going active must not clear a
-  // flag another still-waiting console set.
-  private waitingProjectConsoleSessions = new Set<string>();
   private readonly consoleSub: Subscription;
   // "Notify, then fetch" (#129): the event carries no issue data, so a matching
   // project re-fetches its own tree over the existing REST endpoint -- and a project
@@ -204,6 +218,16 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // creating one no such reload is in flight, so `applyProjectStatusEvent` starts
   // one (#760) rather than holding the event for a reload that would never come.
   private readonly pendingStatus = new Map<number, ProjectStatusEvent>();
+  // Bumped each time a load replaces `sections` (#787). Every tree request a load
+  // sends carries the generation it was sent for, so a response that lands after a
+  // later load has already rebuilt the list is dropped rather than written by id:
+  // that later load has its own request for the same project in flight, and an
+  // older response landing afterwards would overwrite the fresher tree.
+  private sectionsGeneration = 0;
+  // Project ids whose tree request from the current load is still in flight (#787).
+  // A clone that settles READY while its own tree request is still out (#729)
+  // waits for that request to land before re-fetching, rather than racing it.
+  private loadingTrees = new Set<number>();
 
   constructor() {
     this.consoleSub = merge(this.consolesService.onOpened, this.consolesService.onClosed).subscribe(() =>
@@ -213,10 +237,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
       this.eventsService.events$.pipe(
         filter(isIssuesChangedEvent),
         map((event) => () => this.applyIssuesChangedEvent(event)),
-      ),
-      this.eventsService.events$.pipe(
-        filter(isConsoleAttentionEvent),
-        map((event) => () => this.applyAttentionEvent(event)),
       ),
       this.eventsService.events$.pipe(
         filter(isGithubRefreshStatusEvent),
@@ -242,7 +262,7 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.load(() => (this.loading = false));
+    this.load(() => {});
   }
   ngOnDestroy(): void {
     this.clearTick();
@@ -350,58 +370,141 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Reloads the project list, then every project's tree. The sections are built --
+   * and rendered -- the moment the list arrives, in list order (#787); each tree
+   * request then fills in its own section as it lands, so one slow or failing
+   * project never holds the others back or hides them. A section that had already
+   * loaded keeps showing its current tree until the new one replaces it, the same
+   * in-place update a reload always gave; one that never had a tree (or whose last
+   * request failed) shows its own loading state until its request lands.
+   *
+   * `onDone` fires once every tree request has settled, success or failure -- or
+   * right away when the list itself fails -- so `refreshing`, and the queued
+   * refresh behind it (#738), still cover the whole reload.
+   *
    * `fresh` (#545) bypasses the engine's `GhIssueCache` for every project's tree
    * fetch, the same way `refreshProject` already does for one project alone — for
    * the refresh button, so it shows the current issue list rather than whatever the
    * cache already held from the last fetch.
    */
   private load(onDone: () => void, fresh = false): void {
-    this.projectsService
-      .list()
-      .pipe(
-        switchMap((projects) => {
-          // Focus mode (#286): narrow to the one focused project before fetching any
-          // tree, so no other project's (expensive) tree is ever requested or shown.
-          const relevant =
-            this.focusedProjectId === null
-              ? projects
-              : projects.filter((p) => p.id === this.focusedProjectId);
-          return relevant.length === 0
-            ? of([] as Section[])
-            : forkJoin(
-                relevant.map((project) =>
-                  this.issuesService
-                    .treeWithStatus(project.id, fresh)
-                    .pipe(map((response): Section => ({ project, tree: response.nodes, github: response.github }))),
-                ),
-              );
-        }),
-      )
-      .subscribe({
-        next: (sections) => {
-          this.sections = sections;
-          this.error = false;
-          this.trackCloneProgress();
-          this.applyPendingStatusEvents();
-          onDone();
-          this.maybeReveal();
-          this.refreshConsoleIndicators();
-          // The selected input can arrive before the tree that carries its row does
-          // (e.g. loading a URL straight onto an issue) -- try again once it's loaded.
-          this.focusSelectedRow();
-        },
-        error: () => {
-          this.error = true;
-          onDone();
-          // `onDone` (`finishRefresh`, for a refresh-triggered load) may have just
-          // started a fresh attempt for a queued refresh (#738) -- `refreshing` is
-          // true again in that case, and the pending reveal stays for it rather than
-          // being dropped here.
-          if (!this.refreshing) {
-            this.dropPendingReveal();
+    this.projectsService.list().subscribe({
+      next: (projects) => {
+        // Focus mode (#286): narrow to the one focused project before fetching any
+        // tree, so no other project's (expensive) tree is ever requested or shown.
+        const relevant =
+          this.focusedProjectId === null ? projects : projects.filter((p) => p.id === this.focusedProjectId);
+        const previous = new Map(this.sections.map((s) => [s.project.id, s]));
+        this.sections = relevant.map((project): Section => {
+          const carried = previous.get(project.id);
+          return carried !== undefined && carried.treeState === 'loaded'
+            ? { ...carried, project }
+            : { project, tree: [], github: GITHUB_UNKNOWN, treeState: 'loading' };
+        });
+        const generation = ++this.sectionsGeneration;
+        this.loadingTrees = new Set(relevant.map((p) => p.id));
+        this.loading = false;
+        this.error = false;
+        this.listRefreshFailed = false;
+        this.hasLoadedList = true;
+        this.trackCloneProgress();
+
+        let outstanding = relevant.length;
+        const settle = () => {
+          if (--outstanding === 0) {
+            onDone();
           }
-        },
-      });
+        };
+        for (const project of relevant) {
+          // Whether the engine already reported this project READY when its tree
+          // was requested: a clone that settles while the request is out (#729)
+          // may have been answered with the empty pre-clone tree, so the response
+          // handler re-fetches once it knows the status changed underneath it.
+          const readyAtRequest = project.status === 'READY';
+          this.issuesService.treeWithStatus(project.id, fresh).subscribe({
+            next: (response) => {
+              this.applyLoadedTree(generation, project.id, response, readyAtRequest);
+              settle();
+            },
+            error: () => {
+              this.applyFailedTree(generation, project.id);
+              settle();
+            },
+          });
+        }
+        // After the requests are out, so a held READY event (#729) sees this
+        // project's tree still loading and defers its re-fetch (see
+        // `applyProjectStatusEvent`) rather than sending a duplicate now.
+        this.applyPendingStatusEvents();
+        this.maybeReveal();
+        this.refreshConsoleIndicators();
+        if (relevant.length === 0) {
+          onDone();
+        }
+      },
+      error: () => {
+        this.loading = false;
+        // The sidenav-wide `error` state only ever covers the first load, with
+        // nothing yet rendered to keep; once the list has loaded once, a later
+        // failure leaves the existing sections alone and surfaces a notice instead
+        // (#801).
+        if (this.hasLoadedList) {
+          this.listRefreshFailed = true;
+        } else {
+          this.error = true;
+        }
+        onDone();
+        // `onDone` (`finishRefresh`, for a refresh-triggered load) may have just
+        // started a fresh attempt for a queued refresh (#738) -- `refreshing` is
+        // true again in that case, and the pending reveal stays for it rather than
+        // being dropped here.
+        if (!this.refreshing) {
+          this.dropPendingReveal();
+        }
+      },
+    });
+  }
+
+  /**
+   * Writes one tree response from a load into its own section (#787), looked up by
+   * project id now rather than by the index it had when requested (#760). A
+   * response from a load whose sections a later load has since replaced is dropped:
+   * that later load has its own request for this project in flight.
+   */
+  private applyLoadedTree(generation: number, projectId: number, response: TreeResponse, readyAtRequest: boolean): void {
+    if (generation !== this.sectionsGeneration) {
+      return;
+    }
+    this.loadingTrees.delete(projectId);
+    const index = this.sections.findIndex((s) => s.project.id === projectId);
+    if (index === -1) {
+      return;
+    }
+    const section = this.sections[index];
+    this.sections[index] = { ...section, tree: response.nodes, github: response.github, treeState: 'loaded' };
+    // The selected input can arrive before the tree that carries its row does
+    // (e.g. loading a URL straight onto an issue) -- try again now that it has.
+    if (this._selected?.projectId === projectId) {
+      this.focusSelectedRow();
+    }
+    if (!readyAtRequest && section.project.status === 'READY') {
+      // The clone settled while this request was out (#729): the tree it returned
+      // may be the empty one from before the clone finished, so fetch the real one.
+      this.refreshProject(projectId);
+    }
+  }
+
+  /** One project's tree request from a load failed (#787): that section alone shows it. */
+  private applyFailedTree(generation: number, projectId: number): void {
+    if (generation !== this.sectionsGeneration) {
+      return;
+    }
+    this.loadingTrees.delete(projectId);
+    const index = this.sections.findIndex((s) => s.project.id === projectId);
+    if (index === -1) {
+      return;
+    }
+    this.sections[index] = { ...this.sections[index], treeState: 'failed' };
   }
 
   /**
@@ -452,17 +555,27 @@ export class SidenavComponent implements OnInit, OnDestroy {
     if (!this.hasSection(projectId)) {
       return;
     }
-    this.issuesService.treeWithStatus(projectId, fresh).subscribe((response) => {
-      // Looked up again now, not at request time (#760): a reload that replaced
-      // `sections` while this fetch was in flight may have moved this project to
-      // another index -- or dropped it -- and writing to the old index would hand
-      // this tree to whatever project sits there now.
-      const index = this.sections.findIndex((s) => s.project.id === projectId);
-      if (index === -1) {
-        return;
-      }
-      this.sections[index] = { ...this.sections[index], tree: response.nodes, github: response.github };
-      this.refreshConsoleIndicators();
+    this.issuesService.treeWithStatus(projectId, fresh).subscribe({
+      next: (response) => {
+        // Looked up again now, not at request time (#760): a reload that replaced
+        // `sections` while this fetch was in flight may have moved this project to
+        // another index -- or dropped it -- and writing to the old index would hand
+        // this tree to whatever project sits there now.
+        const index = this.sections.findIndex((s) => s.project.id === projectId);
+        if (index === -1) {
+          return;
+        }
+        this.sections[index] = { ...this.sections[index], tree: response.nodes, github: response.github, treeState: 'loaded' };
+        this.refreshConsoleIndicators();
+      },
+      error: () => {
+        // The same per-project failure state a load's own request gets (#787),
+        // keeping whatever tree the section already showed.
+        const index = this.sections.findIndex((s) => s.project.id === projectId);
+        if (index !== -1) {
+          this.sections[index] = { ...this.sections[index], treeState: 'failed' };
+        }
+      },
     });
   }
 
@@ -525,9 +638,11 @@ export class SidenavComponent implements OnInit, OnDestroy {
       },
     };
     this.trackCloneProgress();
-    if (event.status === 'READY' && previous !== 'READY') {
+    if (event.status === 'READY' && previous !== 'READY' && !this.loadingTrees.has(event.projectId)) {
       // The tree fetched while the project was still cloning is empty; fetch the
-      // real one now so a newly READY row does not sit empty (#729).
+      // real one now so a newly READY row does not sit empty (#729). When this
+      // project's own tree request from a load is still out (#787), that request's
+      // handler does the re-fetch once it lands instead, so the two never race.
       this.refreshProject(event.projectId);
     }
   }
@@ -619,9 +734,12 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   // Like hasOpenConsoleForProject above, tracks project-level console sessions
   // exclusively (#450) -- an issue-attached console's wait shows on that issue row's
-  // own dot, never here.
+  // own dot, never here. Reads the shared store (#791) by session id, so with two
+  // project consoles open, one going active does not clear a flag another
+  // still-waiting console set; `projectIdFromProjectConsoleSessionId` is null for an
+  // issue-attached session id, which keeps those off the project row.
   hasAttentionWaitingForProject(projectId: number): boolean {
-    for (const sessionId of this.waitingProjectConsoleSessions) {
+    for (const sessionId of this.attentionStore.waiting()) {
       if (projectIdFromProjectConsoleSessionId(sessionId) === projectId) {
         return true;
       }
@@ -637,32 +755,20 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Applies one `consoleAttention` event (#130) onto whichever issue its session
-   * belongs to -- or, for a project-level console's session id, which carries no
-   * issue number, onto its project's own row (#450).
+   * Whether any session attached to this issue is waiting for attention (#130): the
+   * shared store (#791) holds session ids, and a session's "<projectId>:<issueNumber>"
+   * key is parsed straight out of its id, the same placement the sidenav used when it
+   * applied the events itself. A project-level console's id carries no issue number,
+   * so it never matches here -- it shows on the project row (#450) instead.
    */
-  private applyAttentionEvent(event: ConsoleAttentionEvent): void {
-    const key = projectIssueKeyFromSessionId(event.sessionId);
-    if (key !== null) {
-      if (event.state === 'waiting') {
-        this.waitingIssues.add(key);
-      } else {
-        this.waitingIssues.delete(key);
-      }
-      return;
-    }
-    if (projectIdFromProjectConsoleSessionId(event.sessionId) === null) {
-      return;
-    }
-    if (event.state === 'waiting') {
-      this.waitingProjectConsoleSessions.add(event.sessionId);
-    } else {
-      this.waitingProjectConsoleSessions.delete(event.sessionId);
-    }
-  }
-
   hasAttentionWaiting(projectId: number, issueNumber: number): boolean {
-    return this.waitingIssues.has(`${projectId}:${issueNumber}`);
+    const key = `${projectId}:${issueNumber}`;
+    for (const sessionId of this.attentionStore.waiting()) {
+      if (projectIssueKeyFromSessionId(sessionId) === key) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -35,6 +35,35 @@
   color: var(--text);
 }
 
+/* The per-tab attention dot (#791): the sidenav's per-issue dot, on the tab itself.
+   Blue from the shared token in styles.css (so the two never drift apart), amber and
+   pulsing while that agent waits for the user. The keyframes are declared here again
+   with the sidenav's own timing since Angular scopes a component's @keyframes to it. */
+.tab-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--agent-dot);
+}
+
+.tab-dot.waiting {
+  background: var(--amber);
+  animation: tab-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tab-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 /* The always-visible quick-close button (#497, restoring #71's original) sits
    next to the overflow trigger so closing a tab never requires opening the menu;
    the "Close" item stays in the menu too (#480) for parity with Shell/Folder. */

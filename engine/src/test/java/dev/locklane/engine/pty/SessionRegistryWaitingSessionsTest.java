@@ -1,0 +1,64 @@
+package dev.locklane.engine.pty;
+
+import dev.locklane.engine.persistence.TestSqliteDatabases;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Covers #790's registry half: {@link SessionRegistry#waitingSessionIds()} names exactly
+ * the live sessions currently in {@link PtySession.AttentionState#WAITING} — what the
+ * events channel sends a newly connected client as its catch-up snapshot — and nothing
+ * for a session that is active, or that has a persisted record but no live process.
+ * Attention is driven through the deterministic {@code checkQuiescence(nowMs)} overload,
+ * the same way {@link PtySessionAttentionTest} does, so no test here sleeps.
+ */
+class SessionRegistryWaitingSessionsTest {
+
+    @Test
+    void noSessionIsWaitingWhenNothingIsLive(@TempDir Path dbDir) {
+        SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
+
+        assertThat(registry.waitingSessionIds()).isEmpty();
+    }
+
+    @Test
+    void onlyTheSessionsCurrentlyWaitingAreListed(@TempDir Path dbDir, @TempDir Path workDir) {
+        SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
+        PtySession waiting = registry.attach("42-7-waiting", workDir);
+        PtySession alsoWaiting = registry.attach("42-8-also-waiting", workDir);
+        registry.attach("42-9-active", workDir);
+
+        long wellPastTheThreshold = System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000;
+        waiting.checkQuiescence(wellPastTheThreshold);
+        alsoWaiting.checkQuiescence(wellPastTheThreshold);
+
+        assertThat(registry.waitingSessionIds()).containsExactlyInAnyOrder("42-7-waiting", "42-8-also-waiting");
+    }
+
+    @Test
+    void aSessionLeavesTheListOnceItIsActiveAgain(@TempDir Path dbDir, @TempDir Path workDir) {
+        SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
+        PtySession session = registry.attach("42-7-slug", workDir);
+        session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
+        assertThat(registry.waitingSessionIds()).containsExactly("42-7-slug");
+
+        session.markFocused();
+
+        assertThat(registry.waitingSessionIds()).isEmpty();
+    }
+
+    @Test
+    void aClosedSessionIsNoLongerListedEvenIfItWasWaiting(@TempDir Path dbDir, @TempDir Path workDir) {
+        SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
+        PtySession session = registry.attach("42-7-slug", workDir);
+        session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
+
+        registry.close("42-7-slug");
+
+        assertThat(registry.waitingSessionIds()).isEmpty();
+    }
+}

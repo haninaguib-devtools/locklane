@@ -876,29 +876,111 @@ describe('ProjectConsoleComponent', () => {
     httpMock.expectNone('/api/projects/1/console/resume-sessions');
   });
 
-  it('resumes the right conversation when the project page hands off a freshly reopened session (#752)', fakeAsync(() => {
+  // #752 handed a freshly reopened session off as ?session=&resume=&tool=, and this
+  // page applied them to the matching row of the open-console list. But the engine
+  // only lists a session once something has attached to it (#370), so the freshly
+  // minted id was never in that list, no terminal was ever mounted for it, and the
+  // resume id was silently dropped (#795). The handoff now also carries ?dir= (the
+  // reopen response's working directory), and the page adds the tab itself.
+  it('resumes the right conversation when the project page hands off a freshly reopened session the engine does not list yet (#752, #795)', fakeAsync(() => {
     TestBed.inject(Router).navigateByUrl(
-      '/projects/1/console?session=1-console-a1b2c3d4-resume-99887766&resume=11111111-1111-1111-1111-111111111111&tool=claude',
+      '/projects/1/console?session=1-console-a1b2c3d4-resume-99887766&dir=%2Ftmp%2Fa&resume=11111111-1111-1111-1111-111111111111&tool=claude',
     );
     tick();
 
     const fixture = init();
-    httpMock.expectOne('/api/projects/1/console/sessions').flush([
-      row('1-console-a1b2c3d4-resume-99887766'),
-      row('1-console-e5f6a7b8'),
-    ]);
+    // The list carries only the project's already-attached consoles -- never the
+    // one just minted.
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-e5f6a7b8')]);
     fixture.detectChanges();
+    tick();
 
     expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4-resume-99887766');
     const terminals = fixture.debugElement.queryAll(By.directive(TerminalComponent));
     const reopened = terminals.find((t) => t.componentInstance.sessionId === '1-console-a1b2c3d4-resume-99887766')!;
+    expect(reopened).toBeTruthy();
     // The resume id and the tool both reach the terminal, so its first attach
-    // launches `claude --resume <id>` rather than a fresh conversation.
+    // launches `claude --resume <id>` rather than a fresh conversation -- in the
+    // directory the conversation was captured in, which the engine has no record
+    // of for a never-attached session.
     expect(reopened.componentInstance.resume).toBe('11111111-1111-1111-1111-111111111111');
     expect(reopened.componentInstance.cmd).toBe('claude');
-    // The other, ordinary session in the same response carries no resume info.
+    expect(reopened.componentInstance.dir).toBe('/tmp/a');
+    // The other, ordinary session in the same response is still there, with no
+    // resume info.
     const other = terminals.find((t) => t.componentInstance.sessionId === '1-console-e5f6a7b8')!;
     expect(other.componentInstance.resume).toBeNull();
+    const tabs = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.tab'),
+    ).map((b) => b.textContent!.trim());
+    expect(tabs).toEqual(['agent', 'agent 2']);
+    // Nothing was auto-started: the handed-off session is the new tab.
+    httpMock.expectNone('/api/projects/1/console');
+    // The one-shot handoff params are consumed; `session` stays as the ordinary
+    // tab-activation handoff.
+    expect(TestBed.inject(Router).url).toBe('/projects/1/console?session=1-console-a1b2c3d4-resume-99887766');
+  }));
+
+  it('mounts a handed-off reopened session on a project with no open console, instead of auto-starting a blank one (#795)', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl(
+      '/projects/1/console?session=1-console-a1b2c3d4-resume-99887766&dir=%2Ftmp%2Fa&resume=11111111-1111-1111-1111-111111111111&tool=codex',
+    );
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    fixture.detectChanges();
+    tick();
+
+    // Before #795 an empty list auto-started a brand-new console here (#256) and the
+    // reopened one was lost.
+    httpMock.expectNone('/api/projects/1/console');
+    expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4-resume-99887766');
+    const terminals = fixture.debugElement.queryAll(By.directive(TerminalComponent));
+    expect(terminals.length).toBe(1);
+    expect(terminals[0].componentInstance.sessionId).toBe('1-console-a1b2c3d4-resume-99887766');
+    expect(terminals[0].componentInstance.resume).toBe('11111111-1111-1111-1111-111111111111');
+    expect(terminals[0].componentInstance.cmd).toBe('codex');
+    expect(terminals[0].componentInstance.dir).toBe('/tmp/a');
+  }));
+
+  it('mounts the console the project page\'s "Open console" just minted, rather than starting a second one (#795)', fakeAsync(() => {
+    // The project page records the agent it chose (#221) and hands the fresh id
+    // off with its directory and no resume info.
+    TestBed.inject(AgentStore).set('1-console-c9d0e1f2', 'claude');
+    TestBed.inject(Router).navigateByUrl('/projects/1/console?session=1-console-c9d0e1f2&dir=%2Frepo-console-c9d0e1f2');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    fixture.detectChanges();
+    tick();
+
+    httpMock.expectNone('/api/projects/1/console');
+    expect(fixture.componentInstance.selected).toBe('1-console-c9d0e1f2');
+    const terminals = fixture.debugElement.queryAll(By.directive(TerminalComponent));
+    expect(terminals.length).toBe(1);
+    expect(terminals[0].componentInstance.dir).toBe('/repo-console-c9d0e1f2');
+    expect(terminals[0].componentInstance.cmd).toBe('claude');
+    expect(terminals[0].componentInstance.resume).toBeNull();
+    expect(TestBed.inject(Router).url).toBe('/projects/1/console?session=1-console-c9d0e1f2');
+  }));
+
+  it('does not add a tab for a ?session the engine lists already, even when ?dir= is present (#795)', fakeAsync(() => {
+    // A reload of the handoff URL after the first attach: the engine lists the
+    // session now, so it maps as an ordinary row -- one tab, not two.
+    TestBed.inject(Router).navigateByUrl(
+      '/projects/1/console?session=1-console-a1b2c3d4-resume-99887766&dir=%2Ftmp%2Fa&resume=11111111-1111-1111-1111-111111111111&tool=claude',
+    );
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4-resume-99887766')]);
+    fixture.detectChanges();
+    tick();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4-resume-99887766');
+    expect(fixture.debugElement.queryAll(By.directive(TerminalComponent)).length).toBe(1);
   }));
 
   it('renames a tab in place and saves the name against the session (#393)', () => {

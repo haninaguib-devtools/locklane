@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ConsoleTabsComponent } from './console-tabs.component';
 import { ConsoleTab } from './console-labels';
 import { DefaultIdeStore } from '../../services/default-ide-store';
+import { EventsService } from '../../services/events.service';
 
 describe('ConsoleTabsComponent', () => {
   it('emits the clicked console id', () => {
@@ -659,5 +660,105 @@ describe('ConsoleTabsComponent open-the-ide (#628, #782)', () => {
 
     expect(openSpy).not.toHaveBeenCalled();
     expect(fixture.nativeElement.querySelector('.ide-error')).not.toBeNull();
+  });
+});
+
+// The per-tab attention dot (#791) reads the shared AttentionStore, so like the
+// open-a-shell suites above these render under TestBed -- the store is providedIn
+// root and constructs against the (never connected) EventsService.
+describe('ConsoleTabsComponent attention dot (#791)', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [ConsoleTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+  });
+
+  /** Reaches past EventsService's public API (#129) -- there is no other way to fake an incoming socket message. */
+  function emitAppEvent(event: unknown): void {
+    (TestBed.inject(EventsService) as unknown as { eventsSubject: { next: (e: unknown) => void } }).eventsSubject.next(
+      event,
+    );
+  }
+
+  function render(tabs: ConsoleTab[], overview = true) {
+    const fixture = TestBed.createComponent(ConsoleTabsComponent);
+    fixture.componentInstance.tabs = tabs;
+    fixture.componentInstance.overview = overview;
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  function tabButtons(fixture: ReturnType<typeof render>): HTMLButtonElement[] {
+    return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button.tab'));
+  }
+
+  it('renders a dot inside every agent tab, and none on the Overview tab', () => {
+    const fixture = render([
+      { id: '1-7-rename-toggle', agent: 'claude', label: 'wtree · claude' },
+      { id: '1-console-aaaa0001', agent: 'codex', label: 'console' },
+    ]);
+
+    const buttons = tabButtons(fixture);
+    expect(buttons.length).toBe(3);
+    expect(buttons[0].textContent!.trim()).toBe('Overview');
+    expect(buttons[0].querySelector('.tab-dot')).toBeNull();
+    expect(buttons[1].querySelector('.tab-dot')).not.toBeNull();
+    expect(buttons[2].querySelector('.tab-dot')).not.toBeNull();
+    // Plain blue until the store says otherwise; nothing claims to be waiting.
+    expect(fixture.nativeElement.querySelectorAll('.tab-dot.waiting').length).toBe(0);
+    expect(buttons[1].getAttribute('title')).toBeNull();
+    expect(buttons[1].getAttribute('aria-label')).toBeNull();
+  });
+
+  it('the waiting class follows the store for that session only, and the button says so in words', () => {
+    const fixture = render([
+      { id: '1-7-rename-toggle', agent: 'claude', label: 'wtree · claude' },
+      { id: '1-console-aaaa0001', agent: 'codex', label: 'console' },
+    ]);
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-aaaa0001', state: 'waiting' });
+    fixture.detectChanges();
+
+    let buttons = tabButtons(fixture);
+    expect(buttons[1].querySelector('.tab-dot')!.classList.contains('waiting')).toBeFalse();
+    expect(buttons[2].querySelector('.tab-dot')!.classList.contains('waiting')).toBeTrue();
+    expect(buttons[2].getAttribute('title')).toBe('Waiting for you');
+    expect(buttons[2].getAttribute('aria-label')).toBe('console, waiting for you');
+    expect(buttons[1].getAttribute('aria-label')).toBeNull();
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-aaaa0001', state: 'active' });
+    fixture.detectChanges();
+
+    buttons = tabButtons(fixture);
+    expect(fixture.nativeElement.querySelectorAll('.tab-dot.waiting').length).toBe(0);
+    expect(buttons[2].getAttribute('title')).toBeNull();
+    expect(buttons[2].getAttribute('aria-label')).toBeNull();
+  });
+
+  it('a waiting tab keeps its title over the rename hint until it settles (#393)', () => {
+    const fixture = TestBed.createComponent(ConsoleTabsComponent);
+    fixture.componentInstance.renamable = true;
+    fixture.componentInstance.overview = false;
+    fixture.componentInstance.tabs = [{ id: '1-console-aaaa0001', agent: 'codex', label: 'console' }];
+    fixture.detectChanges();
+
+    expect(tabButtons(fixture)[0].getAttribute('title')).toBe('double-click to rename');
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-aaaa0001', state: 'waiting' });
+    fixture.detectChanges();
+    expect(tabButtons(fixture)[0].getAttribute('title')).toBe('Waiting for you');
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-aaaa0001', state: 'active' });
+    fixture.detectChanges();
+    expect(tabButtons(fixture)[0].getAttribute('title')).toBe('double-click to rename');
+  });
+
+  it('constructed bare, with no store, never reports a tab waiting', () => {
+    const c = new ConsoleTabsComponent();
+    c.tabs = [{ id: '1-console-aaaa0001', agent: 'codex', label: 'console' }];
+
+    expect(c.isWaiting('1-console-aaaa0001')).toBeFalse();
+    expect(c.tabTitle('1-console-aaaa0001')).toBeNull();
   });
 });

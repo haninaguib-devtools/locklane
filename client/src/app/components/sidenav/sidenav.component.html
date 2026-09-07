@@ -42,6 +42,9 @@
   } @else if (error) {
     <div class="state">could not load issues</div>
   } @else {
+    @if (listRefreshFailed) {
+      <div class="list-refresh-error" role="alert">could not refresh issues</div>
+    }
     @if (pinnedGroups.length > 0) {
       <div class="label">pinned</div>
       @for (group of pinnedGroups; track group.project.id) {
@@ -84,7 +87,7 @@
             </button>
             <span class="project-label">
               {{ section.project.name }}
-              @if (section.project.status === 'READY') {
+              @if (section.project.status === 'READY' && section.treeState === 'loaded') {
                 <span class="issue-count">({{ openIssueCount(section) }})</span>
               }
             </span>
@@ -161,8 +164,14 @@
                   <p class="delete-error">{{ message }}</p>
                 }
               </div>
+            } @else if (section.treeState === 'loading') {
+              <!-- This project's own tree is still on its way (#787); the others render as theirs land. -->
+              <div class="state tree-loading">loading…</div>
             } @else {
-              @if (mainNodesFor(section).length === 0) {
+              @if (section.treeState === 'failed') {
+                <!-- Only this project's request failed (#787); any tree it already had stays below. -->
+                <div class="state tree-error" role="alert">could not load issues</div>
+              } @else if (mainNodesFor(section).length === 0) {
                 <div class="state">no matching cases</div>
               }
               <ul>

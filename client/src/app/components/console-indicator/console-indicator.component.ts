@@ -1,14 +1,14 @@
-import { Component, ElementRef, OnDestroy, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import { Component, ElementRef, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { Observable, Subscription, combineLatest, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
+import { Observable, combineLatest, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
 import { IssuesService } from '../../services/issues.service';
 import { CurrentProjectService } from '../../services/current-project.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
 import { AgentStore } from '../../services/agent-store';
 import { ActiveConsoleStore } from '../../services/active-console-store';
-import { EventsService, isConsoleAttentionEvent } from '../../services/events.service';
+import { AttentionStore } from '../../services/attention-store';
 import { Project } from '../../models/issue.model';
 import { labelProjectConsoles, tabText } from '../console-tabs/console-labels';
 
@@ -50,14 +50,15 @@ export interface ConsoleGroup {
   templateUrl: './console-indicator.component.html',
   styleUrl: './console-indicator.component.css',
 })
-export class ConsoleIndicatorComponent implements OnDestroy {
+export class ConsoleIndicatorComponent {
   private readonly currentProject = inject(CurrentProjectService);
   private readonly consolesService = inject(ConsolesService);
   private readonly issuesService = inject(IssuesService);
   private readonly projectConsoleService = inject(ProjectConsoleService);
   private readonly agentStore = inject(AgentStore);
   private readonly activeConsoleStore = inject(ActiveConsoleStore);
-  private readonly eventsService = inject(EventsService);
+  // The one shared "which sessions are waiting" store (#791), read by session id.
+  private readonly attentionStore = inject(AttentionStore);
   private readonly router = inject(Router);
 
   @ViewChild('results') private readonly resultsRef?: ElementRef<HTMLElement>;
@@ -130,12 +131,6 @@ export class ConsoleIndicatorComponent implements OnDestroy {
   readonly open = signal(false);
   readonly selected = signal(0);
 
-  // Session ids currently waiting for attention (#130), across every project the
-  // user has -- this component only ever renders the ones that also show up in
-  // `entries`, which already spans every project (#290).
-  private waitingSessions = new Set<string>();
-  private readonly attentionSub: Subscription;
-
   constructor() {
     // A console may close while the popup is open. Keep the selection valid, and
     // dismiss the popup once there is nothing left to show -- portstow's own
@@ -148,23 +143,15 @@ export class ConsoleIndicatorComponent implements OnDestroy {
         this.selected.set(count - 1);
       }
     });
-
-    this.attentionSub = this.eventsService.events$.pipe(filter(isConsoleAttentionEvent)).subscribe((event) => {
-      if (event.state === 'waiting') {
-        this.waitingSessions.add(event.sessionId);
-      } else {
-        this.waitingSessions.delete(event.sessionId);
-      }
-    });
   }
 
-  ngOnDestroy(): void {
-    this.attentionSub.unsubscribe();
-  }
-
-  /** Whether any console shown here (#130) is waiting for the user's attention. */
+  /**
+   * Whether any console shown here (#130) is waiting for the user's attention. The
+   * store spans every project the user has; this only ever asks about the sessions
+   * that also show up in `entries`, which already spans every project (#290).
+   */
   hasWaitingEntry(): boolean {
-    return this.entries().some((entry) => this.waitingSessions.has(entry.sessionId));
+    return this.entries().some((entry) => this.attentionStore.isWaiting(entry.sessionId));
   }
 
   toggle(): void {

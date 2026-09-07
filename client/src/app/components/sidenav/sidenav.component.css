@@ -325,6 +325,21 @@
   word-break: break-word;
 }
 
+/* A refresh()'s own project-list request failed after the list had already rendered
+   (#801) -- the already-loaded sections stay below this, unlike the sidenav-wide
+   `.state` error that only ever covers the first load. Stays until the next
+   successful list load; no dismiss, same as `.github-error`. */
+.list-refresh-error {
+  margin: 6px 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--danger, #b3432b);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--danger, #b3432b);
+  word-break: break-word;
+}
+
 .delete-error {
   font-size: 12px;
   color: var(--danger, #b3432b);
@@ -334,6 +349,11 @@
   padding: 8px 16px;
   font-size: 12px;
   color: var(--faint);
+}
+
+/* One project's own tree request failed (#787) -- the others are unaffected. */
+.state.tree-error {
+  color: var(--danger, #b3432b);
 }
 
 ul {
@@ -439,7 +459,8 @@ ul.branch {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #3b6fa8;
+  /* The shared blue (#791): the agent tab strip's dot reads the same token. */
+  background: var(--agent-dot);
 }
 
 .console-dot.waiting {
