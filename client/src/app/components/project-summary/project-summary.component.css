@@ -1,3 +1,17 @@
+/* The component is a flex item of app.component's `.project-pages` row. Without this
+   rule it sits at the default `flex: 0 1 auto` and is only as wide as its own widest
+   line, so every "fill the available width" rule inside it (#767) stretches inside a
+   box no wider than its own text, leaving the rest of the row empty. Same rule
+   main-content's and project-console's hosts declare, so the page fills the row and
+   `.summary` receives the full width beside the sidenav (#785). */
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
 .summary {
   flex: 1;
   min-width: 0;
