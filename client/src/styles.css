@@ -17,6 +17,9 @@
   --green-soft: #ecf3e8;
   --amber: #b07f1a;
   --amber-soft: #f9efda;
+  /* The "has an open agent" dot (#130's blue), shared by the sidenav's per-issue dot
+     and the agent tab strip's per-tab dot (#791) so the two cannot drift apart. */
+  --agent-dot: #3b6fa8;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
