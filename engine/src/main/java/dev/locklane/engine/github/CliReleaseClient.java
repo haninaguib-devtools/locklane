@@ -5,11 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.process.ProcessOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Optional;
 
 /**
@@ -21,6 +22,11 @@ import java.util.Optional;
  * all, and it always runs as whatever identity {@code gh auth login} has on the host —
  * the same ambient-session fallback {@link CliGhClient} uses when a project has no
  * stored token, since this repo has none to store one against.
+ *
+ * <p>The process is run through {@link CliGhClient#runBounded} (#763): both streams
+ * drained concurrently, and the call killed and given up on after the same timeout
+ * the per-project client uses, so a stalled GitHub connection can never hold the
+ * scheduler thread this check shares with the heartbeats.
  */
 @Component
 public class CliReleaseClient implements ReleaseClient {
@@ -29,21 +35,27 @@ public class CliReleaseClient implements ReleaseClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final String repository;
+    private final String executable;
+    private final Duration timeout;
 
+    @Autowired
     public CliReleaseClient(@Value("${locklane.release-check.repository}") String repository) {
+        this(repository, "gh", CliGhClient.DEFAULT_TIMEOUT);
+    }
+
+    /** Test-only: substitutes a fake executable for {@code gh} on PATH, and a shorter timeout. */
+    CliReleaseClient(String repository, String executable, Duration timeout) {
         this.repository = repository;
+        this.executable = executable;
+        this.timeout = timeout;
     }
 
     @Override
     public Optional<GhRelease> latestRelease() {
         try {
-            ProcessBuilder builder = new ProcessBuilder("gh", "release", "view",
+            ProcessBuilder builder = new ProcessBuilder(executable, "release", "view",
                     "--repo", repository, "--json", "tagName,url");
-            Process process = builder.start();
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            int exit = process.waitFor();
-            ProcessOutcome outcome = new ProcessOutcome(exit, output, error);
+            ProcessOutcome outcome = CliGhClient.runBounded(builder, timeout);
             if (outcome.failed()) {
                 // No permanent release yet (only the rolling "latest" pre-release
                 // exists) and a real gh failure look the same from here — either way
@@ -53,8 +65,13 @@ public class CliReleaseClient implements ReleaseClient {
                 log.debug("`gh release view` exited {}: {}", outcome.exitCode(), outcome.describe());
                 return Optional.empty();
             }
-            JsonNode node = MAPPER.readTree(output);
+            JsonNode node = MAPPER.readTree(outcome.stdout());
             return Optional.of(new GhRelease(node.path("tagName").asText(), node.path("url").asText()));
+        } catch (CliGhClient.ProcessTimedOut e) {
+            // Unlike a nonzero exit, a hang is never "no release yet": it is worth a
+            // WARN, once an hour at most.
+            log.warn("Could not check for a newer release", e);
+            return Optional.empty();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.debug("Interrupted while running `gh release view`", e);
