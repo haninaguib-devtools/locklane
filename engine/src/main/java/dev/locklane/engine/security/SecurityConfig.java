@@ -29,7 +29,10 @@ import org.springframework.http.HttpStatus;
  * image of {@code /api/auth/2fa/verify} below); the worktree-session
  * endpoints (list/start under {@code /api/projects/{projectId}/issues/{number}/worktrees},
  * #48, nested under a project id since #43; the cross-issue listing under
- * {@code /api/projects/{projectId}/consoles}, #32), the project-level console
+ * {@code /api/projects/{projectId}/consoles}, #32; opening a console's IDE and
+ * revealing its worktree in the host's file manager under that same path, #655/#784 —
+ * the reveal was left unlisted by #655 and answered an anonymous call with a 500 on a
+ * null principal until #784 listed it), the project-level console
  * sessions under {@code /api/projects/{projectId}/console} and its sub-paths
  * (#139/#177 — same ownership story as a worktree session, just with no issue), the
  * project CRUD endpoints
@@ -100,6 +103,12 @@ public class SecurityConfig {
                         // the owner-only check before forwarding anything.
                         .requestMatchers("/api/projects/*/consoles/*/open-ide").authenticated()
                         .requestMatchers("/api/projects/*/consoles/*/ide/**").authenticated()
+                        // Revealing a console's worktree in the host's file manager
+                        // (#441): unlisted until #784, so an anonymous call reached the
+                        // controller and failed with a 500 on a null principal instead
+                        // of this 401. Behind this, the controller applies the owner-only
+                        // check and the loopback-only rule.
+                        .requestMatchers("/api/projects/*/consoles/*/reveal-in-file-manager").authenticated()
                         .requestMatchers("/api/projects/*/console").authenticated()
                         .requestMatchers("/api/projects/*/console/*").authenticated()
                         // The shell-session endpoints (#445/#460): the trailing /**
