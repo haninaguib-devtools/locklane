@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -73,6 +74,30 @@ class EventsWebSocketHandlerHeartbeatTest {
         handler.sendHeartbeats(); // two intervals with no pong -- stale
 
         verify(session).close(any(CloseStatus.class));
+    }
+
+    @Test
+    void aConnectionWhosePingThrowsIsClosedWhileTheOthersAreStillPinged() throws Exception {
+        // #761: the events ticker's containment — one connection's failing write must
+        // not abort the tick for the rest.
+        MutableClock clock = new MutableClock(Instant.EPOCH);
+        EventsWebSocketHandler handler = handler(clock);
+        WebSocketSession first = fakeSession("a");
+        WebSocketSession broken = fakeSession("b");
+        WebSocketSession third = fakeSession("c");
+        doThrow(new IllegalStateException("The remote endpoint was in state [TEXT_PARTIAL_WRITING]"))
+                .when(broken).sendMessage(any());
+        handler.afterConnectionEstablished(first);
+        handler.afterConnectionEstablished(broken);
+        handler.afterConnectionEstablished(third);
+
+        handler.sendHeartbeats();
+
+        verify(first).sendMessage(any(PingMessage.class));
+        verify(third).sendMessage(any(PingMessage.class));
+        verify(broken).close(any(CloseStatus.class));
+        verify(first, never()).close(any(CloseStatus.class));
+        verify(third, never()).close(any(CloseStatus.class));
     }
 
     @Test
