@@ -2,7 +2,7 @@ import { fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
-import { CurrentProjectService } from './current-project.service';
+import { CurrentProjectService, FocusPreservingRouter } from './current-project.service';
 import { Project } from '../models/issue.model';
 import { routes } from '../app.routes';
 
@@ -23,7 +23,14 @@ describe('CurrentProjectService', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter(routes)],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter(routes),
+        // The app's own Router (#803), so every test here runs under it: the ones
+        // above it prove an ordinary window is unchanged by it.
+        { provide: Router, useClass: FocusPreservingRouter },
+      ],
     });
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -96,4 +103,56 @@ describe('CurrentProjectService', () => {
 
     expect(service.focusedProjectId()).toBeNull();
   }));
+
+  describe('FocusPreservingRouter (#803)', () => {
+    it('carries focus=1 onto every in-app navigation started from a focused URL', fakeAsync(() => {
+      const router = TestBed.inject(Router);
+      router.navigateByUrl('/projects/1/issues?focus=1');
+      tick();
+
+      // An issue row's routerLink -- the href it renders and the click it makes.
+      router.navigate(['/projects', 1, 'issues', 7]);
+      tick();
+      expect(router.url).toBe('/projects/1/issues/7?focus=1');
+      expect(router.serializeUrl(router.createUrlTree(['/projects', 1, 'issues', 8]))).toBe(
+        '/projects/1/issues/8?focus=1',
+      );
+
+      // The sidenav's "+" (#370): its own param rides alongside, never instead.
+      router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+      tick();
+      expect(router.url).toBe('/projects/1/console?new=1&focus=1');
+
+      // Back to the project page from the console (#265), and the window is still focused.
+      router.navigate(['/projects', 1, 'issues']);
+      tick();
+      expect(router.url).toBe('/projects/1/issues?focus=1');
+
+      const service = TestBed.inject(CurrentProjectService);
+      httpMock.expectOne('/api/projects').flush([PROJECT]);
+      expect(service.focusMode()).toBeTrue();
+      expect(service.focusedProjectId()).toBe(1);
+    }));
+
+    it('never adds focus to an ordinary window, and lets a caller drop it deliberately', fakeAsync(() => {
+      const router = TestBed.inject(Router);
+      router.navigateByUrl('/projects/1/issues');
+      tick();
+
+      router.navigate(['/projects', 1, 'issues', 7]);
+      tick();
+      expect(router.url).toBe('/projects/1/issues/7');
+      router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+      tick();
+      expect(router.url).toBe('/projects/1/console?new=1');
+
+      // A caller that names `focus` itself wins -- null drops it, the way any
+      // query param is dropped.
+      router.navigateByUrl('/projects/1/issues?focus=1');
+      tick();
+      router.navigate(['/projects', 1, 'issues'], { queryParams: { focus: null } });
+      tick();
+      expect(router.url).toBe('/projects/1/issues');
+    }));
+  });
 });

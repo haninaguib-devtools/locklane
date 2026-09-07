@@ -1,6 +1,6 @@
 import { Injectable, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
+import { ActivatedRoute, ActivatedRouteSnapshot, NavigationEnd, Router, UrlCreationOptions, UrlTree } from '@angular/router';
 import { Observable, ReplaySubject, combineLatest, distinctUntilChanged, filter, map, startWith } from 'rxjs';
 import { Project } from '../models/issue.model';
 import { ProjectsService } from './projects.service';
@@ -9,6 +9,51 @@ export interface CurrentProject {
   id: number;
   name: string;
   accentColor: string | null;
+}
+
+/** The query param that marks a single-project focused window (#286): `focus=1`. */
+export const FOCUS_QUERY_PARAM = 'focus';
+
+/** Whether the URL this route snapshot came from names a focused window (#286). */
+export function isFocusedRoute(snapshot: ActivatedRouteSnapshot): boolean {
+  return snapshot.queryParamMap.get(FOCUS_QUERY_PARAM) === '1';
+}
+
+/**
+ * The app's Router (#803): the one the app config provides in place of Angular's own,
+ * so that a focused window (#286) stays focused across every in-app navigation.
+ *
+ * Focus mode lives in the URL alone -- `focus=1` -- and is re-derived from it on every
+ * navigation (see {@link CurrentProjectService#focusMode} below), so it survives only
+ * as long as each navigation carries it forward. Nothing used to: every `routerLink`
+ * and every `router.navigate(...)` built a URL without it, so the first click inside
+ * a popped-out window silently turned it back into an ordinary one. Every one of
+ * those navigations builds its URL through `createUrlTree` -- a link's rendered
+ * `href` and its click alike, and `navigate()` itself -- so this is the one place to
+ * carry it: when the URL this window is showing is focused, the one being built is
+ * too, unless the caller set `focus` itself (`focus: null` still drops it).
+ *
+ * Only `focus` is carried. Angular's own router-wide default for this,
+ * `withRouterConfig({ defaultQueryParamsHandling: 'merge' })`, would carry every
+ * param from page to page -- and the others are one-shot handoffs the console page
+ * deliberately drops from the URL once acted on (`new`, #370; `dir`/`resume`/`tool`,
+ * #752/#795), which a merge default would defeat: the drop navigates without the
+ * param, and a merge puts the current URL's copy straight back, so a reload would
+ * mint another console or relaunch a resume. `session` would likewise follow the user
+ * onto an issue page and back.
+ */
+@Injectable()
+export class FocusPreservingRouter extends Router {
+  override createUrlTree(commands: unknown[], navigationExtras: UrlCreationOptions = {}): UrlTree {
+    const queryParams = navigationExtras.queryParams ?? {};
+    if (!isFocusedRoute(this.routerState.snapshot.root) || queryParams[FOCUS_QUERY_PARAM] !== undefined) {
+      return super.createUrlTree(commands, navigationExtras);
+    }
+    return super.createUrlTree(commands, {
+      ...navigationExtras,
+      queryParams: { ...queryParams, [FOCUS_QUERY_PARAM]: '1' },
+    });
+  }
 }
 
 /**
@@ -106,6 +151,6 @@ export class CurrentProjectService {
   }
 
   private isFocusMode(): boolean {
-    return this.route.snapshot.queryParamMap.get('focus') === '1';
+    return isFocusedRoute(this.route.snapshot);
   }
 }
