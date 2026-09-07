@@ -28,6 +28,7 @@
     [overview]="false"
     [renamable]="true"
     [defaultAgent]="defaultAgentStore.agent()"
+    [installedAgents]="defaultAgentStore.installed()"
     (selectedChange)="selectTab($event)"
     (open)="openFromTabs($event)"
     (close)="closeConsole($event)"

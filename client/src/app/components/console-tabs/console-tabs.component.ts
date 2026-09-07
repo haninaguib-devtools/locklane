@@ -1,6 +1,7 @@
 import { Component, ElementRef, EventEmitter, HostListener, Input, Optional, Output, ViewChild } from '@angular/core';
 import { Observable, map, of, switchMap } from 'rxjs';
 import { Agent } from '../../services/agent-store';
+import { InstalledAgent } from '../../services/default-agent-store';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
 import { ShellsService } from '../../services/shells.service';
@@ -48,10 +49,18 @@ export class ConsoleTabsComponent {
   // The issue page pins an Overview tab first; the project-console page (#178)
   // has none — every console there is its own top-level tab.
   @Input() overview = true;
-  // Read from Settings (#219) by the caller: neither the issue page's Console
-  // button (#318) nor the project-console tab strip's "+" (#256) has an agent
-  // picker of its own — both launch a new console with this agent directly.
+  // Read from Settings (#219) by the caller. The open button launches with this
+  // agent directly whenever there is nothing to choose between (#757: fewer than two
+  // installed agents known) -- the issue page's Console button (#318) and the
+  // project-console tab strip's "+" (#256) alike.
   @Input() defaultAgent: Agent = '';
+  // #757: the agents the engine detected on its host PATH, as the Settings dialog's
+  // "Default agent" section lists them (`DefaultAgentStore.installed()`), bound by the
+  // host rather than injected here so the strip still constructs bare in its own
+  // specs. Two or more turn the open button into a picker; one is launched directly;
+  // none (the fetch not resolved yet, or nothing installed) falls back to
+  // `defaultAgent`, exactly the pre-#757 behaviour.
+  @Input() installedAgents: InstalledAgent[] = [];
   // The label on the open button — "+" everywhere except the issue page (#318),
   // which spells it out as "Console" now that it launches one specific thing.
   @Input() openLabel = '+';
@@ -160,6 +169,9 @@ export class ConsoleTabsComponent {
   toggleMenu(id: string, event: Event): void {
     event.stopPropagation();
     this.openMenuId = this.openMenuId === id ? null : id;
+    // At most one dropdown at a time: opening a tab menu closes the agent picker
+    // (#757), just as opening the picker closes any tab menu.
+    this.pickerOpen = false;
   }
 
   // Closes any open menu on a click anywhere else in the document -- the same
@@ -169,6 +181,7 @@ export class ConsoleTabsComponent {
   @HostListener('document:click')
   closeMenu(): void {
     this.openMenuId = null;
+    this.pickerOpen = false;
   }
 
   closeTab(id: string, event: Event): void {
@@ -286,13 +299,44 @@ export class ConsoleTabsComponent {
     return !this.hideOpenWhenActive || this.tabs.length === 0;
   }
 
-  // The "+" / "Console" button: there is nothing left to ask (#341 retired the
-  // only other place a console could run, the project's main checkout), so it
-  // always launches immediately with the default agent — the issue page's
-  // Console button (#318), or the project-console strip's own scratch worktree
-  // (#256/#314).
-  plusClicked(): void {
-    this.open.emit({ agent: this.defaultAgent });
+  // Whether the agent picker under the open button is showing (#757). Closed by a
+  // choice, an outside click (closeMenu above), or Escape (closePicker below).
+  pickerOpen = false;
+
+  // Whether the open button has anything to ask (#757): two or more installed
+  // agents. With one or none there is no choice to offer, so it launches directly.
+  get offersPicker(): boolean {
+    return this.installedAgents.length >= 2;
+  }
+
+  // The "+" / "Console" button — the issue page's Console button (#318), or the
+  // project-console strip's own scratch worktree (#256/#314). Where a console runs is
+  // settled (#341 retired the only other place, the project's main checkout); which
+  // agent runs in it is the one question left (#757): with two or more installed
+  // agents the button opens a picker and starts nothing until one is chosen; exactly
+  // one installed agent is launched as is; none known falls back to the default.
+  plusClicked(event?: Event): void {
+    event?.stopPropagation();
+    if (this.offersPicker) {
+      this.openMenuId = null;
+      this.pickerOpen = !this.pickerOpen;
+      return;
+    }
+    const only = this.installedAgents[0];
+    this.open.emit({ agent: only ? only.id : this.defaultAgent });
+  }
+
+  // A picker entry (#757): starts the console with exactly that agent.
+  pickAgent(agent: Agent, event: Event): void {
+    event.stopPropagation();
+    this.pickerOpen = false;
+    this.open.emit({ agent });
+  }
+
+  // Escape dismisses the picker without starting anything (#757).
+  @HostListener('document:keydown.escape')
+  closePicker(): void {
+    this.pickerOpen = false;
   }
 }
 

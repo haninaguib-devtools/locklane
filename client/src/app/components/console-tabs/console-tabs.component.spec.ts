@@ -19,7 +19,7 @@ describe('ConsoleTabsComponent', () => {
     expect(emitted).toBe('7-rename-toggle');
   });
 
-  it('the "+" starts a console with the default agent directly (#341: no location left to choose)', () => {
+  it('with no installed agents known, the "+" starts a console with the default agent directly (#341, #757)', () => {
     const c = new ConsoleTabsComponent();
     c.defaultAgent = 'codex';
     let emitted: { agent: string } | undefined;
@@ -28,6 +28,113 @@ describe('ConsoleTabsComponent', () => {
     c.plusClicked();
 
     expect(emitted).toEqual({ agent: 'codex' });
+    expect(c.pickerOpen).toBeFalse();
+  });
+
+  it('with exactly one installed agent, the "+" starts a console with that agent immediately, no picker (#757)', () => {
+    const c = new ConsoleTabsComponent();
+    c.defaultAgent = 'codex';
+    c.installedAgents = [{ id: 'claude', label: 'Claude' }];
+    let emitted: { agent: string } | undefined;
+    c.open.subscribe((request) => (emitted = request));
+
+    c.plusClicked();
+
+    expect(c.offersPicker).toBeFalse();
+    expect(c.pickerOpen).toBeFalse();
+    expect(emitted).toEqual({ agent: 'claude' });
+  });
+
+  it('with two or more installed agents, the "+" opens the picker and emits only once an entry is chosen (#757)', () => {
+    const c = new ConsoleTabsComponent();
+    c.defaultAgent = 'claude';
+    c.installedAgents = [
+      { id: 'claude', label: 'Claude' },
+      { id: 'codex', label: 'Codex' },
+    ];
+    const emitted: { agent: string }[] = [];
+    c.open.subscribe((request) => emitted.push(request));
+    const event = new Event('click');
+    const stopSpy = spyOn(event, 'stopPropagation');
+
+    c.plusClicked(event);
+
+    expect(stopSpy).toHaveBeenCalled();
+    expect(c.pickerOpen).toBeTrue();
+    expect(emitted).toEqual([]);
+
+    c.pickAgent('codex', new Event('click'));
+
+    expect(c.pickerOpen).toBeFalse();
+    expect(emitted).toEqual([{ agent: 'codex' }]);
+  });
+
+  it('dismissing the picker -- an outside click or Escape -- starts nothing (#757)', () => {
+    const c = new ConsoleTabsComponent();
+    c.installedAgents = [
+      { id: 'claude', label: 'Claude' },
+      { id: 'codex', label: 'Codex' },
+    ];
+    let emitted = 0;
+    c.open.subscribe(() => emitted++);
+
+    c.plusClicked(new Event('click'));
+    expect(c.pickerOpen).toBeTrue();
+    c.closeMenu();
+    expect(c.pickerOpen).toBeFalse();
+
+    c.plusClicked(new Event('click'));
+    expect(c.pickerOpen).toBeTrue();
+    c.closePicker();
+    expect(c.pickerOpen).toBeFalse();
+
+    // A second click on the button itself closes an open picker rather than stacking.
+    c.plusClicked(new Event('click'));
+    c.plusClicked(new Event('click'));
+    expect(c.pickerOpen).toBeFalse();
+
+    // The picker and a tab's overflow menu never show together: each opening closes the other.
+    c.toggleMenu('7-rename-toggle', new Event('click'));
+    c.plusClicked(new Event('click'));
+    expect(c.openMenuId).toBeNull();
+    expect(c.pickerOpen).toBeTrue();
+    c.toggleMenu('7-rename-toggle', new Event('click'));
+    expect(c.pickerOpen).toBeFalse();
+    expect(c.isMenuOpen('7-rename-toggle')).toBeTrue();
+
+    expect(emitted).toBe(0);
+  });
+
+  it('renders one picker entry per installed agent, labelled, and none until the "+" is clicked (#757)', () => {
+    TestBed.configureTestingModule({
+      imports: [ConsoleTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const fixture = TestBed.createComponent(ConsoleTabsComponent);
+    fixture.componentInstance.overview = false;
+    fixture.componentInstance.installedAgents = [
+      { id: 'claude', label: 'Claude' },
+      { id: 'codex', label: 'Codex' },
+    ];
+    const emitted: { agent: string }[] = [];
+    fixture.componentInstance.open.subscribe((request) => emitted.push(request));
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.querySelector('.agent-picker')).toBeNull();
+
+    (root.querySelector('.plus') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const options = Array.from(root.querySelectorAll('.agent-option')) as HTMLButtonElement[];
+    expect(options.map((option) => option.textContent!.trim())).toEqual(['Claude', 'Codex']);
+    expect(emitted).toEqual([]);
+
+    options[1].click();
+    fixture.detectChanges();
+
+    expect(emitted).toEqual([{ agent: 'codex' }]);
+    expect(root.querySelector('.agent-picker')).toBeNull();
   });
 
   it('shows the open button when there are no open tabs, even with hideOpenWhenActive set (#318)', () => {

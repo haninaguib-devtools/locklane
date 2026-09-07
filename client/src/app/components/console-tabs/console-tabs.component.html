@@ -110,10 +110,29 @@
         class="plus"
         [disabled]="starting"
         aria-label="open a new console"
-        (click)="plusClicked()"
+        [attr.aria-haspopup]="offersPicker ? 'menu' : null"
+        [attr.aria-expanded]="offersPicker ? pickerOpen : null"
+        (click)="plusClicked($event)"
       >
         {{ starting ? '…' : openLabel }}
       </button>
+      @if (pickerOpen) {
+        <!-- #757: one entry per installed agent, the same list Settings shows. Never
+             `shell` -- the client adds that itself for plain shells, it is not a CLI
+             the engine detected. -->
+        <div class="agent-picker" role="menu" aria-label="agent for the new console">
+          @for (agent of installedAgents; track agent.id) {
+            <button
+              type="button"
+              role="menuitem"
+              class="agent-option"
+              (click)="pickAgent(agent.id, $event)"
+            >
+              {{ agent.label }}
+            </button>
+          }
+        </div>
+      }
     </div>
   }
 </div>
