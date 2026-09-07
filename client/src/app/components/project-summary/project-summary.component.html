@@ -64,7 +64,11 @@
 
       <dl class="facts">
         <dt>repository</dt>
-        <dd class="mono">{{ project.gitUrl }}</dd>
+        @if (project.gitUrl) {
+          <dd class="mono"><a [href]="project.gitUrl" target="_blank" rel="noopener noreferrer">{{ project.gitUrl }}</a></dd>
+        } @else {
+          <dd class="mono">—</dd>
+        }
         <dt>default branch</dt>
         <dd class="mono">{{ project.defaultBranch || '—' }}</dd>
         <dt>workarea</dt>

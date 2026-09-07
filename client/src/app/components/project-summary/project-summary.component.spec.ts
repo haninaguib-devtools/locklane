@@ -150,6 +150,28 @@ describe('ProjectSummaryComponent', () => {
     expect(text).toContain('ready');
   });
 
+  it('renders the repository as a link that opens in a new tab (#749)', () => {
+    // gitUrl is always normalized to an https GitHub URL by the engine
+    // (GitRemoteUrl.normalize) -- unlike PROJECT's own SSH-alias-shaped fixture
+    // value, which Angular's DomSanitizer treats as an unsafe href scheme.
+    const gitUrl = 'https://github.com/acme/proj-a.git';
+    const fixture = init([{ ...PROJECT, gitUrl }]);
+    const link = (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('.facts a')!;
+    expect(link.textContent?.trim()).toBe(gitUrl);
+    expect(link.getAttribute('href')).toBe(gitUrl);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.classList.contains('mono')).toBeFalse();
+    expect(link.parentElement?.classList.contains('mono')).toBeTrue();
+  });
+
+  it('falls back to "—" instead of a broken link when the repository URL is empty (#749)', () => {
+    const fixture = init([{ ...PROJECT, gitUrl: '' }]);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.facts a')).toBeFalsy();
+    expect(el.textContent).toContain('—');
+  });
+
   it('renders the counts as tiles', () => {
     const fixture = init();
     const values = Array.from(
