@@ -109,11 +109,21 @@ public class ProjectGhResources {
     }
 
     /**
-     * Diffs each project's cache against its previous state and publishes
+     * Polls every {@link ProjectStatus#READY} project in the repository (#763) --
+     * not merely every context that happens to be cached: a token renewal evicts every
+     * project of the renewed account, and an idle sidenav never sends the request that
+     * would rebuild one, since it is waiting for the very event this poll produces. A
+     * missing context is built through {@link #forProject} first, exactly as a request
+     * would build it. A project that is still cloning or failed to clone is skipped: it
+     * has no checkout to run {@code gh} in, and {@link #forProject} would hand back an
+     * empty, uncached context for it anyway.
+     *
+     * <p>Diffs each project's cache against its previous state and publishes
      * `issuesChanged` (#129) where it moved, and `githubRefreshStatus` (#619) where
      * the fetch's outcome moved -- started failing, stopped failing, or failing with
      * different text -- so the sidenav learns that GitHub is unreachable without
-     * anyone clicking anything.
+     * anyone clicking anything. One project's failure never skips the others: each is
+     * refreshed inside its own {@code try}.
      *
      * <p>A fetch that fails with {@code Bad credentials} asks the registered
      * {@link CredentialRenewer} for one renewal (#656); if it got one, the project's
@@ -124,11 +134,17 @@ public class ProjectGhResources {
      */
     @Scheduled(fixedDelay = REFRESH_INTERVAL_MS, initialDelay = REFRESH_INTERVAL_MS)
     void refreshAll() {
-        // A snapshot: a renewal below evicts and rebuilds entries while we iterate.
-        for (Map.Entry<Long, ProjectGhContext> entry : List.copyOf(contexts.entrySet())) {
-            long projectId = entry.getKey();
-            ProjectGhContext context = entry.getValue();
+        for (ProjectRecord project : projectRepository.findAll()) {
+            if (project.status() != ProjectStatus.READY) {
+                continue;
+            }
+            long projectId = project.id();
             try {
+                Optional<ProjectGhContext> found = forProject(projectId);
+                if (found.isEmpty()) {
+                    continue; // deleted since the listing above
+                }
+                ProjectGhContext context = found.get();
                 GhRefreshStatus before = context.cache().status();
                 boolean changed = context.cache().refresh();
                 GhRefreshStatus after = context.cache().status();

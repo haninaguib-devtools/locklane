@@ -32,6 +32,22 @@ spring:
     # it's missing, not just get stamped as caught up.
     baseline-on-migrate: true
     baseline-version: 0
+  task:
+    scheduling:
+      # The one thread pool behind every @Scheduled method in the engine (#763).
+      # Seven jobs share it: ProjectGhResources.refreshAll (the 30 s issue/PR poll,
+      # one gh subprocess pair per project), TerminalWebSocketHandler's and
+      # EventsWebSocketHandler's heartbeats, SessionRegistry's quiescence check,
+      # WorktreeCleanupSweeper (runs git fetch), GhTokenRenewalService, and
+      # ReleaseUpdateChecker (a gh subprocess). Spring's default is a single thread,
+      # on which a slow poll delayed every heartbeat -- and a stall over 40 s made the
+      # next heartbeat tick close every healthy connection as "no pong received",
+      # since none had been pinged. Four threads: the three jobs that can sit in a
+      # subprocess (the poll, the sweeper, the release check) can all be stuck at once
+      # and a heartbeat still ticks on time. SchedulingPoolSizeTest reads this value
+      # and refuses anything below 3.
+      pool:
+        size: 4
   servlet:
     # Spring's default multipart ceiling is 1MB — below locklane.uploads.max-file-bytes,
     # so console-terminal uploads (#436) would be cut off by the container before the
