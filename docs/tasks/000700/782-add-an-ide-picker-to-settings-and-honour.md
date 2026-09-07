@@ -95,9 +95,18 @@ none
   its existing `/api/account/2fa/status` flush:
   `httpMock.expectOne('/api/ides/installed').flush({ installed: [] });` — but the file is
   not in Scope, and the driver's instruction for a driven child is to stop and report
-  rather than edit outside it. Left for the human: widen #782's Scope line with
-  `client/src/app/app.component.spec.ts` (or make that edit in the initiative), then
-  re-run (agent, 2026-09-07).
+  rather than edit outside it, so the first pass stopped here and reported it — see the
+  next entry for how it was resolved (agent, 2026-09-07).
+- **Out-of-Scope edit, approved by the human.** `client/src/app/app.component.spec.ts`
+  is outside #782's Scope line. The edit was unavoidable: the settings dialog must fetch
+  `GET /api/ides/installed` when it opens to know which IDE options to offer, and that
+  spec opens the real dialog under an `afterEach` that verifies no request is left open,
+  so the only way to keep the test honest is to flush that request in the test itself.
+  The human approved exactly this one-line fix in the moment, on 2026-09-07, via the
+  driving session's question; this Fix-mode pass (the child's one bounded retry) made
+  that line — `httpMock.expectOne('/api/ides/installed').flush({ installed: [] });` next
+  to the test's existing `/api/account/2fa/status` flush — and nothing else outside
+  Scope (agent, 2026-09-07).
 - A direct `npm run test:ci` of the whole client suite (not the recorded check) once hung
   in this headless console environment — ten failures across `EventsService` foreground
   listeners, `TerminalComponent` and `ShellsWindowComponent`, then a 30-second browser
