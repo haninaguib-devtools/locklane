@@ -39,19 +39,54 @@ cheap: one script call, light greps, no full-file reads of the working tree.
    found".
 3. **PRs:** `.prs.open[]` (`forge:pr-list`, `forge:pr-files`, `forge:pr-reviews`, and
    `forge:pr-checks` all folded into the one fetch) — draft vs ready (`.isDraft`),
-   latest review verdict line (`readiness: …`, parsed out of `.latestReview.body` when
-   `.latestReview` is not null), CI state from `.ciState` (`"pass"` / `"fail"` /
-   `"pending"` / `"none configured"` — already the pass/fail/pending/no-CI distinction
-   `forge:pr-checks`'s contract asks for). `.prs.truncated` true means an incomplete
-   scan, reported as one.
-4. **Local:** `.local.branch` and `.local.clean` — current branch and whether the tree
+   latest review verdict line (`.latestReview.readiness`, already parsed out of the
+   review body — `"ready"` / `"not-ready"` / `null` when no review has ever landed),
+   CI state from `.ciState` (`"pass"` / `"fail"` / `"pending"` / `"none configured"` —
+   already the pass/fail/pending/no-CI distinction `forge:pr-checks`'s contract asks
+   for). `.prs.truncated` true means an incomplete scan, reported as one.
+
+4. **Collaboration state** (issue #147, `docs/architecture/collaboration-state.md` —
+   read it once for the full precedence table; this step only names which fields feed
+   it). For each task correlated to an open PR (match `.tasks.items[].number` against
+   `.prs.open[].headRefName`'s `wip/<id>-` prefix, the same correlation the intent-drift
+   warning below already makes), assemble the small JSON shape
+   `.t-workflow/scripts/derive-task-state.sh` documents in its own header comment —
+   `blocked` from this task's own blocked/unblocked read above; `ciState` from
+   `.ciState`; `review` from `{readiness: .latestReview.readiness, current:
+   .latestReview.current}` (or `null` when `.latestReview` itself is null);
+   `feedback.pendingScopeExpansion` as `true` exactly when
+   `.record.feedbackLastClassification == "proposed scope expansion"`; `verification`
+   as `.record.verification` (already carrying `stale` per entry); `previewReady` as
+   `null` when `.previewEvidence` is null, else `.previewEvidence.status == "ready"` —
+   and run `.t-workflow/scripts/derive-task-state.sh <file>` on it. Report the
+   returned `state` (one of `blocked` / `checks-failing` / `awaiting-review` /
+   `awaiting-renewed-review` / `changes-requested` / `processing-feedback` /
+   `awaiting-preview` / `awaiting-external-verification` / `verified-ready-for-ship` /
+   `awaiting-ship`) alongside the PR row, in the plain-language wording its own
+   `detail` field already gives — never a bare state slug with no explanation. A task
+   with no open PR at all is never run through this step: it keeps the existing
+   blocked / unblocked / ready-to-pick-up classification above, unchanged (Done-when's
+   "existing tasks continue to receive their current status classifications"). Exit 2
+   from the script (malformed input — this step's own assembly bug, not the task's
+   fault) is reported as "collaboration state unavailable for #<id> — malformed input,
+   say so and show the raw fields instead," never silently dropped.
+5. **Origin** (`docs/architecture/external-origin.md`, ADR-010). When present, shown
+   alongside a task's other collaboration state — read directly out of already-fetched
+   text, the same way the intent-drift warning below already reads `## Plan` out of a
+   body, never a new fetch: this task's own `.tasks.items[].body`'s `## Origin`
+   section when it has one; otherwise, when `.tasks.items[].parent` names an
+   initiative, that initiative's own `.initiatives[].body`'s `## Origin` section
+   (`docs/architecture/external-origin.md`'s inheritance rule — an initiative's
+   `## Origin`, if any, covers every child). Neither present is simply no origin to
+   show — never an error, and never a reason to skip anything else in this step.
+6. **Local:** `.local.branch` and `.local.clean` — current branch and whether the tree
    is clean. `.local.localWipBranches[]` — every local `wip/*` branch with its PR (`.pr`,
    or `null` if none was ever opened): `.pr` is `null` is the "stalled after the branch
    was cut" case (Warnings below); a `.pr.state` of `MERGED` or `CLOSED` is a stale
    branch nobody removed. `.local.worktrees[]` — every registered worktree
    (`git worktree list`) with the same `.pr` correlation; flag any whose `.pr.state` is
    `MERGED` or `CLOSED` the same way.
-5. **Cancellations:** `.cancellations.items[]` (`tracker:list-cancelled`) — the count
+7. **Cancellations:** `.cancellations.items[]` (`tracker:list-cancelled`) — the count
    and the titles. The reason for each is in its close comment (ADR-001); this skill
    does not fetch comments. On a repository bootstrapped before `/t-cancel` existed the
    label was never created and this is empty: that is correct, not an error.

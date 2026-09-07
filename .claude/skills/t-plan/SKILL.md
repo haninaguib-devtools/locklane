@@ -76,7 +76,23 @@ optional, and `/t-work` will refuse without it.
        — proves: <what a pass demonstrates>
    human_checks:
      - <judgments cheaper or more reliable for a human>
+   verification: (optional — omit entirely when the task needs none)
+     - role: <who or which role must verify — contributor, maintainer, domain expert,
+         or a named person>
+       what: <what must be checked or exercised>
+       required: true|false
+       evidence: <what evidence is expected>
+       scope: <optional globs a change to could affect this entry — omit for "the
+         whole task">
    ```
+
+   `verification:` is a distinct, more structured entry for a judgment that needs a
+   named role to exercise real evidence — possibly asynchronously, possibly over
+   several sessions — before `/t-ship` may proceed on a `required: true` entry
+   (`docs/architecture/verification.md` has the full schema, the four states, and how
+   a new commit invalidates one). It never replaces `human_checks:`, which stays the
+   right shape for an ordinary one-shot judgment made at review or ship time; a task
+   with no `verification:` list needs none and behaves exactly as before this existed.
 
 5. **Scope-overlap check.** List every open issue and compare Allowed paths and Scope
    lines, using `tracker:list-open` — its contract requires a complete scan. A truncated

@@ -48,7 +48,10 @@ Every task carries a record, created on the branch when work starts and **merged
 the change it describes** (`docs/tasks/TEMPLATE.md` is the shape). It holds what code cannot:
 what was asked, what was excluded, the decisions and deviations along the way. Being in the diff
 it is reviewed too — *does this record honestly describe this change?* Intent changes there
-rather than in the issue body once work starts.
+rather than in the issue body once work starts. A task or initiative opened from an external
+proposal may carry an optional origin — never authoritative for scope or acceptance
+(`docs/architecture/external-origin.md`, ADR-010) — that `/t-open` records once and `/t-work`
+carries into the record and draft PR unchanged.
 
 ## 5. The pipeline
 
@@ -69,6 +72,47 @@ with a skill of its own. **Nothing chains:** each stage names the next command a
 fix, defer, or accept, and judgments no command can settle travel to the merge question, where
 confirming acknowledges them. **Cancellation is a stage, not a cleanup:** its reason and every
 neighbour's disposition land on the issue before anything is destroyed (ADR-001 §D3).
+
+**Human verification is a separate, optional wait, distinct from cold review**
+(ADR-010 §D4/§D6, `docs/architecture/verification.md`): a plan may name a role —
+contributor, maintainer, domain expert, or a named person — who must exercise real
+evidence, possibly over several sessions or days, before a task is eligible for
+`/t-ship`. Four states — `pending`, `verified`, `rejected`, `risk-accepted` — track it
+in the task record; `/t-ship` blocks on a `required` entry that is not resolved, or
+whose resolution a later commit could have invalidated. Accepting a residual risk is
+explicit and is never represented as a passing check. A task with none of these
+entries — every task before this convention existed — is unaffected.
+
+**An attended `/t-drive` run can stop cleanly after review and before shipping, to let
+verification happen asynchronously** (ADR-010 §D6, `.claude/skills/t-drive/SKILL.md`):
+once a task's implementation and independent review are done, a required verification
+entry that is still `pending`, `rejected`, or stale is reported — naming the role, what
+it checks, and the evidence awaited — and the run stops there rather than invoking
+`/t-ship` (a plain task) or merging the child into the initiative's integration branch
+(an initiative child). This is the **default** behavior, not a mode chosen by hand: a
+task that declares no verification entries never pauses here, and the pause can never
+turn into a merge on its own — it works by never taking the chained next step, so the
+human-confirmed merge gate stays exactly where it always was. A later `/t-drive`
+invocation resumes from wherever that pause left off: it re-derives status from the
+task's existing draft PR, its latest review, and its record — a stale or missing review
+(a new commit landed while waiting) is treated as not-yet-reviewed and re-reviewed
+fresh, a failing check or a `not-ready` verdict is handled by the same one-bounded-retry
+rule the pipeline already applies, and only once review is current and every required
+verification is resolved does the run proceed. Nothing about this replays a stage that
+already finished; nothing here weakens or substitutes for the merge-confirmation gate
+`/t-ship` itself owns.
+
+**Feedback that arrives after implementation begins returns through an explicit
+`/t-work` mode, never applied directly** (ADR-010 §D6, `docs/architecture/
+feedback-pass.md`): a maintainer supplies a durable evidence reference — a contributor's
+preview comment, a manual QA finding, an observer-relayed note — and `/t-work`
+classifies it as a clarification, a defect, an in-scope adjustment, or a proposed scope
+expansion before touching any file. Only the first three proceed under the task's
+existing Allowed paths; a proposed scope expansion stops for the same explicit human
+authorization and `/t-plan` re-plan any other scope growth needs. The pass resumes the
+task's existing draft PR on its existing branch — never a second one — and inherits the
+existing review- and verification-staleness checks on whatever new commit it pushes,
+rather than a second invalidation mechanism of its own.
 
 ## 6. Work larger than one PR
 

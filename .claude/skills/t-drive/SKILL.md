@@ -24,6 +24,15 @@ amends [ADR-007](../../../docs/adr/007-solo-drive-defers-on-pending-ci.md), whos
 pre-`/t-ship` CI check no longer applies under the pipeline's current CI timing (#113);
 where this skill and those ADRs differ, the ADR wins — flag it, do not improvise.
 
+**A run may also pause before shipping, deliberately, when a task's declared
+verification (`docs/architecture/verification.md`, #144) is not yet resolved** —
+ADR-010 §D6 names this: implementation and independent review complete, then the run
+stops cleanly while the draft PR awaits asynchronous preview or contributor
+verification, never invoking `/t-ship` or merging past it. This is a **default,
+zero-effort behavior for the common case** — a task with no `verification:` entries
+never pauses here at all — not a mode a human opts into; see Solo mode step 6 and
+Phase 2 step 7 for exactly where it fires in each mode.
+
 ## Phase 0 — eligibility, and which mode
 
 1. Read `AGENTS.md`, `CONSTITUTION.md`, and the issue (`tracker:view <id>`). **This read
@@ -61,15 +70,15 @@ where this skill and those ADRs differ, the ADR wins — flag it, do not improvi
    - More than one candidate → stop and report every one; never choose lexically.
 
    Never commit to this branch directly — every change on it arrives only through a
-   child's merge (Phase 2 step 5).
+   child's merge (Phase 2 step 8).
 
 ## Phase 2 — each child, chained without stopping
 
-Repeat until every child is merged, excluded, or held on an unresolved outside blocker.
-Children with no dependency on each other may run steps 1–6 concurrently — each in its
-own `git worktree` (two sessions never share a checkout, `AGENTS.md`), one spawned
-read-write agent per child, reporting back — while children in a dependency chain run in
-topological order, one after another.
+Repeat until every child is merged, excluded, held on an unresolved outside blocker, or
+held awaiting verification (step 7). Children with no dependency on each other may run
+steps 1–8 concurrently — each in its own `git worktree` (two sessions never share a
+checkout, `AGENTS.md`), one spawned read-write agent per child, reporting back — while
+children in a dependency chain run in topological order, one after another.
 
 1. **Eligibility.**
    - **Blocked by an issue outside this initiative.** `tracker:list-blockers
@@ -80,7 +89,7 @@ topological order, one after another.
      not excluded on this ground; the bullets below still apply.
    - Blocked by another child of this initiative, not yet resolved → hold; revisit once
      that child's outcome (merged or excluded) is known.
-   - Blocked by another child already **merged** in this run (step 6) → not held, and
+   - Blocked by another child already **merged** in this run (step 8) → not held, and
      not judged by that sibling's issue state, which stays open until the aggregate PR
      reaches the trunk (ADR-004 Decision 3). The rule is ADR-009's first decision,
      executed by the same gate `/t-work` runs:
@@ -92,28 +101,61 @@ topological order, one after another.
      completed, or nothing.
      Build the sibling-dispositions file for every such blocker — `forge:pr-find-by-task
      <sibling>` for its PR rows, `forge:pr-reviews <pr>` on the merged one, in the shape
-     `check-blocker-gate.sh`'s header documents — and hand it to step 4, where `/t-work`
+     `check-blocker-gate.sh`'s header documents — and hand it to step 5, where `/t-work`
      Phase 1 step 2 runs `check-blocker-gate.sh <file> --siblings <initiative-id>
      <siblings-file>`. Exit 1 there (a sibling merged without a `readiness: ready`
      review, say) is `/t-work`'s own blocker-gate refusal: excluded, spending no retry.
    - Blocked by another child already **excluded** in this run → excluded immediately,
      cascading, spending no retry — report it as blocked-because-excluded, never as its
      own failure (ADR-004 Decision 2).
+   - **Held — awaiting verification from an earlier pass in this run, or from a prior
+     `/t-drive` invocation** (step 7) → not excluded and not re-blocked; continue at
+     step 2 below to probe whether anything changed while this child waited, rather
+     than re-running plan/work/review on a diff nothing has touched.
    - Otherwise → eligible, continue.
-2. **Plan, if needed.** If the child's declared scope touches a protected path
+2. **Resume, if this child already has a PR.** `forge:pr-find-by-task <child-id>`.
+   - **None** → first pass for this child; continue at step 3 (Plan).
+   - **Exactly one, open.** Fetch its latest review (`forge:pr-reviews <pr>`) and its
+     head commit's timestamp (`forge:pr-view <pr>`). **Do not delegate this comparison
+     to `check-review-gate.sh`** — its "not protected → OK, no review required" branch
+     is correct for solo mode (review there is conditional on the diff, ADR-006 D5) but
+     wrong here, where review is unconditional (ADR-004 Decision 1); write out the same
+     two comparisons plainly instead: is there a `readiness: ready` line in the latest
+     review, and is that review's `submittedAt` at or after the head commit?
+     - No review yet, or the latest review predates the head commit (a new commit
+       landed since — a fix-mode push, a feedback pass from outside this run, or any
+       other reason) → **skip to step 6** (Review), run fresh. This is not step 6's own
+       retry: nothing has judged this exact commit `not-ready`, it simply has not been
+       reviewed yet — the same condition a first pass is always in.
+     - Latest review reads `readiness: not-ready`, **and it is the only review so
+       far** → the retry is still available: **skip to step 6**'s existing
+       one-bounded-retry path directly (steps 3–5 already happened; do not repeat
+       planning or the first work pass).
+     - Latest review reads `readiness: not-ready`, **and more than one review already
+       exists** → the one bounded retry already ran in an earlier pass or invocation
+       and still failed; this is step 6's own **"fails again"** outcome, reached
+       directly: **excluded**, naming the still-blocking finding or check. Never grant
+       a second retry just because this child is being re-probed.
+     - Latest review reads `readiness: ready` and is current → **skip straight to
+       step 7** (the verification check) — nothing about this child needs redoing.
+   - **More than one open, or the PR is merged or closed** → stop and report every
+     candidate, or that this child has already left the pipeline — the same ambiguity
+     `/t-ship`'s own preconditions refuse to guess through. Never exclude on this
+     ground automatically; a maintainer resolves it by hand.
+3. **Plan, if needed.** If the child's declared scope touches a protected path
    (`.t-workflow/scripts/protected-paths.sh`) and its issue carries no `## Plan` section, run
    `/t-plan <child-id>` — this is `/t-drive` resolving it, exactly as ADR-004 Decision 1
    describes. If `/t-plan` itself cannot produce one (it stops with a question — an
    incomplete issue, an unresolved ambiguity) that is the "protected path with no plan
    `/t-drive` can resolve on its own" precondition ADR-004 Decision 2 names: exclude the
    child immediately, spending no retry, and report why.
-3. **Branch the child from the integration branch, not the trunk.** Before running
+4. **Branch the child from the integration branch, not the trunk.** Before running
    `/t-work`, create `wip/<child-id>-<slug>` — the same derivation `/t-work` Phase 1 step
    4 uses from the issue title — from the integration branch's current tip, and push it.
    `/t-work`'s own idempotent branch resolution then finds exactly this one ref and
    reuses it; its contract is untouched (issue #39's Non-goals) — `/t-drive` only makes
    sure the branch already exists in the right place before asking `/t-work` to use it.
-4. **Work.** Run `/t-work <child-id>` (Normal mode — branch, record, implement, check,
+5. **Work.** Run `/t-work <child-id>` (Normal mode — branch, record, implement, check,
    draft PR), handing it the sibling-dispositions file step 1 built so its blocker gate
    runs with `--siblings <initiative-id> <siblings-file>` (ADR-009 D1; an empty array
    when no blocker is a merged sibling), and directing it to open the draft PR against
@@ -125,37 +167,72 @@ topological order, one after another.
    never listened for, letting a child merge with its `cold-review` verdict computed
    against the wrong base, and burned an extra CI run per child while `edited` was a CI
    trigger at all (#113).
-5. **Review.** Run `/t-review <child-id>` exactly as it already runs standalone — same
+6. **Review.** Run `/t-review <child-id>` exactly as it already runs standalone — same
    isolation rule, same verdict line, reviewed against the integration branch as its
    base.
-   - `readiness: ready` → continue to step 6.
+   - `readiness: ready` → continue to step 7.
    - `readiness: not-ready` (unresolved blocker/high findings), or a check
      `AGENTS.md` §Checks names fails → **one bounded retry** (ADR-004 Decision 2), no
      more: run
      `/t-work <child-id>` again in its own Fix mode (already defined — addresses only the
      named blocker/high findings, no new retry machinery here), re-run only the checks
      the fix falsifies, then `/t-review <child-id>` again, scoped to the fix.
-     - Passes this time → continue to step 6.
+     - Passes this time → continue to step 7.
      - Fails again → **excluded**. Leave its branch and PR exactly as they are — open,
        unmerged, based on the integration branch — the issue stays open and untouched.
        Never auto-merge it, never auto-cancel it. Record the excluding finding or check
        by name for the closing report, then continue to the next child.
-6. **Merge, once review authorizes it.** A `readiness: ready` review is what authorizes
-   merging into the integration branch — never into the trunk (ADR-004 Decision 1):
-   `forge:pr-ready <pr>` (a draft PR cannot merge — `/t-work` always opens one, and only
-   `/t-ship` marks its own PR ready; on this branch `/t-drive` does that job itself),
-   then squash the child's PR into the integration branch with one commit, in the
-   ordinary single-task shape — subject `[<child-id>] <issue title>`, body built from
-   that child's own record exactly as `/t-ship`'s Procedure step 3 builds one for an
-   ordinary task, ending with that child's own `Task: #<child-id>` line
+7. **Verification check.** After a `readiness: ready` verdict — whether just reached at
+   step 6, its retry, or found already current at step 2 on a resumed pass — check this
+   child's own record's `## Verification` section the same way `/t-ship` precondition 7
+   does: for each entry compute `stale` against the PR's current head sha exactly as
+   that precondition defines (`false` when the entry's recorded revision equals the
+   head sha; otherwise `true` unless the entry declares `scope:` and the diff since
+   that revision touches none of those globs), assemble one
+   `{"role":,"required":,"state":,"stale":}` object per entry, and run
+   `.t-workflow/scripts/check-verification-gate.sh <file>` (no new script — this task
+   reuses #144's gate unmodified).
+   - **No entries, or exit 0** (every required entry `verified`/`risk-accepted` and
+     current) → continue to step 8, exactly the unchanged default path for every child
+     that declares no verification.
+   - **Exit 1** → **held — awaiting verification.** Do not merge, spend no retry, do not
+     exclude — this is not a failure. Report the blocking entry(ies) by name (role,
+     what, evidence awaited — for a stale entry, that a later commit could have
+     affected what it checked and it needs re-verifying or re-accepting at the new
+     revision, the gate script's own wording) for the closing report, then continue
+     driving other eligible children exactly as an existing sibling-hold already does;
+     revisit this child on a later pass, or a later `/t-drive` invocation, via step 2.
+   - **Exit 2** → stop and report that this child's record could not be read into this
+     shape — the same as `/t-ship`'s own handling; never treat unreadable as "nothing to
+     check."
+8. **Merge, once review authorizes it and verification, if any, resolves.** A
+   `readiness: ready` review with no unresolved required verification is what
+   authorizes merging into the integration branch — never into the trunk (ADR-004
+   Decision 1): `forge:pr-ready <pr>` (a draft PR cannot merge — `/t-work` always opens
+   one, and only `/t-ship` marks its own PR ready; on this branch `/t-drive` does that
+   job itself), then squash the child's PR into the integration branch with one commit,
+   in the ordinary single-task shape — subject `[<child-id>] <issue title>`, body built
+   from that child's own record exactly as `/t-ship`'s Procedure step 3 builds one for
+   an ordinary task, ending with that child's own `Task: #<child-id>` line
    (`forge:pr-merge <pr> <subject> <body>`, base `wip/<initiative-id>-integration`).
    `/t-drive` performs this merge itself — `/t-ship` only ever merges to the trunk. Then
    re-evaluate any child that was held on this one (step 1).
 
 ## Phase 3 — the aggregate PR to the trunk
 
-Once every child is merged, excluded, or excluded by cascade — nothing left eligible or
-held:
+Once every child is merged, excluded, or excluded by cascade, and **none remains held —
+whether on a sibling or on verification** — nothing left eligible or held:
+
+**A child still held — awaiting verification, once nothing else is eligible or held**,
+means Phase 3 is not attempted this run: stop here instead, and report every merged
+child, every excluded child (and why), and every held child by number, naming what each
+awaits — the same documented pause solo mode reaches at its own step 6, just reached
+before the aggregate PR exists rather than before `/t-ship`. An aggregate PR is never
+opened while a known child is unresolved; the final ship-time verification gate
+(`/t-ship` precondition 7, aggregated across every included child's record) stays
+defense-in-depth, not the mechanism this task relies on. A later `/t-drive
+<initiative-id>` invocation re-probes every held child (step 2) and continues from
+there — including straight into Phase 3 below if that pass resolves the last one.
 
 1. Open the single PR from `wip/<initiative-id>-integration` to the trunk
    (`forge:pr-create-draft` — this one already lands against the trunk by default, no
@@ -184,7 +261,7 @@ held:
      `/t-ship <initiative-id>` as the next command. `/t-drive` never merges to the
      trunk itself.
    - `readiness: not-ready` → one bounded retry on the aggregate PR, the same shape as a
-     child's (Phase 2 step 5), but performed by `/t-drive` directly rather than via
+     child's (Phase 2 step 6), but performed by `/t-drive` directly rather than via
      `/t-work <initiative-id>` — an initiative issue has no branch or record of its own,
      and `/t-work` refuses one outright. Address only the named blocker/high findings —
      a code fix goes directly onto the integration branch, pushed; a defect in the PR's
@@ -199,8 +276,36 @@ held:
 
 A plain task from the Phase 0 fork runs its own ordinary pipeline, each stage by its
 existing contract, chained without stopping — no integration branch, no autonomous
-merge, every gate exactly where the manual pipeline fires it:
+merge, every gate exactly where the manual pipeline fires it. **A run does not always
+start at step 1**: step 0 below probes whether this task already has a draft PR from an
+earlier invocation — the same run, an earlier interrupted one, or one that paused at
+step 6 below to await verification — and resumes at whichever stage that PR's own
+state calls for, rather than always replaying plan → work → review from scratch.
 
+0. **Resume, if a PR already exists.** `forge:pr-find-by-task <id>`.
+   - **None** → first pass; continue at step 1, unchanged.
+   - **Exactly one, open.** Fetch its latest review (`forge:pr-reviews <pr>`) and its
+     head commit's timestamp (`forge:pr-view <pr>`).
+     - No review yet, or the latest review's `submittedAt` predates the head commit (a
+       new commit landed since the last review — a feedback pass, a manual push, or any
+       other reason) → **resume at step 4**, run fresh. This is not step 5's fix-mode
+       retry: nothing has judged this diff `not-ready`, it simply has not been reviewed
+       at this commit yet — the same condition a first pass is always in.
+     - Latest review reads `readiness: not-ready`, **and it is the only review so
+       far** → the retry is still available: **resume at step 5**'s existing
+       one-bounded-retry path directly (skip planning and the first work pass, already
+       done).
+     - Latest review reads `readiness: not-ready`, **and more than one review already
+       exists** → the one bounded retry already ran in an earlier invocation and still
+       failed; this is step 5's own **"fails again"** outcome, reached directly: **stop
+       without shipping**, naming the still-blocking finding or check. Never grant a
+       second retry just because the run is being invoked again — the bound is on the
+       finding, not on the invocation.
+     - Latest review reads `readiness: ready` and is current (`submittedAt` at or after
+       the head commit) → **skip straight to step 6** (the verification check) below.
+   - **More than one open, or the PR is merged or closed** → stop and report every
+     candidate, or that the task has already left the pipeline — the same refusal
+     `/t-ship`'s own preconditions already use for this exact ambiguity. Never guess.
 1. **Eligibility.** `tracker:list-blockers <id>` into
    `.t-workflow/scripts/check-blocker-gate.sh <file>` — the same gate `/t-work` Phase 1
    step 2 runs. Exit 1 → **stop immediately**, spending no retry: an unsatisfied or
@@ -233,7 +338,34 @@ merge, every gate exactly where the manual pipeline fires it:
      leave branch, PR, and issue exactly as they are — open, unmerged, untouched — for
      an ordinary human pickup (`/t-work` fix pass, `/t-cancel`, or a re-plan). The
      solo analog of exclusion: never auto-merged, never auto-cancelled.
-6. **Ship — pause at the gate.** Run `/t-ship <id>` and stop at its
+6. **Verification check.** After a `readiness: ready` verdict — whether just reached at
+   step 4/5, or found already current at step 0 on a resumed run — check the task
+   record's `## Verification` section the same way `/t-ship` precondition 7 does: for
+   each entry compute `stale` against the PR's current head sha exactly as that
+   precondition defines (`false` when the entry's recorded revision equals the head
+   sha; otherwise `true` unless the entry declares `scope:` and the diff since that
+   revision touches none of those globs), assemble one
+   `{"role":,"required":,"state":,"stale":}` object per entry, and run
+   `.t-workflow/scripts/check-verification-gate.sh <file>` (no new script — this task
+   reuses #144's gate unmodified).
+   - **No entries, or exit 0** (every required entry `verified`/`risk-accepted` and
+     current) → continue to step 7, exactly the unchanged default path for every task
+     that declares no verification.
+   - **Exit 1** → **stop here.** This is the run's documented pause (ADR-010 §D6):
+     report, for each blocking entry, its role,
+     what it checks, and the evidence awaited — for a stale entry, say plainly that a
+     later commit could have affected what it checked and it needs re-verifying or
+     re-accepting at the new revision, the gate script's own wording. **Do not invoke
+     `/t-ship <id>`** — the merge-confirmation gate is never reached, so this pause
+     cannot bypass it (this is the whole of how it can't: there is simply no next
+     chained step taken). Name what resumes it: recording the outcome on the task
+     record (an ordinary record edit, `docs/architecture/verification.md`), then either
+     `/t-drive <id>` again or `/t-ship <id>` directly — both re-enter here and find it
+     resolved.
+   - **Exit 2** → stop, report that the record's `## Verification` section could not be
+     read into this shape — the same as `/t-ship`'s own handling; never treat
+     unreadable as "nothing to check."
+7. **Ship — pause at the gate.** Run `/t-ship <id>` and stop at its
    merge-confirmation gate: that pause **is** the run's single stop (ADR-006 D3). There
    is no CI look here before invoking it (ADR-007's own pre-`/t-ship` check is retired by
    [ADR-008](../../../docs/adr/008-t-ship-attended-ci-watch.md)): CI does not start until
@@ -255,7 +387,8 @@ merge, every gate exactly where the manual pipeline fires it:
 - Nothing here substitutes for `/t-plan`'s, `/t-work`'s, `/t-review`'s, or `/t-ship`'s
   own contract — call them exactly as documented, never reimplement their steps.
 - Never merge a child into the integration branch without a `readiness: ready` review of
-  that child's own diff.
+  that child's own diff, and without every `required` verification entry on its record
+  resolved and current (Phase 2 step 7).
 - Never merge the integration branch into the trunk — that is `/t-ship`'s job alone, after
   the human's confirmation.
 - In solo mode, merge nothing at all — the only merge is the one the human confirms at
@@ -266,7 +399,18 @@ merge, every gate exactly where the manual pipeline fires it:
   task that stopped without shipping — whether that work still happens is a human's
   call, via `/t-cancel` or an ordinary later `/t-work` fix pass, never a side effect
   of a driven run.
+- **A pause for unresolved verification is never a failure and never spends a retry** —
+  in solo mode it means simply not invoking `/t-ship`; in initiative mode it means
+  holding one child, exactly like a sibling-hold, never excluding it. Neither ever marks
+  a PR ready, approves, or merges — the pause works entirely by not taking the next
+  chained step, which is what makes it structurally unable to bypass the
+  merge-confirmation gate (issue #142; ADR-010 §D6).
+- **Resuming never replays a stage a prior pass already completed.** Probe the task's
+  (or child's) existing PR and review first (Solo step 0, Phase 2 step 2) and enter
+  exactly the stage that probe calls for — never restart at plan or work merely because
+  the run is being invoked again.
 - Never weaken a check, a finding's severity, or a gate to keep a child — or the
   aggregate PR — inside the run.
 - Report every outcome by issue number in the closing report: merged, excluded (with the
-  failing finding or check), and held-then-excluded-by-cascade — never silently.
+  failing finding or check), held awaiting verification (naming what each entry
+  awaits), and held-then-excluded-by-cascade — never silently.

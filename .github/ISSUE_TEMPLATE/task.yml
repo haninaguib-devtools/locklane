@@ -33,3 +33,8 @@ body:
     attributes:
       label: Non-goals
       description: "Explicit exclusions. Each deferred item gets its own issue — open it now."
+  - type: textarea
+    id: origin
+    attributes:
+      label: Origin
+      description: "Optional. Only if this work was proposed or discussed in an external system with a durable URL — never required, never fetched: system: <name> / url: <durable URL>. Leave blank if this task is a child of an initiative — it refers to the initiative's own Origin instead."

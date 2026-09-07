@@ -28,6 +28,17 @@ expect_rc() {
   "$@" >/dev/null 2>&1; got=$?
   if [ "$got" -eq "$want" ]; then ok "$desc (rc=$got)"; else bad "$desc (want rc=$want, got rc=$got)"; fi
 }
+# expect_field <description> <jq-filter> <expected-value> <command...> — runs the
+# command, pipes its stdout through the jq filter, compares the (raw) result. Used for
+# derive-task-state.sh/parse-task-record.sh, which report a classification or a parsed
+# shape in their JSON output rather than only through an exit code.
+expect_field() {
+  local desc="$1" filter="$2" want="$3"; shift 3
+  local out got
+  out=$("$@" 2>/dev/null)
+  got=$(printf '%s' "$out" | jq -r "$filter" 2>/dev/null)
+  if [ "$got" = "$want" ]; then ok "$desc (got $got)"; else bad "$desc (want $want, got $got)"; fi
+}
 
 # --- 1. .t-workflow/scripts/protected-paths.sh: exit codes and quoting ------------------
 echo "protected-paths.sh"
@@ -73,6 +84,15 @@ x
 ## Explicitly not
 x
 
+## Origin
+none
+
+## Verification
+none
+
+## Feedback
+none
+
 ## Decisions made along the way
 - none
 
@@ -109,6 +129,15 @@ y
 
 ## Explicitly not
 y
+
+## Origin
+none
+
+## Verification
+none
+
+## Feedback
+none
 
 ## Decisions made along the way
 - none
@@ -622,6 +651,447 @@ h_empty=$(.t-workflow/scripts/check-manifest.sh --hash-file .t-workflow/scripts/
 h_filled=$(.t-workflow/scripts/check-manifest.sh --hash-file "$filled_pp")
 if [ "$h_empty" = "$h_filled" ]; then ok "protected-paths.sh: a filled patterns slot hashes the same as the empty one"
 else bad "protected-paths.sh: a filled patterns slot hashes the same as the empty one (got $h_filled != $h_empty)"; fi
+echo
+
+# --- 17. .t-workflow/scripts/check-verification-gate.sh (issue #144) --------------------
+# The mechanical form of /t-ship's new verification precondition
+# (docs/architecture/verification.md). Pure fixtures throughout — the script never
+# touches git or the forge itself, only the small JSON shape /t-ship assembles.
+echo "check-verification-gate.sh"
+cvg="$root/.t-workflow/scripts/check-verification-gate.sh"
+
+printf '[]' > "$work/verif-none.json"
+printf '[{"role":"contributor","required":true,"state":"pending","stale":false}]' \
+  > "$work/verif-pending.json"
+printf '[{"role":"contributor","required":true,"state":"rejected","stale":false}]' \
+  > "$work/verif-rejected.json"
+printf '[{"role":"contributor","required":true,"state":"verified","stale":false}]' \
+  > "$work/verif-verified-current.json"
+printf '[{"role":"contributor","required":true,"state":"verified","stale":true}]' \
+  > "$work/verif-verified-stale.json"
+printf '[{"role":"maintainer","required":true,"state":"risk-accepted","stale":false}]' \
+  > "$work/verif-risk-accepted-current.json"
+printf '[{"role":"maintainer","required":true,"state":"risk-accepted","stale":true}]' \
+  > "$work/verif-risk-accepted-stale.json"
+printf '[{"role":"contributor","required":false,"state":"pending","stale":false}]' \
+  > "$work/verif-not-required-pending.json"
+printf '[{"role":"a","required":true,"state":"pending","stale":false},{"role":"b","required":true,"state":"verified","stale":false}]' \
+  > "$work/verif-mixed-one-bad.json"
+printf 'not json' > "$work/verif-malformed.json"
+printf '[{"role":"contributor","required":true,"state":"unknown-state","stale":false}]' \
+  > "$work/verif-bad-state.json"
+printf '[{"role":"contributor","state":"pending","stale":false}]' \
+  > "$work/verif-missing-required.json"
+
+expect_rc "no entries at all: passes (a plan/record with none needs no migration)" \
+  0 "$cvg" "$work/verif-none.json"
+expect_rc "a required entry still pending: fails" \
+  1 "$cvg" "$work/verif-pending.json"
+expect_rc "a required entry rejected: fails" \
+  1 "$cvg" "$work/verif-rejected.json"
+expect_rc "a required entry verified and current: passes" \
+  0 "$cvg" "$work/verif-verified-current.json"
+expect_rc "a required entry verified but stale: fails" \
+  1 "$cvg" "$work/verif-verified-stale.json"
+expect_rc "a required entry risk-accepted and current: passes" \
+  0 "$cvg" "$work/verif-risk-accepted-current.json"
+expect_rc "a required entry risk-accepted but stale: fails" \
+  1 "$cvg" "$work/verif-risk-accepted-stale.json"
+expect_rc "a not-required pending entry never blocks: passes" \
+  0 "$cvg" "$work/verif-not-required-pending.json"
+expect_rc "one resolved entry alongside one still-pending required entry: fails" \
+  1 "$cvg" "$work/verif-mixed-one-bad.json"
+expect_rc "malformed JSON is a usage error, not a clean pass" \
+  2 "$cvg" "$work/verif-malformed.json"
+expect_rc "an unrecognized state is a usage error" \
+  2 "$cvg" "$work/verif-bad-state.json"
+expect_rc "a missing required field is a usage error" \
+  2 "$cvg" "$work/verif-missing-required.json"
+expect_rc "a missing input file is a usage error" \
+  2 "$cvg" "$work/does-not-exist.json"
+expect_rc "no arguments is a usage error" \
+  2 "$cvg"
+
+# risk-accepted must never be printed or read as "verified" (ADR-010 §D4;
+# CONSTITUTION.md §1.5) — the OK message for a risk-accepted pass names it, never
+# borrows the word "verified" for it.
+out=$("$cvg" "$work/verif-risk-accepted-current.json")
+case "$out" in
+  *"verified or risk-accepted"*) ok "the passing message names risk-accepted distinctly, never as \"verified\" alone" ;;
+  *) bad "the passing message names risk-accepted distinctly (got: $out)" ;;
+esac
+out=$("$cvg" "$work/verif-verified-stale.json" 2>&1)
+case "$out" in
+  *"role contributor"*"verified is stale"*) ok "a stale finding names the entry's role and state" ;;
+  *) bad "a stale finding names the entry's role and state (got: $out)" ;;
+esac
+echo
+
+# --- 18. .t-workflow/scripts/check-preview-evidence.sh (issue #146) ---------------------
+# Shape validation only, for docs/adapters/PREVIEW.md's preview-evidence contract. Pure
+# fixtures throughout — the script never touches git, the forge, or any deployment
+# target; it never gates anything (this repo calls it from nowhere else).
+echo "check-preview-evidence.sh"
+cpe="$root/.t-workflow/scripts/check-preview-evidence.sh"
+
+printf '[]' > "$work/preview-empty.json"
+printf '{"commit":"a1b2c3d4e5f60718293a4b5c6d7e8f9012345678","type":"web","status":"ready","review_url":"https://preview.example.com/x"}' \
+  > "$work/preview-web-ready.json"
+printf '{"commit":"a1b2c3d4e5f60718293a4b5c6d7e8f9012345678","type":"package","status":"failed","instructions":"install the tarball","failure_reason":"build broke"}' \
+  > "$work/preview-package-failed.json"
+printf '[{"commit":"abc123","type":"image","status":"pending"},{"commit":"def456","type":"environment","status":"expired","expiry":"2026-01-01T00:00:00Z"}]' \
+  > "$work/preview-array-ok.json"
+printf '{"type":"web","status":"ready"}' > "$work/preview-missing-commit.json"
+printf '{"commit":"","type":"web","status":"ready"}' > "$work/preview-empty-commit.json"
+printf '{"commit":"abc","status":"done"}' > "$work/preview-bad-status.json"
+printf '{"commit":"abc","status":"failed"}' > "$work/preview-failed-no-reason.json"
+printf '{"commit":"abc","status":"ready","failure_reason":"oops"}' > "$work/preview-reason-not-failed.json"
+printf '[{"commit":"abc","status":"ready"},{"commit":"","status":"pending"}]' \
+  > "$work/preview-array-one-bad.json"
+printf '{"commit":"abc","status":"ready","review_url":123}' > "$work/preview-nonstring-field.json"
+printf 'not json' > "$work/preview-malformed.json"
+printf '"just a string"' > "$work/preview-wrong-type.json"
+
+expect_rc "no entries at all: passes (nothing to check)" \
+  0 "$cpe" "$work/preview-empty.json"
+expect_rc "a valid single web-preview object: passes" \
+  0 "$cpe" "$work/preview-web-ready.json"
+expect_rc "a valid non-web (package) preview, failed with a reason: passes" \
+  0 "$cpe" "$work/preview-package-failed.json"
+expect_rc "an array of valid entries (image, environment): passes" \
+  0 "$cpe" "$work/preview-array-ok.json"
+expect_rc "missing commit: fails" \
+  1 "$cpe" "$work/preview-missing-commit.json"
+expect_rc "empty-string commit: fails" \
+  1 "$cpe" "$work/preview-empty-commit.json"
+expect_rc "unrecognized status: fails" \
+  1 "$cpe" "$work/preview-bad-status.json"
+expect_rc "status failed with no failure_reason: fails" \
+  1 "$cpe" "$work/preview-failed-no-reason.json"
+expect_rc "failure_reason present but status is not failed: fails" \
+  1 "$cpe" "$work/preview-reason-not-failed.json"
+expect_rc "one bad entry alongside one good entry in an array: fails" \
+  1 "$cpe" "$work/preview-array-one-bad.json"
+expect_rc "an optional field present but not a string: fails" \
+  1 "$cpe" "$work/preview-nonstring-field.json"
+expect_rc "malformed JSON is a usage error, not a clean pass" \
+  2 "$cpe" "$work/preview-malformed.json"
+expect_rc "valid JSON that is neither an object nor an array is a usage error" \
+  2 "$cpe" "$work/preview-wrong-type.json"
+expect_rc "a missing input file is a usage error" \
+  2 "$cpe" "$work/does-not-exist.json"
+expect_rc "no arguments is a usage error" \
+  2 "$cpe"
+
+# A non-web preview legitimately carries no review_url at all — confirm the schema
+# never requires one (docs/adapters/PREVIEW.md §Non-web previews).
+out=$(jq 'has("review_url")' "$work/preview-package-failed.json")
+[ "$out" = "false" ] && ok "the non-web fixture itself carries no review_url (sanity check on the fixture)" \
+  || bad "the non-web fixture itself carries no review_url (got has(review_url)=$out)"
+echo
+
+# --- 19. .t-workflow/scripts/derive-task-state.sh (issue #147) --------------------------
+# The precedence docs/architecture/collaboration-state.md documents. Pure fixtures
+# throughout — this script never touches git or the forge, only the small JSON shape
+# status-snapshot.sh's own preprocessing (plus /t-status's own procedure) assembles.
+echo "derive-task-state.sh"
+dts="$root/.t-workflow/scripts/derive-task-state.sh"
+
+mk_ts() { printf '%s' "$1" > "$work/$2"; }
+
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[],"previewReady":null}' ts-awaiting-ship.json
+mk_ts '{"blocked":"open","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[],"previewReady":null}' ts-blocked-open.json
+mk_ts '{"blocked":"cancelled","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[],"previewReady":null}' ts-blocked-cancelled.json
+mk_ts '{"blocked":"none","ciState":"fail","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[],"previewReady":null}' ts-checks-failing.json
+mk_ts '{"blocked":"none","ciState":"pass","review":null,"feedback":{"pendingScopeExpansion":false},"verification":[],"previewReady":null}' ts-awaiting-review.json
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"ready","current":false},"feedback":{"pendingScopeExpansion":false},"verification":[],"previewReady":null}' ts-awaiting-renewed-review.json
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"not-ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[],"previewReady":null}' ts-changes-requested.json
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":true},"verification":[],"previewReady":null}' ts-processing-feedback.json
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[{"role":"contributor","required":true,"state":"pending","stale":false}],"previewReady":false}' ts-awaiting-preview.json
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[{"role":"contributor","required":true,"state":"pending","stale":false}],"previewReady":null}' ts-awaiting-ext-verif.json
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[{"role":"contributor","required":true,"state":"verified","stale":true}],"previewReady":true}' ts-awaiting-ext-verif-stale.json
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[{"role":"contributor","required":true,"state":"verified","stale":false}],"previewReady":true}' ts-verified-ready.json
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":false},"verification":[{"role":"maintainer","required":false,"state":"pending","stale":false}],"previewReady":null}' ts-not-required-never-blocks.json
+mk_ts 'not json' ts-malformed.json
+mk_ts '{"blocked":"maybe","ciState":"pass","review":null,"feedback":{"pendingScopeExpansion":false},"verification":[],"previewReady":null}' ts-bad-blocked.json
+
+expect_field "no blocker, ready review, no verification: awaiting-ship" \
+  .state "awaiting-ship" "$dts" "$work/ts-awaiting-ship.json"
+expect_field "an open blocker: blocked" \
+  .state "blocked" "$dts" "$work/ts-blocked-open.json"
+expect_field "a cancelled blocker: blocked (abandoned, not satisfied)" \
+  .state "blocked" "$dts" "$work/ts-blocked-cancelled.json"
+expect_field "CI failing: checks-failing" \
+  .state "checks-failing" "$dts" "$work/ts-checks-failing.json"
+expect_field "no review yet: awaiting-review" \
+  .state "awaiting-review" "$dts" "$work/ts-awaiting-review.json"
+expect_field "a review that predates the head commit: awaiting-renewed-review" \
+  .state "awaiting-renewed-review" "$dts" "$work/ts-awaiting-renewed-review.json"
+expect_field "current review reads not-ready: changes-requested" \
+  .state "changes-requested" "$dts" "$work/ts-changes-requested.json"
+expect_field "a feedback entry proposed scope expansion: processing-feedback" \
+  .state "processing-feedback" "$dts" "$work/ts-processing-feedback.json"
+expect_field "a pending required entry with preview evidence not ready: awaiting-preview" \
+  .state "awaiting-preview" "$dts" "$work/ts-awaiting-preview.json"
+expect_field "a pending required entry with no preview evidence at all: awaiting-external-verification" \
+  .state "awaiting-external-verification" "$dts" "$work/ts-awaiting-ext-verif.json"
+expect_field "a stale verified entry: still awaiting-external-verification (preview not the reason)" \
+  .state "awaiting-external-verification" "$dts" "$work/ts-awaiting-ext-verif-stale.json"
+expect_field "a stale verified entry names staleness in its detail" \
+  .detail "a later commit could affect a previously verified/risk-accepted entry — it must be re-verified or re-accepted at the new revision" \
+  "$dts" "$work/ts-awaiting-ext-verif-stale.json"
+expect_field "every required verification entry resolved and current: verified-ready-for-ship" \
+  .state "verified-ready-for-ship" "$dts" "$work/ts-verified-ready.json"
+expect_field "a not-required pending entry never blocks: still reaches verified-ready-for-ship" \
+  .state "verified-ready-for-ship" "$dts" "$work/ts-not-required-never-blocks.json"
+expect_rc "malformed JSON is a usage error, not a clean classification" \
+  2 "$dts" "$work/ts-malformed.json"
+expect_rc "an unrecognized \`blocked\` value is a usage error" \
+  2 "$dts" "$work/ts-bad-blocked.json"
+expect_rc "a missing input file is a usage error" \
+  2 "$dts" "$work/does-not-exist.json"
+expect_rc "no arguments is a usage error" \
+  2 "$dts"
+
+# Precedence: two conditions that would each independently classify differently — the
+# earlier one in docs/architecture/collaboration-state.md's own table must win.
+mk_ts '{"blocked":"open","ciState":"fail","review":null,"feedback":{"pendingScopeExpansion":true},"verification":[{"role":"contributor","required":true,"state":"pending","stale":false}],"previewReady":false}' ts-precedence-blocked-wins.json
+expect_field "blocked outranks failing CI, no review, feedback, and verification all at once" \
+  .state "blocked" "$dts" "$work/ts-precedence-blocked-wins.json"
+mk_ts '{"blocked":"none","ciState":"fail","review":null,"feedback":{"pendingScopeExpansion":true},"verification":[{"role":"contributor","required":true,"state":"pending","stale":false}],"previewReady":false}' ts-precedence-ci-wins.json
+expect_field "failing CI outranks no review, feedback, and verification" \
+  .state "checks-failing" "$dts" "$work/ts-precedence-ci-wins.json"
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"not-ready","current":false},"feedback":{"pendingScopeExpansion":true},"verification":[{"role":"contributor","required":true,"state":"pending","stale":false}],"previewReady":false}' ts-precedence-renewed-wins.json
+expect_field "a stale not-ready review reads as awaiting-renewed-review, not changes-requested" \
+  .state "awaiting-renewed-review" "$dts" "$work/ts-precedence-renewed-wins.json"
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"not-ready","current":true},"feedback":{"pendingScopeExpansion":true},"verification":[{"role":"contributor","required":true,"state":"pending","stale":false}],"previewReady":false}' ts-precedence-changes-wins.json
+expect_field "changes-requested outranks a pending feedback item and unresolved verification" \
+  .state "changes-requested" "$dts" "$work/ts-precedence-changes-wins.json"
+mk_ts '{"blocked":"none","ciState":"pass","review":{"readiness":"ready","current":true},"feedback":{"pendingScopeExpansion":true},"verification":[{"role":"contributor","required":true,"state":"pending","stale":false}],"previewReady":false}' ts-precedence-feedback-wins.json
+expect_field "processing-feedback outranks unresolved verification once review is clean" \
+  .state "processing-feedback" "$dts" "$work/ts-precedence-feedback-wins.json"
+echo
+
+# --- 20. .t-workflow/scripts/parse-task-record.sh (issue #147) ---------------------------
+# Turns a task record's ## Verification/## Feedback markdown, plus an issue body's ##
+# Plan -> verification: scope list, into JSON. Pure fixtures — text files in, JSON out,
+# no git or forge call of its own.
+echo "parse-task-record.sh"
+ptr="$root/.t-workflow/scripts/parse-task-record.sh"
+
+cat > "$work/record-none.md" <<'EOF'
+# 999 — Test record
+Issue: #999
+
+## Verification
+none — this task declares no `verification:` entry of its own.
+
+## Feedback
+none — no feedback pass has run against this task itself.
+EOF
+
+cat > "$work/record-no-feedback-heading.md" <<'EOF'
+# 999 — Test record
+Issue: #999
+
+## Verification
+none — this task declares no `verification:` entry of its own.
+
+## Decisions made along the way
+- none
+EOF
+
+cat > "$work/record-populated.md" <<'EOF'
+# 999 — Test record
+Issue: #999
+
+## Verification
+- role: contributor — required: true
+  what: exercised the preview and confirmed the login flow works
+  state: verified
+  evidence: clicked through the preview — revision: `a1b2c3d4e5f60718293a4b5c6d7e8f9012345678`
+  by: Jane — date: 2026-09-10
+- role: maintainer — required: false
+  what: sanity-checked the copy
+  state: pending
+  evidence: awaiting — revision: `none yet`
+  by: — date: —
+
+## Feedback
+- reference: https://preview.example.com/comment/1
+  source: a contributor
+  classification: defect
+  response: fixed the off-by-one in the pagination
+  by: someone — date: 2026-09-10
+- reference: https://preview.example.com/comment/2
+  source: a maintainer
+  classification: proposed scope expansion
+  response: stopped; awaiting human authorization and /t-plan
+  by: someone — date: 2026-09-11
+EOF
+
+cat > "$work/issue-with-scope.md" <<'EOF'
+## Plan
+### Allowed paths
+- `some/path.md`
+
+### Validation
+agent_checks:
+  - `echo ok` — stage: implementation — proves: nothing
+verification:
+  - role: contributor
+    required: true
+    scope: docs/foo/*, docs/bar.md
+  - role: maintainer
+    required: false
+EOF
+
+expect_field "a 'none'/'none' record: empty verification array" \
+  '.verification | length' "0" "$ptr" "$work/record-none.md"
+expect_field "a 'none'/'none' record: null feedback classification" \
+  .feedbackLastClassification "null" "$ptr" "$work/record-none.md"
+expect_field "a record predating the ## Feedback convention: null classification, not an error" \
+  .feedbackLastClassification "null" "$ptr" "$work/record-no-feedback-heading.md"
+expect_field "a populated record: two verification entries" \
+  '.verification | length' "2" "$ptr" "$work/record-populated.md"
+expect_field "the first entry's role" \
+  '.verification[0].role' "contributor" "$ptr" "$work/record-populated.md"
+expect_field "the first entry's state" \
+  '.verification[0].state' "verified" "$ptr" "$work/record-populated.md"
+expect_field "the first entry's revision" \
+  '.verification[0].revision' "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678" "$ptr" "$work/record-populated.md"
+expect_field "a 'none yet' revision reads as null, never a literal string" \
+  '.verification[1].revision' "null" "$ptr" "$work/record-populated.md"
+expect_field "the not-required second entry's required flag" \
+  '.verification[1].required' "false" "$ptr" "$work/record-populated.md"
+expect_field "only the LAST feedback entry's classification is reported" \
+  .feedbackLastClassification "proposed scope expansion" "$ptr" "$work/record-populated.md"
+expect_field "with no issue-body file, every entry's scope is empty (no scope known yet)" \
+  '.verification[0].scope | length' "0" "$ptr" "$work/record-populated.md"
+
+expect_field "given the issue body, scope globs are matched in by role" \
+  '.verification[0].scope | join(",")' "docs/foo/*,docs/bar.md" "$ptr" "$work/record-populated.md" "$work/issue-with-scope.md"
+expect_field "a role with no scope: in the plan reads as an empty scope list" \
+  '.verification[1].scope | length' "0" "$ptr" "$work/record-populated.md" "$work/issue-with-scope.md"
+
+expect_rc "a missing record file is a usage error" \
+  2 "$ptr" "$work/does-not-exist.md"
+expect_rc "no arguments is a usage error" \
+  2 "$ptr"
+expect_rc "an existing record with a non-existent issue-body file is a usage error" \
+  2 "$ptr" "$work/record-none.md" "$work/does-not-exist.md"
+echo
+
+# --- 21. .t-workflow/scripts/status-snapshot.sh --test-stale-match (issue #147) ---------
+# The exact glob-matching rule status-snapshot.sh's own staleness computation delegates
+# to (docs/architecture/verification.md's formula: stale UNLESS the diff touches NONE
+# of the declared scope globs). Pure fixtures — no git diff, no live PR — this is what
+# a /t-review pass on this task's own PR found untested when it caught the rule's two
+# branches swapped (a diff touching a declared scope glob read as *not* stale).
+echo "status-snapshot.sh --test-stale-match"
+ssm="$root/.t-workflow/scripts/status-snapshot.sh"
+
+expect_match() {
+  local desc="$1" want="$2" changed="$3"; shift 3
+  local got
+  got=$(printf '%s\n' "$changed" | "$ssm" --test-stale-match "$@")
+  if [ "$got" = "$want" ]; then ok "$desc (got $got)"; else bad "$desc (want $want, got $got)"; fi
+}
+
+expect_match "a changed path matching a declared scope glob: stale (true)" \
+  "true" "docs/foo/bar.md" "docs/foo/*"
+expect_match "a changed path matching none of the declared scope globs: not stale (false)" \
+  "false" "src/unrelated.js" "docs/foo/*" "docs/bar.md"
+expect_match "one of several changed paths matches: stale (true)" \
+  "true" "$(printf '%s\n' "src/unrelated.js" "docs/foo/deep/file.md")" "docs/foo/*"
+expect_match "no changed paths at all: not stale (false — nothing could have affected it)" \
+  "false" "" "docs/foo/*"
+expect_match "called with zero glob arguments: matches nothing, reads not stale (false) -- status-snapshot.sh itself never calls this hook that way; its own separate \"no scope declared at all\" branch defaults to stale before ever reaching here" \
+  "false" "docs/foo/bar.md"
+echo
+
+# --- 22. .t-workflow/scripts/check-observer-marker.sh (issue #143) ---------------------
+# Validates the single-line HTML-comment correlation marker /t-open appends to a new
+# issue's body (docs/adapters/OBSERVER.md). Pure fixtures — text files in, JSON out, no
+# git or forge call of its own.
+echo "check-observer-marker.sh"
+com="$root/.t-workflow/scripts/check-observer-marker.sh"
+
+mk_marker() { printf '%s\n' "$1" > "$work/$2"; }
+
+mk_marker 'Some issue body with no marker at all.' marker-none.md
+mk_marker 'body
+<!-- t-workflow:v1 task=143 -->' marker-task-only.md
+mk_marker 'body
+<!-- t-workflow:v1 task=143 parent=139 origin-system="Proposarium Labs" origin-url=https://proposarium.example/p/42 -->' marker-task-full.md
+mk_marker 'body
+<!-- t-workflow:v1 initiative=139 -->' marker-init-only.md
+mk_marker '<!-- t-workflow:v1 task=143 initiative=139 -->' marker-both.md
+mk_marker '<!-- t-workflow:v1 parent=1 -->' marker-neither.md
+mk_marker '<!-- t-workflow:v1 task=143 origin-system="X" -->' marker-unpaired-system.md
+mk_marker '<!-- t-workflow:v1 task=143 origin-url=https://x.example -->' marker-unpaired-url.md
+mk_marker '<!-- t-workflow:v1 initiative=139 parent=1 -->' marker-parent-on-init.md
+mk_marker '<!-- t-workflow:v1 task=abc -->' marker-nonnumeric.md
+mk_marker '<!-- t-workflow:v1 task=143 bogus=1 -->' marker-bogus-key.md
+mk_marker '<!-- t-workflow:v1 task=143 -->
+<!-- t-workflow:v1 task=144 -->' marker-multiple.md
+
+expect_field "no marker present: present=false" \
+  .present "false" "$com" "$work/marker-none.md"
+expect_field "no marker present: still reads valid (nothing to check)" \
+  .valid "true" "$com" "$work/marker-none.md"
+expect_rc "no marker present: exit 0" \
+  0 "$com" "$work/marker-none.md"
+
+expect_field "task-only marker: present, valid, task extracted" \
+  .task "143" "$com" "$work/marker-task-only.md"
+expect_rc "task-only marker: exit 0" \
+  0 "$com" "$work/marker-task-only.md"
+
+expect_field "task+parent+origin marker: task extracted" \
+  .task "143" "$com" "$work/marker-task-full.md"
+expect_field "task+parent+origin marker: parent extracted" \
+  .parent "139" "$com" "$work/marker-task-full.md"
+expect_field "task+parent+origin marker: origin system extracted (quoted value with spaces)" \
+  .origin.system "Proposarium Labs" "$com" "$work/marker-task-full.md"
+expect_field "task+parent+origin marker: origin url extracted (bare value)" \
+  .origin.url "https://proposarium.example/p/42" "$com" "$work/marker-task-full.md"
+expect_rc "task+parent+origin marker: exit 0" \
+  0 "$com" "$work/marker-task-full.md"
+
+expect_field "initiative-only marker: initiative extracted, task null" \
+  .initiative "139" "$com" "$work/marker-init-only.md"
+expect_rc "initiative-only marker: exit 0" \
+  0 "$com" "$work/marker-init-only.md"
+
+expect_rc "both task and initiative present: fails" \
+  1 "$com" "$work/marker-both.md"
+expect_rc "neither task nor initiative present: fails" \
+  1 "$com" "$work/marker-neither.md"
+expect_rc "origin-system without origin-url: fails" \
+  1 "$com" "$work/marker-unpaired-system.md"
+expect_rc "origin-url without origin-system: fails" \
+  1 "$com" "$work/marker-unpaired-url.md"
+expect_field "an invalid (unpaired) marker reports origin as null, never half-formed" \
+  .origin "null" "$com" "$work/marker-unpaired-system.md"
+expect_rc "parent alongside initiative: fails" \
+  1 "$com" "$work/marker-parent-on-init.md"
+expect_rc "a non-numeric task id: fails" \
+  1 "$com" "$work/marker-nonnumeric.md"
+expect_rc "an unrecognized key: fails" \
+  1 "$com" "$work/marker-bogus-key.md"
+expect_rc "more than one marker line: fails" \
+  1 "$com" "$work/marker-multiple.md"
+
+expect_field "an invalid marker still reports present=true (distinct from absent)" \
+  .present "true" "$com" "$work/marker-both.md"
+expect_field "an invalid marker's errors[] is non-empty" \
+  '.errors | length > 0' "true" "$com" "$work/marker-both.md"
+
+expect_rc "a missing input file is a usage error" \
+  2 "$com" "$work/does-not-exist.md"
+expect_rc "no arguments is a usage error" \
+  2 "$com"
 echo
 
 echo "$pass passed, $fail failed"
