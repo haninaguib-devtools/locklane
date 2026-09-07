@@ -5,6 +5,7 @@ import { Router, provideRouter } from '@angular/router';
 import { ProjectSummaryComponent, countIssues } from './project-summary.component';
 import { Project, TreeNode } from '../../models/issue.model';
 import { OpenProjectConsole } from '../../services/project-console.service';
+import { OpenShell } from '../../services/shells.service';
 import { AgentStore } from '../../services/agent-store';
 import { ConsolesService } from '../../services/consoles.service';
 import { LastConsoleStore } from '../../services/last-console-store';
@@ -48,6 +49,20 @@ describe('ProjectSummaryComponent', () => {
     return { sessionId, workingDirectory: '/tmp/a', createdAt, lastAttachedAt: createdAt };
   }
 
+  function shell(overrides: Partial<OpenShell> = {}): OpenShell {
+    return {
+      sessionId: '1-shell-main-aaaa0001',
+      projectId: 1,
+      issueNumber: null,
+      mainCheckout: true,
+      workingDirectory: '/tmp/a',
+      createdAt: '2026-08-27T09:00:00Z',
+      lastAttachedAt: '2026-08-27T09:00:00Z',
+      displayName: null,
+      ...overrides,
+    };
+  }
+
   beforeEach(() => {
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.defaultAgent');
@@ -86,6 +101,7 @@ describe('ProjectSummaryComponent', () => {
     projectId = 1,
     consoles: OpenProjectConsole[] = [],
     installedAgents = ALL_AGENTS,
+    shells: OpenShell[] = [],
   ): ReturnType<typeof TestBed.createComponent<ProjectSummaryComponent>> {
     const fixture = TestBed.createComponent(ProjectSummaryComponent);
     fixture.componentRef.setInput('projectId', projectId);
@@ -100,7 +116,9 @@ describe('ProjectSummaryComponent', () => {
     fixture.detectChanges();
     if (ready) {
       httpMock.expectOne(`/api/projects/${projectId}/worktrees`).flush([]);
-      httpMock.expectOne('/api/shells').flush([]);
+      // Two independent fetchers hit this endpoint: this component's own shells
+      // button (#745) and the worktree list's shell listing (#733).
+      httpMock.match('/api/shells').forEach((req) => req.flush(shells));
       fixture.detectChanges();
     }
     return fixture;
@@ -158,7 +176,7 @@ describe('ProjectSummaryComponent', () => {
       .flush('boom', { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/worktrees').flush([]);
-    httpMock.expectOne('/api/shells').flush([]);
+    httpMock.match('/api/shells').forEach((req) => req.flush([]));
     fixture.detectChanges();
 
     expect(fixture.componentInstance.error).toBe(false);
@@ -264,6 +282,67 @@ describe('ProjectSummaryComponent', () => {
     });
   });
 
+  it('hides the shells button while the project is still cloning', () => {
+    const fixture = init([{ ...PROJECT, status: 'CLONING' }]);
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.shells-button')).toBeFalsy();
+  });
+
+  it('reads "Open shells" and mints one at the main worktree, then focuses the Shells window, when none is open (#745)', () => {
+    const fixture = init();
+    const openSpy = spyOn(window, 'open');
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shells-button')!;
+    expect(button.textContent?.trim()).toBe('Open shells');
+    button.click();
+    fixture.detectChanges();
+
+    expect(button.disabled).toBeTrue();
+    const req = httpMock.expectOne('/api/projects/1/shells');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ issueNumber: null, workingDirectory: '/tmp/a' });
+    req.flush({ sessionId: '1-shell-main-new0001', workingDirectory: '/tmp/a' });
+    // Minting refetches the open-shells list so a second click reuses it (#745).
+    httpMock.expectOne('/api/shells').flush([shell({ sessionId: '1-shell-main-new0001' })]);
+    fixture.detectChanges();
+
+    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-main-new0001', 'locklane-shells');
+    expect(button.disabled).toBeFalse();
+  });
+
+  it('shows an error and re-arms the button when minting a shell fails (#745)', () => {
+    const fixture = init();
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shells-button')!;
+    button.click();
+    httpMock.expectOne('/api/projects/1/shells').flush(null, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.shellError).toBeTrue();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not open a shell');
+    expect(button.disabled).toBeFalse();
+  });
+
+  it('focuses the Shells window on the most recently used open shell, without minting one, when any are open (#745)', () => {
+    const fixture = init(
+      [PROJECT],
+      tree(),
+      1,
+      [],
+      ALL_AGENTS,
+      [
+        shell({ sessionId: '1-shell-main-older01', lastAttachedAt: '2026-08-27T09:00:00Z' }),
+        shell({ sessionId: '1-shell-main-newer01', lastAttachedAt: '2026-08-27T10:00:00Z' }),
+      ],
+    );
+    const openSpy = spyOn(window, 'open');
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shells-button')!.click();
+
+    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-main-newer01', 'locklane-shells');
+    httpMock.expectNone('/api/projects/1/shells');
+  });
+
   it('reloads when the project id changes', () => {
     const fixture = init();
     fixture.componentRef.setInput('projectId', 2);
@@ -273,7 +352,7 @@ describe('ProjectSummaryComponent', () => {
     httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/2/worktrees').flush([]);
-    httpMock.expectOne('/api/shells').flush([]);
+    httpMock.match('/api/shells').forEach((req) => req.flush([]));
     fixture.detectChanges();
 
     expect(fixture.componentInstance.project?.name).toBe('proj-b');

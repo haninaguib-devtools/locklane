@@ -8,6 +8,7 @@ import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
 import { ConsolesService } from '../../services/consoles.service';
+import { OpenShell, ShellsService } from '../../services/shells.service';
 import { AgentStore } from '../../services/agent-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
 import { LastConsoleStore } from '../../services/last-console-store';
@@ -40,6 +41,7 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   private readonly issuesService = inject(IssuesService);
   private readonly projectConsoleService = inject(ProjectConsoleService);
   private readonly consolesService = inject(ConsolesService);
+  private readonly shellsService = inject(ShellsService);
   private readonly agentStore = inject(AgentStore);
   private readonly defaultAgentStore = inject(DefaultAgentStore);
   private readonly lastConsoleStore = inject(LastConsoleStore);
@@ -91,6 +93,13 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   openConsoles: OpenProjectConsole[] = [];
   startingConsole = false;
   consoleError = false;
+
+  // The project's open shells (#745, reusing #733's ShellsService), fetched
+  // alongside the consoles above -- drives the "Open shells" button's choice
+  // between focusing an existing shell and minting one at the main worktree first.
+  openShells: OpenShell[] = [];
+  startingShell = false;
+  shellError = false;
 
   // #695: "Open console" launches with `defaultAgentStore.agent()` directly, so its
   // fallback to the first installed agent needs this store's fetch already under way
@@ -165,6 +174,9 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     this.openConsoles = [];
     this.startingConsole = false;
     this.consoleError = false;
+    this.openShells = [];
+    this.startingShell = false;
+    this.shellError = false;
     this.savingAccentColor = false;
     this.accentColorError = null;
 
@@ -175,6 +187,7 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
         this.error = this.project === null;
         if (this.project?.status === 'READY') {
           this.loadConsoles(projectId);
+          this.loadShells(projectId);
         }
       },
       error: () => {
@@ -204,6 +217,15 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
       // fresh is still a safe offer even though the existing list is unknown.
       next: (consoles) => (this.openConsoles = consoles),
       error: () => (this.openConsoles = []),
+    });
+  }
+
+  private loadShells(projectId: number): void {
+    // ShellsService.list() has no per-project endpoint (#733's own worktree list
+    // filters the same way), so every open shell is fetched and narrowed here.
+    this.shellsService.list().subscribe({
+      next: (shells) => (this.openShells = shells.filter((s) => s.projectId === projectId)),
+      error: () => (this.openShells = []),
     });
   }
 
@@ -257,6 +279,56 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
 
   private navigateToConsole(sessionId: string): void {
     this.router.navigate(['/projects', this.projectId, 'console'], { queryParams: { session: sessionId } });
+  }
+
+  /** The shells button's label (#745): switches while a first mint is in flight. */
+  get shellsButtonLabel(): string {
+    return this.startingShell ? 'opening…' : 'Open shells';
+  }
+
+  onShellsButtonClick(): void {
+    if (this.startingShell) {
+      return;
+    }
+    if (this.openShells.length === 0) {
+      this.startShell();
+    } else {
+      this.openMostRecentShell();
+    }
+  }
+
+  // No open shell yet (#745): mint one at the project's own main worktree -- never
+  // an issue's, since this button carries no issue context -- then focus the
+  // singleton Shells window on it, the same convention `openShellAt`/`openMainShell`
+  // already follow. Re-fetches afterwards so a second click reuses it instead of
+  // minting again.
+  private startShell(): void {
+    if (!this.project) {
+      return;
+    }
+    this.startingShell = true;
+    this.shellError = false;
+    this.shellsService.open(this.projectId, null, this.project.workareaPath).subscribe({
+      next: (created) => {
+        this.startingShell = false;
+        this.loadShells(this.projectId);
+        window.open(`/shells/${created.sessionId}`, 'locklane-shells');
+      },
+      error: () => {
+        this.startingShell = false;
+        this.shellError = true;
+      },
+    });
+  }
+
+  // "Most recently used" (#745): the open shell with the latest `lastAttachedAt`,
+  // the same signal the engine updates on every reattach -- there is no
+  // LastConsoleStore equivalent recording an explicit user pick for shells.
+  private openMostRecentShell(): void {
+    const target = this.openShells.reduce((latest, shell) =>
+      new Date(shell.lastAttachedAt).getTime() > new Date(latest.lastAttachedAt).getTime() ? shell : latest,
+    );
+    window.open(`/shells/${target.sessionId}`, 'locklane-shells');
   }
 }
 

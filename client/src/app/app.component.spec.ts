@@ -166,14 +166,27 @@ describe('AppComponent', () => {
   }
 
   /**
+   * The project summary's own shells button (#745) fetches this project's open
+   * shells as soon as it learns the project is READY -- inside the same
+   * `/api/projects` subscribe callback {@link flushSidenavAndSummary} resolves, so
+   * (unlike the worktree list's own fetch of the same endpoint, gated behind
+   * {@link flushProjectWorktrees} needing a further render pass) this request is
+   * already pending by the time {@link flushProjectConsoleSessions} is.
+   */
+  function flushProjectShells(): void {
+    httpMock.match('/api/shells').forEach((request) => request.flush([]));
+  }
+
+  /**
    * The project summary's worktree list (#320) fetches this project's worktrees, and
-   * its own open shells (#733), once it learns the project is READY -- the same gate
-   * as {@link flushProjectConsoleSessions}, so every caller of that flushes this
+   * its own open shells (#733) -- as does the summary's own shells button (#745) --
+   * once it learns the project is READY -- the same gate as
+   * {@link flushProjectConsoleSessions}, so every caller of that flushes this
    * immediately afterward too.
    */
   function flushProjectWorktrees(): void {
     httpMock.expectOne('/api/projects/1/worktrees').flush([]);
-    httpMock.expectOne('/api/shells').flush([]);
+    httpMock.match('/api/shells').forEach((request) => request.flush([]));
   }
 
   function flushIssue(number: number): void {
@@ -537,6 +550,7 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     flushSidenavAndSummary();
     flushProjectConsoleSessions();
+    flushProjectShells();
     flushConsoleIndicator();
 
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
@@ -559,6 +573,7 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     flushSidenavAndSummary();
     flushProjectConsoleSessions();
+    flushProjectShells();
     flushConsoleIndicator();
 
     // What a sidenav row's routerLink (#170) does on a left-click.
@@ -712,6 +727,7 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     flushSidenavAndSummary();
     flushProjectConsoleSessions();
+    flushProjectShells();
     flushConsoleIndicator();
 
     // What a sidenav row's routerLink (#170) does on a left-click.
@@ -732,6 +748,7 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     flushSidenavAndSummary();
     flushProjectConsoleSessions();
+    flushProjectShells();
     flushConsoleIndicator();
 
     fixture.componentInstance.logout();
