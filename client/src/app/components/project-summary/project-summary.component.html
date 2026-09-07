@@ -5,7 +5,6 @@
     <div class="state">could not load this project</div>
   } @else {
     <div class="main-col">
-    <div class="content">
       <div class="header">
         <h1>{{ project.name }}</h1>
         <span class="status" [class.cloning]="project.status === 'CLONING'" [class.failed]="project.status === 'FAILED'">
@@ -103,7 +102,6 @@
       @if (project.status === 'READY') {
         <app-worktree-list [projectId]="projectId" />
       }
-    </div>
     </div>
     @if (project.status === 'READY') {
       <aside class="sessions-rail">
