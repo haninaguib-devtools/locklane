@@ -187,7 +187,7 @@ describe('ProjectConsoleComponent', () => {
     expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
   }));
 
-  it('shows no Overview tab, and its "+" opens no popover (#256)', () => {
+  it('shows no Overview tab, and its "+" offers the installed agents before starting anything (#256, #757)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
     fixture.detectChanges();
@@ -197,10 +197,23 @@ describe('ProjectConsoleComponent', () => {
     compiled.querySelector<HTMLButtonElement>('.plus')!.click();
     fixture.detectChanges();
 
-    // No picker of any kind -- the "+" starts a console with the default agent
-    // directly (#256).
-    expect(compiled.querySelector('.picker')).toBeFalsy();
+    // #256 had the "+" start a console with the default agent directly; since #757,
+    // with the two agents `init()` seeds, it opens a picker first and starts nothing
+    // until one is chosen -- no location to pick, still (#341), only the agent.
+    httpMock.expectNone('/api/projects/1/console');
+    const options = Array.from(compiled.querySelectorAll<HTMLButtonElement>('.agent-option'));
+    expect(options.map((option) => option.textContent!.trim())).toEqual(['Claude', 'Codex']);
+
+    options[1].click();
+    fixture.detectChanges();
+
     httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
+    fixture.detectChanges();
+    expect(compiled.querySelector('.agent-picker')).toBeNull();
+    // The chosen agent, not the Settings default, is what the new console attaches with.
+    const terminals = fixture.debugElement.queryAll(By.directive(TerminalComponent));
+    const opened = terminals.find((t) => t.componentInstance.sessionId === '1-console-e5f6a7b8')!;
+    expect(opened.componentInstance.cmd).toBe('codex');
   });
 
   it('keeps every console mounted, hiding all but the selected tab', () => {

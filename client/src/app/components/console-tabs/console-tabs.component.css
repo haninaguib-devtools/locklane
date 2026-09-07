@@ -135,6 +135,38 @@
   cursor: default;
 }
 
+/* The agent picker under the open button (#757): the same dropdown shape as the
+   tab overflow menu above, anchored to the button's left edge instead. */
+.agent-picker {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 10;
+  margin-top: 2px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(53, 50, 44, 0.15);
+  min-width: 110px;
+}
+
+.agent-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agent-option:hover {
+  background: var(--bg);
+}
+
 /* The inline rename field (#393): sized and styled to sit in the strip exactly
    where the label it replaces did, so renaming does not make the tabs jump. */
 .tab-name {

@@ -8,6 +8,7 @@
     [selected]="activeTab"
     [starting]="starting"
     [defaultAgent]="defaultAgentStore.agent()"
+    [installedAgents]="defaultAgentStore.installed()"
     openLabel="Console"
     [hideOpenWhenActive]="true"
     (selectedChange)="onTabSelected($event)"
