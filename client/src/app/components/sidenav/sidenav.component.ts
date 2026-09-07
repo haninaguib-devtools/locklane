@@ -11,6 +11,7 @@ import { ProjectsService } from '../../services/projects.service';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
+import { AttentionStore } from '../../services/attention-store';
 import {
   ConsolesService,
   isProjectConsoleSessionId,
@@ -20,13 +21,11 @@ import {
 } from '../../services/consoles.service';
 import {
   AppEvent,
-  ConsoleAttentionEvent,
   EventsService,
   GithubRefreshStatusEvent,
   ProjectCreatedEvent,
   ProjectDeletedEvent,
   ProjectStatusEvent,
-  isConsoleAttentionEvent,
   isGithubRefreshStatusEvent,
   isProjectCreatedEvent,
   isProjectDeletedEvent,
@@ -101,6 +100,9 @@ export class SidenavComponent implements OnInit, OnDestroy {
   private readonly projectSectionStore = inject(ProjectSectionStore);
   private readonly consolesService = inject(ConsolesService);
   private readonly eventsService = inject(EventsService);
+  // The one shared "which sessions are waiting" store (#791): the dots below read
+  // from it rather than this component keeping its own copy fed from `events$`.
+  private readonly attentionStore = inject(AttentionStore);
   private readonly router = inject(Router);
 
   // Highlight only -- navigation is each row's own routerLink (#170), so selection
@@ -174,16 +176,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
   // so it can never land in openConsoleIssues; tracked separately and merged into
   // hasOpenConsoleForProject below.
   private openConsoleProjects = new Set<number>();
-  // "<projectId>:<issueNumber>" for every issue with a console currently waiting for
-  // attention (#130) -- a bell, or output gone quiet with no input since. Kept as its
-  // own set (rather than folded into openConsoleIssues) since a dot can need to pulse
-  // independent of whether the console list has otherwise changed.
-  private waitingIssues = new Set<string>();
-  // Raw session ids of project-level consoles currently waiting for attention (#450).
-  // Keyed off the session id itself, like the header's console-indicator, rather than
-  // the project id: with two project consoles open, one going active must not clear a
-  // flag another still-waiting console set.
-  private waitingProjectConsoleSessions = new Set<string>();
   private readonly consoleSub: Subscription;
   // "Notify, then fetch" (#129): the event carries no issue data, so a matching
   // project re-fetches its own tree over the existing REST endpoint -- and a project
@@ -213,10 +205,6 @@ export class SidenavComponent implements OnInit, OnDestroy {
       this.eventsService.events$.pipe(
         filter(isIssuesChangedEvent),
         map((event) => () => this.applyIssuesChangedEvent(event)),
-      ),
-      this.eventsService.events$.pipe(
-        filter(isConsoleAttentionEvent),
-        map((event) => () => this.applyAttentionEvent(event)),
       ),
       this.eventsService.events$.pipe(
         filter(isGithubRefreshStatusEvent),
@@ -619,9 +607,12 @@ export class SidenavComponent implements OnInit, OnDestroy {
 
   // Like hasOpenConsoleForProject above, tracks project-level console sessions
   // exclusively (#450) -- an issue-attached console's wait shows on that issue row's
-  // own dot, never here.
+  // own dot, never here. Reads the shared store (#791) by session id, so with two
+  // project consoles open, one going active does not clear a flag another
+  // still-waiting console set; `projectIdFromProjectConsoleSessionId` is null for an
+  // issue-attached session id, which keeps those off the project row.
   hasAttentionWaitingForProject(projectId: number): boolean {
-    for (const sessionId of this.waitingProjectConsoleSessions) {
+    for (const sessionId of this.attentionStore.waiting()) {
       if (projectIdFromProjectConsoleSessionId(sessionId) === projectId) {
         return true;
       }
@@ -637,32 +628,20 @@ export class SidenavComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Applies one `consoleAttention` event (#130) onto whichever issue its session
-   * belongs to -- or, for a project-level console's session id, which carries no
-   * issue number, onto its project's own row (#450).
+   * Whether any session attached to this issue is waiting for attention (#130): the
+   * shared store (#791) holds session ids, and a session's "<projectId>:<issueNumber>"
+   * key is parsed straight out of its id, the same placement the sidenav used when it
+   * applied the events itself. A project-level console's id carries no issue number,
+   * so it never matches here -- it shows on the project row (#450) instead.
    */
-  private applyAttentionEvent(event: ConsoleAttentionEvent): void {
-    const key = projectIssueKeyFromSessionId(event.sessionId);
-    if (key !== null) {
-      if (event.state === 'waiting') {
-        this.waitingIssues.add(key);
-      } else {
-        this.waitingIssues.delete(key);
-      }
-      return;
-    }
-    if (projectIdFromProjectConsoleSessionId(event.sessionId) === null) {
-      return;
-    }
-    if (event.state === 'waiting') {
-      this.waitingProjectConsoleSessions.add(event.sessionId);
-    } else {
-      this.waitingProjectConsoleSessions.delete(event.sessionId);
-    }
-  }
-
   hasAttentionWaiting(projectId: number, issueNumber: number): boolean {
-    return this.waitingIssues.has(`${projectId}:${issueNumber}`);
+    const key = `${projectId}:${issueNumber}`;
+    for (const sessionId of this.attentionStore.waiting()) {
+      if (projectIssueKeyFromSessionId(sessionId) === key) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

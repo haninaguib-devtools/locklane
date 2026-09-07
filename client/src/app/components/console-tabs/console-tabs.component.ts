@@ -1,6 +1,7 @@
 import { Component, ElementRef, EventEmitter, HostListener, Input, Optional, Output, ViewChild } from '@angular/core';
 import { Observable, map, of, switchMap } from 'rxjs';
 import { Agent } from '../../services/agent-store';
+import { AttentionStore } from '../../services/attention-store';
 import { InstalledAgent } from '../../services/default-agent-store';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
@@ -32,10 +33,13 @@ export class ConsoleTabsComponent {
   // suites render this strip under TestBeds with no HttpClient provider —
   // @Optional() lets DI hand in null there instead of erroring, and the
   // open-shell control simply no-ops without its services.
+  // The attention store (#791) follows the same rule: a null store means no tab is
+  // ever waiting, so the strip renders its dots plain blue.
   constructor(
     @Optional() private readonly shellsService: ShellsService | null = null,
     @Optional() private readonly worktreesService: WorktreesService | null = null,
     @Optional() private readonly consolesService: ConsolesService | null = null,
+    @Optional() private readonly attentionStore: AttentionStore | null = null,
   ) {}
 
   // Exposed for the template's Overview tab, pinned first in the same strip (#96).
@@ -109,6 +113,24 @@ export class ConsoleTabsComponent {
 
   select(id: string): void {
     this.selectedChange.emit(id);
+  }
+
+  /**
+   * Whether this tab's agent is waiting for the user (#130, #791): a tab's id is the
+   * agent's session id, the same id the shared store keys by, so no lookup is needed.
+   * A signal read underneath, so the dot follows the store as events land. Selecting
+   * the tab focuses the session engine-side, which clears the state on its own.
+   */
+  isWaiting(id: string): boolean {
+    return this.attentionStore?.isWaiting(id) ?? false;
+  }
+
+  /** The tab button's tooltip: the waiting state first, else the rename hint where renaming is on (#393). */
+  tabTitle(id: string): string | null {
+    if (this.isWaiting(id)) {
+      return 'Waiting for you';
+    }
+    return this.renamable ? 'double-click to rename' : null;
   }
 
   /**

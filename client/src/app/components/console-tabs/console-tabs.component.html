@@ -38,10 +38,15 @@
           class="tab"
           [class.active]="tab.id === selected"
           [attr.aria-selected]="tab.id === selected"
-          [attr.title]="renamable ? 'double-click to rename' : null"
+          [attr.title]="tabTitle(tab.id)"
+          [attr.aria-label]="isWaiting(tab.id) ? tabText(tab) + ', waiting for you' : null"
           (click)="select(tab.id)"
           (dblclick)="startRename(tab, $event)"
         >
+          <!-- #791: blue while the agent is open, amber and pulsing while it is waiting
+               for the user -- the sidenav's per-issue dot, on the tab itself. Decorative:
+               the button's title and accessible name carry the state in words. -->
+          <span class="tab-dot" [class.waiting]="isWaiting(tab.id)" aria-hidden="true"></span>
           {{ tabText(tab) }}
         </button>
       }
