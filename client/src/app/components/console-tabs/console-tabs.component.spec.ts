@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ConsoleTabsComponent } from './console-tabs.component';
 import { ConsoleTab } from './console-labels';
+import { DefaultIdeStore } from '../../services/default-ide-store';
 
 describe('ConsoleTabsComponent', () => {
   it('emits the clicked console id', () => {
@@ -489,12 +490,14 @@ describe('ConsoleTabsComponent open-a-shell (#447)', () => {
   });
 });
 
-// The Open IDE control (#627/#628) talks HTTP and the DOM, the same shape as
+// The Open IDE control (#627/#628, #782) talks HTTP and the DOM, the same shape as
 // open-a-shell above.
-describe('ConsoleTabsComponent open-the-ide (#628)', () => {
+describe('ConsoleTabsComponent open-the-ide (#628, #782)', () => {
+  const IDE_STORAGE_KEY = 'locklane.defaultIde';
   let httpMock: HttpTestingController;
 
   beforeEach(() => {
+    localStorage.removeItem(IDE_STORAGE_KEY);
     TestBed.configureTestingModule({
       imports: [ConsoleTabsComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -502,7 +505,10 @@ describe('ConsoleTabsComponent open-the-ide (#628)', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.removeItem(IDE_STORAGE_KEY);
+  });
 
   function render(tabs: ConsoleTab[], overview = true) {
     const fixture = TestBed.createComponent(ConsoleTabsComponent);
@@ -518,6 +524,30 @@ describe('ConsoleTabsComponent open-the-ide (#628)', () => {
     fixture.detectChanges();
   }
 
+  /** Puts the page at `hostname` as far as the IDE store is concerned (#497's spy pattern). */
+  function atHost(hostname: string): void {
+    spyOn<any>(TestBed.inject(DefaultIdeStore), 'currentHostname').and.returnValue(hostname);
+  }
+
+  /** A strip rendered in a browser that chose `ide` in Settings (#782): stores it, renders, and answers the strip's installed-IDEs lookup. */
+  function renderChosen(ide: string, hostname: string) {
+    localStorage.setItem(IDE_STORAGE_KEY, ide);
+    atHost(hostname);
+    const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+    httpMock.expectOne('/api/ides/installed').flush({
+      installed: [
+        { id: 'code-server', label: 'code-server', desktop: false },
+        { id: 'vscode', label: 'VS Code', desktop: true },
+        { id: 'intellij', label: 'IntelliJ IDEA', desktop: true },
+      ],
+    });
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const ideItem = (fixture: ReturnType<typeof render>) =>
+    fixture.nativeElement.querySelector('.tab-open-ide') as HTMLButtonElement;
+
   it('shows the Open IDE item once its tab menu is open (#628)', () => {
     const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
     openMenu(fixture, 1);
@@ -525,17 +555,78 @@ describe('ConsoleTabsComponent open-the-ide (#628)', () => {
     expect(fixture.nativeElement.querySelectorAll('.tab-open-ide').length).toBe(1);
   });
 
+  it('with no IDE chosen, the item reads "Open IDE" and nothing is looked up (#782)', () => {
+    const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+    openMenu(fixture, 1);
+
+    expect(ideItem(fixture).textContent!.trim()).toBe('Open IDE');
+    httpMock.expectNone('/api/ides/installed');
+  });
+
+  it('names a desktop IDE chosen on localhost -- "Open in VS Code" / "Open in IntelliJ IDEA" (#782)', () => {
+    const fixture = renderChosen('intellij', 'localhost');
+    openMenu(fixture, 1);
+
+    expect(ideItem(fixture).textContent!.trim()).toBe('Open in IntelliJ IDEA');
+  });
+
+  it('keeps "Open IDE" for a desktop IDE chosen but viewed away from localhost, and for code-server (#782)', () => {
+    const remote = renderChosen('vscode', 'example.com');
+    openMenu(remote, 1);
+    expect(ideItem(remote).textContent!.trim()).toBe('Open IDE');
+    remote.destroy();
+
+    // The store is a root singleton and fetched once already; only the stored choice changes.
+    TestBed.inject(DefaultIdeStore).set('code-server');
+    const local = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+    openMenu(local, 1);
+    expect(ideItem(local).textContent!.trim()).toBe('Open IDE');
+  });
+
   it('clicking Open IDE starts code-server for that console and opens the singleton window', () => {
     const openSpy = spyOn(window, 'open');
     const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
     openMenu(fixture, 1);
 
-    (fixture.nativeElement.querySelector('.tab-open-ide') as HTMLButtonElement).click();
+    ideItem(fixture).click();
 
     const post = httpMock.expectOne('/api/projects/1/consoles/1-7-do-the-thing/open-ide');
     expect(post.request.method).toBe('POST');
+    expect(post.request.body).toEqual({ ide: 'code-server' });
     // The engine's own proxied path (#655), relative so it opens against whatever
     // host this page was reached at -- never code-server's loopback address.
+    post.flush({ url: '/api/projects/1/consoles/1-7-do-the-thing/ide/' });
+    expect(openSpy).toHaveBeenCalledWith('/api/projects/1/consoles/1-7-do-the-thing/ide/', 'locklane-ide');
+  });
+
+  it('clicking a desktop choice names it to the engine and opens nothing here (#782)', () => {
+    const openSpy = spyOn(window, 'open');
+    const fixture = renderChosen('vscode', 'localhost');
+    openMenu(fixture, 1);
+
+    ideItem(fixture).click();
+
+    const post = httpMock.expectOne('/api/projects/1/consoles/1-7-do-the-thing/open-ide');
+    expect(post.request.body).toEqual({ ide: 'vscode' });
+    post.flush({ url: null });
+    fixture.detectChanges();
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('.ide-error')).toBeNull();
+  });
+
+  it('a desktop choice viewed away from localhost falls back to code-server on the wire too (#782)', () => {
+    // Always stub window.open here: a real one in headless Chrome opens a second window
+    // that steals focus from the Karma page and fails every focus/visibility-dependent
+    // spec that happens to run after this one.
+    const openSpy = spyOn(window, 'open');
+    const fixture = renderChosen('vscode', 'example.com');
+    openMenu(fixture, 1);
+
+    ideItem(fixture).click();
+
+    const post = httpMock.expectOne('/api/projects/1/consoles/1-7-do-the-thing/open-ide');
+    expect(post.request.body).toEqual({ ide: 'code-server' });
     post.flush({ url: '/api/projects/1/consoles/1-7-do-the-thing/ide/' });
     expect(openSpy).toHaveBeenCalledWith('/api/projects/1/consoles/1-7-do-the-thing/ide/', 'locklane-ide');
   });
@@ -545,10 +636,25 @@ describe('ConsoleTabsComponent open-the-ide (#628)', () => {
     const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
     openMenu(fixture, 1);
 
-    (fixture.nativeElement.querySelector('.tab-open-ide') as HTMLButtonElement).click();
+    ideItem(fixture).click();
     httpMock
       .expectOne('/api/projects/1/consoles/1-7-do-the-thing/open-ide')
       .flush(null, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('.ide-error')).not.toBeNull();
+  });
+
+  it('a refused desktop launch shows the same error note (#782)', () => {
+    const openSpy = spyOn(window, 'open');
+    const fixture = renderChosen('intellij', 'localhost');
+    openMenu(fixture, 1);
+
+    ideItem(fixture).click();
+    httpMock
+      .expectOne('/api/projects/1/consoles/1-7-do-the-thing/open-ide')
+      .flush(null, { status: 403, statusText: 'Forbidden' });
     fixture.detectChanges();
 
     expect(openSpy).not.toHaveBeenCalled();

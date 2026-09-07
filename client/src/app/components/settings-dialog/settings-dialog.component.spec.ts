@@ -2,14 +2,17 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { SettingsDialogComponent } from './settings-dialog.component';
+import { DefaultIdeStore, InstalledIde } from '../../services/default-ide-store';
 
 const DEFAULT_AGENT_STORAGE_KEY = 'locklane.defaultAgent';
+const DEFAULT_IDE_STORAGE_KEY = 'locklane.defaultIde';
 
 describe('SettingsDialogComponent', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(async () => {
     localStorage.removeItem(DEFAULT_AGENT_STORAGE_KEY);
+    localStorage.removeItem(DEFAULT_IDE_STORAGE_KEY);
     await TestBed.configureTestingModule({
       imports: [SettingsDialogComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -20,6 +23,7 @@ describe('SettingsDialogComponent', () => {
   afterEach(() => {
     httpMock.verify();
     localStorage.removeItem(DEFAULT_AGENT_STORAGE_KEY);
+    localStorage.removeItem(DEFAULT_IDE_STORAGE_KEY);
   });
 
   function create(): ReturnType<typeof TestBed.createComponent<SettingsDialogComponent>> {
@@ -34,19 +38,43 @@ describe('SettingsDialogComponent', () => {
     { id: 'opencode', label: 'OpenCode' },
   ];
 
-  /** Also flushes the installed-agents request with all three, since every test but the ones
-   *  exercising that picker directly (below) don't care about its value. */
+  const ALL_IDES: InstalledIde[] = [
+    { id: 'code-server', label: 'code-server', desktop: false },
+    { id: 'vscode', label: 'VS Code', desktop: true },
+    { id: 'intellij', label: 'IntelliJ IDEA', desktop: true },
+  ];
+
+  /** Also flushes the installed-agents and installed-IDEs requests with everything, since every
+   *  test but the ones exercising those pickers directly (below) don't care about their value. */
   function flushStatus(fixture: ReturnType<typeof create>, enabled: boolean): void {
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled });
     httpMock.expectOne('/api/agents/installed').flush({ installed: ALL_AGENTS });
+    httpMock.expectOne('/api/ides/installed').flush({ installed: ALL_IDES });
     fixture.detectChanges();
   }
 
   function flushInstalledAgents(fixture: ReturnType<typeof create>, ids: string[]): void {
     const installed = ALL_AGENTS.filter((agent) => ids.includes(agent.id));
     httpMock.expectOne('/api/agents/installed').flush({ installed });
+    httpMock.expectOne('/api/ides/installed').flush({ installed: ALL_IDES });
     fixture.detectChanges();
   }
+
+  /** Flushes the 2FA status and installed-agents requests too, so only the IDE list varies (#782). */
+  function flushInstalledIdes(fixture: ReturnType<typeof create>, ids: string[]): void {
+    httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
+    httpMock.expectOne('/api/agents/installed').flush({ installed: ALL_AGENTS });
+    httpMock.expectOne('/api/ides/installed').flush({ installed: ALL_IDES.filter((ide) => ids.includes(ide.id)) });
+    fixture.detectChanges();
+  }
+
+  /** Puts the page at `hostname` as far as the IDE store is concerned (#497's spy pattern). */
+  function atHost(hostname: string): void {
+    spyOn<any>(TestBed.inject(DefaultIdeStore), 'currentHostname').and.returnValue(hostname);
+  }
+
+  const ideOptions = (fixture: ReturnType<typeof create>) =>
+    Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.ide-option'));
 
   it('defaults to claude and lets the choice be switched to codex and back', () => {
     const fixture = create();
@@ -112,9 +140,55 @@ describe('SettingsDialogComponent', () => {
 
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
     httpMock.expectOne('/api/agents/installed').flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
+    httpMock.expectOne('/api/ides/installed').flush({ installed: ALL_IDES });
     fixture.detectChanges();
 
     expect(compiled.querySelectorAll('.agent-option').length).toBe(0);
+  });
+
+  it('on localhost, lists every installed IDE with code-server chosen by default, and lets a desktop IDE be picked (#782)', () => {
+    atHost('localhost');
+    const fixture = create();
+    flushInstalledIdes(fixture, ['code-server', 'vscode', 'intellij']);
+
+    expect(ideOptions(fixture).map((b) => b.textContent?.trim())).toEqual(['code-server', 'VS Code', 'IntelliJ IDEA']);
+    expect(ideOptions(fixture).map((b) => b.classList.contains('chosen'))).toEqual([true, false, false]);
+
+    ideOptions(fixture)[1].click();
+    fixture.detectChanges();
+
+    expect(ideOptions(fixture).map((b) => b.classList.contains('chosen'))).toEqual([false, true, false]);
+    expect(localStorage.getItem(DEFAULT_IDE_STORAGE_KEY)).toBe('vscode');
+  });
+
+  it('away from localhost, offers no desktop IDE -- and with code-server alone there is no IDE section at all (#782)', () => {
+    atHost('example.com');
+    localStorage.setItem(DEFAULT_IDE_STORAGE_KEY, 'vscode');
+    const fixture = create();
+    flushInstalledIdes(fixture, ['code-server', 'vscode', 'intellij']);
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    expect(ideOptions(fixture).length).toBe(0);
+    expect(compiled.querySelector('.ide-toggle')).toBeNull();
+    expect(Array.from(compiled.querySelectorAll('h2')).map((h) => h.textContent?.trim())).not.toContain('IDE');
+  });
+
+  it('on localhost with only code-server installed, renders no IDE section either (#782)', () => {
+    atHost('localhost');
+    const fixture = create();
+    flushInstalledIdes(fixture, ['code-server']);
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.ide-toggle')).toBeNull();
+  });
+
+  it('marks code-server chosen when the saved IDE is no longer installed (#782)', () => {
+    atHost('localhost');
+    localStorage.setItem(DEFAULT_IDE_STORAGE_KEY, 'vscode');
+    const fixture = create();
+    flushInstalledIdes(fixture, ['code-server', 'intellij']);
+
+    expect(ideOptions(fixture).map((b) => b.textContent?.trim())).toEqual(['code-server', 'IntelliJ IDEA']);
+    expect(ideOptions(fixture).map((b) => b.classList.contains('chosen'))).toEqual([true, false]);
   });
 
   it('renders a title bar and loads the 2FA status', () => {

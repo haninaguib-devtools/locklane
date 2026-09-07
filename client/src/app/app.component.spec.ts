@@ -981,7 +981,9 @@ describe('AppComponent', () => {
 
     // The installed-agents list was already fetched once, by the project summary
     // that openedApp() mounted first (#695) -- refreshInstalled() here is a no-op.
+    // The installed-IDEs list (#782) is fetched by the dialog itself, first time here.
     httpMock.expectOne('/api/account/2fa/status').flush({ enabled: false });
+    httpMock.expectOne('/api/ides/installed').flush({ installed: [] });
     fixture.detectChanges();
 
     compiled.querySelector<HTMLButtonElement>('app-settings-dialog .close')!.click();
