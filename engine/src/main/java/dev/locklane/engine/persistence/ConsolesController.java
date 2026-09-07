@@ -1,10 +1,17 @@
 package dev.locklane.engine.persistence;
 
 import dev.locklane.engine.codeserver.CodeServerService;
+import dev.locklane.engine.ide.DesktopIdeLauncher;
+import dev.locklane.engine.ide.InstalledIde;
+import dev.locklane.engine.ide.InstalledIdesStore;
+import dev.locklane.engine.security.LoopbackRequests;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,12 +36,17 @@ public class ConsolesController {
     private final IssueWorktreeService service;
     private final FileManagerLauncher fileManagerLauncher;
     private final CodeServerService codeServerService;
+    private final InstalledIdesStore installedIdesStore;
+    private final DesktopIdeLauncher desktopIdeLauncher;
 
     public ConsolesController(IssueWorktreeService service, FileManagerLauncher fileManagerLauncher,
-            CodeServerService codeServerService) {
+            CodeServerService codeServerService, InstalledIdesStore installedIdesStore,
+            DesktopIdeLauncher desktopIdeLauncher) {
         this.service = service;
         this.fileManagerLauncher = fileManagerLauncher;
         this.codeServerService = codeServerService;
+        this.installedIdesStore = installedIdesStore;
+        this.desktopIdeLauncher = desktopIdeLauncher;
     }
 
     @GetMapping
@@ -58,11 +70,25 @@ public class ConsolesController {
     }
 
     /**
-     * Starts (or reuses) a code-server (#627) process for {@code id}'s worktree and
-     * returns the URL to open it at — same visibility rule as {@link #consoles}, so
-     * this can't be used to open an editor on a console outside the caller's own
-     * project. 404 for a console id the caller may not see, or one with no known
-     * working directory.
+     * Opens {@code id}'s worktree in an IDE — same visibility rule as {@link #consoles},
+     * so this can't be used to open an editor on a console outside the caller's own
+     * project: 404 for a console id the caller may not see, whatever IDE is asked for,
+     * or one with no known working directory.
+     *
+     * <p>Which IDE is the optional body's {@code ide} (#781), an id from
+     * {@code GET /api/ides/installed}. No body, or {@code "code-server"}, is the
+     * bundled browser IDE — everything from here to the end of this comment describes
+     * that path, unchanged. A desktop id (VS Code, IntelliJ IDEA) instead launches that
+     * editor on the host's own desktop via {@link DesktopIdeLauncher} and answers
+     * {@code 200 {"url": null}}: nothing for the browser to open. That is honoured only
+     * for a request straight from a browser on the engine's own machine
+     * ({@link LoopbackRequests#isDirectLoopback}) — a remote account, or one relayed
+     * by a reverse proxy on this machine, gets 403 and nothing is launched, since
+     * locklane is multi-user (ADR-105) and no one else may pop windows on the host's
+     * desktop. An id that is unknown, not installed here, or not a desktop IDE is a 400.
+     *
+     * <p>code-server: starts (or reuses) a code-server (#627) process for the worktree
+     * and returns the URL to open it at.
      *
      * <p>The URL is the engine's own proxied path for that console (#655),
      * {@code /api/projects/{projectId}/consoles/{id}/ide/}, relative so it resolves
@@ -77,9 +103,14 @@ public class ConsolesController {
      * on.
      */
     @PostMapping("/{id}/open-ide")
-    public ResponseEntity<OpenIdeResponse> openIde(@PathVariable long projectId, @PathVariable String id, Principal principal) {
+    public ResponseEntity<OpenIdeResponse> openIde(@PathVariable long projectId, @PathVariable String id,
+            @RequestBody(required = false) OpenIdeRequest body, HttpServletRequest request, Principal principal) {
         if (!service.allWorktreeIds(projectId, principal.getName()).contains(id)) {
             return ResponseEntity.notFound().build();
+        }
+        String ideId = body == null || body.ide() == null ? InstalledIdesStore.CODE_SERVER_ID : body.ide();
+        if (!ideId.equals(InstalledIdesStore.CODE_SERVER_ID)) {
+            return openDesktopIde(id, ideId, request);
         }
         Optional<URI> upstream = codeServerService.start(id);
         if (upstream.isEmpty()) {
@@ -88,6 +119,19 @@ public class ConsolesController {
         Path workingDirectory = codeServerService.workingDirectory(id)
                 .orElseThrow(() -> new IllegalStateException("code-server for " + id + " started with no tracked working directory"));
         return ResponseEntity.ok(new OpenIdeResponse(ideUrl(projectId, id, workingDirectory)));
+    }
+
+    private ResponseEntity<OpenIdeResponse> openDesktopIde(String id, String ideId, HttpServletRequest request) {
+        Optional<InstalledIde> ide = installedIdesStore.find(ideId).filter(installed -> installed.info().desktop());
+        if (ide.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (!LoopbackRequests.isDirectLoopback(request)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return desktopIdeLauncher.launch(id, ide.get())
+                ? ResponseEntity.ok(new OpenIdeResponse(null))
+                : ResponseEntity.notFound().build();
     }
 
     /**
@@ -100,5 +144,9 @@ public class ConsolesController {
         return "/api/projects/" + projectId + "/consoles/" + id + "/ide/?folder=" + encodedFolder;
     }
 
+    /** {@link #openIde}'s optional body (#781): {@code ide} an id from {@code GET /api/ides/installed}, {@code null} for code-server. */
+    public record OpenIdeRequest(String ide) {}
+
+    /** {@code url} is the proxied code-server path, or {@code null} after a desktop launch (#781). */
     public record OpenIdeResponse(String url) {}
 }
