@@ -22,26 +22,47 @@ inside the implementing session is acceptable only for a change so small that th
 costs more than the read — never for a protected surface. The reviewer is **read-only**:
 it posts findings, it fixes nothing.
 
+Which model a spawned subagent runs under is resolved in step 1, from AGENTS.md's
+§Reviewer model slot or a model named directly on the invocation; how that string turns
+into an actual spawn is this harness's own resolution, documented for the active
+harness in `docs/adapters/MODEL.md` — never hardcoded here.
+
 ## Procedure
 
-The argument is the task id (`/t-review 154`); the steps below name `<pr>`. **Resolve
-it first** with `forge:pr-find-by-task <id>`, matching head branch `wip/<id>-*` across
+The argument is the task id (`/t-review 154`); the steps below name `<pr>`. It may also
+name a reviewer model directly, after the id (e.g. `/t-review 154 use fable as the
+reviewer`) — step 1 below always honors that over any other source. **Resolve `<pr>`
+first** with `forge:pr-find-by-task <id>`, matching head branch `wip/<id>-*` across
 all states. Exactly one → that is `<pr>`. None → nothing to review, say so and name
 `/t-work <id>`. More than one → stop, report every candidate — a cold session starts
 holding only the id, so this matters more here than anywhere else.
 
-1. **Obtain isolation before reading anything** — deciding this first is what keeps the
-   isolation line honest; written at the end, it describes whatever happened to happen.
+1. **Resolve the reviewer's model, then obtain isolation, before reading anything** —
+   deciding both first is what keeps the isolation line honest; written at the end, it
+   describes whatever happened to happen. Resolve the model with this precedence, most
+   specific first: a model the invocation names explicitly; otherwise the default named
+   in AGENTS.md's §Reviewer model slot, when it names one; otherwise the invoking
+   session's own model — no override at all. How that resolved string turns into an
+   actual subagent spawn is the active harness's own resolution — `docs/adapters/
+   MODEL.md`'s guidance for the current harness, never a model name or provider
+   hardcoded here.
+
+   **An invocation naming a model explicitly always spawns a real subagent under that
+   model** — record `isolation: subagent` and skip the three branches below entirely,
+   even for a change small enough that isolation would otherwise be skipped: naming a
+   model is asking for it to actually review, not to be silently ignored on a path that
+   never spawns anything. Otherwise, isolation is exactly as before:
    **This session did not implement the task** (fresh session, or the human invoked
    `/t-review` cold) → already isolated, record `isolation: fresh session`. **This
-   session implemented the task** → spawn a read-only subagent to perform the whole
-   review and report its findings back; everything it needs is the task id, the
-   tracker, the forge, and the diff — record `isolation: subagent`. **A subagent is
-   unavailable** → determine protection first (`forge:pr-files` through `bash
-   .t-workflow/scripts/protected-paths.sh --stdin`); on a **protected surface, stop** and ask for a
-   fresh session — reviewing here anyway produces a verdict `/t-ship` will reject.
-   Otherwise continue and record `isolation: same session (<why the change was small
-   enough>)`.
+   session implemented the task** → spawn a read-only subagent — under AGENTS.md's
+   named default when one is set, otherwise under the invoking session's own model — to
+   perform the whole review and report its findings back; everything it needs is the
+   task id, the tracker, the forge, and the diff — record `isolation: subagent`. **A
+   subagent is unavailable** → determine protection first (`forge:pr-files` through
+   `bash .t-workflow/scripts/protected-paths.sh --stdin`); on a **protected surface,
+   stop** and ask for a fresh session — reviewing here anyway produces a verdict
+   `/t-ship` will reject. Otherwise continue and record `isolation: same session (<why
+   the change was small enough>)`.
 2. Read `AGENTS.md` and `CONSTITUTION.md` — unless this review's `isolation:` (step 1
    above) is `same session` on a `/t-drive` run whose Phase 0 already read them for the
    whole run, in which case that read already covers this one. **`isolation: fresh
@@ -69,6 +90,18 @@ holding only the id, so this matters more here than anywhere else.
    (behavior, content, or tests gone without the issue authorizing it); **promotion**
    (anything durable settled in the PR thread is in the record, an ADR, or the docs —
    threads are not storage).
+
+   **Verification honesty** (`docs/architecture/verification.md`), when the record
+   carries any `## Verification` entry: a `verified`/`risk-accepted` entry names its
+   evidence and tested revision — one claiming an outcome with neither is a finding, at
+   blocker or high depending on whether it is `required`. A `risk-accepted` entry
+   worded, anywhere in the record or the diff, as if it were `verified` or a passing
+   check is a blocker finding by construction — this is the exact conflation
+   `CONSTITUTION.md` §1.5 and ADR-010 §D4 forbid. A commit since an entry's recorded
+   revision that plainly could affect what it checked, left `verified`/`risk-accepted`
+   with no Deviations note explaining why it wasn't invalidated (`/t-work` Phase 3 step
+   2), is a finding too — the honest outcome may still be "unaffected," but it must be
+   said, not merely assumed.
 5. For a **document deliverable** (design doc, ADR, or any other document-shaped
    protected surface `CONSTITUTION.md` §3 names), additionally review for
    **consistency** (no contradiction with the constitution, accepted ADRs, or other
@@ -142,16 +175,19 @@ holding only the id, so this matters more here than anywhere else.
    deserves its own issue — including anything noticed outside this diff — is named in
    the review body as a *recommendation* for the human to open or ask for; opening it
    here would let a reviewer file work around `/t-open`.
-   **A pending human check does not make a review `not-ready`.** A plan's
-   `human_checks` are judgments deliberately assigned to a person because no command
-   settles them, so a reviewer can never discharge one. Instead **restate them in a
-   section headed `## Pending human checks`, immediately above the verdict line**, each
-   naming what the human must judge and where to look — heading followed by `none` when
-   the plan has none (always present: an omitted section cannot be told apart from a
-   forgotten one). Restate on every pass; a check stays listed until the human says it
-   is settled. This is **the source `/t-ship` reads** before the merge gate, so state
-   checks plainly enough to act on without re-reading the diff — `/t-ship` treats a
-   missing section as unknown, never as `none`.
+   **A pending human check does not make a review `not-ready`, and neither does an
+   unresolved `## Verification` entry.** A plan's `human_checks` are judgments
+   deliberately assigned to a person because no command settles them, so a reviewer can
+   never discharge one; a required verification entry waits on a named role's real
+   evidence, which this review cannot supply either — `/t-ship`'s own gate is what
+   blocks on it (`check-verification-gate.sh`), never this verdict. Instead **restate
+   them in a section headed `## Pending human checks`, immediately above the verdict
+   line**, each naming what the human must judge and where to look — heading followed
+   by `none` when the plan has none (always present: an omitted section cannot be told
+   apart from a forgotten one). Restate on every pass; a check stays listed until the
+   human says it is settled. This is **the source `/t-ship` reads** before the merge
+   gate, so state checks plainly enough to act on without re-reading the diff —
+   `/t-ship` treats a missing section as unknown, never as `none`.
    **Do not hunt.** When the change does what the issue asked, stays in scope, removes
    nothing unauthorized, and the checks pass, say `readiness: ready` plainly — a review
    that finds nothing blocking is normal, not evidence of a shallow one. Report

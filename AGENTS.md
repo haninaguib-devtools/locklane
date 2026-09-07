@@ -28,10 +28,11 @@ only). Plain `git` is never abstracted.
 | `/t-plan` | Optional; required before changing a protected surface. Pins scope, risks, and validation onto the issue. |
 | `/t-work` | Branch, record, implement, check, draft PR. One invocation, in the current checkout. |
 | `/t-review` | Cold-context review; findings posted on the PR. Required before shipping a protected surface. |
-| `/t-drive` | Optional. Drives an initiative or a single task. An initiative's children walk to completion on an integration branch — plan, implement, and independently review each — merging what review authorizes and excluding what fails a bounded retry; stops once, for the human's confirmation on a single PR to `main` (ADR-004). A single ordinary task runs its own pipeline — plan and review only where the gates require them — chained into `/t-ship`'s merge gate, whose pause is the same single stop (ADR-006). |
+| `/t-drive` | Optional. Drives an initiative or a single task. An initiative's children walk to completion on an integration branch — plan, implement, and independently review each — merging what review authorizes and excluding what fails a bounded retry; stops once, for the human's confirmation on a single PR to `main` (ADR-004). A single ordinary task runs its own pipeline — plan and review only where the gates require them — chained into `/t-ship`'s merge gate, whose pause is the same single stop (ADR-006). Either way, a task with unresolved required human verification pauses cleanly after review instead of shipping or merging — the default for a task that declares such a check, never a mode chosen by hand — and a later invocation resumes without replaying finished stages (ADR-010, `docs/workflow.md` §5). |
 | `/t-ship` | Human-confirmed squash merge. Every path to `main` is a human-confirmed PR. |
 | `/t-cancel` | Terminal exit: the reason recorded on the issue, every neighbour decided, then the PR closed and its branch deleted. |
 | `/t-update` | For a repo generated from this template. Syncs its template-owned files to a pinned release, preserving local slots and applying pending migrations, as one ordinary task. |
+| `/t-config` | Guided editor for `AGENTS.md`'s §Reviewer model slot — asks which model `/t-review`'s subagent reviewer should default to, or to clear the override, and writes only that. |
 | `/t-status` | Read-only pipeline overview. |
 
 Skills outside the `t-*` namespace are the consumer's own; each gets a row in its own
@@ -41,6 +42,18 @@ table below.
 | Skill | Stage |
 |---|---|
 | `/l-release` | Cut a release with one command — gates on the version (`scripts/release.sh gate`), opens one task carrying the version's `CHANGELOG.md` section and the `<revision>` bump to the next snapshot, drives it to a single merge-and-dispatch confirmation, then dispatches and verifies the release (`scripts/release.sh dispatch`). One human stop (ADR-109, superseding ADR-106 D1/D2). |
+<!-- /local -->
+
+## Reviewer model
+
+`/t-review` spawns a read-only subagent to review a task independently whenever the
+invoking session implemented that task itself. Which model that subagent runs under is
+resolved with this precedence, most specific first: a model a human names explicitly on
+that invocation; otherwise this repo's own default below, if one is set; otherwise the
+invoking session's own model, exactly as before this section existed.
+
+<!-- local -->
+Default reviewer model: (none — reviews inherit the invoking session's model)
 <!-- /local -->
 
 ## Conventions

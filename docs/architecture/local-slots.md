@@ -2,14 +2,16 @@
 
 **Status:** binding convention.
 
-Eight places across the pipeline's own files are per-repo **by design**, not
+Nine places across the pipeline's own files are per-repo **by design**, not
 template-owned: `CONSTITUTION.md` §4 (stack & architecture), `CONSTITUTION.md` §3's own
 protected-path bullet list (a consumer's own protected-path bullets), `AGENTS.md`
 §Checks item 1 (the build/test check command), `AGENTS.md` §The pipeline's slot after
-the `t-*` table (consumer-local skill rows), two spots in `.github/workflows/ci.yml`'s
-`checks` job — its `timeout-minutes` value, and an extension point at the end of its
-`steps:` list — `.github/workflows/review-gate.yml`'s `cold-review` job
-`timeout-minutes` value, and the end of `.gitignore` (a consumer's own ignore entries).
+the `t-*` table (consumer-local skill rows), `AGENTS.md` §Reviewer model (the default
+model `/t-review`'s subagent reviewer runs under), two spots in
+`.github/workflows/ci.yml`'s `checks` job — its `timeout-minutes` value, and an
+extension point at the end of its `steps:` list — `.github/workflows/review-gate.yml`'s
+`cold-review` job `timeout-minutes` value, and the end of `.gitignore` (a consumer's own
+ignore entries).
 `CONSTITUTION.md` §3's slot has an executable twin of its own, inside
 `.t-workflow/scripts/protected-paths.sh`'s `patterns` array — the two slots are one rule
 in two forms, the same way the fixed lists around them are (`CONSTITUTION.md` §3), and
@@ -44,15 +46,17 @@ today: `(reserved: stack and architecture constraints — …)` in `CONSTITUTION
 `(reserved: this consumer's own protected-path bullets — …)` in `CONSTITUTION.md` §3, an
 empty region (comments only) in `protected-paths.sh`'s `patterns` array, `(none yet — no
 stack exists.)` in `AGENTS.md` §Checks item 1, `(reserved: consumer-local
-skills — …)` in `AGENTS.md` §The pipeline's skill-row slot, the template's own default
+skills — …)` in `AGENTS.md` §The pipeline's skill-row slot, `(none — reviews inherit the
+invoking session's model)` in `AGENTS.md` §Reviewer model, the template's own default
 `timeout-minutes: 10` in `ci.yml`, an empty region at the end of `ci.yml`'s `steps:`
 list, the template's own default `timeout-minutes: 10` in `review-gate.yml`, and an
 empty region at the end of `.gitignore`. A consumer repo replaces each
 placeholder with its own real content once it adopts — its own stack rule, its own
 protected-path bullets and patterns, its own build/test command, its own table of local
-skill rows, its own CI timeout, its own trailing build/manifest-check steps
-(`docs/architecture/manifest.md` §The CI lock), its own review-gate timeout, its own
-ignore entries — and a later template sync leaves that content alone.
+skill rows, its own default reviewer model, its own CI timeout, its own trailing
+build/manifest-check steps (`docs/architecture/manifest.md` §The CI lock), its own
+review-gate timeout, its own ignore entries — and a later template sync leaves that
+content alone.
 
 **The skill-row slot's own shape**: unlike the other slots, this one is meant to hold a
 small Markdown *table*, not prose — the consumer's own `l-`-prefixed (or otherwise

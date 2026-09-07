@@ -26,6 +26,10 @@ by ADRs as decisions are ratified.
    children carries more than one, one line per included child (ADR-004).
 5. Guardrails are never weakened to make work pass. A failing check is fixed by fixing
    the work. Loosening any gate is a protected change (workflow §11.3) with an ADR.
+6. An external system may originate or observe work — proposing it, or reflecting its
+   progress elsewhere — but never starts implementation, changes scope, completes review,
+   or merges; only a human (or an agent the human explicitly directed) does those things
+   (ADR-010).
 
 ## 2. Decisions
 

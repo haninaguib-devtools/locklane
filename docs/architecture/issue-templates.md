@@ -81,6 +81,8 @@ Fields, in order:
    Description: `One line: the paths or area this may touch.`
 4. **Non-goals** — `textarea`, id `non-goals`, optional.
    Description: `Explicit exclusions. Each deferred item gets its own issue — open it now.`
+5. **Origin** — `textarea`, id `origin`, optional (ADR-010 §D1, `docs/architecture/external-origin.md`).
+   Description: `Optional. Only if this work was proposed or discussed in an external system with a durable URL — never required, never fetched: system: <name> / url: <durable URL>. Leave blank if this task is a child of an initiative — it refers to the initiative's own Origin instead.`
 
 No Part-of or Blocked-by field — set both afterward as native relations in the
 tracker's sidebar (see above).
@@ -108,6 +110,8 @@ Fields, in order:
    hand-opened initiative), not tracked in this field; `subIssuesSummary` is the
    progress source, matching t-open (ADR-003).
    Description: `Notes only — children are linked as native sub-issues, not tracked here. One per line, e.g. "#151 ..." — list only children that are already clear. If the decomposition is unknown, the only child is a design task whose merged output determines the rest.`
+3. **Origin** — `textarea`, id `origin`, optional (ADR-010 §D1/§D5, `docs/architecture/external-origin.md`).
+   Description: `Optional. Only if this initiative was proposed or discussed in an external system with a durable URL — never required, never fetched: system: <name> / url: <durable URL>. Its children refer to this Origin instead of each carrying their own.`
 
 No Scope or Blocked-by: tracking issues have neither, matching t-open. An
 initiative opened by hand with unclear decomposition still needs its design child

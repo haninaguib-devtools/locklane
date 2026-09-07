@@ -81,6 +81,31 @@ has already left the pipeline, say which and stop.
    "nothing ran" and misreport it as green. CI-green moves into the Procedure, evaluated
    only after step 1 marks the PR ready and actually starts it — see Procedure step 2.
 
+7. **Verification** (`docs/architecture/verification.md`, issue #144). Read the task
+   record's `## Verification` section — for a driven initiative's aggregate PR, every
+   included child's own record. `none`, or no such section on a record from before this
+   convention existed → continue, evidence value `none`. Otherwise, for each entry:
+
+   - `required: false` → never blocks; carry it for information only.
+   - `state: pending` or `rejected` → blocking as-is.
+   - `state: verified` or `risk-accepted` → compute `stale`: `false` when the entry's
+     recorded revision equals this PR's head sha (`forge:pr-view <pr>`); otherwise
+     `true` unless the entry declares `scope:` and `git diff --name-only <revision>
+     <head-sha>` touches none of those globs (the same glob-match style
+     `protected-paths.sh` uses) — no `scope:` at all means stale by default whenever
+     the revision differs (the fail-toward-absent default `docs/architecture/
+     verification.md` documents; an unreachable/unparseable revision is stale too,
+     never quietly treated as current).
+
+   Assemble one `{"role":,"required":,"state":,"stale":}` object per entry into a file
+   and run `.t-workflow/scripts/check-verification-gate.sh <file>`. Exit 0 → continue,
+   carrying every `risk-accepted` entry (by name) into the confirmation gate below —
+   accepting a risk is visible to the confirming human, never silently folded into "no
+   pending checks." Exit 1 → stop, name `/t-work <id>` to resolve the named entries
+   (fresh evidence at the new head sha, or an explicit risk-accept) — never merge past
+   an unresolved or stale required entry. Exit 2 → stop, the record's `## Verification`
+   section could not be read into this shape; say why rather than skipping the gate.
+
 ## Procedure
 
 1. `forge:pr-ready <pr>` — the draft becomes ready. This is also what starts CI (#113):
@@ -138,9 +163,10 @@ has already left the pipeline, say which and stop.
    what makes the merge this gate authorizes actually possible.
 4. **Stop and ask the human to confirm the merge**, showing the PR URL
    (`forge:pr-view <pr>`) and a one-paragraph what-and-why in plain prose per AGENTS.md
-   §Communication, then **the pending human checks from precondition 6** — the last
-   moment they can be raised. If approval rules are configured on the repo, they must
-   also approve on the forge (`forge:pr-approval`). Do not merge on silence.
+   §Communication, then **the pending human checks from precondition 6, and any
+   `risk-accepted` verification entry from precondition 7** — the last moment either
+   can be raised. If approval rules are configured on the repo, they must also approve
+   on the forge (`forge:pr-approval`). Do not merge on silence.
 
    End the message with the gate, per `docs/architecture/confirmation-gates.md`: a plain
    question (or the environment's native question mechanism), last thing in the
@@ -148,9 +174,10 @@ has already left the pipeline, say which and stop.
 
    - evidence: review `<verdict, or 'no review ran'>` · CI `<state, and which checks — or
      'no CI configured'>` · diff `<files/size summary>` · human checks `<the pending
-     checks, or none>` · branch protection `<'no change needed', or 'will update
-     required checks from <old list> to <new list> — required for this merge to
-     succeed', from step 3>`
+     checks, or none>` · verification `<none, or each entry's role and state — every
+     risk-accepted entry named explicitly, never folded into "resolved">` · branch
+     protection `<'no change needed', or 'will update required checks from <old list>
+     to <new list> — required for this merge to succeed', from step 3>`
    - question: "Merge PR #<pr> into <trunk>?"
    - options: `confirm` (human checks judged) / `abort` (do not merge)
 
