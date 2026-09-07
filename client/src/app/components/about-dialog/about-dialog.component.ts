@@ -15,8 +15,12 @@ import { RunningVersionService } from '../../services/running-version.service';
   styleUrl: './about-dialog.component.css',
 })
 export class AboutDialogComponent {
+  private readonly runningVersion = inject(RunningVersionService);
+
   // Null until the events channel's first greeting delivers it.
-  readonly version = inject(RunningVersionService).version;
+  readonly version = this.runningVersion.version;
+  // Null for a -SNAPSHOT build, or an engine too old to send it (#799).
+  readonly releaseUrl = this.runningVersion.releaseUrl;
   @Output() closed = new EventEmitter<void>();
 
   @HostListener('document:keydown.escape')

@@ -17,6 +17,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.time.Clock;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -45,6 +46,14 @@ import java.util.function.Supplier;
  * learn the engine already knows about a newer release. The replayed message is built
  * from the same {@link NewerRelease} the broadcast was (#466) — version and Releases-page
  * url — so a late joiner sees the identical banner, link included.
+ *
+ * <p>The greeting also carries {@code releaseUrl} (#799), the Releases-page link for the
+ * version this build <em>is</em>, not a newer one — built the same way {@code
+ * ReleaseUpdateChecker} builds a release's own url, but without a network round-trip:
+ * every permanent release's tag is {@code v<release>} by this project's own tagging
+ * convention (see {@code scripts/release.sh}), so the url is assembled directly from
+ * {@code locklane.release-check.repository} and the running version. Omitted for a
+ * {@code -SNAPSHOT} build, which was never tagged and has no release page to link to.
  *
  * <p>A connection is also caught up on which agents are waiting for the user (#790):
  * {@code consoleAttention} is otherwise push-only, broadcast by {@link SessionRegistry}
@@ -103,6 +112,7 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
     private final EventBroadcaster broadcaster;
     private final String versionStamp;
     private final String runningVersion;
+    private final Optional<String> releaseUrl;
     private final Supplier<Optional<NewerRelease>> newerRelease;
     // #790: the ids of the live sessions waiting for attention, read fresh on every
     // connect — a supplier for the same reason newerRelease is: the set changes
@@ -113,37 +123,57 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
 
     @Autowired
     public EventsWebSocketHandler(EventBroadcaster broadcaster, BuildProperties buildProperties,
+            @Value("${locklane.release-check.repository}") String repository,
             ReleaseUpdateChecker releaseUpdateChecker, SessionRegistry sessionRegistry, Clock clock,
             @Value("${locklane.events.heartbeat-interval-ms}") long heartbeatIntervalMs) {
-        this(broadcaster, buildProperties.getTime().toString(), buildProperties.getVersion(),
+        this(broadcaster, buildProperties.getTime().toString(), buildProperties.getVersion(), repository,
                 releaseUpdateChecker::newerReleaseAvailable, sessionRegistry::waitingSessionIds, clock,
                 heartbeatIntervalMs);
     }
 
     /**
-     * Test-only: a fixed stamp/version and a fake release supplier, with no session
-     * waiting, without needing a real {@link BuildProperties}, {@link
+     * Test-only: a fixed stamp/version/repository and a fake release supplier, with no
+     * session waiting, without needing a real {@link BuildProperties}, {@link
      * ReleaseUpdateChecker} or {@link SessionRegistry} — mirrors
      * {@link TerminalWebSocketHandler}'s own test-only constructor.
      */
     EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
-            Supplier<Optional<NewerRelease>> newerRelease) {
-        this(broadcaster, versionStamp, runningVersion, newerRelease, List::of);
+            String repository, Supplier<Optional<NewerRelease>> newerRelease) {
+        this(broadcaster, versionStamp, runningVersion, repository, newerRelease, List::of, Clock.systemUTC(),
+                20_000L);
     }
 
     /** Test-only: as above, with a fake supplier of the waiting session ids (#790). */
     EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
             Supplier<Optional<NewerRelease>> newerRelease, Supplier<Collection<String>> waitingSessions) {
-        this(broadcaster, versionStamp, runningVersion, newerRelease, waitingSessions, Clock.systemUTC(), 20_000L);
+        this(broadcaster, versionStamp, runningVersion, "o/r", newerRelease, waitingSessions, Clock.systemUTC(),
+                20_000L);
+    }
+
+    /** Test-only: as the five-arg constructor above, with a controllable {@link Clock} (#762). */
+    EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
+            String repository, Supplier<Optional<NewerRelease>> newerRelease, Clock clock, long heartbeatIntervalMs) {
+        this(broadcaster, versionStamp, runningVersion, repository, newerRelease, List::of, clock,
+                heartbeatIntervalMs);
+    }
+
+    /** Test-only: as the five-arg waiting-sessions constructor above, with a controllable {@link Clock}. */
+    EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
+            Supplier<Optional<NewerRelease>> newerRelease, Supplier<Collection<String>> waitingSessions,
+            Clock clock, long heartbeatIntervalMs) {
+        this(broadcaster, versionStamp, runningVersion, "o/r", newerRelease, waitingSessions, clock,
+                heartbeatIntervalMs);
     }
 
     /** Package-visible so a heartbeat test can drive this with a controllable {@link Clock}. */
     EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
-            Supplier<Optional<NewerRelease>> newerRelease, Supplier<Collection<String>> waitingSessions,
-            Clock clock, long heartbeatIntervalMs) {
+            String repository, Supplier<Optional<NewerRelease>> newerRelease,
+            Supplier<Collection<String>> waitingSessions, Clock clock, long heartbeatIntervalMs) {
         this.broadcaster = broadcaster;
         this.versionStamp = versionStamp;
         this.runningVersion = runningVersion;
+        this.releaseUrl = runningVersion.endsWith("-SNAPSHOT") ? Optional.empty()
+                : Optional.of("https://github.com/" + repository + "/releases/tag/v" + runningVersion);
         this.newerRelease = newerRelease;
         this.waitingSessions = waitingSessions;
         this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
@@ -153,9 +183,12 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession connection) {
         WebSocketSession session = TerminalHeartbeat.serialized(connection);
-        broadcaster.sendTo(session, "engineVersion",
-                Map.of("version", versionStamp, "release", runningVersion,
-                        "heartbeatIntervalMs", heartbeatIntervalMs));
+        Map<String, Object> greeting = new LinkedHashMap<>();
+        greeting.put("version", versionStamp);
+        greeting.put("release", runningVersion);
+        greeting.put("heartbeatIntervalMs", heartbeatIntervalMs);
+        releaseUrl.ifPresent(url -> greeting.put("releaseUrl", url));
+        broadcaster.sendTo(session, "engineVersion", greeting);
         newerRelease.get().ifPresent(release ->
                 broadcaster.sendTo(session, "releaseAvailable",
                         Map.of("version", release.version(), "url", release.url())));
