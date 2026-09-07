@@ -1390,6 +1390,40 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([1, 2]);
   });
 
+  it('re-narrows as soon as the focusedProjectId input changes, without waiting for refresh() (#803)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const ids = () => fixture.componentInstance.projectSections.map((s) => s.project.id);
+    expect(ids()).toEqual([1, 2]);
+
+    // The window becomes focused on project 2: only its section stays, and no other
+    // project's tree is asked for.
+    fixture.componentRef.setInput('focusedProjectId', 2);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    fixture.detectChanges();
+    expect(ids()).toEqual([2]);
+    expect(compiled.querySelectorAll('.project-section')).toHaveSize(1);
+    httpMock.expectNone('/api/projects/1/issues/tree');
+    flushTree(2, tree());
+    fixture.detectChanges();
+    expect(compiled.querySelectorAll('.project-section[data-project-id="2"] a.row')).toHaveSize(3);
+
+    // And back to an ordinary window: every project is listed again.
+    fixture.componentRef.setInput('focusedProjectId', null);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    fixture.detectChanges();
+    expect(ids()).toEqual([1, 2]);
+    expect(compiled.querySelectorAll('.project-section')).toHaveSize(2);
+    flushTree(1, tree());
+    flushTree(2, tree());
+    expect(fixture.componentInstance.refreshing).toBeFalse();
+  });
+
   it('a focused sidenav ignores projectCreated, issuesChanged, and projectStatus for any other project (#286, #760)', () => {
     const fixture = TestBed.createComponent(SidenavComponent);
     fixture.componentInstance.focusedProjectId = 1;

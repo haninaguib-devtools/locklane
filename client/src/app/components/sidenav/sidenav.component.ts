@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, EventEmitter, HostListener, OnDestroy, OnInit, Output, Input, inject } from '@angular/core';
+import { Component, EventEmitter, HostListener, OnChanges, OnDestroy, OnInit, Output, Input, SimpleChanges, inject } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { FormsModule } from '@angular/forms';
@@ -103,7 +103,7 @@ interface PinnedGroup {
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })
-export class SidenavComponent implements OnInit, OnDestroy {
+export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
   private readonly pinStore = inject(PinStore);
@@ -261,8 +261,23 @@ export class SidenavComponent implements OnInit, OnDestroy {
     );
   }
 
+  /** Whether ngOnInit's own first load has run (#803) -- see ngOnChanges. */
+  private initialized = false;
+
   ngOnInit(): void {
+    this.initialized = true;
     this.load(() => {});
+  }
+  // A focus change after the first load (#803) -- the URL gaining or losing `focus=1`
+  // while this sidenav is already showing -- re-narrows the list right away, the same
+  // reload an events-channel reconnect runs, rather than leaving the old list on
+  // screen until the next refresh() happens to rebuild it. The value bound before
+  // ngOnInit is read by its own load; `initialized` (not `firstChange`, which only
+  // says whether the input system saw an earlier value) is what tells the two apart.
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['focusedProjectId'] !== undefined && this.initialized) {
+      this.load(() => {});
+    }
   }
   ngOnDestroy(): void {
     this.clearTick();
