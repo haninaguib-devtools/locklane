@@ -10,7 +10,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -60,9 +62,20 @@ public class CodeServerService {
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .start();
 
+    /**
+     * How long {@link #start} waits for code-server to accept connections on its
+     * allocated port before giving up (#776) — long enough for a cold start (loading
+     * its extensions) on a loaded machine, short enough that a caller waiting on
+     * {@code POST .../open-ide} does not sit forever behind a process that will never
+     * come up.
+     */
+    private static final Duration DEFAULT_START_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration START_POLL_INTERVAL = Duration.ofMillis(100);
+
     private final SessionRegistry sessionRegistry;
     private final Path codeServerBinary;
     private final ProcessRunner processRunner;
+    private final Duration startTimeout;
     private final ConcurrentMap<String, Running> running = new ConcurrentHashMap<>();
 
     /**
@@ -83,9 +96,16 @@ public class CodeServerService {
 
     /** Test-only: an injected binary path and {@link ProcessRunner}, never spawning a real subprocess. */
     public CodeServerService(SessionRegistry sessionRegistry, Path codeServerBinary, ProcessRunner processRunner) {
+        this(sessionRegistry, codeServerBinary, processRunner, DEFAULT_START_TIMEOUT);
+    }
+
+    /** Test-only: as above, with the start-timeout shortened so a timeout test doesn't wait 15s. */
+    CodeServerService(SessionRegistry sessionRegistry, Path codeServerBinary, ProcessRunner processRunner,
+            Duration startTimeout) {
         this.sessionRegistry = sessionRegistry;
         this.codeServerBinary = codeServerBinary;
         this.processRunner = processRunner;
+        this.startTimeout = startTimeout;
         sessionRegistry.addCloseListener(this::stop);
     }
 
@@ -121,10 +141,21 @@ public class CodeServerService {
         return Optional.ofNullable(running.get(consoleId)).map(Running::upstream);
     }
 
+    /**
+     * The worktree {@code consoleId}'s already-running code-server was started at, or
+     * empty when none is running. Lets a caller building the browser-facing URL append
+     * a {@code folder} query parameter (#776) without a second lookup through
+     * {@link SessionRegistry}.
+     */
+    public Optional<Path> workingDirectory(String consoleId) {
+        return Optional.ofNullable(running.get(consoleId)).map(Running::workingDirectory);
+    }
+
     private Running spawn(Path workingDirectory) {
         int port = allocatePort();
+        Process process;
         try {
-            Process process = processRunner.run(
+            process = processRunner.run(
                     codeServerBinary.toString(),
                     "--bind-addr", "127.0.0.1:" + port,
                     // Bound to loopback only (above): the only client that ever reaches
@@ -137,12 +168,55 @@ public class CodeServerService {
                     // would be an unauthenticated shell in the worktree.
                     "--auth", "none",
                     "--disable-telemetry",
+                    // Every code-server process shares one user data directory, so
+                    // without this flag a request whose URL carries no `folder` query
+                    // (a bookmark, a bare refresh) reopens whatever folder was last
+                    // opened by *any* console rather than the one named on this command
+                    // line (#776, code-server's own `lastOpened` preference).
+                    "--ignore-last-opened",
                     workingDirectory.toString());
-            return new Running(process, port);
         } catch (IOException e) {
             log.warn("Could not start code-server at {}", workingDirectory, e);
             throw new CodeServerLaunchException(e);
         }
+        if (!awaitListening(process, port)) {
+            log.warn("code-server for {} did not accept connections on 127.0.0.1:{} within {}",
+                    workingDirectory, port, startTimeout);
+            terminateHandles(List.of(process.toHandle()));
+            throw new CodeServerLaunchException(
+                    "code-server for " + workingDirectory + " did not accept connections on 127.0.0.1:" + port
+                            + " within " + startTimeout);
+        }
+        return new Running(process, port, workingDirectory);
+    }
+
+    /**
+     * Polls {@code 127.0.0.1:<port>} until it accepts a connection, {@code process}
+     * exits, or {@link #startTimeout} elapses (#776) — the engine hands the browser
+     * its proxied URL only once code-server is actually there to receive a request,
+     * instead of racing it and reporting the loss as a 502.
+     */
+    private boolean awaitListening(Process process, int port) {
+        long deadline = System.nanoTime() + startTimeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (!process.isAlive()) {
+                return false;
+            }
+            try (Socket probe = new Socket()) {
+                probe.connect(new InetSocketAddress("127.0.0.1", port), (int) START_POLL_INTERVAL.toMillis());
+                return true;
+            } catch (IOException notListeningYet) {
+                // silent: expected until code-server binds the port; the loop retries.
+            }
+            try {
+                Thread.sleep(START_POLL_INTERVAL.toMillis());
+            } catch (InterruptedException e) {
+                // silent: the interrupt is re-raised for the caller; nothing here is lost.
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
     }
 
     /**
@@ -182,7 +256,10 @@ public class CodeServerService {
     private static final Duration STOP_GRACE = Duration.ofSeconds(5);
 
     private void terminate(List<Running> processes) {
-        List<ProcessHandle> handles = processes.stream().map(r -> r.process().toHandle()).toList();
+        terminateHandles(processes.stream().map(r -> r.process().toHandle()).toList());
+    }
+
+    private void terminateHandles(List<ProcessHandle> handles) {
         List<ProcessHandle> left = ProcessTrees.terminate(handles, STOP_GRACE);
         if (!left.isEmpty()) {
             log.warn("code-server processes still alive after being stopped: {}",
@@ -205,14 +282,18 @@ public class CodeServerService {
         }
     }
 
-    private record Running(Process process, int port) {
+    private record Running(Process process, int port, Path workingDirectory) {
         URI upstream() {
             return URI.create("http://127.0.0.1:" + port);
         }
     }
 
-    /** Wraps a failure to even start code-server. */
+    /** Wraps a failure to even start code-server, including one that never came up listening (#776). */
     public static class CodeServerLaunchException extends RuntimeException {
+        CodeServerLaunchException(String message) {
+            super(message);
+        }
+
         CodeServerLaunchException(Exception cause) {
             super(cause);
         }
