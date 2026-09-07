@@ -1,5 +1,6 @@
 import { Component, HostListener, Injector, ViewChild, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { Location } from '@angular/common';
 import { ActivatedRoute, NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
 import { ProjectIssue, SidenavComponent } from './components/sidenav/sidenav.component';
@@ -56,6 +57,7 @@ export class AppComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly location = inject(Location);
   // Unused beyond construction: injecting it here (rather than only where the settings
   // dialog reads it) is what makes the stored accent choice (#387) apply to `:root`
   // before the dialog is ever opened, since an Angular `providedIn: 'root'` service is
@@ -209,6 +211,39 @@ export class AppComponent {
     this.menuOpen = false;
   }
 
+  // Walks the app's own history exactly as a browser's back/forward buttons do (#775)
+  // -- the same chords a browser already binds, so nothing new has to be learned:
+  // Alt+Left / Alt+Right on Windows and Linux, Cmd+[ / Cmd+] and Cmd+Left / Cmd+Right
+  // on macOS. preventDefault() only fires on a chord this handler actually acts on, so
+  // a PWA/browser tab that also honours the chord natively never double-navigates.
+  @HostListener('document:keydown', ['$event'])
+  onHistoryNavKeydown(event: KeyboardEvent): void {
+    const isMac = this.isMacPlatform();
+    const direction = historyNavDirection(event, isMac);
+    if (direction === null) {
+      return;
+    }
+    // A focused terminal keeps Alt+Left/Right as its own word-jump keys (the console
+    // forwards them to the shell) -- excluded only on non-mac, since xterm.js never
+    // consumes the Cmd chords in the first place, so Cmd+[ still navigates back with a
+    // terminal focused. An editable field always keeps its own Left/Right meaning,
+    // on either platform.
+    if (isEditableTarget(event.target) || (!isMac && isInsideTerminal(event.target))) {
+      return;
+    }
+    event.preventDefault();
+    if (direction === 'back') {
+      this.location.back();
+    } else {
+      this.location.forward();
+    }
+  }
+
+  /** `navigator.platform`/`userAgent` containing "Mac" selects the Cmd chords above; a method (not a free function) so tests can stub it. */
+  protected isMacPlatform(): boolean {
+    return /Mac/.test(navigator.platform || navigator.userAgent);
+  }
+
   openSettings(): void {
     this.menuOpen = false;
     this.settingsOpen = true;
@@ -302,6 +337,48 @@ export class AppComponent {
     const segments = this.route.snapshot.firstChild?.url ?? [];
     return segments[0]?.path === 'shells';
   }
+}
+
+type HistoryNavDirection = 'back' | 'forward';
+
+// A chord with Shift or Ctrl held is always left alone -- checked before the
+// platform-specific chords below so neither one needs to repeat it.
+function historyNavDirection(event: KeyboardEvent, isMac: boolean): HistoryNavDirection | null {
+  if (event.shiftKey || event.ctrlKey) {
+    return null;
+  }
+  if (isMac) {
+    // A bare Alt+Arrow on macOS is an Option chord with editing meaning, not this
+    // shortcut -- only Cmd navigates here.
+    if (event.altKey || !event.metaKey) {
+      return null;
+    }
+    if (event.key === '[' || event.key === 'ArrowLeft') {
+      return 'back';
+    }
+    if (event.key === ']' || event.key === 'ArrowRight') {
+      return 'forward';
+    }
+    return null;
+  }
+  if (event.metaKey || !event.altKey) {
+    return null;
+  }
+  if (event.key === 'ArrowLeft') {
+    return 'back';
+  }
+  if (event.key === 'ArrowRight') {
+    return 'forward';
+  }
+  return null;
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('input, textarea, [contenteditable]') !== null;
+}
+
+function isInsideTerminal(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('.xterm, app-terminal') !== null;
 }
 
 function loadWidth(): number {

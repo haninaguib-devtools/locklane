@@ -1,5 +1,6 @@
 import { fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { Location } from '@angular/common';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
@@ -1003,4 +1004,137 @@ describe('AppComponent', () => {
 
     expect(compiled.querySelector('app-login')).toBeTruthy();
   }));
+
+  describe('history navigation keyboard shortcuts (#775)', () => {
+    /** Reaches past isMacPlatform()'s own `protected` boundary -- the only way a test controls which platform's chords apply. */
+    function stubMacPlatform(instance: AppComponent, isMac: boolean): jasmine.Spy<() => boolean> {
+      return spyOn(instance as unknown as { isMacPlatform(): boolean }, 'isMacPlatform').and.returnValue(isMac);
+    }
+
+    /** Dispatches a bubbling, cancelable keydown at `target` (the page body by default) and reports whether the app's handler acted on it. */
+    function historyKeydown(init: KeyboardEventInit, target: EventTarget = document.body): boolean {
+      const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    }
+
+    function spiedLocation(): { back: jasmine.Spy; forward: jasmine.Spy } {
+      const location = TestBed.inject(Location);
+      return {
+        back: spyOn(location, 'back'),
+        forward: spyOn(location, 'forward'),
+      };
+    }
+
+    it('navigates back and forward with Alt+Left / Alt+Right on non-mac', fakeAsync(() => {
+      const fixture = openedApp();
+      stubMacPlatform(fixture.componentInstance, false);
+      const location = spiedLocation();
+
+      expect(historyKeydown({ key: 'ArrowLeft', altKey: true })).toBeTrue();
+      expect(location.back).toHaveBeenCalledTimes(1);
+
+      expect(historyKeydown({ key: 'ArrowRight', altKey: true })).toBeTrue();
+      expect(location.forward).toHaveBeenCalledTimes(1);
+    }));
+
+    it('navigates back and forward with Cmd+[ / Cmd+] and Cmd+Left / Cmd+Right on mac', fakeAsync(() => {
+      const fixture = openedApp();
+      stubMacPlatform(fixture.componentInstance, true);
+      const location = spiedLocation();
+
+      expect(historyKeydown({ key: '[', metaKey: true })).toBeTrue();
+      expect(historyKeydown({ key: 'ArrowLeft', metaKey: true })).toBeTrue();
+      expect(location.back).toHaveBeenCalledTimes(2);
+
+      expect(historyKeydown({ key: ']', metaKey: true })).toBeTrue();
+      expect(historyKeydown({ key: 'ArrowRight', metaKey: true })).toBeTrue();
+      expect(location.forward).toHaveBeenCalledTimes(2);
+    }));
+
+    it("ignores the other platform's chord", fakeAsync(() => {
+      const fixture = openedApp();
+      const location = spiedLocation();
+
+      const macPlatform = stubMacPlatform(fixture.componentInstance, false);
+      expect(historyKeydown({ key: 'ArrowLeft', metaKey: true })).toBeFalse();
+
+      macPlatform.and.returnValue(true);
+      expect(historyKeydown({ key: 'ArrowLeft', altKey: true })).toBeFalse();
+
+      expect(location.back).not.toHaveBeenCalled();
+    }));
+
+    it('ignores a chord with an extra Shift or Ctrl modifier', fakeAsync(() => {
+      const fixture = openedApp();
+      stubMacPlatform(fixture.componentInstance, false);
+      const location = spiedLocation();
+
+      expect(historyKeydown({ key: 'ArrowLeft', altKey: true, shiftKey: true })).toBeFalse();
+      expect(historyKeydown({ key: 'ArrowLeft', altKey: true, ctrlKey: true })).toBeFalse();
+
+      expect(location.back).not.toHaveBeenCalled();
+    }));
+
+    it('leaves Alt+Left alone with a console terminal focused on non-mac, but still navigates from the page body', fakeAsync(() => {
+      const fixture = openedApp();
+      stubMacPlatform(fixture.componentInstance, false);
+      const location = spiedLocation();
+
+      const terminalHost = document.createElement('div');
+      terminalHost.className = 'xterm';
+      document.body.appendChild(terminalHost);
+      try {
+        expect(historyKeydown({ key: 'ArrowLeft', altKey: true }, terminalHost)).toBeFalse();
+        expect(location.back).not.toHaveBeenCalled();
+      } finally {
+        document.body.removeChild(terminalHost);
+      }
+
+      expect(historyKeydown({ key: 'ArrowLeft', altKey: true })).toBeTrue();
+      expect(location.back).toHaveBeenCalledTimes(1);
+    }));
+
+    it('still navigates with Cmd+[ while a console terminal is focused on mac', fakeAsync(() => {
+      const fixture = openedApp();
+      stubMacPlatform(fixture.componentInstance, true);
+      const location = spiedLocation();
+
+      const terminalHost = document.createElement('div');
+      terminalHost.className = 'xterm';
+      document.body.appendChild(terminalHost);
+      try {
+        expect(historyKeydown({ key: '[', metaKey: true }, terminalHost)).toBeTrue();
+        expect(location.back).toHaveBeenCalledTimes(1);
+      } finally {
+        document.body.removeChild(terminalHost);
+      }
+    }));
+
+    it('leaves the chord alone with an input, textarea, or contenteditable focused, on either platform', fakeAsync(() => {
+      const fixture = openedApp();
+      const location = spiedLocation();
+
+      const input = document.createElement('input');
+      const textarea = document.createElement('textarea');
+      const editable = document.createElement('div');
+      editable.setAttribute('contenteditable', 'true');
+      document.body.append(input, textarea, editable);
+      try {
+        const macPlatform = stubMacPlatform(fixture.componentInstance, false);
+        expect(historyKeydown({ key: 'ArrowLeft', altKey: true }, input)).toBeFalse();
+        expect(historyKeydown({ key: 'ArrowLeft', altKey: true }, textarea)).toBeFalse();
+        expect(historyKeydown({ key: 'ArrowLeft', altKey: true }, editable)).toBeFalse();
+
+        macPlatform.and.returnValue(true);
+        expect(historyKeydown({ key: '[', metaKey: true }, input)).toBeFalse();
+
+        expect(location.back).not.toHaveBeenCalled();
+      } finally {
+        document.body.removeChild(input);
+        document.body.removeChild(textarea);
+        document.body.removeChild(editable);
+      }
+    }));
+  });
 });
