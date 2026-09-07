@@ -8,6 +8,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.WebSocketSessionDecorator;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,10 @@ import static org.mockito.Mockito.when;
  * <p>Also covers #761's registration contract: what the handler hands every writer is
  * the serializing wrapper around the connection, never the raw session, so concurrent
  * broadcasts from several threads reach one socket strictly one at a time.
+ *
+ * <p>The greeting's {@code heartbeatIntervalMs} (#762) is pinned here too: it is how the
+ * client learns the interval its own liveness check counts against, so it must be the
+ * configured value, never a number the two sides each hardcode.
  */
 class EventsWebSocketHandlerTest {
 
@@ -50,7 +55,23 @@ class EventsWebSocketHandlerTest {
         handler.afterConnectionEstablished(session);
 
         verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("engineVersion"),
-                eq(Map.of("version", "stamp", "release", "0.1.0-SNAPSHOT")));
+                eq(Map.of("version", "stamp", "release", "0.1.0-SNAPSHOT", "heartbeatIntervalMs", 20_000L)));
+    }
+
+    @Test
+    void theGreetingCarriesTheConfiguredHeartbeatInterval() {
+        // #762: the client arms its own liveness check from this value, so it must be
+        // the interval this handler actually ticks on, not a constant.
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
+                Optional::empty, Clock.systemUTC(), 1234L);
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("s");
+
+        handler.afterConnectionEstablished(session);
+
+        verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("engineVersion"),
+                eq(Map.of("version", "stamp", "release", "0.1.0", "heartbeatIntervalMs", 1234L)));
     }
 
     @Test

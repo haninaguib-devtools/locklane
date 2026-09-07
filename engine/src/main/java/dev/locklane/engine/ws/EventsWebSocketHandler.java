@@ -59,17 +59,37 @@ import java.util.function.Supplier;
  * thread and the heartbeat's ping then take one lock per connection instead of colliding
  * inside Tomcat. The greeting goes through the same wrapper, so no write to a connection
  * ever bypasses it.
+ *
+ * <p>Each tick also broadcasts an application-level {@code {"type":"heartbeat"}} text
+ * message to every live connection (#762), because the protocol ping above is invisible
+ * to the browser: JavaScript is never told a ping arrived, so a client whose own TCP leg
+ * has died — behind a proxy, the engine's and the browser's connections are separate
+ * legs, and the engine closing its side never reaches the browser — keeps an OPEN socket
+ * that will never deliver anything, with no signal to act on. The text message is that
+ * signal: the client tracks when it last received <em>any</em> message and reconnects on
+ * its own once more than two intervals pass without one. The greeting carries the
+ * interval ({@code heartbeatIntervalMs}) so the two sides agree on it without the client
+ * hardcoding a number. The broadcast goes through {@link EventBroadcaster}, so it reaches
+ * exactly the registered wrappers, and one connection's failing write is contained the
+ * same way any broadcast's is (#761).
  */
 @Component
 public class EventsWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(EventsWebSocketHandler.class);
 
+    /**
+     * The type of the application-level liveness message (#762). Carries no other
+     * fields; the client filters it out before any consumer sees the stream.
+     */
+    static final String HEARTBEAT_TYPE = "heartbeat";
+
     private final EventBroadcaster broadcaster;
     private final String versionStamp;
     private final String runningVersion;
     private final Supplier<Optional<NewerRelease>> newerRelease;
     private final TerminalHeartbeat heartbeat;
+    private final long heartbeatIntervalMs;
 
     @Autowired
     public EventsWebSocketHandler(EventBroadcaster broadcaster, BuildProperties buildProperties,
@@ -97,13 +117,15 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
         this.runningVersion = runningVersion;
         this.newerRelease = newerRelease;
         this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
+        this.heartbeatIntervalMs = heartbeatIntervalMs;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession connection) {
         WebSocketSession session = TerminalHeartbeat.serialized(connection);
         broadcaster.sendTo(session, "engineVersion",
-                Map.of("version", versionStamp, "release", runningVersion));
+                Map.of("version", versionStamp, "release", runningVersion,
+                        "heartbeatIntervalMs", heartbeatIntervalMs));
         newerRelease.get().ifPresent(release ->
                 broadcaster.sendTo(session, "releaseAvailable",
                         Map.of("version", release.version(), "url", release.url())));
@@ -118,9 +140,13 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * Detects a stale/half-open {@code /ws/events} connection within a bounded time
-     * (#665) — see {@link TerminalHeartbeat}. The interval is configurable
-     * ({@code locklane.events.heartbeat-interval-ms}) so a test can run this on a much
-     * shorter cycle than production without changing the code.
+     * (#665) — see {@link TerminalHeartbeat} — and then tells every connection still
+     * live that the engine is here (#762): the protocol ping the tick sends is answered
+     * by the browser itself and never reaches its JavaScript, so this is what the
+     * client's own liveness check watches for. Tick first, so a connection the tick
+     * just closed for missing its pongs is not written to again. The interval is
+     * configurable ({@code locklane.events.heartbeat-interval-ms}) so a test can run
+     * this on a much shorter cycle than production without changing the code.
      */
     @Scheduled(fixedDelayString = "${locklane.events.heartbeat-interval-ms}")
     void sendHeartbeats() {
@@ -128,6 +154,11 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
             heartbeat.tick();
         } catch (RuntimeException e) {
             log.error("Scheduled events heartbeat failed", e);
+        }
+        try {
+            broadcaster.broadcast(HEARTBEAT_TYPE);
+        } catch (RuntimeException e) {
+            log.error("Scheduled events heartbeat message failed", e);
         }
     }
 
