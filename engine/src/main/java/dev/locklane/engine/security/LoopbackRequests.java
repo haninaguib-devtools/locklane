@@ -43,6 +43,8 @@ public final class LoopbackRequests {
         try {
             return InetAddress.getByName(address).isLoopbackAddress();
         } catch (UnknownHostException e) {
+            // silent: the literal pattern above already excluded any host name, so this
+            // is a malformed literal, which is simply "not local" -- nothing to report.
             return false;
         }
     }
