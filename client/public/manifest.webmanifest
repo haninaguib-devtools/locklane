@@ -4,6 +4,7 @@
   "description": "LockLane development console",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
   "background_color": "#e9e6e1",
   "theme_color": "#c15f3c",
   "icons": [

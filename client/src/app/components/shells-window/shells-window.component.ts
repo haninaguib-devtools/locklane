@@ -49,11 +49,21 @@ export class ShellsWindowComponent implements OnInit, OnDestroy {
   pendingClose: OpenShell | null = null;
   closeError = false;
   openError = false;
+  /**
+   * True once the OS overlays its own window controls onto this window —
+   * feature-detected from `navigator.windowControlsOverlay`, never assumed
+   * from being installed, so a normal browser tab or a non-Chromium browser
+   * keeps its ordinary layout (#741).
+   */
+  wcoActive = false;
 
   private readonly subscriptions = new Subscription();
+  private readonly wcoGeometryChange = () => this.updateWco();
 
   ngOnInit(): void {
     this.selected = this.routeShellId();
+    this.updateWco();
+    navigator.windowControlsOverlay?.addEventListener('geometrychange', this.wcoGeometryChange);
     this.subscriptions.add(
       this.router.events
         .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
@@ -78,6 +88,7 @@ export class ShellsWindowComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.subscriptions.unsubscribe();
+    navigator.windowControlsOverlay?.removeEventListener('geometrychange', this.wcoGeometryChange);
   }
 
   select(shell: OpenShell): void {
@@ -140,6 +151,10 @@ export class ShellsWindowComponent implements OnInit, OnDestroy {
       },
       error: () => (this.loading = false),
     });
+  }
+
+  private updateWco(): void {
+    this.wcoActive = !!navigator.windowControlsOverlay?.visible;
   }
 
   private routeShellId(): string | null {
