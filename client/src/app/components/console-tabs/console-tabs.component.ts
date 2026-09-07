@@ -1,8 +1,9 @@
-import { Component, ElementRef, EventEmitter, HostListener, Input, Optional, Output, ViewChild } from '@angular/core';
+import { Component, ElementRef, EventEmitter, HostListener, Input, OnInit, Optional, Output, ViewChild } from '@angular/core';
 import { Observable, map, of, switchMap } from 'rxjs';
 import { Agent } from '../../services/agent-store';
 import { AttentionStore } from '../../services/attention-store';
 import { InstalledAgent } from '../../services/default-agent-store';
+import { CODE_SERVER_IDE, DefaultIdeStore, InstalledIde } from '../../services/default-ide-store';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ConsolesService, issueNumberFromSessionId } from '../../services/consoles.service';
 import { ShellsService } from '../../services/shells.service';
@@ -26,7 +27,7 @@ export interface RenameConsoleRequest {
   templateUrl: './console-tabs.component.html',
   styleUrl: './console-tabs.component.css',
 })
-export class ConsoleTabsComponent {
+export class ConsoleTabsComponent implements OnInit {
   // @Optional() constructor parameters, not inject() fields, deliberately (#447):
   // the existing unit tests instantiate this component with bare
   // `new ConsoleTabsComponent()` (the defaults cover that), and other component
@@ -39,8 +40,19 @@ export class ConsoleTabsComponent {
     @Optional() private readonly shellsService: ShellsService | null = null,
     @Optional() private readonly worktreesService: WorktreesService | null = null,
     @Optional() private readonly consolesService: ConsolesService | null = null,
+    @Optional() private readonly defaultIdeStore: DefaultIdeStore | null = null,
     @Optional() private readonly attentionStore: AttentionStore | null = null,
   ) {}
+
+  // #782: a browser that never chose an IDE in Settings acts on code-server whatever
+  // is installed, so there is nothing to look up; one that did needs the engine's
+  // installed set to know whether that choice still holds (DefaultIdeStore.effective).
+  // Fetched once per app load, from whichever strip or dialog asks first.
+  ngOnInit(): void {
+    if (this.defaultIdeStore !== null && this.defaultIdeStore.ide() !== '') {
+      this.defaultIdeStore.refreshInstalled();
+    }
+  }
 
   // Exposed for the template's Overview tab, pinned first in the same strip (#96).
   readonly overviewId = OVERVIEW_TAB_ID;
@@ -259,13 +271,30 @@ export class ConsoleTabsComponent {
   // Whether the last "Open IDE" attempt failed (#628) -- cleared on the next one.
   ideOpenFailed = false;
 
+  // The IDE "Open IDE" acts on (#782): the Settings choice when this browser may use
+  // it, else code-server -- and code-server outright when the strip was built without
+  // the store (bare construction in specs).
+  get effectiveIde(): InstalledIde {
+    return this.defaultIdeStore?.effective() ?? CODE_SERVER_IDE;
+  }
+
+  // The menu item names a desktop choice -- `Open in VS Code`, `Open in IntelliJ IDEA`
+  // -- and stays `Open IDE` for code-server (#782).
+  get ideLabel(): string {
+    const ide = this.effectiveIde;
+    return ide.desktop ? `Open in ${ide.label}` : 'Open IDE';
+  }
+
   /**
-   * The "Open IDE" menu item (#627/#628): starts (or reuses) this tab's code-server
-   * process, then opens the returned URL in a singleton browser tab -- the same
-   * shape as {@link openShellAt}: mint/reuse the session server-side, then
-   * `window.open` it, never a path sent from here. Offered on every host, unlike
-   * Folder (#655): the URL is the engine's own proxied path for the IDE, so it works
-   * wherever this page itself was reached from.
+   * The "Open IDE" menu item (#627/#628, #782): asks the engine to open this tab's
+   * worktree in {@link effectiveIde}. For code-server that starts (or reuses) its
+   * process and the returned URL opens in a singleton browser tab -- the same shape
+   * as {@link openShellAt}: mint/reuse the session server-side, then `window.open`
+   * it, never a path sent from here. For a desktop IDE the engine launches the editor
+   * on its own host and returns no URL, so nothing opens here. Offered on every host,
+   * unlike Folder (#655): away from localhost the effective choice is always
+   * code-server, whose URL is the engine's own proxied path, so it works wherever this
+   * page itself was reached from.
    */
   openIdeAt(tab: ConsoleTab, event: Event): void {
     event.stopPropagation();
@@ -276,8 +305,12 @@ export class ConsoleTabsComponent {
       return;
     }
     this.ideOpenFailed = false;
-    consoles.openIde(projectId, tab.id).subscribe({
-      next: (opened) => window.open(opened.url, 'locklane-ide'),
+    consoles.openIde(projectId, tab.id, this.effectiveIde.id).subscribe({
+      next: (opened) => {
+        if (opened.url !== null) {
+          window.open(opened.url, 'locklane-ide');
+        }
+      },
       error: () => (this.ideOpenFailed = true),
     });
   }

@@ -45,14 +45,26 @@ describe('ConsolesService', () => {
     req.flush(null);
   });
 
-  it('starts a console\'s IDE via POST /api/projects/{projectId}/consoles/{id}/open-ide (#628)', () => {
+  it('starts a console\'s IDE via POST /api/projects/{projectId}/consoles/{id}/open-ide, naming the IDE (#628, #782)', () => {
     service
-      .openIde(1, '1-7-main-a1b2c3d4')
+      .openIde(1, '1-7-main-a1b2c3d4', 'code-server')
       .subscribe((result) => expect(result).toEqual({ url: '/api/projects/1/consoles/1-7-main-a1b2c3d4/ide/' }));
 
     const req = httpMock.expectOne('/api/projects/1/consoles/1-7-main-a1b2c3d4/open-ide');
     expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ ide: 'code-server' });
     req.flush({ url: '/api/projects/1/consoles/1-7-main-a1b2c3d4/ide/' });
+  });
+
+  it('a desktop IDE launch answers with no URL (#782)', () => {
+    let result: { url: string | null } | undefined;
+    service.openIde(1, '1-7-main-a1b2c3d4', 'vscode').subscribe((opened) => (result = opened));
+
+    const req = httpMock.expectOne('/api/projects/1/consoles/1-7-main-a1b2c3d4/open-ide');
+    expect(req.request.body).toEqual({ ide: 'vscode' });
+    req.flush({ url: null });
+
+    expect(result).toEqual({ url: null });
   });
 
   it('notifies onClosed subscribers when a console is closed', () => {

@@ -41,7 +41,11 @@ import org.springframework.http.HttpStatus;
  * per-project data, but is account-scoped the same way {@code /api/auth/me} is), the
  * detected-installed-agents endpoint backing the Settings dialog's default-agent picker
  * ({@code /api/agents/installed}, #359 — same account-scoped reasoning as the usage
- * widget above), the caller's own GitHub accounts under {@code /api/github/accounts}
+ * widget above), the detected-installed-IDEs endpoint backing the same dialog's IDE
+ * picker ({@code /api/ides/installed}, #781 — same reasoning again, and the only
+ * gate it needs: the desktop-launch side of that feature is refused per request in
+ * {@code ConsolesController} via {@link LoopbackRequests}, not here), the caller's own
+ * GitHub accounts under {@code /api/github/accounts}
  * (#550 — sign in, list, remove; account-scoped like the two before it, superseding
  * the old #532 host-{@code gh}-login read), the project templates on this host backing the same dialog's template
  * pull-down ({@code /api/templates}, #536 — host-scoped like the three before it, so
@@ -106,6 +110,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/sessions/*/uploads").authenticated()
                         .requestMatchers("/api/usage").authenticated()
                         .requestMatchers("/api/agents/**").authenticated()
+                        .requestMatchers("/api/ides/**").authenticated()
                         .requestMatchers("/api/github/**").authenticated()
                         .requestMatchers("/api/templates").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()

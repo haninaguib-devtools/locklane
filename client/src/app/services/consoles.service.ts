@@ -3,9 +3,12 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, Subject, filter, map, merge } from 'rxjs';
 import { EventsService, isConsolesChangedEvent } from './events.service';
 
-/** What starting/reusing a console's code-server process returns (#628): its URL. */
+/**
+ * What `open-ide` returns (#628, #781): the proxied code-server URL to open, or `null`
+ * after the engine launched a desktop IDE on its own host -- nothing for the browser to open.
+ */
 export interface OpenedIde {
-  url: string;
+  url: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -45,12 +48,14 @@ export class ConsolesService {
   }
 
   /**
-   * Starts (or reuses) a code-server process for a console's worktree (#628) and
-   * returns its URL to open. The engine resolves the working directory server-side
-   * from the console id, so no path is ever sent here.
+   * Opens a console's worktree in `ide` (#628, #782) -- an id from `GET /api/ides/installed`:
+   * `code-server` starts (or reuses) a code-server process and returns its URL to open;
+   * a desktop id makes the engine launch that editor on its own host and return no URL.
+   * The engine resolves the working directory server-side from the console id, so no
+   * path is ever sent here.
    */
-  openIde(projectId: number, id: string): Observable<OpenedIde> {
-    return this.http.post<OpenedIde>(`/api/projects/${projectId}/consoles/${id}/open-ide`, {});
+  openIde(projectId: number, id: string, ide: string): Observable<OpenedIde> {
+    return this.http.post<OpenedIde>(`/api/projects/${projectId}/consoles/${id}/open-ide`, { ide });
   }
 
   /**

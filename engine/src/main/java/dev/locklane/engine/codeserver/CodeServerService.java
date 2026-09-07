@@ -110,6 +110,15 @@ public class CodeServerService {
     }
 
     /**
+     * Where this service runs code-server from ({@code <data-dir>/code-server/bin/code-server}
+     * in production) — what the boot-time IDE probe ({@code ide.InstalledIdesBootstrapper},
+     * #781) checks to decide whether the bundled IDE is installed at all.
+     */
+    public Path binary() {
+        return codeServerBinary;
+    }
+
+    /**
      * Starts (or reuses) code-server for {@code consoleId}'s worktree and returns the
      * loopback base the engine's proxy forwards to ({@code http://127.0.0.1:<port>}).
      * Empty, with nothing started, when the console id names no known working
