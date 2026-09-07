@@ -102,10 +102,9 @@ describe('SidenavComponent', () => {
   }
 
   /**
-   * The sidenav fetches each loaded project's open consoles to drive its
-   * open-console dot (#108), once every project's tree has come back. A no-op
-   * when that fetch hasn't fired yet (e.g. a sibling project's tree is still
-   * pending).
+   * The sidenav fetches each listed project's open consoles to drive its
+   * open-console dot (#108) as soon as the project list arrives (#787), and again
+   * after an event-driven re-fetch. A no-op when no such fetch is outstanding.
    */
   function flushConsoles(): void {
     httpMock.match((req) => /\/api\/projects\/\d+\/consoles$/.test(req.url)).forEach((request) => request.flush([]));
@@ -133,12 +132,217 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.mainNodesFor(sectionB).map((n) => n.number)).toEqual([9]);
   });
 
-  it('reports an error state when a tree fetch fails', () => {
+  it('a failed tree fetch marks that project failed, not the whole sidenav (#787)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/issues/tree').error(new ProgressEvent('network error'));
+    flushConsoles();
+    fixture.detectChanges();
 
-    expect(fixture.componentInstance.error).toBeTrue();
+    expect(fixture.componentInstance.error).toBeFalse();
     expect(fixture.componentInstance.loading).toBeFalse();
+    expect(fixture.componentInstance.projectSections[0].treeState).toBe('failed');
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.project-section[data-project-id="1"] .tree-error')?.textContent).toContain(
+      'could not load issues',
+    );
+    expect(compiled.querySelector('.section-header .issue-count')).toBeNull();
+  });
+
+  it('renders each project as soon as its own tree lands, in project-list order, whatever order the responses arrive in (#787)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const ids = () => fixture.componentInstance.projectSections.map((s) => s.project.id);
+    const states = () => fixture.componentInstance.projectSections.map((s) => s.treeState);
+    const hrefs = () => Array.from(compiled.querySelectorAll('a.row')).map((row) => row.getAttribute('href'));
+
+    // Both sections exist, in list order, before any tree has come back -- each
+    // showing its own loading state rather than the sidenav-wide one.
+    expect(fixture.componentInstance.loading).toBeFalse();
+    expect(ids()).toEqual([1, 2]);
+    expect(states()).toEqual(['loading', 'loading']);
+    expect(compiled.querySelectorAll('.project-section .tree-loading')).toHaveSize(2);
+    expect(hrefs()).toEqual([]);
+
+    // B answers first: its rows render while A is still loading, and A stays first.
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [
+      { number: 9, title: 'Only in B', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
+    ], github: GITHUB_OK });
+    fixture.detectChanges();
+    expect(ids()).toEqual([1, 2]);
+    expect(states()).toEqual(['loading', 'loaded']);
+    expect(hrefs()).toEqual(['/projects/2/issues/9']);
+    expect(compiled.querySelectorAll('.project-section .tree-loading')).toHaveSize(1);
+    expect(compiled.querySelector('.project-section[data-project-id="1"] .tree-loading')).toBeTruthy();
+    // The open-issue count (#186) appears only once that project's tree is in.
+    expect(compiled.querySelector('.project-section[data-project-id="1"] .issue-count')).toBeNull();
+    expect(compiled.querySelector('.project-section[data-project-id="2"] .issue-count')?.textContent).toBe('(1)');
+
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    flushConsoles();
+    fixture.detectChanges();
+    expect(ids()).toEqual([1, 2]);
+    expect(states()).toEqual(['loaded', 'loaded']);
+    expect(hrefs()).toEqual(['/projects/1/issues/1', '/projects/1/issues/2', '/projects/1/issues/4', '/projects/2/issues/9']);
+    expect(compiled.querySelectorAll('.project-section .tree-loading')).toHaveSize(0);
+  });
+
+  it("one project's failed tree fetch leaves the others' loaded sections untouched (#787)", () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    httpMock.expectOne('/api/projects/1/issues/tree').error(new ProgressEvent('network error'));
+    flushConsoles();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.error).toBeFalse();
+    expect(fixture.componentInstance.loading).toBeFalse();
+    const [sectionA, sectionB] = fixture.componentInstance.projectSections;
+    expect(sectionA.treeState).toBe('failed');
+    expect(sectionB.treeState).toBe('loaded');
+    expect(fixture.componentInstance.mainNodesFor(sectionB).map((n) => n.number)).toEqual([1, 4]);
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const errors = compiled.querySelectorAll('.tree-error');
+    expect(errors).toHaveSize(1);
+    expect(errors[0].closest('.project-section')?.getAttribute('data-project-id')).toBe('1');
+    const hrefs = Array.from(compiled.querySelectorAll('a.row')).map((row) => row.getAttribute('href'));
+    expect(hrefs).toEqual(['/projects/2/issues/1', '/projects/2/issues/2', '/projects/2/issues/4']);
+    // Not the sidenav-wide error state: that one replaces every section.
+    expect(compiled.querySelectorAll('.project-section')).toHaveSize(2);
+  });
+
+  it('a project new to the list shows its own loading state while the rest keep their rows (#787)', () => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    emitAppEvent({ type: 'projectCreated', projectId: 2 });
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(fixture.componentInstance.projectSections.map((s) => s.treeState)).toEqual(['loaded', 'loading']);
+    // A's rows never flash back to a loading state while its new tree is out.
+    expect(compiled.querySelectorAll('.project-section[data-project-id="1"] a.row')).toHaveSize(3);
+    expect(compiled.querySelector('.project-section[data-project-id="1"] .tree-loading')).toBeNull();
+    expect(compiled.querySelector('.project-section[data-project-id="2"] .tree-loading')).toBeTruthy();
+
+    flushTree(2, tree());
+    flushTree(1, tree());
+  });
+
+  it("a focused window renders its one project as soon as that project's tree lands (#286, #787)", () => {
+    const fixture = TestBed.createComponent(SidenavComponent);
+    fixture.componentInstance.focusedProjectId = 2;
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([2]);
+    expect(fixture.componentInstance.projectSections[0].treeState).toBe('loading');
+    expect(compiled.querySelectorAll('.project-section .tree-loading')).toHaveSize(1);
+    httpMock.expectNone('/api/projects/1/issues/tree');
+
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    flushConsoles();
+    fixture.detectChanges();
+    const hrefs = Array.from(compiled.querySelectorAll('a.row')).map((row) => row.getAttribute('href'));
+    expect(hrefs).toEqual(['/projects/2/issues/1', '/projects/2/issues/2', '/projects/2/issues/4']);
+    httpMock.expectNone('/api/projects/1/issues/tree');
+  });
+
+  it("the selected row is focused once its project's tree lands, even while a sibling is still loading (#747, #787)", fakeAsync(() => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    fixture.componentInstance.selected = { projectId: 2, issueNumber: 4 };
+    tick(); // nothing to focus yet -- the row's tree has not arrived
+
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    fixture.detectChanges();
+    tick();
+
+    const row = fixture.nativeElement.querySelector('a.row[data-project-id="2"][data-issue-number="4"]');
+    expect(row).toBeTruthy();
+    expect(document.activeElement).toBe(row);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    flushConsoles();
+  }));
+
+  it('open-agent dots are fetched as soon as the list arrives, so rows carry them when they render (#108, #787)', () => {
+    const fixture = init([PROJECT_A]);
+    // The consoles request is already out before the tree has come back.
+    httpMock.expectOne((req) => /\/api\/projects\/1\/consoles$/.test(req.url)).flush(['1-4-standalone']);
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.hasOpenConsole(1, 4)).toBeTrue();
+    expect(fixture.nativeElement.querySelector('a.row[data-issue-number="4"] .console-dot')).toBeTruthy();
+  });
+
+  it('a githubRefreshStatus event that lands before the tree does shows on that project alone (#619, #787)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    emitAppEvent({ type: 'githubRefreshStatus', projectId: 1, failing: true, failure: 'gh exited 1: HTTP 401' });
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.project-section[data-project-id="1"] .github-error')?.textContent).toContain('HTTP 401');
+    expect(compiled.querySelector('.project-section[data-project-id="2"] .github-error')).toBeNull();
+
+    const failing = { failing: true, failure: 'gh exited 1: HTTP 401', lastSuccessAt: null };
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: failing });
+    httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
+    flushConsoles();
+    fixture.detectChanges();
+    expect(compiled.querySelectorAll('.github-error')).toHaveSize(1);
+    expect(compiled.querySelector('.project-section[data-project-id="1"] .github-error')).toBeTruthy();
+  });
+
+  it('a tree response from a load whose list a later reload has already replaced is dropped (#787)', () => {
+    const fixture = init([PROJECT_A]);
+    flushTree(1, tree());
+
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    const stale = httpMock.expectOne('/api/projects/1/issues/tree?fresh=true');
+
+    // A reconnect reloads directly (not through refresh()), rebuilding the list
+    // while the refresh's own tree request is still out.
+    emitReconnected();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+    const updated: TreeNode[] = [
+      ...tree(),
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
+    ];
+    flushTree(1, updated);
+    expect(fixture.componentInstance.mainNodesFor(fixture.componentInstance.projectSections[0]).map((n) => n.number)).toEqual([1, 4, 5]);
+
+    // The older response lands last and must not overwrite the newer tree -- but it
+    // still settles the refresh it belonged to.
+    expect(fixture.componentInstance.refreshing).toBeTrue();
+    stale.flush({ nodes: tree(), github: GITHUB_OK });
+    expect(fixture.componentInstance.mainNodesFor(fixture.componentInstance.projectSections[0]).map((n) => n.number)).toEqual([1, 4, 5]);
+    expect(fixture.componentInstance.refreshing).toBeFalse();
+  });
+
+  it('a failed event-driven re-fetch marks that project failed while keeping its tree, and the next success clears it (#787)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'issuesChanged', projectId: 1 });
+    httpMock.expectOne('/api/projects/1/issues/tree').error(new ProgressEvent('network error'));
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(fixture.componentInstance.projectSections[0].treeState).toBe('failed');
+    expect(compiled.querySelector('.tree-error')).toBeTruthy();
+    expect(compiled.querySelectorAll('a.row')).toHaveSize(3);
+
+    emitAppEvent({ type: 'issuesChanged', projectId: 1 });
+    flushTree(1, tree());
+    fixture.detectChanges();
+    expect(fixture.componentInstance.projectSections[0].treeState).toBe('loaded');
+    expect(compiled.querySelector('.tree-error')).toBeNull();
   });
 
   it('renders each issue row, nested children included, as a real link to its issue route (#170)', () => {
@@ -532,18 +736,94 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.refreshing).toBeFalse();
   });
 
-  it('refresh() surfaces an error without clearing the existing list', () => {
+  it('refresh() surfaces a failed project-list request without clearing the existing list', () => {
     const fixture = init();
     flushTree(1, tree());
 
     fixture.componentInstance.refresh();
-    httpMock.expectOne('/api/projects').flush([PROJECT_A]);
-    httpMock.expectOne('/api/projects/1/issues/tree?fresh=true').error(new ProgressEvent('network error'));
+    httpMock.expectOne('/api/projects').error(new ProgressEvent('network error'));
 
     expect(fixture.componentInstance.refreshing).toBeFalse();
     expect(fixture.componentInstance.error).toBeTrue();
     const section = fixture.componentInstance.projectSections[0];
     expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 4]);
+  });
+
+  it('a tree fetch that fails during refresh() marks that project failed and keeps its previous tree (#787)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/1/issues/tree?fresh=true').error(new ProgressEvent('network error'));
+    expect(fixture.componentInstance.refreshing).toBeTrue(); // B's tree is still out
+    const updated: TreeNode[] = [
+      ...tree(),
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
+    ];
+    flushTree(2, updated, true);
+
+    expect(fixture.componentInstance.refreshing).toBeFalse();
+    expect(fixture.componentInstance.error).toBeFalse();
+    const [sectionA, sectionB] = fixture.componentInstance.projectSections;
+    expect(sectionA.treeState).toBe('failed');
+    expect(fixture.componentInstance.mainNodesFor(sectionA).map((n) => n.number)).toEqual([1, 4]);
+    expect(sectionB.treeState).toBe('loaded');
+    expect(fixture.componentInstance.mainNodesFor(sectionB).map((n) => n.number)).toEqual([1, 4, 5]);
+  });
+
+  it('refreshing stays on, and a queued refresh waits, until every project\'s tree has settled (#738, #787)', () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+
+    fixture.componentInstance.refresh();
+    fixture.componentInstance.refresh(); // queued behind the first (#738)
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    httpMock.expectOne('/api/projects/2/issues/tree?fresh=true').flush({ nodes: tree(), github: GITHUB_OK });
+
+    // B is in, A is still out: the refresh is not over and the queued one waits.
+    expect(fixture.componentInstance.refreshing).toBeTrue();
+    httpMock.expectNone('/api/projects');
+    httpMock.expectOne('/api/projects/1/issues/tree?fresh=true').error(new ProgressEvent('network error'));
+    flushConsoles();
+
+    // A failure settles A like a success would; now the queued run starts, and A
+    // (failed, so not carried over) starts over as loading once its list lands.
+    expect(fixture.componentInstance.projectSections[0].treeState).toBe('failed');
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    expect(fixture.componentInstance.refreshing).toBeTrue();
+    expect(fixture.componentInstance.projectSections[0].treeState).toBe('loading');
+    flushTree(1, tree(), true);
+    flushTree(2, tree(), true);
+    expect(fixture.componentInstance.refreshing).toBeFalse();
+    expect(fixture.componentInstance.projectSections.map((s) => s.treeState)).toEqual(['loaded', 'loaded']);
+  });
+
+  it("a reload keeps showing each loaded project's current tree until its own new one lands (#787)", () => {
+    const fixture = init([PROJECT_A, PROJECT_B]);
+    flushTree(1, tree());
+    flushTree(2, tree());
+    fixture.detectChanges();
+
+    fixture.componentInstance.refresh();
+    httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelectorAll('.tree-loading')).toHaveSize(0);
+    expect(compiled.querySelectorAll('a.row')).toHaveSize(6);
+
+    const updated: TreeNode[] = [
+      ...tree(),
+      { number: 5, title: 'New from GitHub', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
+    ];
+    flushTree(1, updated, true);
+    const [sectionA, sectionB] = fixture.componentInstance.projectSections;
+    expect(fixture.componentInstance.mainNodesFor(sectionA).map((n) => n.number)).toEqual([1, 4, 5]);
+    expect(fixture.componentInstance.mainNodesFor(sectionB).map((n) => n.number)).toEqual([1, 4]);
+    flushTree(2, tree(), true);
   });
 
   it('a project still cloning shows a cloning state instead of its tree', () => {

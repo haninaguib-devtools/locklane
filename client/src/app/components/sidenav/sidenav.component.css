@@ -336,6 +336,11 @@
   color: var(--faint);
 }
 
+/* One project's own tree request failed (#787) -- the others are unaffected. */
+.state.tree-error {
+  color: var(--danger, #b3432b);
+}
+
 ul {
   list-style: none;
 }
