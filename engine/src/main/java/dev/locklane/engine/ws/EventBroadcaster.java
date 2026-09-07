@@ -11,7 +11,6 @@ import org.springframework.web.socket.WebSocketSession;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -22,14 +21,23 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>{@link EventsWebSocketHandler} registers and unregisters sessions here as
  * connections come and go; this class only fans a message out to whatever is
- * currently registered.
+ * currently registered. What it registers is the serializing wrapper
+ * {@link TerminalHeartbeat#serialized} puts around each connection (#761), so a
+ * broadcast from any thread and the heartbeat's ping never write to one socket at the
+ * same time. The registry is keyed by session id, which the wrapper delegates, so
+ * {@link #unregister} finds the wrapper when Spring hands back the raw session.
+ *
+ * <p>A broadcast never aborts part-way through the set (#761): a session whose write
+ * throws is logged, dropped from the registry, and closed, and the loop carries on to
+ * the rest — otherwise every session after it would miss the message, and a
+ * cache-driven producer such as the scheduled issue poll would never re-announce it.
  */
 @Component
 public class EventBroadcaster {
 
     private static final Logger log = LoggerFactory.getLogger(EventBroadcaster.class);
 
-    private final Set<WebSocketSession> sessions = ConcurrentHashMap.newKeySet();
+    private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper;
 
     public EventBroadcaster(ObjectMapper objectMapper) {
@@ -37,11 +45,11 @@ public class EventBroadcaster {
     }
 
     void register(WebSocketSession session) {
-        sessions.add(session);
+        sessions.put(session.getId(), session);
     }
 
     void unregister(WebSocketSession session) {
-        sessions.remove(session);
+        sessions.remove(session.getId());
     }
 
     /**
@@ -66,8 +74,16 @@ public class EventBroadcaster {
      */
     public void broadcast(String type, Map<String, ?> fields) {
         TextMessage payload = toMessage(type, fields);
-        for (WebSocketSession session : sessions) {
-            send(session, payload);
+        for (WebSocketSession session : sessions.values()) {
+            try {
+                send(session, payload);
+            } catch (RuntimeException e) {
+                // Contained per session (#761): this one connection's failure — a
+                // write its serializing wrapper refused, or anything else unexpected
+                // — must not cost every session after it the message.
+                log.warn("Broadcast of '{}' to session {} failed; dropping that session", type, session.getId(), e);
+                drop(session);
+            }
         }
     }
 
@@ -93,7 +109,7 @@ public class EventBroadcaster {
 
     private void send(WebSocketSession session, TextMessage payload) {
         if (!session.isOpen()) {
-            sessions.remove(session);
+            sessions.remove(session.getId());
             return;
         }
         try {
@@ -107,6 +123,22 @@ public class EventBroadcaster {
             } catch (IOException ignored) {
                 // silent: already gone — nothing productive to do with this failure here.
             }
+        }
+    }
+
+    /**
+     * Removes a session whose write just failed unexpectedly and closes it, so the
+     * client gets a real close event to reconnect from rather than a socket that
+     * silently stopped receiving. Removed here rather than only via the close's own
+     * afterConnectionClosed callback, so a close that itself fails still leaves the
+     * session out of the next broadcast.
+     */
+    private void drop(WebSocketSession session) {
+        sessions.remove(session.getId());
+        try {
+            session.close(CloseStatus.SERVER_ERROR);
+        } catch (IOException | RuntimeException e) {
+            log.debug("Closing dropped session {} failed", session.getId(), e);
         }
     }
 }

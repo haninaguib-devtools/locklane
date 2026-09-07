@@ -280,7 +280,7 @@ class ProjectGhResourcesTest {
     }
 
     @Test
-    void refreshAllNeverBroadcastsForAProjectThatWasNeverLookedUp(@TempDir Path dataDir) throws IOException {
+    void refreshAllBroadcastsNothingWhenNoProjectExists(@TempDir Path dataDir) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
@@ -289,6 +289,92 @@ class ProjectGhResourcesTest {
         resources.refreshAll();
 
         verifyNoInteractions(broadcaster);
+    }
+
+    // #763: the poll walks every READY project in the repository, not just the
+    // contexts a request happened to build -- an evicted project (a token renewal
+    // evicts every project of the account) is polled again on the very next tick, and
+    // so is one nobody has opened since the engine started.
+
+    @Test
+    void refreshAllRebuildsAnEvictedProjectsContextAndBroadcastsIssuesChangedWhenItsIssuesChanged(@TempDir Path dataDir)
+            throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = readyProject(repository, dataDir, "myproj");
+        VariableGhClient client = new VariableGhClient();
+        client.setIssues(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
+        AtomicInteger builds = new AtomicInteger();
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> {
+                    builds.incrementAndGet();
+                    return client;
+                });
+        resources.forProject(project.id());
+        resources.refreshAll(); // warms the cache
+
+        resources.evict(project.id());
+        client.setIssues(List.of(new GhIssue(2, "Second", "OPEN", List.of(), "", "", "")));
+        resources.refreshAll();
+
+        assertThat(builds.get()).isEqualTo(2);
+        verify(broadcaster, times(2)).broadcast("issuesChanged", Map.of("projectId", project.id()));
+        assertThat(resources.forProject(project.id()).orElseThrow().cache().issues())
+                .extracting(GhIssue::title).containsExactly("Second");
+    }
+
+    @Test
+    void refreshAllPollsAReadyProjectNobodyHasLookedUpYet(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord project = readyProject(repository, dataDir, "myproj");
+        VariableGhClient client = new VariableGhClient();
+        client.setIssues(List.of(new GhIssue(1, "First", "OPEN", List.of(), "", "", "")));
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, (path, token) -> client);
+
+        resources.refreshAll();
+
+        verify(broadcaster, times(1)).broadcast("issuesChanged", Map.of("projectId", project.id()));
+        assertThat(resources.forProject(project.id()).orElseThrow().cache().issues())
+                .extracting(GhIssue::title).containsExactly("First");
+    }
+
+    @Test
+    void refreshAllSkipsProjectsThatAreStillCloningOrFailedToClone(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        repository.create("fresh", "https://github.com/org/fresh.git", dataDir.resolve("fresh"), 1L, Instant.now());
+        ProjectRecord broken = repository.create("broken", "https://github.com/org/broken.git",
+                dataDir.resolve("broken"), 1L, Instant.now());
+        repository.markFailed(broken.id());
+        RecordingFactory factory = new RecordingFactory();
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        ProjectGhResources resources = new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, factory);
+
+        resources.refreshAll();
+
+        assertThat(factory.callCount).isZero();
+        verifyNoInteractions(broadcaster);
+    }
+
+    @Test
+    void refreshAllKeepsPollingTheOtherProjectsWhenOneOfThemBlowsUp(@TempDir Path dataDir) throws IOException {
+        ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
+        ProjectRecord exploding = readyProject(repository, dataDir, "exploding");
+        ProjectRecord healthy = readyProject(repository, dataDir, "healthy");
+        AtomicInteger healthyFetches = new AtomicInteger();
+        ProjectGhResources resources = resources(dataDir, repository, (path, token) -> {
+            if (path.equals(exploding.workareaPath())) {
+                throw new IllegalStateException("not a GhUnavailableException, so the cache does not swallow it");
+            }
+            return new RecordingGhClient(healthyFetches);
+        });
+
+        resources.refreshAll();
+
+        assertThat(healthyFetches.get()).isEqualTo(1);
+        assertThat(resources.forProject(healthy.id())).isPresent();
     }
 
     // #656: a Bad-credentials refresh asks the registered renewer once, retries with a

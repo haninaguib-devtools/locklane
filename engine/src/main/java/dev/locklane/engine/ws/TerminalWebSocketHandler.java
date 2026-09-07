@@ -119,7 +119,13 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession wsSession) throws Exception {
+    public void afterConnectionEstablished(WebSocketSession connection) throws Exception {
+        // Every write to this connection — the buffered replay below, each PTY chunk the
+        // drain thread forwards, the heartbeat's ping — goes through one serializing
+        // wrapper (#761); the raw session is never handed to any writer. The heartbeat
+        // and the subscription map key by id, which the wrapper delegates, so the raw
+        // session Spring hands afterConnectionClosed still finds both entries.
+        WebSocketSession wsSession = TerminalHeartbeat.serialized(connection);
         String sessionId = sessionId(wsSession);
         Path workingDirectory = resolveWorkingDirectory(wsSession, sessionId);
         if (workingDirectory == null) {
@@ -267,6 +273,20 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             // silent: the connection is going away; afterConnectionClosed will clean
             // up the subscription shortly. Nothing productive to do with this failure
             // here.
+        } catch (RuntimeException e) {
+            // Contained here, per connection (#761): a write the serializing wrapper
+            // refused — a client that stopped reading, past its send-time or buffer
+            // limit — is this one connection's problem, and letting it escape into
+            // PtySession's drain loop would stop output for every client attached to
+            // the session. Closing it hands cleanup to afterConnectionClosed like any
+            // other close.
+            log.debug("Forwarding output to session {} failed; closing", wsSession.getId(), e);
+            try {
+                wsSession.close(CloseStatus.SERVER_ERROR);
+            } catch (IOException | RuntimeException ignored) {
+                // silent: already going away; nothing productive to do with this
+                // failure here.
+            }
         }
     }
 

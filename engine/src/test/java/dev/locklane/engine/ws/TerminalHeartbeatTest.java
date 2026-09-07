@@ -12,8 +12,10 @@ import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -73,6 +75,38 @@ class TerminalHeartbeatTest {
         heartbeat.tick(); // two intervals with no pong -- stale
 
         verify(session).close(any(CloseStatus.class));
+    }
+
+    @Test
+    void aSessionWhosePingThrowsIsClosedAndTheTickContinuesToTheOthers() throws Exception {
+        // #761: a RuntimeException from one session's write — the IllegalStateException
+        // Tomcat raises on a colliding send, or a refused write from the serializing
+        // wrapper — must not abort the tick for every session after it.
+        MutableClock clock = new MutableClock(Instant.EPOCH);
+        TerminalHeartbeat heartbeat = new TerminalHeartbeat(clock, INTERVAL_MS);
+        WebSocketSession first = fakeSession("a");
+        WebSocketSession broken = fakeSession("b");
+        WebSocketSession third = fakeSession("c");
+        doThrow(new IllegalStateException("The remote endpoint was in state [TEXT_PARTIAL_WRITING]"))
+                .when(broken).sendMessage(any());
+        heartbeat.track(first);
+        heartbeat.track(broken);
+        heartbeat.track(third);
+
+        heartbeat.tick();
+
+        verify(first).sendMessage(any(PingMessage.class));
+        verify(third).sendMessage(any(PingMessage.class));
+        verify(broken).close(any(CloseStatus.class));
+        verify(first, never()).close(any(CloseStatus.class));
+        verify(third, never()).close(any(CloseStatus.class));
+
+        // And the broken one is untracked: the next tick never pings it again.
+        clock.advance(INTERVAL_MS);
+        heartbeat.tick();
+        verify(broken, times(1)).sendMessage(any());
+        verify(first, times(2)).sendMessage(any(PingMessage.class));
+        verify(third, times(2)).sendMessage(any(PingMessage.class));
     }
 
     @Test

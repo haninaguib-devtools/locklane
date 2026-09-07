@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -46,6 +47,9 @@ class EventsWebSocketHandlerIntegrationTest {
     @Autowired
     private BuildProperties buildProperties;
 
+    @Value("${locklane.events.heartbeat-interval-ms}")
+    private long heartbeatIntervalMs;
+
     @Test
     void connectingYieldsAnEngineVersionStampBeforeAnyOtherTraffic() throws Exception {
         String cookie = AuthenticatedWebSocketClients.loginAs(port, userRepository, passwordEncoder,
@@ -61,6 +65,8 @@ class EventsWebSocketHandlerIntegrationTest {
         assertThat(greeting.path("type").asText()).isEqualTo("engineVersion");
         assertThat(greeting.path("version").asText()).isNotEmpty();
         assertThat(greeting.path("release").asText()).isEqualTo(buildProperties.getVersion());
+        // #762: the interval the client's own liveness check counts against, as configured.
+        assertThat(greeting.path("heartbeatIntervalMs").asLong()).isEqualTo(heartbeatIntervalMs);
 
         session.close();
         // Leave the broadcaster's registry empty before finishing, so the other tests'
@@ -112,7 +118,7 @@ class EventsWebSocketHandlerIntegrationTest {
         // send, in the same server-side thread), so the count check below is immediate.
         waitUntil(() -> !client.messages.isEmpty(), Duration.ofSeconds(5));
         waitUntil(() -> eventBroadcaster.registeredSessionCount() == 1, Duration.ofSeconds(5));
-        int messagesBeforeClose = client.messages.size();
+        long messagesBeforeClose = client.eventMessageCount();
 
         session.close();
         // No client-observable callback proves the server has unregistered the session:
@@ -126,7 +132,7 @@ class EventsWebSocketHandlerIntegrationTest {
         // Must not throw even though the only subscriber just disconnected.
         eventBroadcaster.broadcast("no.subscribers.left");
 
-        assertThat(client.messages).hasSize(messagesBeforeClose);
+        assertThat(client.eventMessageCount()).isEqualTo(messagesBeforeClose);
     }
 
     private String uri() {
@@ -150,6 +156,16 @@ class EventsWebSocketHandlerIntegrationTest {
         @Override
         protected void handleTextMessage(WebSocketSession session, TextMessage message) {
             messages.add(message.getPayload());
+        }
+
+        /**
+         * Everything received except the engine's own liveness messages (#762): those
+         * arrive on the heartbeat schedule regardless of what a test does, so a count
+         * that included them could change between two reads for reasons unrelated to
+         * what the test is asserting.
+         */
+        long eventMessageCount() {
+            return messages.stream().filter(m -> !m.equals("{\"type\":\"heartbeat\"}")).count();
         }
     }
 }

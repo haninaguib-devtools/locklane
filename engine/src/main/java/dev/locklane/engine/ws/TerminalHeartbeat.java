@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.PingMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 
 import java.io.IOException;
 import java.time.Clock;
@@ -27,6 +28,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * independent of {@link TerminalWebSocketHandler}'s subscription bookkeeping, so it
  * can be exercised directly with a fake session and a controllable {@link Clock}
  * rather than through a full PTY attach.
+ *
+ * <p>Also home to {@link #serialized}, the one-lock wrapper every write to a live
+ * connection goes through (#761): this heartbeat is the writer both endpoints' sessions
+ * have in common, so the wrapper that keeps its pings from colliding with a broadcast
+ * or a PTY drain thread's output lives alongside it.
  */
 class TerminalHeartbeat {
 
@@ -35,6 +41,44 @@ class TerminalHeartbeat {
     // One missed pong could just be a slow tick under load; two in a row is treated
     // as the connection actually being gone.
     static final int MISSED_PONGS_BEFORE_CLOSE = 2;
+
+    /**
+     * How long one write may block before the connection is judged stuck (#761). A
+     * client that stops reading — a suspended laptop whose socket has not died yet —
+     * would otherwise hold the writer, and with it the lock every other writer to that
+     * connection waits on, indefinitely.
+     */
+    static final int SEND_TIME_LIMIT_MS = 10_000;
+
+    /**
+     * How much output may queue up behind a slow write before the connection is judged
+     * stuck (#761). Sized for a terminal's output bursts, which are far larger than
+     * anything on the events channel.
+     */
+    static final int SEND_BUFFER_LIMIT_BYTES = 1024 * 1024;
+
+    /**
+     * Wraps a freshly-established connection so that every write to it — a broadcast
+     * from whichever thread produced the event, a PTY drain thread's output, this
+     * heartbeat's own ping — goes through one lock (#761). Tomcat's session is not safe
+     * for concurrent sends: two threads writing at once throws
+     * {@code IllegalStateException} ("The remote endpoint was in state
+     * [TEXT_PARTIAL_WRITING]"), which is exactly the collision seen in production
+     * between a scheduled broadcast and a heartbeat ping. Spring's decorator lets one
+     * writer through at a time and queues the rest; past {@link #SEND_TIME_LIMIT_MS} or
+     * {@link #SEND_BUFFER_LIMIT_BYTES} it gives up on that one connection with a
+     * {@code SessionLimitExceededException} instead of holding everyone else's writes
+     * hostage to a client that stopped reading.
+     *
+     * <p>The handlers register the wrapper — never the raw session — with every writer,
+     * and each writer keys its bookkeeping by {@link WebSocketSession#getId()}, which the
+     * wrapper delegates, so the raw session Spring hands back to
+     * {@code afterConnectionClosed} still finds the entry the wrapper was registered
+     * under.
+     */
+    static WebSocketSession serialized(WebSocketSession connection) {
+        return new ConcurrentWebSocketSessionDecorator(connection, SEND_TIME_LIMIT_MS, SEND_BUFFER_LIMIT_BYTES);
+    }
 
     private final Clock clock;
     private final long intervalMs;
@@ -75,7 +119,10 @@ class TerminalHeartbeat {
             }
             try {
                 wsSession.sendMessage(new PingMessage());
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
+                // Contained per session (#761): one connection failing its ping — the
+                // socket already gone, or a write its serializing wrapper refused — must
+                // not abort this tick for every session after it in the set.
                 log.debug("Ping failed for session {}; closing", wsSession.getId(), e);
                 closeStale(wsSession);
             }
@@ -90,7 +137,7 @@ class TerminalHeartbeat {
         untrack(wsSession);
         try {
             wsSession.close(CloseStatus.SESSION_NOT_RELIABLE.withReason("No pong received"));
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             // silent: already going away; nothing productive to do with this failure
             // here.
         }
