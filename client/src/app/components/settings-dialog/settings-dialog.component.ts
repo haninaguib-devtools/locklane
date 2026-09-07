@@ -3,13 +3,17 @@ import { FormsModule } from '@angular/forms';
 import { AccountService, TwoFactorEnrollment } from '../../services/account.service';
 import { AccentPreset, ACCENT_PRESETS, AccentThemeStore } from '../../services/accent-theme-store';
 import { DefaultAgent, DefaultAgentStore } from '../../services/default-agent-store';
+import { DefaultIdeStore } from '../../services/default-ide-store';
 
 type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enabled';
 
 /**
  * The settings dialog (#90): a title bar and a body holding a default-agent section
  * (#219) -- rendering a button only for a CLI the engine detected as installed at
- * startup (#359, {@link DefaultAgentStore.installed}) -- an appearance section (#387)
+ * startup (#359, {@link DefaultAgentStore.installed}) -- an IDE section (#782) of the
+ * same shape, one button per IDE this browser may open a worktree in
+ * ({@link DefaultIdeStore.available}) and hidden altogether when there is only one so
+ * there is nothing to choose between -- an appearance section (#387)
  * of accent-color swatches, a password section (#241) for self-service password
  * change, and the two-factor authentication section (#91) -- enable (enroll,
  * scan/enter, confirm), disable (password), and the current status in between.
@@ -34,12 +38,19 @@ type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enable
 export class SettingsDialogComponent implements OnInit {
   private readonly accountService = inject(AccountService);
   private readonly defaultAgentStore = inject(DefaultAgentStore);
+  private readonly defaultIdeStore = inject(DefaultIdeStore);
   private readonly accentThemeStore = inject(AccentThemeStore);
 
   @Output() closed = new EventEmitter<void>();
 
   readonly defaultAgent = this.defaultAgentStore.agent;
   readonly installedAgents = this.defaultAgentStore.installed;
+
+  // #782: the IDEs this browser may pick, and the one "Open IDE" will actually use --
+  // the effective choice rather than the raw stored id, so a stored desktop IDE seen from
+  // a remote page, or one no longer installed, shows code-server as chosen.
+  readonly availableIdes = this.defaultIdeStore.available;
+  readonly effectiveIde = this.defaultIdeStore.effective;
 
   readonly accentPresets = ACCENT_PRESETS;
   readonly accentPreset = this.accentThemeStore.preset;
@@ -77,6 +88,10 @@ export class SettingsDialogComponent implements OnInit {
     this.defaultAgentStore.set(agent);
   }
 
+  chooseIde(ide: string): void {
+    this.defaultIdeStore.set(ide);
+  }
+
   chooseAccent(preset: AccentPreset): void {
     this.accentThemeStore.choose(preset);
   }
@@ -104,6 +119,7 @@ export class SettingsDialogComponent implements OnInit {
 
   ngOnInit(): void {
     this.defaultAgentStore.refreshInstalled();
+    this.defaultIdeStore.refreshInstalled();
     this.loadStatus();
   }
 

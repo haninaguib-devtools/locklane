@@ -56,12 +56,14 @@
   margin-bottom: 8px;
 }
 
-.agent-toggle {
+.agent-toggle,
+.ide-toggle {
   display: flex;
   gap: 8px;
 }
 
-.agent-option {
+.agent-option,
+.ide-option {
   flex: 1;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -72,7 +74,8 @@
   cursor: pointer;
 }
 
-.agent-option.chosen {
+.agent-option.chosen,
+.ide-option.chosen {
   border-color: var(--accent);
   color: var(--accent);
 }

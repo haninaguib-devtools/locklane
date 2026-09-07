@@ -22,6 +22,28 @@
         </div>
       </section>
 
+      @if (availableIdes().length > 1) {
+        <!-- #782: only when there is something to choose between -- a desktop IDE is
+             offered only on localhost, so over the network this is code-server alone
+             and the section stays hidden. -->
+        <section class="section">
+          <h2>IDE</h2>
+          <p class="muted">Which editor "Open IDE" opens an agent's worktree in.</p>
+          <div class="ide-toggle" role="group" aria-label="IDE">
+            @for (ide of availableIdes(); track ide.id) {
+              <button
+                type="button"
+                class="ide-option"
+                [class.chosen]="effectiveIde().id === ide.id"
+                (click)="chooseIde(ide.id)"
+              >
+                {{ ide.label }}
+              </button>
+            }
+          </div>
+        </section>
+      }
+
       <section class="section">
         <h2>Appearance</h2>
         <p class="muted">Pick the accent color used for buttons, selections, and highlights.</p>
