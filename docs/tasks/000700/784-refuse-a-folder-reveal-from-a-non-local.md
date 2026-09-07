@@ -55,7 +55,11 @@ none
   (#806's merge), and this branch changes no file under `client/`, so it is a
   pre-existing defect on `main`, not this task's. Fixing it means touching
   `client/angular.json` or shrinking the initial bundle, both outside this task's Scope,
-  so it is not fixed here; the engine module's own suite was run separately
-  (`./mvnw -B -pl engine -am -Dskip.npm test`) and passes. Proposed issue for the human
+  so it is not fixed here. The engine module's own suite was run separately
+  (`./mvnw -B -pl engine -am -Dskip.npm test`): 946 of 949 tests pass, and the three
+  that fail are all `SpaFallbackControllerTest`, which serves the client's built
+  `index.html` and gets a 404 because the skipped client build produced none — a
+  consequence of the same client failure, not of this diff. Every test this task adds
+  or touches passes. Proposed issue for the human
   to open: "Client production build exceeds the 1.1 MB initial-bundle budget" (bug). The
   check is recorded as FAIL, never softened. (agent, 2026-09-07)
