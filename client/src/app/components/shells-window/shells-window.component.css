@@ -1,6 +1,28 @@
 .window {
   display: flex;
+  flex-direction: column;
   height: 100vh;
+  overflow: hidden;
+}
+
+/* Empty by default — a normal browser tab or a non-Chromium install reserves
+   no space and drags nothing. Only .wco-active (set from
+   `navigator.windowControlsOverlay`) turns this into the overlay's title
+   area (#741). */
+.titlebar {
+  flex: none;
+  height: 0;
+}
+
+.window.wco-active .titlebar {
+  height: env(titlebar-area-height, 33px);
+  -webkit-app-region: drag;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 

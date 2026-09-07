@@ -1,46 +1,52 @@
-<div class="window">
-  <aside class="side">
-    <div class="side-title">Shells</div>
-    <app-shells-sidenav
-      [shells]="shells"
-      [projects]="projects"
-      [selected]="selected"
-      (selectShell)="select($event)"
-      (closeShell)="requestClose($event)"
-      (openMainShell)="openMainShell($event)"
-    />
-  </aside>
-  <main class="content">
-    @if (closeError) {
-      <div class="action-error">could not close that shell — try again</div>
-    }
-    @if (openError) {
-      <div class="action-error">could not open a shell — try again</div>
-    }
-    @if (loading) {
-      <div class="placeholder">loading…</div>
-    } @else if (!shells.length) {
-      <div class="placeholder">
-        No open shells. Open one from a console tab or a project — this window keeps
-        listing them as they come and go.
-      </div>
-    } @else if (!selected) {
-      <div class="placeholder">Select a shell on the left.</div>
-    }
-    <!-- Every shell's terminal stays mounted, hidden when not selected (#30), so
-         switching never drops a connection or its scrollback. -->
-    <div class="terminals">
-      @for (shell of shells; track shell.sessionId) {
-        <app-terminal
-          [class.tab-hidden]="shell.sessionId !== selected"
-          [sessionId]="shell.sessionId"
-          [dir]="shell.workingDirectory"
-          cmd="shell"
-          [active]="shell.sessionId === selected"
-        />
+<div class="window" [class.wco-active]="wcoActive">
+  <!-- Draggable chrome the OS overlays its own window controls onto (#741) —
+       reserved only once the overlay is actually active, never in a normal
+       browser tab. -->
+  <div class="titlebar" aria-hidden="true"></div>
+  <div class="body">
+    <aside class="side">
+      <div class="side-title">Shells</div>
+      <app-shells-sidenav
+        [shells]="shells"
+        [projects]="projects"
+        [selected]="selected"
+        (selectShell)="select($event)"
+        (closeShell)="requestClose($event)"
+        (openMainShell)="openMainShell($event)"
+      />
+    </aside>
+    <main class="content">
+      @if (closeError) {
+        <div class="action-error">could not close that shell — try again</div>
       }
-    </div>
-  </main>
+      @if (openError) {
+        <div class="action-error">could not open a shell — try again</div>
+      }
+      @if (loading) {
+        <div class="placeholder">loading…</div>
+      } @else if (!shells.length) {
+        <div class="placeholder">
+          No open shells. Open one from a console tab or a project — this window keeps
+          listing them as they come and go.
+        </div>
+      } @else if (!selected) {
+        <div class="placeholder">Select a shell on the left.</div>
+      }
+      <!-- Every shell's terminal stays mounted, hidden when not selected (#30), so
+           switching never drops a connection or its scrollback. -->
+      <div class="terminals">
+        @for (shell of shells; track shell.sessionId) {
+          <app-terminal
+            [class.tab-hidden]="shell.sessionId !== selected"
+            [sessionId]="shell.sessionId"
+            [dir]="shell.workingDirectory"
+            cmd="shell"
+            [active]="shell.sessionId === selected"
+          />
+        }
+      </div>
+    </main>
+  </div>
 </div>
 @if (pendingClose) {
   <app-confirm-dialog
