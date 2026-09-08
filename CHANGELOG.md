@@ -8,6 +8,26 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.21 — 2026-09-07
+
+### Features
+- About dialog version links to its GitHub release page (#799, #806)
+- Render each project when its issues finish loading (#787, #796)
+- Warm GitHub issue caches immediately at startup (#786, #794)
+
+### Fixes
+- Agents page forgets the selected tab when the user leaves and returns (#810, #812)
+- Refuse a Folder reveal from a non-local browser server-side (#784, #808)
+- Client production build exceeds the 1.1 MB initial-bundle budget (#809, #811)
+- Focused project window loses its focus after in-app navigation (#803, #807)
+- Keep loaded project sections visible when a sidenav refresh's project-list request fails (#801, #804)
+- Reopening a past conversation from the project page never resumes it (#795, #802)
+- Project page does not fill the window beside the past-conversations rail (#785, #792)
+
+### Other
+- Let the user choose which IDE Open IDE launches (#780, #805)
+- Show which agent tab is waiting for attention (#789, #800)
+
 ## v0.2.20 — 2026-09-07
 
 ### Features
