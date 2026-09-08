@@ -531,24 +531,14 @@ ul.branch {
   padding: 0 2px;
 }
 
-/* Opacity keeps secondary actions in the tab order; focus reveals the whole row.
-   Touch and hybrid devices retain visible actions without needing a hover. */
-@media (hover: hover) and (pointer: fine) and (not (any-pointer: coarse)) {
-  .section-header .new-console,
-  .section-header .pop-out,
-  .row .kebab {
-    opacity: 0;
-  }
+.kebab {
+  visibility: hidden;
+}
 
-  .section-header:hover .new-console,
-  .section-header:focus-within .new-console,
-  .section-header:hover .pop-out,
-  .section-header:focus-within .pop-out,
-  .row:hover .kebab,
-  .row:focus-within .kebab,
-  .menu-wrap.open .kebab {
-    opacity: 1;
-  }
+.row:hover .kebab,
+.row:focus-within .kebab,
+.menu-wrap.open .kebab {
+  visibility: visible;
 }
 
 .menu {
