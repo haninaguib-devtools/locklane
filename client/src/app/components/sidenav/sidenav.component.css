@@ -1,6 +1,11 @@
+/* The host fills the `.sidebar` aside (app.component.css), which is a plain block, not
+   a flex container -- so the host needs a real height of its own. Without it (#819) the
+   panel grows to its content, the case list never gets a bounded height to scroll in,
+   and the usage widget rides down with the list instead of pinning to the bottom. */
 :host {
   display: flex;
-  flex: 1;
+  flex-direction: column;
+  height: 100%;
   min-width: 0;
   min-height: 0;
 }
