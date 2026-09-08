@@ -8,6 +8,11 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.23 — 2026-09-08
+
+### Fixes
+- Sidebar no longer scrolls and usage widget is not pinned to the bottom after #815 (#819, #820)
+
 ## v0.2.22 — 2026-09-08
 
 ### Features
