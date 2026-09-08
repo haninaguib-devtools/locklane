@@ -24,9 +24,10 @@ none
 ## Verification
 - role: maintainer — required: true
   what: Exercise this build in a real installed macOS Chrome/Edge PWA; capture desktop appearance and verify window dragging, native buttons, app/browser menus, back navigation, agent tabs and resizing. Check overlay on/off and a normal browser tab. Record exact build/browser, evidence, and any observed manifest update/relaunch steps.
-  state: pending
-  evidence: awaiting — revision: `none yet`
-  by: maintainer — date: —
+  scope: client/**
+  state: verified
+  evidence: maintainer exercised the delivered build as an installed macOS Chromium PWA in-session (screenshots supplied for each pass; window controls, header, tabs and sidebar reviewed on the running app) and confirmed at ship time — revision: `5d1caeb5eca2a199c12e6351eb3482f26bbef2e9`
+  by: maintainer — date: 2026-09-07
 
 ## Feedback
 - 2026-09-07, maintainer, in-session after opening the first delivered build as an installed PWA (screenshot supplied; mockup of the response: https://claude.ai/code/artifact/a3294de0-5ccd-442f-ae5d-51913a739a6d). Three items, in the maintainer's words: (1) "The top bar is black it should be same color as the sidenav"; (2) the header "should go back to how it was before, with the agents widget, add project and user menus. remove the 'add project' and user menus from the sidenav"; (3) "The header should change colors as before dependent on the project settings selected by the user." Asked separately whether to keep the new dark tab-bar header on the agent view: "keep the old tab strip".
