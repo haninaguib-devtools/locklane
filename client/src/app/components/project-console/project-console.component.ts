@@ -424,18 +424,28 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
           return;
         }
         // The consoles page (#179) hands off with ?session=<id> naming the tab
-        // to activate; otherwise reattach where the user left off -- the most
-        // recently attached console, which is what this page showed before it
-        // had tabs. (Routing is component-less, so the query param is read off
-        // the root route.)
+        // to activate; otherwise reattach where the user left off. That is the
+        // tab this browser last selected on this project (LastConsoleStore, #221)
+        // when it is still open -- not the engine's most recently attached
+        // console: unselected tabs stay attached, merely hidden, so a tab switch
+        // never moves lastAttachedAt, and on re-entry every console reattaches at
+        // once, making the engine's winner whichever socket connected last (#810).
+        // The most recently attached console -- what this page showed before it
+        // had tabs -- is the fallback when nothing usable is remembered. (Routing
+        // is component-less, so the query param is read off the root route.)
+        const isOpen = (id: string | null): id is string =>
+          id !== null && this.consoles.some((c) => c.id === id);
+        const remembered = this.lastConsoleStore.get(projectId);
         this.selectConsole(
-          requestedSession && this.consoles.some((c) => c.id === requestedSession)
+          isOpen(requestedSession)
             ? requestedSession
-            : sessions.reduce(
-                (latest: OpenProjectConsole | null, s) =>
-                  !latest || Date.parse(s.lastAttachedAt) > Date.parse(latest.lastAttachedAt) ? s : latest,
-                null,
-              )?.sessionId ?? null,
+            : isOpen(remembered)
+              ? remembered
+              : sessions.reduce(
+                  (latest: OpenProjectConsole | null, s) =>
+                    !latest || Date.parse(s.lastAttachedAt) > Date.parse(latest.lastAttachedAt) ? s : latest,
+                  null,
+                )?.sessionId ?? null,
         );
       },
       error: () => {
