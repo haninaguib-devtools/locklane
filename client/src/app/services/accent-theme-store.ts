@@ -33,7 +33,9 @@ const DEFAULT_PRESET = ACCENT_PRESETS[0];
  * `var(--accent)` usage picks it up unchanged and it takes effect on the very first
  * paint -- {@link AppComponent} injects this store eagerly (it is otherwise unused
  * there) purely to trigger that constructor-time apply before the settings dialog is
- * ever opened.
+ * ever opened. Also updates the `theme-color` meta tag to the preset's soft tint (#825)
+ * so an installed PWA's window-controls-overlay strip matches from first paint too,
+ * rather than flashing the static sidebar color from `index.html`.
  */
 @Injectable({ providedIn: 'root' })
 export class AccentThemeStore {
@@ -72,4 +74,7 @@ function save(id: string): void {
 function apply(preset: AccentPreset): void {
   document.documentElement.style.setProperty('--accent', preset.accent);
   document.documentElement.style.setProperty('--accent-soft', preset.accentSoft);
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', preset.accentSoft);
 }
