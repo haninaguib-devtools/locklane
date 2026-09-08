@@ -1,3 +1,4 @@
+import { SimpleChange } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
 import { OverviewTabComponent } from './overview-tab.component';
@@ -169,27 +170,53 @@ describe('OverviewTabComponent', () => {
     expect(c.recordUrl).toBeNull();
   });
 
-  it('has no body html when the issue body is empty', () => {
+  /**
+   * Binds the issue the way the template does and waits for the body render, which is
+   * asynchronous since #809 (the markdown renderer is a lazy chunk).
+   */
+  async function withIssue(c: OverviewTabComponent, i: GhIssue): Promise<void> {
+    const previous = c.issue;
+    c.issue = i;
+    await c.ngOnChanges({ issue: new SimpleChange(previous, i, previous === undefined) });
+  }
+
+  it('has no body html when the issue body is empty', async () => {
     const c = component();
-    c.issue = issue({ body: '' });
+    await withIssue(c, issue({ body: '' }));
     expect(c.bodyHtml).toBeNull();
   });
 
-  it('renders markdown headings and lists as HTML rather than raw text', () => {
+  it('renders markdown headings and lists as HTML rather than raw text', async () => {
     const c = component();
-    c.issue = issue({ body: '## Heading\n\n- one\n- two' });
+    await withIssue(c, issue({ body: '## Heading\n\n- one\n- two' }));
     const html = c.bodyHtml as unknown as string;
     expect(html).toContain('<h2>Heading</h2>');
     expect(html).toContain('<li>one</li>');
     expect(html).not.toContain('##');
   });
 
-  it('sanitizes a script tag out of the rendered body', () => {
+  it('sanitizes a script tag out of the rendered body', async () => {
     const c = component();
-    c.issue = issue({ body: 'hello<script>alert(1)</script>world' });
+    await withIssue(c, issue({ body: 'hello<script>alert(1)</script>world' }));
     const html = c.bodyHtml as unknown as string;
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('alert(1)');
+  });
+
+  it('clears a previously rendered body when the next issue has none', async () => {
+    const c = component();
+    await withIssue(c, issue({ body: 'some text' }));
+    expect(c.bodyHtml).not.toBeNull();
+    await withIssue(c, issue({ number: 43, body: '' }));
+    expect(c.bodyHtml).toBeNull();
+  });
+
+  it('leaves the body alone when an unrelated input changes', async () => {
+    const c = component();
+    await withIssue(c, issue({ body: 'some text' }));
+    const rendered = c.bodyHtml;
+    await c.ngOnChanges({ busy: new SimpleChange(false, true, false) });
+    expect(c.bodyHtml).toBe(rendered);
   });
 });
 

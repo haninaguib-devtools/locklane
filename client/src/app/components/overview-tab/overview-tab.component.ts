@@ -1,7 +1,5 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, SimpleChanges } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import DOMPurify from 'dompurify';
-import { marked } from 'marked';
 import { CheckRun, GhIssue, IssueDetail, ResumeSession } from '../../models/issue.model';
 import { SessionListComponent } from '../session-list/session-list.component';
 
@@ -12,7 +10,7 @@ import { SessionListComponent } from '../session-list/session-list.component';
   templateUrl: './overview-tab.component.html',
   styleUrl: './overview-tab.component.css',
 })
-export class OverviewTabComponent {
+export class OverviewTabComponent implements OnChanges {
   @Input({ required: true }) issue!: GhIssue;
   @Input() detail: IssueDetail | null = null;
   @Input() repoWebUrl: string | null = null;
@@ -32,15 +30,45 @@ export class OverviewTabComponent {
     this.checksExpanded = !this.checksExpanded;
   }
 
+  /**
+   * The issue body rendered from markdown, or null while there is no body or the
+   * render is still in flight. Set once per issue change from ngOnChanges rather than
+   * computed by a getter: the markdown renderer is imported lazily (below), which makes
+   * the render asynchronous -- and the old getter re-parsed and re-sanitized the whole
+   * body on every change-detection pass anyway.
+   */
+  bodyHtml: SafeHtml | null = null;
+
+  /** Bumped per render so a slower earlier render never overwrites a newer one. */
+  private renderSeq = 0;
+
   constructor(private readonly sanitizer: DomSanitizer) {}
 
-  get bodyHtml(): SafeHtml | null {
-    if (!this.issue.body) {
-      return null;
+  ngOnChanges(changes: SimpleChanges): Promise<void> {
+    return changes['issue'] ? this.renderBody() : Promise.resolve();
+  }
+
+  private async renderBody(): Promise<void> {
+    const seq = ++this.renderSeq;
+    const body = this.issue.body;
+    if (!body) {
+      this.bodyHtml = null;
+      return;
     }
-    const rawHtml = marked.parse(this.issue.body, { async: false });
+    // `marked` and `dompurify` together are ~73 KB of the initial bundle for the one
+    // place -- this tab -- that renders markdown, so they are imported dynamically
+    // and land in their own lazy chunk (#809), the same way TerminalComponent loads
+    // the xterm WebGL addon. The body simply appears once the chunk has loaded.
+    const [{ marked }, { default: DOMPurify }] = await Promise.all([
+      import('marked'),
+      import('dompurify'),
+    ]);
+    if (seq !== this.renderSeq) {
+      return;
+    }
+    const rawHtml = marked.parse(body, { async: false });
     const safeHtml = DOMPurify.sanitize(rawHtml);
-    return this.sanitizer.bypassSecurityTrustHtml(safeHtml);
+    this.bodyHtml = this.sanitizer.bypassSecurityTrustHtml(safeHtml);
   }
 
   get issueUrl(): string | null {
