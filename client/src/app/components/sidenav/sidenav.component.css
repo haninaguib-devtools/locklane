@@ -1,6 +1,16 @@
+:host {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .sidenav {
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--sidebar);
   display: flex;
   flex-direction: column;
@@ -11,30 +21,43 @@
 .sidenav-scroll {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
 
+.sidenav-scroll > * {
+  flex-shrink: 0;
+}
+
+app-usage-widget {
+  flex: none;
+  max-height: 50%;
+  overflow-y: auto;
+}
+
 .controls {
-  padding: 6px 10px 6px;
+  padding: 8px 10px;
   display: flex;
-  flex-direction: column;
-  gap: 5px;
+  align-items: center;
+  gap: 10px;
 }
 
 .filter-row {
   display: flex;
+  flex: 1;
+  min-width: 0;
   gap: 6px;
 }
 
 .filter-input {
   flex: 1;
   min-width: 0;
-  height: 24px;
+  height: 28px;
   padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
   background: var(--panel);
   font-size: 12px;
   color: var(--text);
@@ -42,14 +65,19 @@
 
 .refresh {
   flex: none;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--panel);
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
   color: var(--muted);
   font-size: 13px;
   cursor: pointer;
+}
+
+.refresh:hover:not(:disabled) {
+  background: var(--border-soft);
+  color: var(--text);
 }
 
 .refresh:disabled {
@@ -71,9 +99,11 @@
 }
 
 .opened-toggle {
+  flex: none;
+  min-height: 28px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 6px;
   font-size: 11px;
   color: var(--muted);
@@ -112,17 +142,20 @@
 }
 
 .label {
-  padding: 6px 10px 2px;
+  padding: 10px 12px 4px;
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
 
 .project-name {
   padding: 4px 16px 2px;
   font-size: 11px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
 }
 
@@ -141,23 +174,23 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
-  margin-top: 4px;
-  padding: 3px 8px 3px 6px;
+  min-width: 0;
+  min-height: 30px;
+  margin: 4px 6px 0;
+  padding: 2px 4px;
+  border-radius: 5px;
   cursor: pointer;
 }
 
 .section-header:hover {
-  background: var(--bg);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
 }
 
 .section-header.active {
-  background: var(--panel);
-  box-shadow: inset 3px 0 0 var(--accent);
+  background: var(--border-soft);
 }
 
-/* Bigger than .issue-title (12px) so the project reads as the heading of everything
-   under it, and starts at the same inset as its rows. */
+/* Project names stay stronger than issue rows without competing with the workspace. */
 .section-header .project-label {
   flex: 1;
   min-width: 0;
@@ -165,7 +198,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12.5px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
 }
 
@@ -179,12 +212,12 @@
    project's console page, and is only rendered while it has an open console. */
 .project-consoles {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 4px;
   background: none;
   cursor: pointer;
@@ -197,12 +230,12 @@
 /* The header's one-click new-console entry (#180). */
 .new-console {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: 4px;
   background: none;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
@@ -221,12 +254,12 @@
 /* Pops this one project out into its own focused browser window (#286). */
 .pop-out {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: 4px;
   background: none;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
@@ -238,6 +271,7 @@
 }
 
 .project-status {
+  flex: none;
   font-size: 10px;
   text-transform: none;
   letter-spacing: normal;
@@ -361,8 +395,8 @@ ul {
 }
 
 ul.branch {
-  margin-left: 13px;
-  border-left: 1px solid var(--border);
+  margin-left: 16px;
+  border-left: 1px solid var(--border-soft);
 }
 
 .row {
@@ -372,49 +406,50 @@ ul.branch {
   display: flex;
   align-items: center;
   gap: 5px;
-  width: 100%;
-  height: 22px;
-  padding: 0 8px 0 6px;
+  min-width: 0;
+  min-height: 28px;
+  margin: 1px 6px;
+  padding: 2px 4px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
-  line-height: 1;
+  line-height: 1.35;
   position: relative;
 }
 
 .row:hover {
-  background: var(--bg);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
 }
 
 .row.active {
-  background: var(--accent-soft);
-  box-shadow: inset 3px 0 0 var(--accent);
-  color: var(--accent-ink);
+  background: var(--border-soft);
+  color: var(--text);
   font-weight: 600;
 }
 
 .row.active .issue-number,
 .row.active .issue-state {
-  color: var(--accent);
+  color: var(--muted);
 }
 
 .row.active .issue-number {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .twist,
 .twist-gap {
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: 20px;
+  height: 20px;
 }
 
 .twist {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 3px;
-  background: var(--panel);
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
 }
@@ -435,13 +470,14 @@ ul.branch {
 }
 
 .issue-number {
-  color: var(--faint);
+  color: var(--muted);
   flex: none;
   font-size: 11px;
 }
 
 .issue-title {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -484,17 +520,24 @@ ul.branch {
 }
 
 .kebab {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
   border: none;
   background: none;
-  color: var(--faint);
+  color: var(--muted);
   cursor: pointer;
   font-size: 13px;
   padding: 0 2px;
+}
+
+.kebab {
   visibility: hidden;
 }
 
 .row:hover .kebab,
-.row:focus-within .kebab {
+.row:focus-within .kebab,
+.menu-wrap.open .kebab {
   visibility: visible;
 }
 
@@ -523,4 +566,45 @@ ul.branch {
 
 .menu button:hover {
   background: var(--bg);
+}
+
+.sidenav :is(button, input, a):focus-visible {
+  outline: 2px solid var(--blue, var(--accent));
+  outline-offset: -2px;
+}
+
+@media (any-pointer: coarse), (hover: none) {
+  .filter-input,
+  .refresh,
+  .opened-toggle {
+    min-height: 36px;
+  }
+
+  .refresh {
+    width: 32px;
+  }
+
+  .section-header,
+  .row {
+    min-height: 40px;
+  }
+
+  .project-consoles,
+  .new-console,
+  .pop-out,
+  .kebab {
+    width: 32px;
+    height: 32px;
+  }
+
+  .twist,
+  .twist-gap {
+    width: 28px;
+    height: 32px;
+  }
+
+  .menu button,
+  .project-failed-actions button {
+    min-height: 36px;
+  }
 }

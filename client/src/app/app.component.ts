@@ -23,6 +23,7 @@ import { AccentThemeStore } from './services/accent-theme-store';
 import { AuthService } from './services/auth.service';
 import { CurrentProjectService } from './services/current-project.service';
 import { deriveProjectBackgroundTint } from './services/project-accent-tint';
+import { WindowChromeDirective } from './window-chrome.directive';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
 import { Project } from './models/issue.model';
 
@@ -49,6 +50,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     AddProjectPopupComponent,
     UpdateBannerComponent,
     ReleaseBannerComponent,
+    WindowChromeDirective,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',

@@ -377,7 +377,7 @@ describe('AppComponent', () => {
     flushProjectWorktrees();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('');
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('');
 
     // Sage is the second preset (accent-theme-store.ts).
     compiled.querySelectorAll<HTMLButtonElement>('.accent-swatch')[1].click();
@@ -397,7 +397,7 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     // sage (#5c8a4e) blended toward white at the same ~13% ratio.
-    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('rgb(234, 240, 232)');
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('rgb(234, 240, 232)');
     // The project's own pages never pick up this tint (#555) -- it lives on
     // the header alone.
     expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
@@ -407,7 +407,7 @@ describe('AppComponent', () => {
     const fixture = openedApp();
 
     const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.topbar')!;
-    expect(el.style.background).toBe('');
+    expect(el.style.backgroundColor).toBe('');
   }));
 
   it('tints the topbar with a background derived from the accent color once one is set (#428, #555)', fakeAsync(() => {
@@ -435,7 +435,7 @@ describe('AppComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     // terracotta (#c15f3c) blended toward white at the same ~13% ratio
     // AccentThemeStore's own presets use for their `accentSoft` companion.
-    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('rgb(247, 234, 230)');
     expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
   }));
 
@@ -461,7 +461,7 @@ describe('AppComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     // Same terracotta blend the project summary page shows for the same accent color.
-    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('rgb(247, 234, 230)');
     expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
   }));
 
@@ -490,7 +490,7 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.background).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('rgb(247, 234, 230)');
     expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
   }));
 

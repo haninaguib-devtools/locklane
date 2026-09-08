@@ -1,9 +1,8 @@
-/* Design tokens carrying the running app's visual style forward unchanged (#3's
-   Goal): off-white/gray surfaces, minimal borders, small-caps-ish muted labels. */
+/* Shared neutral surfaces; project and account accents stay restrained. */
 :root {
   --bg: #e9e6e1;
   --window: #faf9f7;
-  --sidebar: #f3f1ed;
+  --sidebar: #f2f0eb;
   --panel: #ffffff;
   --border: #ddd8d0;
   --border-soft: #e9e5df;
@@ -69,4 +68,26 @@ button {
    is safe; the padding ring then shows `.terminal`'s own theme background. */
 .terminal .xterm-viewport {
   display: none;
+}
+
+/* The browser supplies this rectangle, including whichever side owns native
+   controls. Hidden/unsupported overlays keep zero insets, never an empty bar. */
+[appWindowChrome] {
+  --chrome-left: 0px;
+  --chrome-top: 0px;
+  --chrome-width: 100vw;
+  --chrome-right: 0px;
+  --titlebar-bottom: 0px;
+}
+
+[appWindowChrome].wco-active {
+  --chrome-left: env(titlebar-area-x, 0px);
+  --chrome-top: env(titlebar-area-y, 0px);
+  --chrome-width: env(titlebar-area-width, 100vw);
+  --chrome-right: max(0px, calc(100vw - var(--chrome-left) - var(--chrome-width)));
+  --titlebar-bottom: calc(var(--chrome-top) + env(titlebar-area-height, 0px));
+}
+
+.wco-active :is(button, a, input, select, textarea, [role='menu'], [role='tablist'], app-sidebar-resizer) {
+  -webkit-app-region: no-drag;
 }

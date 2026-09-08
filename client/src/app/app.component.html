@@ -6,8 +6,8 @@
   <!-- The Shells window (#446): its own minimal shell, no topbar/sidebar. -->
   <app-shells-window />
 } @else {
-  <div class="authed">
-    <div class="topbar" [style.background]="projectBackgroundTint()">
+  <div class="authed" appWindowChrome>
+    <div class="topbar" [style.background-color]="projectBackgroundTint()">
       <div class="brand-group">
         <img class="brand-logo" src="logo.svg" alt="" width="44" height="44" />
         <a class="brand" routerLink="/">LockLane</a>

@@ -204,3 +204,13 @@ app-shells-window {
   background: var(--window);
 }
 
+
+/* With the overlay active the header owns the title-bar area: the strip the OS
+   controls sit in stays sidebar-colored above the tinted bar, content starts
+   below it, and empty header space drags the window (every control is no-drag,
+   styles.css). Nothing changes in a normal tab or an overlay-disabled window. */
+.wco-active .topbar {
+  padding-top: calc(16px + var(--titlebar-bottom));
+  background-image: linear-gradient(var(--sidebar) var(--titlebar-bottom), transparent var(--titlebar-bottom));
+  -webkit-app-region: drag;
+}

@@ -6,6 +6,7 @@
         type="search"
         class="filter-input"
         placeholder="filter cases…"
+        aria-label="Filter cases"
         [(ngModel)]="filterText"
       />
       <button
@@ -48,7 +49,7 @@
     @if (pinnedGroups.length > 0) {
       <div class="label">pinned</div>
       @for (group of pinnedGroups; track group.project.id) {
-        <div class="project-name">{{ group.project.name }}</div>
+        <div class="project-name" [title]="group.project.name">{{ group.project.name }}</div>
         <ul>
           <ng-container
             *ngTemplateOutlet="rows; context: { nodes: group.nodes, projectId: group.project.id }"
@@ -85,7 +86,7 @@
                 <path d="M2.5 1 L5.5 4 L2.5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </button>
-            <span class="project-label">
+            <span class="project-label" [title]="section.project.name">
               {{ section.project.name }}
               @if (section.project.status === 'READY' && section.treeState === 'loaded') {
                 <span class="issue-count">({{ openIssueCount(section) }})</span>
@@ -224,7 +225,7 @@
         }
 
         <span class="issue-number">#{{ node.number }}</span>
-        <span class="issue-title">{{ node.title }}</span>
+        <span class="issue-title" [title]="node.title">{{ node.title }}</span>
         @if (hasOpenConsole(projectId, node.number)) {
           <span
             class="console-dot"
@@ -236,12 +237,14 @@
           <span class="issue-state">{{ node.state.toLowerCase() }}</span>
         }
 
-        <div class="menu-wrap">
+        <div class="menu-wrap" [class.open]="isMenuOpen(projectId, node.number)">
           <button
             type="button"
             class="kebab"
             (click)="toggleMenu(projectId, node.number, $event)"
             aria-label="Row actions"
+            aria-haspopup="menu"
+            [attr.aria-expanded]="isMenuOpen(projectId, node.number)"
           >
             ⋮
           </button>
