@@ -7,7 +7,44 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#f2f0eb">
+  <meta name="theme-color" content="#f7e9e2">
+  <!-- #836: overwrites the accent CSS variables and the theme-color meta above from
+       the stored preset (locklane.accentTheme), synchronously, before Angular
+       bootstraps -- so an installed PWA window's window-controls-overlay strip is the
+       chosen accent from the very first paint on reload instead of flashing this
+       file's static default above until AccentThemeStore's constructor (which still
+       runs, and still owns every later update -- choosing a preset in Settings, or a
+       preset picked in another tab/window) catches up. Must run after the meta tag
+       above so `querySelector` finds it (the parser hasn't reached anything below this
+       point yet) and before any stylesheet or the app bundle. This preset table is a
+       twin of accent-theme-store.ts's ACCENT_PRESETS -- kept in sync by hand, since
+       this script must run standalone, before any app bundle exists to import from. -->
+  <script>
+    (function () {
+      var PRESETS = {
+        terracotta: { accent: '#c15f3c', accentSoft: '#f7e9e2' },
+        sage: { accent: '#5c8a4e', accentSoft: '#ecf3e8' },
+        slate: { accent: '#4d6a8a', accentSoft: '#e8ecf0' },
+        plum: { accent: '#8a5568', accentSoft: '#f0e9eb' },
+      };
+      var preset = PRESETS.terracotta;
+      try {
+        var stored = localStorage.getItem('locklane.accentTheme');
+        if (stored && Object.prototype.hasOwnProperty.call(PRESETS, stored)) {
+          preset = PRESETS[stored];
+        }
+      } catch {
+        // Storage unavailable (private browsing, quota) -- the default preset stands.
+      }
+      var root = document.documentElement;
+      root.style.setProperty('--accent', preset.accent);
+      root.style.setProperty('--accent-soft', preset.accentSoft);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) {
+        meta.setAttribute('content', preset.accentSoft);
+      }
+    })();
+  </script>
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">

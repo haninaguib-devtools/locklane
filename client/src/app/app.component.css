@@ -14,6 +14,15 @@
   overflow: hidden;
 }
 
+/* Exists only to give appWindowChrome one element to attach to that is an ancestor of
+   both the release banner and every branch below it (#836) -- `display: contents`
+   removes it from the box tree entirely, so `:host`'s flex column above still lays out
+   its real children (the banner, the update banner, and whichever branch is active)
+   exactly as if this wrapper were not there. */
+.chrome-scope {
+  display: contents;
+}
+
 .authed {
   display: flex;
   flex-direction: column;
@@ -214,4 +223,15 @@ app-shells-window {
   padding-top: calc(16px + var(--titlebar-bottom));
   background-image: linear-gradient(var(--accent-soft) var(--titlebar-bottom), transparent var(--titlebar-bottom));
   -webkit-app-region: drag;
+}
+
+/* The release banner, when it's showing, already reserves and tints the strip itself
+   (release-banner.component.css) -- the topbar must not also reserve a second
+   strip-height of padding below it, and its own gradient would just repeat the tint
+   under a banner that already provides it (#836). The `:has()` here reads forward, into
+   `.chrome-scope`'s own descendant `app-release-banner`, for the `.release-banner` div
+   it conditionally renders -- never a backward/previous-sibling lookup. */
+.chrome-scope.wco-active:has(> app-release-banner .release-banner) .authed .topbar {
+  padding-top: 16px;
+  background-image: none;
 }

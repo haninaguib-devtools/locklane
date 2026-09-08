@@ -34,8 +34,11 @@ const DEFAULT_PRESET = ACCENT_PRESETS[0];
  * paint -- {@link AppComponent} injects this store eagerly (it is otherwise unused
  * there) purely to trigger that constructor-time apply before the settings dialog is
  * ever opened. Also updates the `theme-color` meta tag to the preset's soft tint (#825)
- * so an installed PWA's window-controls-overlay strip matches from first paint too,
- * rather than flashing the static sidebar color from `index.html`.
+ * so an installed PWA's window-controls-overlay strip stays in sync with a live
+ * `choose()` -- the meta tag's own first-paint-correct value on reload is
+ * `index.html`'s inline script's job (#836), since Chrome does not reliably honour a
+ * mutation landing before the page's first real paint, and this constructor-time apply
+ * runs only once Angular has bootstrapped, after that first paint.
  */
 @Injectable({ providedIn: 'root' })
 export class AccentThemeStore {

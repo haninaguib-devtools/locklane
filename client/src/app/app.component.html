@@ -1,100 +1,106 @@
-<app-release-banner />
-<app-update-banner />
-@if (!isLoggedIn()) {
-  <app-login />
-} @else if (onShellsWindow()) {
-  <!-- The Shells window (#446): its own minimal shell, no topbar/sidebar. -->
-  <app-shells-window />
-} @else {
-  <div class="authed" appWindowChrome>
-    <div class="topbar" [style.background-color]="projectBackgroundTint()">
-      <div class="brand-group">
-        <img class="brand-logo" src="logo.svg" alt="" width="44" height="44" />
-        <a class="brand" routerLink="/">LockLane</a>
-      </div>
-      <div class="project-name" [attr.title]="projectName()">{{ projectName() }}</div>
-      <div class="topbar-actions">
-        <app-agent-session-indicator />
-        @if (!focusMode()) {
-          <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
-        }
-        <div class="account">
-          <button
-            type="button"
-            class="avatar"
-            [attr.aria-expanded]="menuOpen"
-            aria-haspopup="menu"
-            [attr.aria-label]="'Account menu for ' + (username() ?? 'the signed-in user')"
-            (click)="toggleMenu($event)"
-          >
-            {{ avatarInitial() }}
-          </button>
-          @if (menuOpen) {
-            <div class="account-menu" role="menu">
-              <div class="account-identity">{{ username() ?? 'signed in' }}</div>
-              <div class="account-separator"></div>
-              <button type="button" class="account-item" role="menuitem" (click)="openSettings()">
-                Settings
-              </button>
-              <button type="button" class="account-item" role="menuitem" (click)="openGithubAccounts()">
-                GitHub accounts
-              </button>
-              @if (isAdmin()) {
-                <button type="button" class="account-item" role="menuitem" (click)="openAdminUsers()">
-                  Manage users
+<!-- `display: contents` (app.component.css) -- exists only so appWindowChrome has one
+     element to attach to that is an ancestor of both the release banner and every
+     branch below, rather than only of `.authed`'s own topbar (#836); it changes
+     nothing about the flex layout `:host` already establishes. -->
+<div class="chrome-scope" appWindowChrome>
+  <app-release-banner />
+  <app-update-banner />
+  @if (!isLoggedIn()) {
+    <app-login />
+  } @else if (onShellsWindow()) {
+    <!-- The Shells window (#446): its own minimal shell, no topbar/sidebar. -->
+    <app-shells-window />
+  } @else {
+    <div class="authed">
+      <div class="topbar" [style.background-color]="projectBackgroundTint()">
+        <div class="brand-group">
+          <img class="brand-logo" src="logo.svg" alt="" width="44" height="44" />
+          <a class="brand" routerLink="/">LockLane</a>
+        </div>
+        <div class="project-name" [attr.title]="projectName()">{{ projectName() }}</div>
+        <div class="topbar-actions">
+          <app-agent-session-indicator />
+          @if (!focusMode()) {
+            <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
+          }
+          <div class="account">
+            <button
+              type="button"
+              class="avatar"
+              [attr.aria-expanded]="menuOpen"
+              aria-haspopup="menu"
+              [attr.aria-label]="'Account menu for ' + (username() ?? 'the signed-in user')"
+              (click)="toggleMenu($event)"
+            >
+              {{ avatarInitial() }}
+            </button>
+            @if (menuOpen) {
+              <div class="account-menu" role="menu">
+                <div class="account-identity">{{ username() ?? 'signed in' }}</div>
+                <div class="account-separator"></div>
+                <button type="button" class="account-item" role="menuitem" (click)="openSettings()">
+                  Settings
                 </button>
-              }
-              <button type="button" class="account-item" role="menuitem" (click)="openAbout()">
-                About
-              </button>
-              <button type="button" class="account-item" role="menuitem" (click)="logout()">
-                Sign out
-              </button>
-            </div>
-          }
+                <button type="button" class="account-item" role="menuitem" (click)="openGithubAccounts()">
+                  GitHub accounts
+                </button>
+                @if (isAdmin()) {
+                  <button type="button" class="account-item" role="menuitem" (click)="openAdminUsers()">
+                    Manage users
+                  </button>
+                }
+                <button type="button" class="account-item" role="menuitem" (click)="openAbout()">
+                  About
+                </button>
+                <button type="button" class="account-item" role="menuitem" (click)="logout()">
+                  Sign out
+                </button>
+              </div>
+            }
+          </div>
         </div>
       </div>
-    </div>
-    <div class="shell">
-      <aside class="sidebar" [style.width.px]="sidebarWidth">
-        <app-sidenav
-          [selected]="selectedTarget()"
-          [selectedProject]="selectedIssue() === null ? selectedProjectId() : null"
-          [focusedProjectId]="focusedProjectId()"
-          (projectSelected)="selectProject($event)"
-        />
-      </aside>
-      <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
-      @if (selectedProjectId(); as projectId) {
-        <div class="project-pages">
-          @if (onProjectAgentSession()) {
-            <app-project-agent-session [projectId]="projectId" />
-          } @else {
-            @if (selectedIssue(); as issue) {
-              <app-main-content [projectId]="projectId" [issueNumber]="issue" />
+      <div class="shell">
+        <aside class="sidebar" [style.width.px]="sidebarWidth">
+          <app-sidenav
+            [selected]="selectedTarget()"
+            [selectedProject]="selectedIssue() === null ? selectedProjectId() : null"
+            [focusedProjectId]="focusedProjectId()"
+            (projectSelected)="selectProject($event)"
+          />
+        </aside>
+        <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
+        @if (selectedProjectId(); as projectId) {
+          <div class="project-pages">
+            @if (onProjectAgentSession()) {
+              <app-project-agent-session [projectId]="projectId" />
             } @else {
-              <app-project-summary [projectId]="projectId" (projectDeleted)="onProjectDeleted()" />
+              @if (selectedIssue(); as issue) {
+                <app-main-content [projectId]="projectId" [issueNumber]="issue" />
+              } @else {
+                <app-project-summary [projectId]="projectId" (projectDeleted)="onProjectDeleted()" />
+              }
             }
-          }
-        </div>
-      } @else {
-        <app-overview (addProject)="openAddProject()" />
+          </div>
+        } @else {
+          <app-overview (addProject)="openAddProject()" />
+        }
+      </div>
+      @if (settingsOpen) {
+        <app-settings-dialog (closed)="closeSettings()" />
+      }
+      @if (aboutOpen) {
+        <app-about-dialog (closed)="closeAbout()" />
+      }
+      @if (adminUsersOpen) {
+        <app-admin-users (closed)="closeAdminUsers()" />
+      }
+      @if (githubAccountsOpen) {
+        <app-github-accounts (closed)="closeGithubAccounts()" />
+      }
+      @if (showAddProject) {
+        <app-add-project-popup (created)="onProjectCreated($event)" (imported)="onProjectImported($event)" (closed)="onAddProjectClosed()" />
       }
     </div>
-    @if (settingsOpen) {
-      <app-settings-dialog (closed)="closeSettings()" />
-    }
-    @if (aboutOpen) {
-      <app-about-dialog (closed)="closeAbout()" />
-    }
-    @if (adminUsersOpen) {
-      <app-admin-users (closed)="closeAdminUsers()" />
-    }
-    @if (githubAccountsOpen) {
-      <app-github-accounts (closed)="closeGithubAccounts()" />
-    }
-    @if (showAddProject) {
-      <app-add-project-popup (created)="onProjectCreated($event)" (imported)="onProjectImported($event)" (closed)="onAddProjectClosed()" />
-    }
-  </div>
-}
+  }
+</div>
