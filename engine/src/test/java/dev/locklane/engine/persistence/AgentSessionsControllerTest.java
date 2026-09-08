@@ -55,7 +55,7 @@ class AgentSessionsControllerTest {
         repository.recordAttach("1-175-bobs-session", dbDir.resolve("wt2"), now, "bob");
         repository.recordAttach("2-174-other-project", dbDir.resolve("wt3"), now, "alice");
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
 
         assertThat(controller.agentSessions(1, ALICE)).containsExactlyInAnyOrder(
                 "1-174-rename-toggle", "1-175-bobs-session");
@@ -69,7 +69,7 @@ class AgentSessionsControllerTest {
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), now, "alice");
         repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt2"), now, "alice");
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
 
         assertThat(controller.agentSessions(1, ALICE)).containsExactlyInAnyOrder(
                 "1-174-rename-toggle", "1-console-0a1b2c3d");
@@ -79,7 +79,7 @@ class AgentSessionsControllerTest {
     void returnsAnEmptyListWithNoOpenAgentSessions(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
 
         assertThat(controller.agentSessions(1, ALICE)).isEmpty();
     }
@@ -91,7 +91,7 @@ class AgentSessionsControllerTest {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("2-174-not-alices", dbDir.resolve("wt1"), Instant.now(), "alice");
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
 
         // Never reaches FileManagerLauncher at all -- the ownership check refuses
         // before any lookup of a working directory, exactly like an unknown id would.
@@ -109,7 +109,7 @@ class AgentSessionsControllerTest {
         repository.recordAttach("1-174-rename-toggle", worktree, Instant.now(), "alice");
         List<String[]> launched = new CopyOnWriteArrayList<>();
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository),
-                launcher(repository, launched), codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+                launcher(repository, launched), codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
 
         assertThat(controller.reveal(1, "1-174-rename-toggle", loopback(), ALICE).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         // Unchanged for a localhost browser (#784): the same file-manager command
@@ -125,7 +125,7 @@ class AgentSessionsControllerTest {
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         List<String[]> launched = new CopyOnWriteArrayList<>();
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository),
-                launcher(repository, launched), codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+                launcher(repository, launched), codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
 
         // The owner of the project, but from another machine (#784): the file manager
         // would open on the engine host's desktop, not the caller's.
@@ -140,7 +140,7 @@ class AgentSessionsControllerTest {
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         List<String[]> launched = new CopyOnWriteArrayList<>();
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository),
-                launcher(repository, launched), codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+                launcher(repository, launched), codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
         MockHttpServletRequest relayed = loopback();
         relayed.addHeader("X-Forwarded-For", "203.0.113.7");
 
@@ -155,7 +155,7 @@ class AgentSessionsControllerTest {
         Path worktree = dbDir.resolve("wt1");
         repository.recordAttach("1-174-rename-toggle", worktree, Instant.now(), "alice");
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
 
         ResponseEntity<AgentSessionsController.OpenIdeResponse> response = controller.openIde(1, "1-174-rename-toggle", null, loopback(), ALICE);
 
@@ -176,13 +176,58 @@ class AgentSessionsControllerTest {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("2-174-not-alices", dbDir.resolve("wt1"), Instant.now(), "alice");
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
 
         assertThat(controller.openIde(1, "2-174-not-alices", null, loopback(), ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         // The visibility rule is the same for every id (#781): a desktop id on an agent session
         // outside the caller's project is a 404 too, never a 403 or a launch.
         assertThat(controller.openIde(1, "2-174-not-alices", new AgentSessionsController.OpenIdeRequest("vscode"),
                 loopback(), ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void openMainCheckoutIdeSessionMintsAnIdThatOpenIdeThenOpensAtTheProjectsWorkarea(@TempDir Path dbDir) {
+        createProject(dbDir, "alice"); // project 1, workarea dbDir/work-alice
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
+                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
+
+        ResponseEntity<AgentSessionsController.MainCheckoutIdeSessionResponse> minted = controller.openMainCheckoutIdeSession(1, ALICE);
+
+        assertThat(minted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String sessionId = minted.getBody().sessionId();
+        assertThat(sessionId).isEqualTo("1-ide-main");
+        // Deliberately excluded from the general listing (#831), the same as a shell.
+        assertThat(controller.agentSessions(1, ALICE)).doesNotContain(sessionId);
+
+        ResponseEntity<AgentSessionsController.OpenIdeResponse> opened = controller.openIde(1, sessionId, null, loopback(), ALICE);
+
+        assertThat(opened.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(opened.getBody().url()).isEqualTo(
+                "/api/projects/1/consoles/" + sessionId + "/ide/?folder="
+                        + java.net.URLEncoder.encode(dbDir.resolve("work-alice").toString(), java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void openMainCheckoutIdeSessionFailsFastForAnUnknownProjectOrANonOwner(@TempDir Path dbDir) {
+        createProject(dbDir, "alice"); // project 1
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
+                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
+
+        assertThat(controller.openMainCheckoutIdeSession(999, ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.openMainCheckoutIdeSession(1, () -> "bob").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void openIdeRefusesAMainCheckoutIdShapeThatWasNeverMinted(@TempDir Path dbDir) {
+        createProject(dbDir, "alice"); // project 1
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
+                codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class), projectIdeSessionService(dbDir, repository));
+
+        // Well-formed, but openMainCheckoutIdeSession was never called for it.
+        assertThat(controller.openIde(1, "1-ide-main", null, loopback(), ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test
@@ -193,7 +238,7 @@ class AgentSessionsControllerTest {
         repository.recordAttach("1-174-rename-toggle", worktree, Instant.now(), "alice");
         DesktopIdeLauncher desktop = mock(DesktopIdeLauncher.class);
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), installedIdesStore(), desktop);
+                codeServerService(repository), installedIdesStore(), desktop, projectIdeSessionService(dbDir, repository));
 
         ResponseEntity<AgentSessionsController.OpenIdeResponse> response = controller.openIde(1, "1-174-rename-toggle",
                 new AgentSessionsController.OpenIdeRequest("code-server"), remote("192.168.1.20"), ALICE);
@@ -213,7 +258,7 @@ class AgentSessionsControllerTest {
         DesktopIdeLauncher desktop = mock(DesktopIdeLauncher.class);
         when(desktop.launch(anyString(), any())).thenReturn(true);
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), store, desktop);
+                codeServerService(repository), store, desktop, projectIdeSessionService(dbDir, repository));
 
         ResponseEntity<AgentSessionsController.OpenIdeResponse> response = controller.openIde(1, "1-174-rename-toggle",
                 new AgentSessionsController.OpenIdeRequest("intellij"), loopback(), ALICE);
@@ -230,7 +275,7 @@ class AgentSessionsControllerTest {
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         DesktopIdeLauncher desktop = mock(DesktopIdeLauncher.class);
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), installedIdesStore(), desktop);
+                codeServerService(repository), installedIdesStore(), desktop, projectIdeSessionService(dbDir, repository));
 
         ResponseEntity<AgentSessionsController.OpenIdeResponse> response = controller.openIde(1, "1-174-rename-toggle",
                 new AgentSessionsController.OpenIdeRequest("intellij"), remote("192.168.1.20"), ALICE);
@@ -246,7 +291,7 @@ class AgentSessionsControllerTest {
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         DesktopIdeLauncher desktop = mock(DesktopIdeLauncher.class);
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), installedIdesStore(), desktop);
+                codeServerService(repository), installedIdesStore(), desktop, projectIdeSessionService(dbDir, repository));
         MockHttpServletRequest relayed = loopback();
         relayed.addHeader("X-Forwarded-For", "203.0.113.7");
 
@@ -264,7 +309,7 @@ class AgentSessionsControllerTest {
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         DesktopIdeLauncher desktop = mock(DesktopIdeLauncher.class);
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), installedIdesStore(), desktop);
+                codeServerService(repository), installedIdesStore(), desktop, projectIdeSessionService(dbDir, repository));
 
         // "vscode" is a known id, but installedIdesStore() below found only IntelliJ on this host.
         assertThat(controller.openIde(1, "1-174-rename-toggle", new AgentSessionsController.OpenIdeRequest("vscode"),
@@ -282,7 +327,7 @@ class AgentSessionsControllerTest {
         DesktopIdeLauncher desktop = mock(DesktopIdeLauncher.class);
         when(desktop.launch(anyString(), any())).thenReturn(false);
         AgentSessionsController controller = new AgentSessionsController(worktreeService(dbDir, repository), launcher(repository),
-                codeServerService(repository), installedIdesStore(), desktop);
+                codeServerService(repository), installedIdesStore(), desktop, projectIdeSessionService(dbDir, repository));
 
         assertThat(controller.openIde(1, "1-174-rename-toggle", new AgentSessionsController.OpenIdeRequest("intellij"),
                 loopback(), ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -327,6 +372,13 @@ class AgentSessionsControllerTest {
         WorktreeSessionAuthorization authorization = new WorktreeSessionAuthorization(
                 TestSqliteDatabases.newProjectRepository(dbDir), TestSqliteDatabases.newUserRepository(dbDir));
         return new IssueWorktreeService(repository, authorization);
+    }
+
+    private static ProjectIdeSessionService projectIdeSessionService(Path dbDir, WorktreeSessionRepository repository) {
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
+        WorktreeSessionAuthorization authorization =
+                new WorktreeSessionAuthorization(projectRepository, TestSqliteDatabases.newUserRepository(dbDir));
+        return new ProjectIdeSessionService(projectRepository, repository, authorization);
     }
 
     private static FileManagerLauncher launcher(WorktreeSessionRepository repository) {

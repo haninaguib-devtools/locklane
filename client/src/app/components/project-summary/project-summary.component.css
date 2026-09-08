@@ -138,6 +138,26 @@ h1 {
   opacity: 0.6;
 }
 
+.open-ide-button {
+  padding: 5px 12px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.open-ide-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.open-ide-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .delete-project {
   margin-left: auto;
   padding: 5px 12px;
