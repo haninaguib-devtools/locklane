@@ -16,6 +16,7 @@
 
 .window.wco-active .titlebar {
   height: env(titlebar-area-height, 33px);
+  background: var(--accent-soft);
   -webkit-app-region: drag;
 }
 
