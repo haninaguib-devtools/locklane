@@ -187,6 +187,47 @@ describe('ProjectConsoleComponent', () => {
     expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
   }));
 
+  it('reopens on the tab this browser last selected, over a later-attached console (#810)', () => {
+    TestBed.inject(LastConsoleStore).set(1, '1-console-a1b2c3d4');
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([
+      row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
+      row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
+  });
+
+  it('falls back to the most recently attached console when the remembered one is no longer open (#810)', () => {
+    TestBed.inject(LastConsoleStore).set(1, '1-console-gone0000');
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([
+      row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
+      row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
+  });
+
+  it('lets a ?session handoff win over the remembered tab (#810)', fakeAsync(() => {
+    TestBed.inject(LastConsoleStore).set(1, '1-console-e5f6a7b8');
+    TestBed.inject(Router).navigateByUrl('/projects/1/console?session=1-console-a1b2c3d4');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([
+      row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
+      row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
+  }));
+
   it('shows no Overview tab, and its "+" offers the installed agents before starting anything (#256, #757)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
