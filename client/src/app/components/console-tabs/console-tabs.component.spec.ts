@@ -707,6 +707,7 @@ describe('ConsoleTabsComponent attention dot (#791)', () => {
     expect(buttons[2].querySelector('.tab-dot')).not.toBeNull();
     // Plain blue until the store says otherwise; nothing claims to be waiting.
     expect(fixture.nativeElement.querySelectorAll('.tab-dot.waiting').length).toBe(0);
+    expect(buttons[1].getAttribute('title')).toBeNull();
     expect(buttons[1].getAttribute('aria-label')).toBeNull();
   });
 
@@ -722,6 +723,7 @@ describe('ConsoleTabsComponent attention dot (#791)', () => {
     let buttons = tabButtons(fixture);
     expect(buttons[1].querySelector('.tab-dot')!.classList.contains('waiting')).toBeFalse();
     expect(buttons[2].querySelector('.tab-dot')!.classList.contains('waiting')).toBeTrue();
+    expect(buttons[2].getAttribute('title')).toBe('Waiting for you');
     expect(buttons[2].getAttribute('aria-label')).toBe('console, waiting for you');
     expect(buttons[1].getAttribute('aria-label')).toBeNull();
 
@@ -730,9 +732,27 @@ describe('ConsoleTabsComponent attention dot (#791)', () => {
 
     buttons = tabButtons(fixture);
     expect(fixture.nativeElement.querySelectorAll('.tab-dot.waiting').length).toBe(0);
+    expect(buttons[2].getAttribute('title')).toBeNull();
     expect(buttons[2].getAttribute('aria-label')).toBeNull();
   });
 
+  it('a waiting tab keeps its title over the rename hint until it settles (#393)', () => {
+    const fixture = TestBed.createComponent(ConsoleTabsComponent);
+    fixture.componentInstance.renamable = true;
+    fixture.componentInstance.overview = false;
+    fixture.componentInstance.tabs = [{ id: '1-console-aaaa0001', agent: 'codex', label: 'console' }];
+    fixture.detectChanges();
+
+    expect(tabButtons(fixture)[0].getAttribute('title')).toBe('double-click to rename');
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-aaaa0001', state: 'waiting' });
+    fixture.detectChanges();
+    expect(tabButtons(fixture)[0].getAttribute('title')).toBe('Waiting for you');
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-aaaa0001', state: 'active' });
+    fixture.detectChanges();
+    expect(tabButtons(fixture)[0].getAttribute('title')).toBe('double-click to rename');
+  });
 
   it('constructed bare, with no store, never reports a tab waiting', () => {
     const c = new ConsoleTabsComponent();

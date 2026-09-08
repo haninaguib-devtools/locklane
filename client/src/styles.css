@@ -20,11 +20,6 @@
      and the agent tab strip's per-tab dot (#791) so the two cannot drift apart. */
   --agent-dot: #3b6fa8;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
-  --workspace-header-height: 58px;
-  --workspace-header: #272521;
-  --workspace-text: #eeeae3;
-  --workspace-muted: #bcb5aa;
-  --workspace-border: #49453f;
 }
 
 * {
@@ -82,10 +77,7 @@ button {
   --chrome-top: 0px;
   --chrome-width: 100vw;
   --chrome-right: 0px;
-  --chrome-header-height: var(--workspace-header-height);
-  --workspace-inset-left: 0px;
-  --workspace-inset-right: var(--chrome-right);
-  --workspace-inset-top: var(--chrome-top);
+  --titlebar-bottom: 0px;
 }
 
 [appWindowChrome].wco-active {
@@ -93,39 +85,9 @@ button {
   --chrome-top: env(titlebar-area-y, 0px);
   --chrome-width: env(titlebar-area-width, 100vw);
   --chrome-right: max(0px, calc(100vw - var(--chrome-left) - var(--chrome-width)));
-  --chrome-header-height: max(var(--workspace-header-height), calc(var(--chrome-top) + env(titlebar-area-height, 0px)));
-}
-
-.workspace-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: none;
-  min-width: 0;
-  min-height: var(--chrome-header-height, var(--workspace-header-height));
-  padding: var(--workspace-inset-top, 0px) calc(12px + var(--workspace-inset-right, 0px)) 0 calc(12px + var(--workspace-inset-left, 0px));
-  background: var(--workspace-header);
-  color: var(--workspace-text);
-  border-bottom: 1px solid var(--workspace-border);
-}
-
-.wco-active .workspace-header {
-  -webkit-app-region: drag;
+  --titlebar-bottom: calc(var(--chrome-top) + env(titlebar-area-height, 0px));
 }
 
 .wco-active :is(button, a, input, select, textarea, [role='menu'], [role='tablist'], app-sidebar-resizer) {
   -webkit-app-region: no-drag;
-}
-
-:is(.workspace-header, .sidebar, .side) :focus-visible {
-  outline: 2px solid var(--agent-dot);
-  outline-offset: 2px;
-}
-
-@media (max-width: 700px) {
-  .workspace-header {
-    gap: 5px;
-    padding-right: calc(6px + var(--workspace-inset-right, 0px));
-    padding-left: calc(6px + var(--workspace-inset-left, 0px));
-  }
 }

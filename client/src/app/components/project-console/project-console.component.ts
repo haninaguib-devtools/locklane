@@ -18,8 +18,6 @@ import { TerminalComponent } from '../terminal/terminal.component';
 import { Project } from '../../models/issue.model';
 import { ProjectsService } from '../../services/projects.service';
 import { cloneStageHint } from '../clone-progress';
-import { CurrentProjectService } from '../../services/current-project.service';
-import { ConsoleIndicatorComponent } from '../console-indicator/console-indicator.component';
 
 // One open console's client-side state. `dir` comes from the engine either way;
 // `agent` is only known when this browser launched the session (AgentStore).
@@ -67,7 +65,7 @@ interface OpenConsole {
 @Component({
   selector: 'app-project-console',
   standalone: true,
-  imports: [ConsoleTabsComponent, TerminalComponent, ConsoleIndicatorComponent],
+  imports: [ConsoleTabsComponent, TerminalComponent],
   templateUrl: './project-console.component.html',
   styleUrl: './project-console.component.css',
 })
@@ -79,7 +77,6 @@ export class ProjectConsoleComponent implements OnInit, OnChanges, OnDestroy {
   private readonly issuesService = inject(IssuesService);
   private readonly agentStore = inject(AgentStore);
   readonly defaultAgentStore = inject(DefaultAgentStore);
-  readonly currentProject = inject(CurrentProjectService);
   private readonly lastConsoleStore = inject(LastConsoleStore);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);

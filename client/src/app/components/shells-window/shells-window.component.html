@@ -1,4 +1,8 @@
 <div class="window" appWindowChrome>
+  <!-- Draggable chrome the OS overlays its own window controls onto (#741) —
+       reserved only once the overlay is actually active, never in a normal
+       browser tab. -->
+  <div class="titlebar" aria-hidden="true"></div>
   <div class="body">
     <aside class="side">
       <div class="side-title">Shells</div>
@@ -12,7 +16,6 @@
       />
     </aside>
     <main class="content">
-      <header class="workspace-header"><span>Shells</span></header>
       @if (closeError) {
         <div class="action-error">could not close that shell — try again</div>
       }

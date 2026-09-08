@@ -12,9 +12,6 @@ import { EventsService } from '../../services/events.service';
 import { LastConsoleStore } from '../../services/last-console-store';
 import { TerminalComponent } from '../terminal/terminal.component';
 import { Project } from '../../models/issue.model';
-import { signal } from '@angular/core';
-import { of } from 'rxjs';
-import { CurrentProjectService } from '../../services/current-project.service';
 
 describe('ProjectConsoleComponent', () => {
   let httpMock: HttpTestingController;
@@ -33,10 +30,6 @@ describe('ProjectConsoleComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([{ path: 'projects/:projectId/console', children: [] }, { path: '**', children: [] }]),
-        {
-          provide: CurrentProjectService,
-          useValue: { current: signal(null), projects$: of([]), focusedProjectId$: of(null) },
-        },
       ],
     });
     httpMock = TestBed.inject(HttpTestingController);

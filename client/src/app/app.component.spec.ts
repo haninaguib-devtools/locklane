@@ -364,7 +364,7 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('.project-name')?.textContent?.trim()).toBe('proj');
   }));
 
-  it('picking an accent updates the project identity marker immediately without reopening the project', fakeAsync(() => {
+  it('picking an accent color from the project summary tints the topbar immediately, the first time in the session (#428, #555)', fakeAsync(() => {
     logIn();
     navigateToProjectSummary();
 
@@ -377,8 +377,7 @@ describe('AppComponent', () => {
     flushProjectWorktrees();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const marker = compiled.querySelector<HTMLElement>('.project-name')!;
-    const before = getComputedStyle(marker).borderLeftColor;
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('');
 
     // Sage is the second preset (accent-theme-store.ts).
     compiled.querySelectorAll<HTMLButtonElement>('.accent-swatch')[1].click();
@@ -397,10 +396,103 @@ describe('AppComponent', () => {
     flushConsoleIndicator();
     fixture.detectChanges();
 
-    expect(getComputedStyle(marker).borderLeftColor).not.toBe(before);
-    expect(getComputedStyle(marker).borderLeftColor).toBe('rgb(92, 138, 78)');
+    // sage (#5c8a4e) blended toward white at the same ~13% ratio.
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('rgb(234, 240, 232)');
+    // The project's own pages never pick up this tint (#555) -- it lives on
+    // the header alone.
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
   }));
 
+  it('leaves the topbar at its default background when the project has no accent color (#428, #555)', fakeAsync(() => {
+    const fixture = openedApp();
+
+    const el = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.topbar')!;
+    expect(el.style.backgroundColor).toBe('');
+  }));
+
+  it('tints the topbar with a background derived from the accent color once one is set (#428, #555)', fakeAsync(() => {
+    const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
+    logIn();
+    navigateToProjectSummary();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(3);
+    lists.forEach((request) => request.flush([TINTED_PROJECT]));
+    const trees = httpMock.match('/api/projects/1/issues/tree');
+    expect(trees.length).toBe(2);
+    trees.forEach((request) => request.flush({ nodes: [], github: GITHUB_OK }));
+    flushUsageWidget();
+    httpMock
+      .match('/api/agents/installed')
+      .forEach((request) => request.flush({ installed: [{ id: 'claude', label: 'Claude' }] }));
+    flushProjectConsoleSessions();
+    flushConsoleIndicator();
+    fixture.detectChanges();
+    flushProjectWorktrees();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    // terracotta (#c15f3c) blended toward white at the same ~13% ratio
+    // AccentThemeStore's own presets use for their `accentSoft` companion.
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
+  }));
+
+  it('extends the topbar tint to the issue page, leaving .project-pages at its plain default background (#555)', fakeAsync(() => {
+    const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/projects/1/issues/42');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(3);
+    lists.forEach((request) => request.flush([TINTED_PROJECT]));
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+    flushUsageWidget();
+    // MainContentComponent's own ngOnInit fetch (#698).
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
+    flushConsoleIndicator();
+    flushIssue(42);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    // Same terracotta blend the project summary page shows for the same accent color.
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
+  }));
+
+  it('tints the topbar on the project console page too, now that the full-page carve-out is gone (#555)', fakeAsync(() => {
+    const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
+    logIn();
+    TestBed.inject(Router).navigateByUrl('/projects/1/console');
+    tick();
+
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    // sidenav + the header's app-console-indicator + the console page's own project
+    // read (#537), which decides whether the project is READY before asking for a console.
+    const lists = httpMock.match('/api/projects');
+    expect(lists.length).toBe(3);
+    lists.forEach((request) => request.flush([TINTED_PROJECT]));
+    httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+    flushUsageWidget();
+    // ProjectConsoleComponent's own ngOnInit fetch (#698).
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
+    flushConsoleIndicator();
+    fixture.detectChanges();
+    httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
+    flushConsoleIndicator();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('rgb(247, 234, 230)');
+    expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
+  }));
 
   it('deleting a project from its summary page refreshes the sidenav in place (#249)', fakeAsync(() => {
     logIn();
@@ -448,9 +540,6 @@ describe('AppComponent', () => {
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
     flushProjectWorktrees();
-    // The project summary's own compact header mounts a fresh app-console-indicator
-    // (#815) -- MainContentComponent's own instance, above, unmounted with it.
-    flushConsoleIndicator();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-project-summary')).toBeTruthy();
@@ -476,9 +565,6 @@ describe('AppComponent', () => {
     tick();
     fixture.detectChanges();
     flushIssue(42);
-    // MainContentComponent's own compact header mounts a fresh app-console-indicator
-    // (#815) -- the project summary's instance, above, unmounted with it.
-    flushConsoleIndicator();
 
     expect(sidenav.componentInstance.selectedProject).toBeNull();
   }));
@@ -501,9 +587,6 @@ describe('AppComponent', () => {
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/issues/42');
     flushIssue(42);
-    // MainContentComponent's own compact header mounts a fresh app-console-indicator
-    // (#815) -- the project summary's instance, above, unmounted with it.
-    flushConsoleIndicator();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-main-content')).toBeTruthy();
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
@@ -604,23 +687,16 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     // The console page reads the project first (#537: it waits for READY and decides
     // whether a seeded console is owed), then re-fetches the same already-open session
-    // (#256: an empty list here would auto-start a redundant one). Its own compact
-    // header mounts a fresh app-console-indicator (#815) at the same time, which asks
-    // for the same project's sessions on its own -- two requests for that one URL, not
-    // one, both answered with the same already-open session.
+    // (#256: an empty list here would auto-start a redundant one).
     httpMock.expectOne('/api/projects').flush([PROJECT]);
-    httpMock.match('/api/projects/1/console/sessions').forEach((request) =>
-      request.flush([
-        {
-          sessionId: 'proj-1-console-abc',
-          workingDirectory: '/tmp/proj',
-          createdAt: '2026-08-27T09:00:00Z',
-          lastAttachedAt: '2026-08-27T09:00:00Z',
-        },
-      ]),
-    );
-    httpMock.match('/api/projects/1/consoles').forEach((request) => request.flush([]));
-    httpMock.expectOne('/api/projects/1/issues').flush([]);
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([
+      {
+        sessionId: 'proj-1-console-abc',
+        workingDirectory: '/tmp/proj',
+        createdAt: '2026-08-27T09:00:00Z',
+        lastAttachedAt: '2026-08-27T09:00:00Z',
+      },
+    ]);
     fixture.detectChanges();
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/console?session=proj-1-console-abc');
@@ -663,9 +739,6 @@ describe('AppComponent', () => {
     tick();
     fixture.detectChanges();
     flushIssue(42);
-    // MainContentComponent's own compact header mounts a fresh app-console-indicator
-    // (#815) -- the project summary's instance, above, unmounted with it.
-    flushConsoleIndicator();
 
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
     expect(sidenav.componentInstance.selected).toEqual({ projectId: 1, issueNumber: 42 });

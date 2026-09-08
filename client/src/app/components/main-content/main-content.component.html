@@ -1,8 +1,8 @@
-<header class="workspace-header">
-  <span class="project-name" [title]="currentProject.current()?.name ?? 'Project'">
-    {{ currentProject.current()?.name ?? 'Project' }}
-  </span>
-  @if (issue) {
+@if (issue) {
+  <app-issue-header [issue]="issue" [repoWebUrl]="repoWebUrl" />
+  @if (detail) {
+    <app-flow-strip [steps]="detail.flowSteps" />
+  }
   <app-console-tabs
     [tabs]="tabs"
     [selected]="activeTab"
@@ -16,16 +16,6 @@
     (close)="closeConsole($event)"
     (reveal)="revealConsole($event)"
   />
-  } @else {
-    <span class="header-space"></span>
-  }
-  <app-console-indicator />
-</header>
-@if (issue) {
-  <app-issue-header [issue]="issue" [repoWebUrl]="repoWebUrl" />
-  @if (detail) {
-    <app-flow-strip [steps]="detail.flowSteps" />
-  }
   @if (startError) {
     <div class="action-error">could not open an agent — try again</div>
   }

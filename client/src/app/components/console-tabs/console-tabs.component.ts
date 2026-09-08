@@ -183,22 +183,6 @@ export class ConsoleTabsComponent implements OnInit {
   // ever open at a time -- opening another closes whichever was open, matching the
   // sidenav's own kebab menu (isMenuOpen/toggleMenu below).
   openMenuId: string | null = null;
-  menuLeft = 8;
-  menuTop = 8;
-  menuMaxHeight = 320;
-
-  // Fixed positioning lets menus escape the horizontal tab scroller. Keep their
-  // whole width in the viewport even for a trigger at either end of the strip.
-  private positionMenu(event?: Event): void {
-    const trigger = event?.currentTarget;
-    if (!(trigger instanceof HTMLElement)) {
-      return;
-    }
-    const rect = trigger.getBoundingClientRect();
-    this.menuLeft = Math.max(8, Math.min(rect.left, window.innerWidth - 232));
-    this.menuTop = Math.min(rect.bottom + 4, window.innerHeight - 48);
-    this.menuMaxHeight = Math.max(32, window.innerHeight - this.menuTop - 8);
-  }
 
   isMenuOpen(id: string): boolean {
     return this.openMenuId === id;
@@ -218,7 +202,6 @@ export class ConsoleTabsComponent implements OnInit {
 
   toggleMenu(id: string, event: Event): void {
     event.stopPropagation();
-    this.positionMenu(event);
     this.openMenuId = this.openMenuId === id ? null : id;
     // At most one dropdown at a time: opening a tab menu closes the agent picker
     // (#757), just as opening the picker closes any tab menu.
@@ -230,7 +213,6 @@ export class ConsoleTabsComponent implements OnInit {
   // trigger or a menu item stops propagation before this fires, so it never fights
   // the toggle above.
   @HostListener('document:click')
-  @HostListener('window:resize')
   closeMenu(): void {
     this.openMenuId = null;
     this.pickerOpen = false;
@@ -392,7 +374,6 @@ export class ConsoleTabsComponent implements OnInit {
     event?.stopPropagation();
     if (this.offersPicker) {
       this.openMenuId = null;
-      this.positionMenu(event);
       this.pickerOpen = !this.pickerOpen;
       return;
     }
@@ -411,7 +392,6 @@ export class ConsoleTabsComponent implements OnInit {
   @HostListener('document:keydown.escape')
   closePicker(): void {
     this.pickerOpen = false;
-    this.openMenuId = null;
   }
 }
 
