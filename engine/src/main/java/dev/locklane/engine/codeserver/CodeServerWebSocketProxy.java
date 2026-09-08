@@ -21,11 +21,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Relays a browser's WebSocket under {@code /api/projects/{projectId}/consoles/{id}/ide/}
- * to that console's loopback code-server (#655) — the editor's whole RPC channel runs
+ * Relays a browser's WebSocket under {@code /api/projects/{projectId}/consoles/{id} (a path kept under ADR-112)/ide/}
+ * to that agent session's loopback code-server (#655) — the editor's whole RPC channel runs
  * over it. Mapped by {@link CodeServerProxyConfig} for upgrade requests only, on the
  * same {@code locklane.security.allowed-origins} list as the terminal socket, so any
- * origin that may attach a console may open its IDE and no other origin gains anything
+ * origin that may attach an agent session may open its IDE and no other origin gains anything
  * new; authentication is enforced upstream in {@code SecurityConfig}, and the owner-only
  * check is {@link CodeServerProxyAuthorization}'s, made before any upstream connection
  * exists. A caller the check refuses is closed with {@code 1008} (policy violation),

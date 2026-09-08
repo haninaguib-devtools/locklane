@@ -13,16 +13,16 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Shell-kind console sessions (#445, part of #444): a plain shell — not an agent CLI
+ * Shell-kind sessions (#445, part of #444): a plain shell — not an agent CLI
  * — at an issue's worktree or at the project's own main checkout, tracked in the same
  * {@link WorktreeSessionRepository} table as every other session and recognized
- * purely by id shape, exactly the way {@link ProjectConsoleService}'s console family
+ * purely by id shape, exactly the way {@link ProjectAgentSessionService}'s agent session family
  * is. The shape is {@code "<projectId>-shell-<issueNumber>-<8-hex>"} for a shell at
  * an issue's worktree and {@code "<projectId>-shell-main-<8-hex>"} for one at the
  * project's main checkout: the literal {@code shell} second segment never matches
  * {@link IssueWorktreeService}'s {@code ^(\d+)-(\d+)-} (numeric second segment) or
- * {@link ProjectConsoleService}'s {@code ^(\d+)-console(-.+)?$}, so shells stay out
- * of every existing console-tab listing with no filtering added there, while the
+ * {@link ProjectAgentSessionService}'s {@code ^(\d+)-console(-.+)?$} (a persisted id shape kept under ADR-112), so shells stay out
+ * of every existing agent-session-tab listing with no filtering added there, while the
  * leading {@code <projectId>-} gives them the same project-owner-derived visibility
  * ({@link WorktreeSessionAuthorization}) and WebSocket attach gate
  * ({@code TerminalWebSocketHandler}) every session already has.
@@ -94,7 +94,7 @@ public class ShellSessionService {
      * project, the same as closing any other session. False — nothing closed — when
      * {@code sessionId} is not in this project's shell family, has no persisted row,
      * or is not visible to {@code requestingUsername}: the gate
-     * {@link ProjectConsoleService#close(long, String, String)} applies, minus its
+     * {@link ProjectAgentSessionService#close(long, String, String)} applies, minus its
      * worktree-removal attempt — a shell runs in a directory some other session
      * family (or the project checkout) owns, so nothing on disk is ever touched.
      */
@@ -115,7 +115,7 @@ public class ShellSessionService {
      * client-side by {@link OpenShell#projectId} and, within a project, by
      * {@link OpenShell#issueNumber} or the main checkout. "Open" means the row still
      * exists: persisted at {@link #open} and not since closed. Oldest-created first —
-     * the same stable order {@link ProjectConsoleService#listOpen} gives a tab strip.
+     * the same stable order {@link ProjectAgentSessionService#listOpen} gives a tab strip.
      * Visibility is the project-owner rule every listing applies (#242, #394).
      */
     public List<OpenShell> listOpen(String requestingUsername) {

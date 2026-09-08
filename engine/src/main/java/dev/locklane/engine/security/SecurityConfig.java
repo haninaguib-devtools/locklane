@@ -29,11 +29,11 @@ import org.springframework.http.HttpStatus;
  * image of {@code /api/auth/2fa/verify} below); the worktree-session
  * endpoints (list/start under {@code /api/projects/{projectId}/issues/{number}/worktrees},
  * #48, nested under a project id since #43; the cross-issue listing under
- * {@code /api/projects/{projectId}/consoles}, #32; opening a console's IDE and
+ * {@code /api/projects/{projectId}/consoles} (a path kept under ADR-112), #32; opening an agent session's IDE and
  * revealing its worktree in the host's file manager under that same path, #655/#784 —
  * the reveal was left unlisted by #655 and answered an anonymous call with a 500 on a
- * null principal until #784 listed it), the project-level console
- * sessions under {@code /api/projects/{projectId}/console} and its sub-paths
+ * null principal until #784 listed it), the project-level agent session
+ * sessions under {@code /api/projects/{projectId}/console} (a path kept under ADR-112) and its sub-paths
  * (#139/#177 — same ownership story as a worktree session, just with no issue), the
  * project CRUD endpoints
  * (list/create at {@code /api/projects}, delete at {@code /api/projects/{id}},
@@ -47,7 +47,7 @@ import org.springframework.http.HttpStatus;
  * widget above), the detected-installed-IDEs endpoint backing the same dialog's IDE
  * picker ({@code /api/ides/installed}, #781 — same reasoning again, and the only
  * gate it needs: the desktop-launch side of that feature is refused per request in
- * {@code ConsolesController} via {@link LoopbackRequests}, not here), the caller's own
+ * {@code AgentSessionsController} via {@link LoopbackRequests}, not here), the caller's own
  * GitHub accounts under {@code /api/github/accounts}
  * (#550 — sign in, list, remove; account-scoped like the two before it, superseding
  * the old #532 host-{@code gh}-login read), the project templates on this host backing the same dialog's template
@@ -96,14 +96,15 @@ public class SecurityConfig {
                         .requestMatchers("/api/projects/*/github-account").authenticated()
                         .requestMatchers("/api/projects/*/issues/*/worktrees").authenticated()
                         .requestMatchers("/api/projects/*/issues/*/worktrees/*").authenticated()
+                        // The /consoles and /console paths below are compatibility surfaces kept under ADR-112.
                         .requestMatchers("/api/projects/*/consoles").authenticated()
-                        // Starting a console's IDE and everything the proxied IDE
+                        // Starting an agent session's IDE and everything the proxied IDE
                         // itself serves under it (#655) -- pages, assets and the
                         // WebSocket handshake alike. Behind this, the proxy applies
                         // the owner-only check before forwarding anything.
                         .requestMatchers("/api/projects/*/consoles/*/open-ide").authenticated()
                         .requestMatchers("/api/projects/*/consoles/*/ide/**").authenticated()
-                        // Revealing a console's worktree in the host's file manager
+                        // Revealing an agent session's worktree in the host's file manager
                         // (#441): unlisted until #784, so an anonymous call reached the
                         // controller and failed with a 500 on a null principal instead
                         // of this 401. Behind this, the controller applies the owner-only

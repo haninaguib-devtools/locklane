@@ -16,7 +16,7 @@ import java.util.Map;
  * The project page's worktree list (#320) — every worktree tied to one project's
  * issues, its manual "remove worktree" action, and the page-level "run cleanup now"
  * trigger. Unlike {@link WorktreeController} (per-issue, ownership-filtered — one
- * user's own consoles for one issue), this is a project-wide, system-level view with
+ * user's own agent sessions for one issue), this is a project-wide, system-level view with
  * no ownership filter, matching {@link IssueWorktreeService#allIssueWorktrees()} and
  * the periodic sweep it feeds (#319): a worktree left behind by any user is still
  * something a human overseeing the project needs to see and can remove or sweep,

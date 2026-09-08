@@ -8,18 +8,18 @@ export interface AppEvent {
 }
 
 /**
- * A `consoleAttention` message (#130): a console session started or stopped waiting
+ * A `consoleAttention` message (#130): an agent session started or stopped waiting
  * for the user (a bell, or output going quiet with no input since -- see
  * dev.locklane.engine.pty.PtySession). Shared here since both the sidenav's per-issue
- * dot and the header console indicator react to it.
+ * dot and the header agent session indicator react to it.
  */
-export interface ConsoleAttentionEvent extends AppEvent {
+export interface AgentSessionAttentionEvent extends AppEvent {
   type: 'consoleAttention';
   sessionId: string;
   state: 'waiting' | 'active';
 }
 
-export function isConsoleAttentionEvent(event: AppEvent): event is ConsoleAttentionEvent {
+export function isAgentSessionAttentionEvent(event: AppEvent): event is AgentSessionAttentionEvent {
   return (
     event.type === 'consoleAttention' &&
     typeof event['sessionId'] === 'string' &&
@@ -28,18 +28,18 @@ export function isConsoleAttentionEvent(event: AppEvent): event is ConsoleAttent
 }
 
 /**
- * A `consolesChanged` message (#195): a console session was opened or closed
+ * A `consolesChanged` message (#195): an agent session was opened or closed
  * somewhere in the app -- possibly a different browser tab or session watching the
  * same project's header widget. `projectId` names the affected project when the
- * originating session id could be parsed as one server-side; every real console id
+ * originating session id could be parsed as one server-side; every real agent session id
  * can, so this is present in practice.
  */
-export interface ConsolesChangedEvent extends AppEvent {
+export interface AgentSessionsChangedEvent extends AppEvent {
   type: 'consolesChanged';
   projectId?: number;
 }
 
-export function isConsolesChangedEvent(event: AppEvent): event is ConsolesChangedEvent {
+export function isAgentSessionsChangedEvent(event: AppEvent): event is AgentSessionsChangedEvent {
   return event.type === 'consolesChanged';
 }
 
@@ -133,7 +133,7 @@ export function isGithubRefreshStatusEvent(event: AppEvent): event is GithubRefr
 /**
  * A `projectStatus` message (#721): a project's clone reached `READY` or `FAILED` --
  * broadcast from `ProjectCheckoutService`'s one choke point per transition, so the
- * sidenav, the project console page, and the overview all learn a clone settled the
+ * sidenav, the project agent session page, and the overview all learn a clone settled the
  * moment it does, instead of re-polling every few seconds until it does.
  * `defaultBranch` is present only for `READY` (#582's per-project trunk).
  */
@@ -207,7 +207,7 @@ const MISSED_HEARTBEATS_BEFORE_RECONNECT = 2;
 
 /**
  * Owns the single connection to the app-wide events channel (#128) -- separate from
- * each console tab's own terminal socket (terminal-session.ts). Connected once at app
+ * each agent session tab's own terminal socket (terminal-session.ts). Connected once at app
  * start (see the `provideAppInitializer` in app.config.ts); reconnects on its own with
  * exponential backoff after a drop, since the engine may restart or a laptop may sleep
  * mid-session.
@@ -218,7 +218,7 @@ const MISSED_HEARTBEATS_BEFORE_RECONNECT = 2;
  * sleep, or a throttled background tab silently dropping it) produces a `close` event
  * to reconnect on. `checkConnection()` closes that gap the moment a human is actually
  * looking again, the same way `TerminalSession.checkConnection()` /
- * `TerminalComponent.checkConnectionOnForeground` already do for each console tab's
+ * `TerminalComponent.checkConnectionOnForeground` already do for each agent session tab's
  * own socket (#279).
  *
  * Neither of those helps when the engine's close never arrives at all (#762): behind a

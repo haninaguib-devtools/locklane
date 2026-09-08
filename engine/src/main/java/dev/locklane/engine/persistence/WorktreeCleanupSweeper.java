@@ -21,7 +21,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Periodically deletes a console-created worktree once it is safe to do so (#319) —
+ * Periodically deletes an agent-session-created worktree once it is safe to do so (#319) —
  * a deliberate, narrow exception to ADR-005's "left alone permanently, removed by
  * hand only": a worktree is removed automatically only when every one of these holds,
  * checked fresh at sweep time, and left untouched (never force-removed) otherwise:
@@ -40,10 +40,10 @@ import java.util.regex.Pattern;
  * project's checkout, cross-referenced against the sibling-directory naming convention
  * {@link WorktreeCreationService#startSession} already uses ({@code
  * <repoName>-<issueNumber>}) — never from {@link WorktreeSessionRepository}. Closing an
- * issue console ({@code WorktreeController#closeSession} → {@link
+ * issue agent session ({@code WorktreeController#closeSession} → {@link
  * SessionRegistry#close}) deletes that very row as part of ending the session, so a
  * worktree this guard refuses to remove would otherwise have no record left to find it
- * by; the same reasoning #339/ADR-104 already applied to a project console's own
+ * by; the same reasoning #339/ADR-104 already applied to a project agent session's own
  * discovery, generalized here to the per-issue case it was originally written for. A
  * discovered worktree's id is synthesized from its project and issue number ({@code
  * <projectId>-<issueNumber>-worktree}) rather than read from any persisted session's
@@ -68,9 +68,9 @@ import java.util.regex.Pattern;
  *
  * <p>#339/ADR-104 adds a second, distinct carve-out alongside this one, for a
  * worktree-creation path this class's original guard was never written for: a
- * project console (no issue of its own, {@link ProjectConsoleService}). {@link
- * #allProjectConsoleWorktrees()}/{@link #removalRefusalReasonForProjectConsole}/
- * {@link #removeProjectConsoleWorktree} are that second guard's whole shape — session
+ * project agent session (no issue of its own, {@link ProjectAgentSessionService}). {@link
+ * #allProjectAgentSessionWorktrees()}/{@link #removalRefusalReasonForProjectAgentSession}/
+ * {@link #removeProjectAgentSessionWorktree} are that second guard's whole shape — session
  * ended, clean, and either HEAD is detached and an ancestor of the project's default
  * branch on origin ({@code origin/main} unless the project recorded a different one,
  * #583/ADR-108, e.g. {@code origin/master})
@@ -81,16 +81,16 @@ import java.util.regex.Pattern;
  * branch that still carries real, un-landed work refuses removal unconditionally,
  * unchanged from before ADR-107. Checked and removed the same all-or-nothing way, by
  * {@link #sweep()} as the periodic backstop and by {@link
- * ProjectConsoleService#close(long, String, String)} synchronously on tab close.
- * Discovery ({@link #allProjectConsoleWorktrees()}) is deliberately git-native
+ * ProjectAgentSessionService#close(long, String, String)} synchronously on tab close.
+ * Discovery ({@link #allProjectAgentSessionWorktrees()}) is deliberately git-native
  * ({@code git worktree list --porcelain}, cross-referenced against the
  * sibling-directory naming convention {@link
- * ProjectConsoleService#startWorktreeSession} already uses), never from {@link
- * WorktreeSessionRepository}: a project console's tab-close already deletes its
+ * ProjectAgentSessionService#startWorktreeSession} already uses), never from {@link
+ * WorktreeSessionRepository}: a project agent session's tab-close already deletes its
  * persisted record unconditionally as part of ending the session, so a worktree this
  * guard refuses to remove would otherwise have no record left to find it by — and
  * asking git itself, rather than trusting directory names alone, means a same-named
- * but unrelated directory is never mistaken for a real project-console worktree.
+ * but unrelated directory is never mistaken for a real project-agent-session worktree.
  */
 @Service
 public class WorktreeCleanupSweeper {
@@ -126,7 +126,7 @@ public class WorktreeCleanupSweeper {
     }
 
     /**
-     * Evaluates every console-created worktree once — per-issue and project-console
+     * Evaluates every agent-session-created worktree once — per-issue and project-agent-session
      * alike, each against its own guard — and removes each one the applicable guard
      * clears. Returns the worktree ids actually removed, so a caller (a test, or
      * #320's on-demand trigger) can report what happened rather than only that the
@@ -139,8 +139,8 @@ public class WorktreeCleanupSweeper {
                 removed.add(worktree.worktreeId());
             }
         }
-        for (ProjectConsoleWorktree worktree : allProjectConsoleWorktrees()) {
-            if (removalRefusalReasonForProjectConsole(worktree).isEmpty() && removeProjectConsoleWorktree(worktree)) {
+        for (ProjectAgentSessionWorktree worktree : allProjectAgentSessionWorktrees()) {
+            if (removalRefusalReasonForProjectAgentSession(worktree).isEmpty() && removeProjectAgentSessionWorktree(worktree)) {
                 removed.add(worktree.worktreeId());
             }
         }
@@ -154,15 +154,15 @@ public class WorktreeCleanupSweeper {
      * naming convention {@link WorktreeCreationService#startSession} already uses
      * ({@code <repoName>-<issueNumber>}), never from {@link WorktreeSessionRepository}:
      * see this class's javadoc for why a DB-record-based discovery is wrong here, the
-     * same reasoning {@link #allProjectConsoleWorktrees()} already established for the
-     * project-console family. A worktree's id is synthesized from the project and
+     * same reasoning {@link #allProjectAgentSessionWorktrees()} already established for the
+     * project-agent-session family. A worktree's id is synthesized from the project and
      * issue number alone ({@code <projectId>-<issueNumber>-worktree}) — there is no
      * persisted slug to read back, and none is needed: every consumer of {@link
      * IssueWorktree#worktreeId()} treats it as an opaque handle. Asking git, rather
      * than only matching directory names on disk, means a same-named but unrelated
      * directory is never mistaken for a real per-issue worktree. A project not found,
      * with no matching registered worktree, or whose registered worktree's suffix is
-     * not a bare issue number (a project-console worktree, or anything else) simply
+     * not a bare issue number (a project-agent-session worktree, or anything else) simply
      * contributes nothing.
      */
     public List<IssueWorktree> allIssueWorktrees() {
@@ -213,7 +213,7 @@ public class WorktreeCleanupSweeper {
             return Optional.of("the worktree has uncommitted changes — commit or discard them before removing it");
         }
         if (sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())) {
-            return Optional.of("a console session is still attached to this worktree — close it before removing the worktree");
+            return Optional.of("an agent session is still attached to this worktree — close it before removing the worktree");
         }
         return Optional.empty();
     }
@@ -278,26 +278,27 @@ public class WorktreeCleanupSweeper {
     }
 
     /**
-     * Every project-console worktree git itself considers registered to a project's
+     * Every project-agent-session worktree git itself considers registered to a project's
      * repository, across every project (#339) — {@code git worktree list --porcelain}
      * in each project's own checkout, cross-referenced against the sibling-directory
-     * naming convention {@link ProjectConsoleService#startWorktreeSession} already
-     * uses ({@code <repoName>-console-<suffix>}), never from {@link
+     * naming convention {@link ProjectAgentSessionService#startWorktreeSession} already
+     * uses ({@code <repoName>-console-<suffix>}, kept under ADR-112), never from {@link
      * WorktreeSessionRepository}: see this class's javadoc for why a DB-record-based
      * discovery would be wrong here. Asking git, rather than only matching directory
      * names on disk, is deliberate: a same-named but unrelated directory (a manual
      * backup, a stray clone parked next to the project) is never mistaken for a real
-     * project-console worktree, because it was never actually registered as one of
+     * project-agent-session worktree, because it was never actually registered as one of
      * this repository's linked worktrees. A project not found, or with no matching
      * registered worktree, simply contributes nothing.
      */
-    public List<ProjectConsoleWorktree> allProjectConsoleWorktrees() {
-        List<ProjectConsoleWorktree> result = new ArrayList<>();
+    public List<ProjectAgentSessionWorktree> allProjectAgentSessionWorktrees() {
+        List<ProjectAgentSessionWorktree> result = new ArrayList<>();
         for (ProjectRecord project : projectRepository.findAll()) {
             Path projectRoot = project.workareaPath();
             if (!Files.isDirectory(projectRoot)) {
                 continue;
             }
+            // "-console-" is the persisted session id and worktree directory shape, kept under ADR-112.
             String prefix = WorktreeCreationService.repoName(projectRoot) + "-console-";
             for (Path worktreePath : registeredWorktreePaths(projectRoot)) {
                 Path fileName = worktreePath.getFileName();
@@ -305,8 +306,9 @@ public class WorktreeCleanupSweeper {
                     continue;
                 }
                 String suffix = fileName.toString().substring(prefix.length());
+                // "-console-" is the persisted session id and worktree directory shape, kept under ADR-112.
                 String worktreeId = project.id() + "-console-" + suffix;
-                result.add(new ProjectConsoleWorktree(project.id(), worktreeId, worktreePath));
+                result.add(new ProjectAgentSessionWorktree(project.id(), worktreeId, worktreePath));
             }
         }
         return result;
@@ -341,9 +343,9 @@ public class WorktreeCleanupSweeper {
      * #removalRefusalReason} pattern the per-issue guard already established, applied
      * to a worktree-creation path that guard was never written for.
      */
-    public Optional<String> removalRefusalReasonForProjectConsole(ProjectConsoleWorktree worktree) {
+    public Optional<String> removalRefusalReasonForProjectAgentSession(ProjectAgentSessionWorktree worktree) {
         if (sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())) {
-            return Optional.of("a console session is still attached to this worktree — close it before removing the worktree");
+            return Optional.of("an agent session is still attached to this worktree — close it before removing the worktree");
         }
         String trunkRef = trunkRef(worktree.projectId());
         Optional<String> branch = currentBranch(worktree.workingDirectory());
@@ -362,20 +364,20 @@ public class WorktreeCleanupSweeper {
     }
 
     /**
-     * Removes exactly this project-console worktree's directory (via {@code git
+     * Removes exactly this project-agent-session worktree's directory (via {@code git
      * worktree remove}, no {@code --force}) and forgets its persisted session record,
      * if any is still left — the ordinary case is that it is already gone, tab-close
      * having deleted it as part of ending the session; {@link SessionRegistry#close}
      * is a documented no-op for an id with nothing live or recorded, so calling it
      * unconditionally here is safe. No branch-delete step (contrast {@link
-     * #removeWorktree}): unlike the per-issue path, a project console's checked-out
+     * #removeWorktree}): unlike the per-issue path, a project agent session's checked-out
      * branch is never this guard's own {@code wip/<id>-<slug>} branch to manage —
      * ADR-107 deliberately leaves a landed-but-still-checked-out branch to survive
      * ungoverned, the same as any other branch under ADR-005's default. Callers must
-     * have already confirmed {@link #removalRefusalReasonForProjectConsole} is empty;
+     * have already confirmed {@link #removalRefusalReasonForProjectAgentSession} is empty;
      * this method performs no guard check of its own.
      */
-    public boolean removeProjectConsoleWorktree(ProjectConsoleWorktree worktree) {
+    public boolean removeProjectAgentSessionWorktree(ProjectAgentSessionWorktree worktree) {
         Optional<ProjectRecord> project = projectRepository.findById(worktree.projectId());
         if (project.isEmpty()) {
             return false;
@@ -390,7 +392,7 @@ public class WorktreeCleanupSweeper {
     }
 
     /**
-     * The remote-tracking ref this project's console worktrees are judged "landed"
+     * The remote-tracking ref this project's agent session worktrees are judged "landed"
      * against (#583/ADR-108): {@link WorktreeCreationService#trunkRef(String)} applied
      * to the project's recorded {@link ProjectRecord#defaultBranch()} — the same trunk
      * the worktree was created from — falling back to {@code origin/main} when the
@@ -542,12 +544,12 @@ public class WorktreeCleanupSweeper {
         }
     }
 
-    /** One project-console worktree (#339) — no issue of its own, unlike {@link IssueWorktree}. */
-    public record ProjectConsoleWorktree(long projectId, String worktreeId, Path workingDirectory) {
+    /** One project-agent-session worktree (#339) — no issue of its own, unlike {@link IssueWorktree}. */
+    public record ProjectAgentSessionWorktree(long projectId, String worktreeId, Path workingDirectory) {
     }
 
     /**
-     * One per-issue console-created worktree, discovered git-natively (#585) —
+     * One per-issue agent-session-created worktree, discovered git-natively (#585) —
      * {@code worktreeId} is synthesized from {@code projectId} and {@code issueNumber}
      * alone, never read from a persisted session record.
      */

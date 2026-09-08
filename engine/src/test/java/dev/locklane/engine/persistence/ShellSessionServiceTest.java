@@ -151,7 +151,7 @@ class ShellSessionServiceTest {
     }
 
     @Test
-    void closingAnOpenShellBroadcastsConsolesChanged(@TempDir Path dbDir) {
+    void closingAnOpenShellBroadcastsAgentSessionsChanged(@TempDir Path dbDir) {
         // The Shells window's live sidenav (#446) rides on this broadcast, so it is
         // pinned here even though SessionRegistry.close is what emits it.
         long aliceId = createUser(dbDir, "alice");
@@ -202,7 +202,7 @@ class ShellSessionServiceTest {
     }
 
     @Test
-    void shellSessionsStayOutOfTheExistingConsoleListings(@TempDir Path dbDir) {
+    void shellSessionsStayOutOfTheExistingAgentSessionListings(@TempDir Path dbDir) {
         long aliceId = createUser(dbDir, "alice");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
         long projectId = projectRepository
@@ -216,20 +216,20 @@ class ShellSessionServiceTest {
         IssueWorktreeService issueWorktreeService =
                 new IssueWorktreeService(sessionRepository, authorization(dbDir, projectRepository));
 
-        // The issue's console tab strip and the header indicator/picker both list
+        // The issue's agent session tab strip and the header indicator/picker both list
         // the agent session and never the shell.
         assertThat(issueWorktreeService.worktreeIdsForIssue(projectId, 7, "alice"))
                 .containsExactly(projectId + "-7-do-the-thing");
         assertThat(issueWorktreeService.allWorktreeIds(projectId, "alice"))
                 .containsExactly(projectId + "-7-do-the-thing");
-        // The project consoles tab strip doesn't list it either.
-        assertThat(projectConsoleService(dbDir, projectRepository, sessionRepository).listOpen(projectId, "alice"))
+        // The project agent sessions tab strip doesn't list it either.
+        assertThat(projectAgentSessionService(dbDir, projectRepository, sessionRepository).listOpen(projectId, "alice"))
                 .isEmpty();
     }
 
     @Test
     void shellSessionsCountForProjectDeleteRefusalAndCascadeDelete(@TempDir Path dbDir) {
-        // Shells are tracked sessions like any other console (#444): an open shell
+        // Shells are tracked sessions like any other agent session (#444): an open shell
         // blocks a project delete, and deleting the owning user removes its rows.
         long aliceId = createUser(dbDir, "alice");
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
@@ -260,7 +260,7 @@ class ShellSessionServiceTest {
                 authorization(dbDir, projectRepository), sessionRegistry);
     }
 
-    private static ProjectConsoleService projectConsoleService(Path dbDir, ProjectRepository projectRepository,
+    private static ProjectAgentSessionService projectAgentSessionService(Path dbDir, ProjectRepository projectRepository,
             WorktreeSessionRepository sessionRepository) {
         GhAccountRepository ghAccountRepository = TestSqliteDatabases.newGhAccountRepository(dbDir);
         ProjectGhResources ghResources = new ProjectGhResources(projectRepository, ghAccountRepository,
@@ -268,9 +268,9 @@ class ShellSessionServiceTest {
         WorktreeCleanupSweeper sweeper = new WorktreeCleanupSweeper(
                 projectRepository, ghResources, new SessionRegistry(sessionRepository), ghAccountRepository,
                 tokenCipher(dbDir));
-        return new ProjectConsoleService(projectRepository, ghAccountRepository, tokenCipher(dbDir),
+        return new ProjectAgentSessionService(projectRepository, ghAccountRepository, tokenCipher(dbDir),
                 new SessionRegistry(sessionRepository),
-                sessionRepository, new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)),
+                sessionRepository, new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)),
                 authorization(dbDir, projectRepository), sweeper);
     }
 

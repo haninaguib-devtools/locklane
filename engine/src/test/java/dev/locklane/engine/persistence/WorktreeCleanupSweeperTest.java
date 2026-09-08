@@ -24,7 +24,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Covers #319's done-when guard: a console-created worktree is removed automatically
+ * Covers #319's done-when guard: an agent-session-created worktree is removed automatically
  * only when its issue is closed, its git status is clean, and no live session has a
  * working directory inside it — every other case is left untouched. Exercises real
  * git worktrees against a throwaway local repository (mirroring
@@ -36,13 +36,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * branch goes with it if and only if `git branch -d` (never `-D`) considers it safe to
  * delete — a fully-merged branch disappears, an unmerged one survives untouched.
  *
- * <p>Also covers #583/ADR-108's done-when: the project-console guard judges "landed"
+ * <p>Also covers #583/ADR-108's done-when: the project-agent-session guard judges "landed"
  * against the project's own recorded default branch on origin, not a hardcoded
  * {@code origin/main} — the {@code ...OnAMasterTrunk}/{@code ...IsMaster} tests below
  * build their fixture on a {@code master}-trunk repo (via {@link #fixture(Path,
  * String)}) to prove that.
  */
 class WorktreeCleanupSweeperTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     @Test
     void removesAWorktreeWhoseIssueIsClosedCleanAndUnattached(@TempDir Path tmp) throws Exception {
@@ -200,14 +203,14 @@ class WorktreeCleanupSweeperTest {
     @Test
     void sweepRemovesAClosedCleanPerIssueWorktreeWhoseSessionRecordWasAlreadyDeletedOnTabClose(@TempDir Path tmp)
             throws Exception {
-        // The exact bug #585 fixes: closing an issue console deletes its
+        // The exact bug #585 fixes: closing an issue agent session deletes its
         // worktree_sessions row (SessionRegistry#close) as part of ending the
         // session, before the sweep ever runs -- discovery must find the worktree
         // by asking git, with no row left to read.
         Fixture fx = fixture(tmp);
         GhIssue closed = new GhIssue(51, "Closed, tab already closed", "CLOSED", List.of(), "", "", "");
         WorktreeAndId worktree = createWorktree(fx, 51, "Closed, tab already closed");
-        // Simulate the console's actual lifecycle: a client attaches (persisting a
+        // Simulate the agent session's actual lifecycle: a client attaches (persisting a
         // session row under the real, slug-bearing id) and then the tab is closed
         // (WorktreeController#closeSession -> SessionRegistry#close), which deletes
         // that very row -- before the sweep ever runs.
@@ -263,59 +266,59 @@ class WorktreeCleanupSweeperTest {
         assertThat(sweeper(fx, List.of()).allIssueWorktrees()).isEmpty();
     }
 
-    // --- #339/ADR-104: the sweep as backstop for orphaned project-console worktrees ---
+    // --- #339/ADR-104: the sweep as backstop for orphaned project-agent-session worktrees ---
 
     @Test
-    void sweepRemovesAnOrphanedProjectConsoleWorktreeThatIsCleanDetachedAndHasNoStrayCommits(@TempDir Path tmp)
+    void sweepRemovesAnOrphanedProjectAgentSessionWorktreeThatIsCleanDetachedAndHasNoStrayCommits(@TempDir Path tmp)
             throws Exception {
         Fixture fx = fixture(tmp);
         // No session record at all -- simulating the ordinary case (tab-close already
         // deleted it) as well as a crash where none was ever recorded.
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
         List<String> removed = sweeper.sweep();
 
-        assertThat(removed).containsExactly(console.worktreeId());
-        assertThat(console.path()).doesNotExist();
+        assertThat(removed).containsExactly(agentSession.worktreeId());
+        assertThat(agentSession.path()).doesNotExist();
     }
 
     @Test
-    void sweepLeavesADirtyProjectConsoleWorktreeAlone(@TempDir Path tmp) throws Exception {
+    void sweepLeavesADirtyProjectAgentSessionWorktreeAlone(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
-        Files.writeString(console.path().resolve("scratch.txt"), "uncommitted work");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
+        Files.writeString(agentSession.path().resolve("scratch.txt"), "uncommitted work");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
         List<String> removed = sweeper.sweep();
 
         assertThat(removed).isEmpty();
-        assertThat(console.path()).isDirectory();
+        assertThat(agentSession.path()).isDirectory();
     }
 
     @Test
-    void sweepLeavesAProjectConsoleWorktreeAloneWhoseBranchCarriesUnlandedWork(@TempDir Path tmp) throws Exception {
+    void sweepLeavesAProjectAgentSessionWorktreeAloneWhoseBranchCarriesUnlandedWork(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
-        checkoutBranchWithRealCommit(console.path(), "wip/1-do-the-thing", "unshipped.txt", "not yet on main");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
+        checkoutBranchWithRealCommit(agentSession.path(), "wip/1-do-the-thing", "unshipped.txt", "not yet on main");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
         List<String> removed = sweeper.sweep();
 
         assertThat(removed).isEmpty();
-        assertThat(console.path()).isDirectory();
+        assertThat(agentSession.path()).isDirectory();
     }
 
     @Test
-    void sweepRemovesAProjectConsoleWorktreeWhoseBranchHasAlreadyLandedOnOriginMain(@TempDir Path tmp)
+    void sweepRemovesAProjectAgentSessionWorktreeWhoseBranchHasAlreadyLandedOnOriginMain(@TempDir Path tmp)
             throws Exception {
         // #554/ADR-107: the branch's own commit is squash-merged into main under a
         // different SHA -- git worktrees share the same repo's refs, so squashing
         // straight onto fx.projectRoot()'s checked-out `main` and pushing simulates
         // exactly what a real squash-merge PR does, without needing a second clone.
         Fixture fx = fixture(tmp);
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
-        checkoutBranchWithRealCommit(console.path(), "wip/529-bump-revision", "revision.txt", "0.1.9-SNAPSHOT");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
+        checkoutBranchWithRealCommit(agentSession.path(), "wip/529-bump-revision", "revision.txt", "0.1.9-SNAPSHOT");
         run(fx.projectRoot(), "git", "merge", "--squash", "wip/529-bump-revision");
         run(fx.projectRoot(), "git", "commit", "-m", "Bump revision (#530)");
         run(fx.projectRoot(), "git", "push", "origin", "main");
@@ -323,63 +326,63 @@ class WorktreeCleanupSweeperTest {
 
         List<String> removed = sweeper.sweep();
 
-        assertThat(removed).containsExactly(console.worktreeId());
-        assertThat(console.path()).doesNotExist();
+        assertThat(removed).containsExactly(agentSession.worktreeId());
+        assertThat(agentSession.path()).doesNotExist();
     }
 
     @Test
-    void sweepLeavesAProjectConsoleWorktreeAloneWithCommitsNotOnOriginMain(@TempDir Path tmp) throws Exception {
+    void sweepLeavesAProjectAgentSessionWorktreeAloneWithCommitsNotOnOriginMain(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
-        run(console.path(), "git", "commit", "--allow-empty", "-m", "unpushed work on detached HEAD");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
+        run(agentSession.path(), "git", "commit", "--allow-empty", "-m", "unpushed work on detached HEAD");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
         List<String> removed = sweeper.sweep();
 
         assertThat(removed).isEmpty();
-        assertThat(console.path()).isDirectory();
+        assertThat(agentSession.path()).isDirectory();
     }
 
     // --- #583/ADR-108: the guard judges against the project's own recorded trunk,
     // not a hardcoded origin/main ---
 
     @Test
-    void sweepRemovesAnOrphanedProjectConsoleWorktreeOnAProjectWhoseTrunkIsMaster(@TempDir Path tmp) throws Exception {
+    void sweepRemovesAnOrphanedProjectAgentSessionWorktreeOnAProjectWhoseTrunkIsMaster(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp, "master");
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx, "origin/master");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx, "origin/master");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
         List<String> removed = sweeper.sweep();
 
-        assertThat(removed).containsExactly(console.worktreeId());
-        assertThat(console.path()).doesNotExist();
+        assertThat(removed).containsExactly(agentSession.worktreeId());
+        assertThat(agentSession.path()).doesNotExist();
     }
 
     @Test
-    void sweepLeavesAProjectConsoleWorktreeAloneWithCommitsNotOnAMasterTrunk(@TempDir Path tmp) throws Exception {
+    void sweepLeavesAProjectAgentSessionWorktreeAloneWithCommitsNotOnAMasterTrunk(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp, "master");
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx, "origin/master");
-        run(console.path(), "git", "commit", "--allow-empty", "-m", "unpushed work on detached HEAD");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx, "origin/master");
+        run(agentSession.path(), "git", "commit", "--allow-empty", "-m", "unpushed work on detached HEAD");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
         List<String> removed = sweeper.sweep();
 
         assertThat(removed).isEmpty();
-        assertThat(console.path()).isDirectory();
+        assertThat(agentSession.path()).isDirectory();
     }
 
     @Test
-    void sweepRemovesAProjectConsoleWorktreeWhoseBranchHasAlreadyLandedOnAMasterTrunk(@TempDir Path tmp)
+    void sweepRemovesAProjectAgentSessionWorktreeWhoseBranchHasAlreadyLandedOnAMasterTrunk(@TempDir Path tmp)
             throws Exception {
         // Same #554/ADR-107 squash-merge-equivalence case as
-        // sweepRemovesAProjectConsoleWorktreeWhoseBranchHasAlreadyLandedOnOriginMain,
+        // sweepRemovesAProjectAgentSessionWorktreeWhoseBranchHasAlreadyLandedOnOriginMain,
         // on a project whose recorded trunk is master rather than main -- this is
         // exactly the case that errored out (and so was silently left alone) before
         // #583: the guard used to compare against a literal, and here nonexistent,
         // origin/main.
         Fixture fx = fixture(tmp, "master");
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx, "origin/master");
-        checkoutBranchWithRealCommit(console.path(), "wip/529-bump-revision", "revision.txt", "0.1.9-SNAPSHOT");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx, "origin/master");
+        checkoutBranchWithRealCommit(agentSession.path(), "wip/529-bump-revision", "revision.txt", "0.1.9-SNAPSHOT");
         run(fx.projectRoot(), "git", "merge", "--squash", "wip/529-bump-revision");
         run(fx.projectRoot(), "git", "commit", "-m", "Bump revision (#530)");
         run(fx.projectRoot(), "git", "push", "origin", "master");
@@ -387,70 +390,70 @@ class WorktreeCleanupSweeperTest {
 
         List<String> removed = sweeper.sweep();
 
-        assertThat(removed).containsExactly(console.worktreeId());
-        assertThat(console.path()).doesNotExist();
+        assertThat(removed).containsExactly(agentSession.worktreeId());
+        assertThat(agentSession.path()).doesNotExist();
     }
 
     @Test
-    void removalRefusalReasonForProjectConsoleNamesOriginMasterOnAMasterTrunkProject(@TempDir Path tmp)
+    void removalRefusalReasonForProjectAgentSessionNamesOriginMasterOnAMasterTrunkProject(@TempDir Path tmp)
             throws Exception {
         Fixture fx = fixture(tmp, "master");
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx, "origin/master");
-        checkoutBranchWithRealCommit(console.path(), "wip/1-do-the-thing", "unshipped.txt", "not yet on master");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx, "origin/master");
+        checkoutBranchWithRealCommit(agentSession.path(), "wip/1-do-the-thing", "unshipped.txt", "not yet on master");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
-        Optional<String> reason = sweeper.removalRefusalReasonForProjectConsole(
-                new WorktreeCleanupSweeper.ProjectConsoleWorktree(fx.projectId, console.worktreeId(), console.path()));
+        Optional<String> reason = sweeper.removalRefusalReasonForProjectAgentSession(
+                new WorktreeCleanupSweeper.ProjectAgentSessionWorktree(fx.projectId, agentSession.worktreeId(), agentSession.path()));
 
         assertThat(reason).contains(
                 "a branch is checked out in this worktree, and its work has not landed on origin/master yet — it has outgrown scratch use, so it is left alone");
     }
 
     @Test
-    void sweepLeavesAProjectConsoleWorktreeAloneWhileItsSessionIsLive(@TempDir Path tmp) throws Exception {
+    void sweepLeavesAProjectAgentSessionWorktreeAloneWhileItsSessionIsLive(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
         SessionRegistry sessionRegistry = new SessionRegistry(fx.repository);
-        sessionRegistry.attach(console.worktreeId(), console.path());
+        sessionRegistry.attach(agentSession.worktreeId(), agentSession.path());
         WorktreeCleanupSweeper sweeper = sweeper(fx, sessionRegistry, List.of());
 
         try {
             List<String> removed = sweeper.sweep();
 
             assertThat(removed).isEmpty();
-            assertThat(console.path()).isDirectory();
+            assertThat(agentSession.path()).isDirectory();
         } finally {
-            sessionRegistry.close(console.worktreeId());
+            sessionRegistry.close(agentSession.worktreeId());
         }
     }
 
     @Test
-    void removalRefusalReasonForProjectConsoleNamesTheFirstFailingCheck(@TempDir Path tmp) throws Exception {
+    void removalRefusalReasonForProjectAgentSessionNamesTheFirstFailingCheck(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
-        checkoutBranchWithRealCommit(console.path(), "wip/1-do-the-thing", "unshipped.txt", "not yet on main");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
+        checkoutBranchWithRealCommit(agentSession.path(), "wip/1-do-the-thing", "unshipped.txt", "not yet on main");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
-        Optional<String> reason = sweeper.removalRefusalReasonForProjectConsole(
-                new WorktreeCleanupSweeper.ProjectConsoleWorktree(fx.projectId, console.worktreeId(), console.path()));
+        Optional<String> reason = sweeper.removalRefusalReasonForProjectAgentSession(
+                new WorktreeCleanupSweeper.ProjectAgentSessionWorktree(fx.projectId, agentSession.worktreeId(), agentSession.path()));
 
         assertThat(reason).contains(
                 "a branch is checked out in this worktree, and its work has not landed on origin/main yet — it has outgrown scratch use, so it is left alone");
     }
 
     @Test
-    void removalRefusalReasonForProjectConsoleIsEmptyOnceItsCheckedOutBranchHasLanded(@TempDir Path tmp)
+    void removalRefusalReasonForProjectAgentSessionIsEmptyOnceItsCheckedOutBranchHasLanded(@TempDir Path tmp)
             throws Exception {
         Fixture fx = fixture(tmp);
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
-        checkoutBranchWithRealCommit(console.path(), "wip/529-bump-revision", "revision.txt", "0.1.9-SNAPSHOT");
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
+        checkoutBranchWithRealCommit(agentSession.path(), "wip/529-bump-revision", "revision.txt", "0.1.9-SNAPSHOT");
         run(fx.projectRoot(), "git", "merge", "--squash", "wip/529-bump-revision");
         run(fx.projectRoot(), "git", "commit", "-m", "Bump revision (#530)");
         run(fx.projectRoot(), "git", "push", "origin", "main");
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
-        Optional<String> reason = sweeper.removalRefusalReasonForProjectConsole(
-                new WorktreeCleanupSweeper.ProjectConsoleWorktree(fx.projectId, console.worktreeId(), console.path()));
+        Optional<String> reason = sweeper.removalRefusalReasonForProjectAgentSession(
+                new WorktreeCleanupSweeper.ProjectAgentSessionWorktree(fx.projectId, agentSession.worktreeId(), agentSession.path()));
 
         assertThat(reason).isEmpty();
     }
@@ -463,7 +466,7 @@ class WorktreeCleanupSweeperTest {
     // isn't practical against a local-path remote.
 
     @Test
-    void sweepRemovesAnOrphanedProjectConsoleWorktreeWhenTheProjectHasAChosenAccount(@TempDir Path tmp)
+    void sweepRemovesAnOrphanedProjectAgentSessionWorktreeWhenTheProjectHasAChosenAccount(@TempDir Path tmp)
             throws Exception {
         Fixture fx = fixture(tmp);
         TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(tmp.toString()));
@@ -471,20 +474,20 @@ class WorktreeCleanupSweeperTest {
         GhAccount account = ghAccountRepository.insert(1L, "work", tokenCipher.encrypt("sweep-token"),
                 Set.of("repo"), Instant.now());
         fx.projectRepository().setGithubAccountId(fx.projectId(), account.id());
-        ProjectConsoleWorktreeAndId console = createProjectConsoleWorktree(fx);
+        ProjectAgentSessionWorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
         WorktreeCleanupSweeper sweeper = sweeper(fx, List.of());
 
         List<String> removed = sweeper.sweep();
 
-        assertThat(removed).containsExactly(console.worktreeId());
-        assertThat(console.path()).doesNotExist();
+        assertThat(removed).containsExactly(agentSession.worktreeId());
+        assertThat(agentSession.path()).doesNotExist();
     }
 
     @Test
     void discoveryIgnoresASameNamedDirectoryThatWasNeverRegisteredAsAWorktree(@TempDir Path tmp) throws Exception {
         // #339/ADR-104, per /t-review: discovery must ask git, not just match a
         // directory's name -- a same-named but unrelated directory (a manual backup,
-        // a stray clone) must never be treated as a discovered project-console
+        // a stray clone) must never be treated as a discovered project-agent-session
         // worktree, only ever a real git worktree/t-work's `git worktree add`
         // actually registered.
         Fixture fx = fixture(tmp);
@@ -493,7 +496,7 @@ class WorktreeCleanupSweeperTest {
         Files.createDirectories(phantom);
         Files.writeString(phantom.resolve("not-a-worktree.txt"), "just a directory with the right name");
 
-        assertThat(sweeper(fx, List.of()).allProjectConsoleWorktrees()).isEmpty();
+        assertThat(sweeper(fx, List.of()).allProjectAgentSessionWorktrees()).isEmpty();
     }
 
     /**
@@ -505,23 +508,23 @@ class WorktreeCleanupSweeperTest {
     private record WorktreeAndId(String worktreeId, String createdSessionId, Path path) {
     }
 
-    private record ProjectConsoleWorktreeAndId(String worktreeId, Path path) {
+    private record ProjectAgentSessionWorktreeAndId(String worktreeId, Path path) {
     }
 
-    /** A project-console-shaped sibling worktree (#339), detached at origin/main. */
-    private static ProjectConsoleWorktreeAndId createProjectConsoleWorktree(Fixture fx)
+    /** A project-agent-session-shaped sibling worktree (#339), detached at origin/main. */
+    private static ProjectAgentSessionWorktreeAndId createProjectAgentSessionWorktree(Fixture fx)
             throws IOException, InterruptedException {
-        return createProjectConsoleWorktree(fx, "origin/main");
+        return createProjectAgentSessionWorktree(fx, "origin/main");
     }
 
-    /** Same as {@link #createProjectConsoleWorktree(Fixture)}, detached at {@code trunkRef} instead (#583). */
-    private static ProjectConsoleWorktreeAndId createProjectConsoleWorktree(Fixture fx, String trunkRef)
+    /** Same as {@link #createProjectAgentSessionWorktree(Fixture)}, detached at {@code trunkRef} instead (#583). */
+    private static ProjectAgentSessionWorktreeAndId createProjectAgentSessionWorktree(Fixture fx, String trunkRef)
             throws IOException, InterruptedException {
         String suffix = "abcd1234";
         Path worktreePath =
                 fx.projectRoot().resolveSibling(WorktreeCreationService.repoName(fx.projectRoot()) + "-console-" + suffix);
         WorktreeCreationService.createDetachedWorktree(worktreePath, fx.projectRoot(), trunkRef, GitCredential.NONE);
-        return new ProjectConsoleWorktreeAndId(fx.projectId + "-console-" + suffix, worktreePath);
+        return new ProjectAgentSessionWorktreeAndId(fx.projectId + "-console-" + suffix, worktreePath);
     }
 
     /**
@@ -570,7 +573,7 @@ class WorktreeCleanupSweeperTest {
 
         WorktreeCreationService.StartedSession started = creationService.startSession(fx.projectId, issueNumber).orElseThrow();
         Path worktreePath = Path.of(started.workingDirectory());
-        // #340: opening a console no longer mints a branch itself -- startSession now
+        // #340: opening an agent session no longer mints a branch itself -- startSession now
         // leaves the worktree detached at origin/main. These tests are specifically
         // about the fate of a worktree's *branch* on cleanup (#342), so simulate the
         // /t-work step that would normally follow: check out the real

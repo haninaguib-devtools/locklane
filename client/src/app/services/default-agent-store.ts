@@ -12,10 +12,10 @@ export interface InstalledAgent {
 }
 
 /**
- * Which agent the user prefers to launch consoles with (#219), set from the settings
+ * Which agent the user prefers to launch agent sessions with (#219), set from the settings
  * dialog. Client-only preference, persisted in localStorage -- consistent with
  * {@link AgentStore}, the engine deliberately does not persist a session's launch
- * command, so there is nothing server-side to keep this in sync with. Console-launch
+ * command, so there is nothing server-side to keep this in sync with. Agent session-launch
  * call sites reading this in place of a hardcoded default is separate work (#219's
  * Non-goals).
  *
@@ -24,7 +24,7 @@ export interface InstalledAgent {
  * so the settings dialog can render a button only for one that is actually installed --
  * without knowing any agent's name itself. Empty until {@link refreshInstalled} has been
  * called and its fetch resolves; a caller that needs the installed set (the settings
- * dialog, the project summary's "Open console" button) asks for it explicitly rather
+ * dialog, the project summary's "Open agent" button) asks for it explicitly rather
  * than this store fetching eagerly for places that have no need to trigger it. With no
  * client-side agent list left to fall back on, {@link agent}'s correction to the first
  * installed agent (when none is stored or the stored one is no longer installed, #695)

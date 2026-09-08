@@ -7,12 +7,12 @@ import { WorktreeListComponent } from '../worktree-list/worktree-list.component'
 import { SessionListComponent } from '../session-list/session-list.component';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
-import { OpenProjectConsole, ProjectConsoleService } from '../../services/project-console.service';
-import { ConsolesService } from '../../services/consoles.service';
+import { OpenProjectAgentSession, ProjectAgentSessionService } from '../../services/project-agent-session.service';
+import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { OpenShell, ShellsService } from '../../services/shells.service';
 import { AgentStore } from '../../services/agent-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
-import { LastConsoleStore } from '../../services/last-console-store';
+import { LastAgentSessionStore } from '../../services/last-agent-session-store';
 import { AccentPreset, ACCENT_PRESETS } from '../../services/accent-theme-store';
 import { CurrentProjectService } from '../../services/current-project.service';
 
@@ -40,12 +40,12 @@ export interface IssueCounts {
 export class ProjectSummaryComponent implements OnChanges, OnInit {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
-  private readonly projectConsoleService = inject(ProjectConsoleService);
-  private readonly consolesService = inject(ConsolesService);
+  private readonly projectAgentSessionService = inject(ProjectAgentSessionService);
+  private readonly agentSessionsService = inject(AgentSessionsService);
   private readonly shellsService = inject(ShellsService);
   private readonly agentStore = inject(AgentStore);
   private readonly defaultAgentStore = inject(DefaultAgentStore);
-  private readonly lastConsoleStore = inject(LastConsoleStore);
+  private readonly lastAgentSessionStore = inject(LastAgentSessionStore);
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
 
@@ -82,29 +82,29 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   error = false;
 
   // The delete-project button (#231): opens the app-styled confirm dialog rather than
-  // deleting immediately, and surfaces the backend's refusal (open worktree/console)
+  // deleting immediately, and surfaces the backend's refusal (open worktree/agent session)
   // inline rather than navigating away or failing silently.
   showDeleteConfirm = false;
   deleting = false;
   deleteError: string | null = null;
 
-  // The project's open consoles (#221), fetched only once the project is known to
+  // The project's open agent sessions (#221), fetched only once the project is known to
   // be READY -- a cloning or failed project has nowhere to run one. Drives the
-  // console button's label and where it navigates.
-  openConsoles: OpenProjectConsole[] = [];
-  startingConsole = false;
-  consoleError = false;
+  // agent session button's label and where it navigates.
+  openAgentSessions: OpenProjectAgentSession[] = [];
+  startingAgentSession = false;
+  agentSessionError = false;
 
   // The project's open shells (#745, reusing #733's ShellsService), fetched
-  // alongside the consoles above -- drives the "Open shells" button's choice
+  // alongside the agent sessions above -- drives the "Open shells" button's choice
   // between focusing an existing shell and minting one at the main worktree first.
   openShells: OpenShell[] = [];
   startingShell = false;
   shellError = false;
 
-  // This project's past console conversations (#752), shown in an always-visible
+  // This project's past agent session conversations (#752), shown in an always-visible
   // column the same way an issue's Overview tab shows its own (overview-tab's
-  // sessions-rail) -- unlike that tab, and unlike the project console page's old
+  // sessions-rail) -- unlike that tab, and unlike the project agent session page's old
   // disclosure, there is no live terminal here competing for the initial request,
   // so the list loads with the rest of the page rather than behind a toggle.
   pastSessions: ResumeSession[] = [];
@@ -112,7 +112,7 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   reopeningSession = false;
   reopenSessionError = false;
 
-  // #695: "Open console" launches with `defaultAgentStore.agent()` directly, so its
+  // #695: "Open agent" launches with `defaultAgentStore.agent()` directly, so its
   // fallback to the first installed agent needs this store's fetch already under way
   // -- not only triggered from the settings dialog.
   ngOnInit(): void {
@@ -182,9 +182,9 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     this.counts = null;
     this.loading = true;
     this.error = false;
-    this.openConsoles = [];
-    this.startingConsole = false;
-    this.consoleError = false;
+    this.openAgentSessions = [];
+    this.startingAgentSession = false;
+    this.agentSessionError = false;
     this.openShells = [];
     this.startingShell = false;
     this.shellError = false;
@@ -201,7 +201,7 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
         this.loading = false;
         this.error = this.project === null;
         if (this.project?.status === 'READY') {
-          this.loadConsoles(projectId);
+          this.loadAgentSessions(projectId);
           this.loadShells(projectId);
           this.loadPastSessions(projectId);
         }
@@ -227,12 +227,12 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     });
   }
 
-  private loadConsoles(projectId: number): void {
-    this.projectConsoleService.listOpen(projectId).subscribe({
-      // A failed fetch leaves the button reading "Open console": starting one
+  private loadAgentSessions(projectId: number): void {
+    this.projectAgentSessionService.listOpen(projectId).subscribe({
+      // A failed fetch leaves the button reading "Open agent": starting one
       // fresh is still a safe offer even though the existing list is unknown.
-      next: (consoles) => (this.openConsoles = consoles),
-      error: () => (this.openConsoles = []),
+      next: (agentSessions) => (this.openAgentSessions = agentSessions),
+      error: () => (this.openAgentSessions = []),
     });
   }
 
@@ -245,11 +245,11 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     });
   }
 
-  // A conversation outlives the console it ran in (#101), so this list is read
-  // independently of the open-console list; a failure leaves it simply empty
+  // A conversation outlives the agent session it ran in (#101), so this list is read
+  // independently of the open-agent-session list; a failure leaves it simply empty
   // rather than blocking the rest of the page.
   private loadPastSessions(projectId: number): void {
-    this.projectConsoleService.resumeSessions(projectId).subscribe({
+    this.projectAgentSessionService.resumeSessions(projectId).subscribe({
       next: (sessions) => {
         this.pastSessions = sessions;
         this.pastSessionsLoading = false;
@@ -263,14 +263,14 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
 
   /**
    * Reopens a past conversation (#752): the engine mints a brand-new session in the
-   * original console's working directory, then this navigates to the project's
-   * console page with that session selected -- the same handoff `onConsoleButtonClick`
-   * uses for "Open console" -- so the resume itself happens there, where the terminal
+   * original agent session's working directory, then this navigates to the project's
+   * agent session page with that session selected -- the same handoff `onAgentSessionButtonClick`
+   * uses for "Open agent" -- so the resume itself happens there, where the terminal
    * lives. The engine only lists a session as open once something has attached to it,
-   * so the freshly minted id is never in that page's open-console list (#795): its
+   * so the freshly minted id is never in that page's open-agent-session list (#795): its
    * working directory rides along as `?dir=` so the page can add the tab itself, the
    * way the issue page's own reopen does, instead of falling through to some other
-   * console.
+   * agent session.
    */
   reopenPastSession(session: ResumeSession): void {
     if (this.reopeningSession) {
@@ -278,16 +278,16 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     }
     this.reopeningSession = true;
     this.reopenSessionError = false;
-    this.projectConsoleService.reopenSession(this.projectId, session.worktreeId).subscribe({
+    this.projectAgentSessionService.reopenSession(this.projectId, session.worktreeId).subscribe({
       next: (started) => {
         this.reopeningSession = false;
         this.agentStore.set(started.sessionId, session.tool);
-        this.consolesService.notifyOpened();
-        // `resume`/`tool` ride along in the URL (read once by ProjectConsoleComponent)
+        this.agentSessionsService.notifyOpened();
+        // `resume`/`tool` ride along in the URL (read once by ProjectAgentSessionComponent)
         // because the session's first-ever WebSocket attach is what actually launches
         // `<tool> --resume <id>` (WorktreeController#reopenSession) -- this page never
         // mounts a terminal itself, so that attach only happens after this navigation.
-        this.navigateToConsole(started.sessionId, {
+        this.navigateToAgentSession(started.sessionId, {
           dir: started.workingDirectory,
           resume: session.resumeId,
           tool: session.tool,
@@ -300,58 +300,59 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     });
   }
 
-  /** The console button's label (#221): switches once the project has any open console. */
-  get consoleButtonLabel(): string {
-    if (this.startingConsole) {
+  /** The agent session button's label (#221): switches once the project has any open agent session. */
+  get agentSessionButtonLabel(): string {
+    if (this.startingAgentSession) {
       return 'starting…';
     }
-    return this.openConsoles.length > 0 ? 'Open agents' : 'Open agent';
+    return this.openAgentSessions.length > 0 ? 'Open agents' : 'Open agent';
   }
 
-  onConsoleButtonClick(): void {
-    if (this.startingConsole) {
+  onAgentSessionButtonClick(): void {
+    if (this.startingAgentSession) {
       return;
     }
-    if (this.openConsoles.length === 0) {
-      this.startConsole();
+    if (this.openAgentSessions.length === 0) {
+      this.startAgentSession();
     } else {
-      this.openMostRecentConsole();
+      this.openMostRecentAgentSession();
     }
   }
 
-  private startConsole(): void {
-    this.startingConsole = true;
-    this.consoleError = false;
-    this.projectConsoleService.start(this.projectId).subscribe({
+  private startAgentSession(): void {
+    this.startingAgentSession = true;
+    this.agentSessionError = false;
+    this.projectAgentSessionService.start(this.projectId).subscribe({
       next: (session) => {
-        this.startingConsole = false;
+        this.startingAgentSession = false;
         this.agentStore.set(session.sessionId, this.defaultAgentStore.agent());
-        this.consolesService.notifyOpened();
-        // Same `?dir=` handoff as reopenPastSession (#795): without it the console
+        this.agentSessionsService.notifyOpened();
+        // Same `?dir=` handoff as reopenPastSession (#795): without it the agent session
         // page, not finding the never-attached id in its open list, auto-started a
-        // second console and left this one's worktree stranded.
-        this.navigateToConsole(session.sessionId, { dir: session.workingDirectory });
+        // second agent session and left this one's worktree stranded.
+        this.navigateToAgentSession(session.sessionId, { dir: session.workingDirectory });
       },
       error: () => {
-        this.startingConsole = false;
-        this.consoleError = true;
+        this.startingAgentSession = false;
+        this.agentSessionError = true;
       },
     });
   }
 
-  // "Most recently interacted with" (#221): the console the user last selected on
-  // this project's own console page (LastConsoleStore), when it is still one of
-  // the open ones -- otherwise the last entry in the open-consoles list, the same
+  // "Most recently interacted with" (#221): the agent session the user last selected on
+  // this project's own agent session page (LastAgentSessionStore), when it is still one of
+  // the open ones -- otherwise the last entry in the open-agent-sessions list, the same
   // fallback a user with no recorded interaction yet would land on.
-  private openMostRecentConsole(): void {
-    const remembered = this.lastConsoleStore.get(this.projectId);
-    const target = this.openConsoles.some((c) => c.sessionId === remembered)
+  private openMostRecentAgentSession(): void {
+    const remembered = this.lastAgentSessionStore.get(this.projectId);
+    const target = this.openAgentSessions.some((c) => c.sessionId === remembered)
       ? remembered!
-      : this.openConsoles[this.openConsoles.length - 1].sessionId;
-    this.navigateToConsole(target);
+      : this.openAgentSessions[this.openAgentSessions.length - 1].sessionId;
+    this.navigateToAgentSession(target);
   }
 
-  private navigateToConsole(sessionId: string, queryParams: Record<string, string> = {}): void {
+  private navigateToAgentSession(sessionId: string, queryParams: Record<string, string> = {}): void {
+    // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
     this.router.navigate(['/projects', this.projectId, 'console'], {
       queryParams: { session: sessionId, ...queryParams },
     });
@@ -399,7 +400,7 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
 
   // "Most recently used" (#745): the open shell with the latest `lastAttachedAt`,
   // the same signal the engine updates on every reattach -- there is no
-  // LastConsoleStore equivalent recording an explicit user pick for shells.
+  // LastAgentSessionStore equivalent recording an explicit user pick for shells.
   private openMostRecentShell(): void {
     const target = this.openShells.reduce((latest, shell) =>
       new Date(shell.lastAttachedAt).getTime() > new Date(latest.lastAttachedAt).getTime() ? shell : latest,

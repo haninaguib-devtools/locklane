@@ -139,7 +139,7 @@ describe('IssuesService', () => {
     req.flush(sessions);
   });
 
-  it('reopens a past session via POST .../resume-sessions/reopen with the original console id (#103)', () => {
+  it('reopens a past session via POST .../resume-sessions/reopen with the original agent session id (#103)', () => {
     service
       .reopenSession(1, 5, '1-5-slug')
       .subscribe((result) =>

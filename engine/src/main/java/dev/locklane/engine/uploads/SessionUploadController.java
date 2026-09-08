@@ -22,7 +22,7 @@ import java.security.Principal;
 import java.util.Map;
 
 /**
- * Receives a file the browser dropped or pasted onto a console terminal (#436) and
+ * Receives a file the browser dropped or pasted onto an agent session terminal (#436) and
  * returns the server-side path {@link SessionUploadStorage} wrote it to, for the
  * client to inject into the PTY as a bracketed paste — to the CLI it then looks
  * exactly like a path dragged into a native terminal.

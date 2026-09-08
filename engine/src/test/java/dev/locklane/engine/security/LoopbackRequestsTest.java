@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 class LoopbackRequestsTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     @Test
     void aLoopbackPeerWithNoForwardingHeaderIsLocal() {

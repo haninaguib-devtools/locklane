@@ -5,6 +5,10 @@ import { Router, provideRouter } from '@angular/router';
 import { AddProjectPopupComponent } from './add-project-popup.component';
 import { Project } from '../../models/issue.model';
 
+// Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
+// /console and /consoles REST paths and the 'console' route segment below keep their persisted and
+// on-the-wire shape: compatibility surfaces kept under ADR-112 (#766 renamed only the identifiers).
+
 describe('AddProjectPopupComponent', () => {
   let httpMock: HttpTestingController;
   let navigate: jasmine.Spy;
@@ -27,7 +31,7 @@ describe('AddProjectPopupComponent', () => {
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     });
     httpMock = TestBed.inject(HttpTestingController);
-    // A successful create navigates to the new project's console page (#537); the
+    // A successful create navigates to the new project's agent session page (#537); the
     // route table is the app's business, so the navigation itself is stubbed here.
     navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
   });
@@ -450,7 +454,7 @@ describe('AddProjectPopupComponent', () => {
       expect(emitted).toEqual({ ...PROJECT, name: 'my-project' });
     });
 
-    it('navigates to the new project\'s console page as soon as the create succeeds, before emitting (#537)', () => {
+    it('navigates to the new project\'s agent session page as soon as the create succeeds, before emitting (#537)', () => {
       const fixture = create();
       fixture.componentInstance.setMode('create');
       fixture.componentInstance.org = 'my-org';

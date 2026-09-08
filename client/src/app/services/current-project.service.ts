@@ -35,11 +35,11 @@ export function isFocusedRoute(snapshot: ActivatedRouteSnapshot): boolean {
  *
  * Only `focus` is carried. Angular's own router-wide default for this,
  * `withRouterConfig({ defaultQueryParamsHandling: 'merge' })`, would carry every
- * param from page to page -- and the others are one-shot handoffs the console page
+ * param from page to page -- and the others are one-shot handoffs the agent session page
  * deliberately drops from the URL once acted on (`new`, #370; `dir`/`resume`/`tool`,
  * #752/#795), which a merge default would defeat: the drop navigates without the
  * param, and a merge puts the current URL's copy straight back, so a reload would
- * mint another console or relaunch a resume. `session` would likewise follow the user
+ * mint another agent session or relaunch a resume. `session` would likewise follow the user
  * onto an issue page and back.
  */
 @Injectable()
@@ -59,12 +59,12 @@ export class FocusPreservingRouter extends Router {
 /**
  * The project open in this browser window/tab (#309): read from the route the
  * same way AppComponent used to derive `selectedProjectId` privately, now
- * shared so the header and the consoles widget (#32, #301) both narrow to the
+ * shared so the header and the agent sessions widget (#32, #301) both narrow to the
  * same project instead of each re-deriving it -- and share the one
  * `/api/projects` fetch needed to turn the id into a name.
  *
  * Exposes both signals (for consumers that just read a value, e.g. the header
- * title) and the underlying observables (for a consumer like the consoles
+ * title) and the underlying observables (for a consumer like the agent sessions
  * widget that needs to re-derive its own entries stream whenever the project
  * or the selection changes, the same synchronous way it did before this id
  * moved out to a shared service).
@@ -82,7 +82,7 @@ export class CurrentProjectService {
 
   // distinctUntilChanged so navigating within the same project (e.g. project
   // summary -> an issue) doesn't look like a project change to a consumer like
-  // the consoles widget, which re-fetches its entries whenever this changes.
+  // the agent sessions widget, which re-fetches its entries whenever this changes.
   readonly projectId$: Observable<number | null> = this.router.events.pipe(
     filter((e): e is NavigationEnd => e instanceof NavigationEnd),
     map(() => this.currentProjectId()),
@@ -104,7 +104,7 @@ export class CurrentProjectService {
   // control via `window.open()`, carrying `focus=1` in the URL rather than any
   // shared service, so -- like `projectId` above -- this is re-derived from the
   // route on every navigation instead of persisted anywhere. Moved here from
-  // AppComponent (#449) so the consoles widget can narrow by the same focused-
+  // AppComponent (#449) so the agent sessions widget can narrow by the same focused-
   // window state the sidenav already does, instead of a second private copy.
   readonly focusMode$: Observable<boolean> = this.router.events.pipe(
     filter((e): e is NavigationEnd => e instanceof NavigationEnd),
@@ -125,11 +125,11 @@ export class CurrentProjectService {
   readonly focusedProjectId = toSignal(this.focusedProjectId$, { initialValue: null as number | null });
 
   constructor() {
-    // A one-shot call, same as ConsoleIndicatorComponent's own former fetch --
+    // A one-shot call, same as AgentSessionIndicatorComponent's own former fetch --
     // completes on its own once the response lands, nothing to unsubscribe.
     // This service is only ever constructed once something actually reads its
     // data (AppComponent injects it lazily -- see its own `currentProject`
-    // getter -- and ConsoleIndicatorComponent only mounts once signed in), so
+    // getter -- and AgentSessionIndicatorComponent only mounts once signed in), so
     // there is no unauthenticated fetch on the login screen to guard against.
     this.refresh();
   }

@@ -6,6 +6,10 @@ import { ProjectWorktree } from '../../services/worktrees.service';
 import { OpenShell } from '../../services/shells.service';
 import { AppEvent, EventsService } from '../../services/events.service';
 
+// Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
+// /console and /consoles REST paths and the 'console' route segment below keep their persisted and
+// on-the-wire shape: compatibility surfaces kept under ADR-112 (#766 renamed only the identifiers).
+
 describe('WorktreeListComponent', () => {
   let httpMock: HttpTestingController;
 
@@ -77,7 +81,7 @@ describe('WorktreeListComponent', () => {
     expect(text).toContain('attached');
   });
 
-  it('shows "agent" instead of an issue number for a project-console worktree (#339)', () => {
+  it('shows "agent" instead of an issue number for a project-agent-session worktree (#339)', () => {
     const fixture = init([row({ worktreeId: '1-console-abcd1234', issueNumber: null, workingDirectory: '/work/1-console-abcd1234' })]);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
@@ -86,7 +90,7 @@ describe('WorktreeListComponent', () => {
     expect(text).toContain('/work/1-console-abcd1234');
   });
 
-  it('shows the guard refusal verbatim when the server refuses to remove a project-console worktree', () => {
+  it('shows the guard refusal verbatim when the server refuses to remove a project-agent-session worktree', () => {
     const fixture = init([row({ worktreeId: '1-console-abcd1234', issueNumber: null })]);
 
     (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.remove-button')!.click();
@@ -247,8 +251,8 @@ describe('WorktreeListComponent', () => {
     emitAppEvent({ type: 'consolesChanged', projectId: 1 } satisfies AppEvent);
     fixture.detectChanges();
 
-    // ConsolesService folds a remote consolesChanged into both onOpened and onClosed
-    // (consoles.service.spec.ts), and this component reloads on either -- one remote
+    // AgentSessionsService folds a remote consolesChanged into both onOpened and onClosed
+    // (agent-sessions.service.spec.ts), and this component reloads on either -- one remote
     // event is therefore two identical reload requests here.
     for (const req of httpMock.match('/api/shells')) {
       req.flush([shell()]);

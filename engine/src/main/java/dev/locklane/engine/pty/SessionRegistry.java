@@ -1,8 +1,8 @@
 package dev.locklane.engine.pty;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.locklane.engine.persistence.ConsoleResumeSessionRecord;
-import dev.locklane.engine.persistence.ConsoleResumeSessionRepository;
+import dev.locklane.engine.persistence.AgentSessionResumeSessionRecord;
+import dev.locklane.engine.persistence.AgentSessionResumeSessionRepository;
 import dev.locklane.engine.persistence.WorktreeSessionRecord;
 import dev.locklane.engine.persistence.WorktreeSessionRepository;
 import dev.locklane.engine.process.ProcessTrees;
@@ -39,7 +39,7 @@ import java.util.regex.Pattern;
  * last-known state — which directory it ran in, when it was last attached to —
  * survives a server restart even though the live process does not (#6). Each new
  * session's output is additionally watched for a Claude/Codex resume id, persisted
- * via {@link ConsoleResumeSessionRepository} (#102). A console genuinely opening or
+ * via {@link AgentSessionResumeSessionRepository} (#102). An agent session genuinely opening or
  * closing — not a reattach to one already counted as open — is broadcast on
  * {@link EventBroadcaster} as {@code consolesChanged} (#195), so every browser
  * watching that project hears about it, not only the tab that caused it.
@@ -59,14 +59,14 @@ public class SessionRegistry {
     // crossing PtySession.QUIESCENCE_THRESHOLD_MS, not a user-visible extra delay.
     private static final long QUIESCENCE_POLL_MS = 1000;
 
-    // Every real console id is shaped "<projectId>-..." (#43); a test fixture id
+    // Every real agent session id is shaped "<projectId>-..." (#43); a test fixture id
     // that isn't just broadcasts with no projectId field rather than failing (#195).
     private static final Pattern PROJECT_ID_PREFIX = Pattern.compile("^(\\d+)-");
 
     private final Map<String, PtySession> sessions = new ConcurrentHashMap<>();
     private final String[] shellCommand;
     private final WorktreeSessionRepository repository;
-    private final ConsoleResumeSessionRepository resumeRepository;
+    private final AgentSessionResumeSessionRepository resumeRepository;
     private final EventBroadcaster eventBroadcaster;
     // Nullable (test-only constructors): files uploaded onto this session's terminal
     // (#436) — removed when the session ends for good in close() below, and only
@@ -81,7 +81,7 @@ public class SessionRegistry {
     private final List<Consumer<String>> closeListeners = new CopyOnWriteArrayList<>();
 
     @Autowired
-    public SessionRegistry(WorktreeSessionRepository repository, ConsoleResumeSessionRepository resumeRepository,
+    public SessionRegistry(WorktreeSessionRepository repository, AgentSessionResumeSessionRepository resumeRepository,
             EventBroadcaster eventBroadcaster, SessionUploadStorage uploadStorage) {
         this.repository = repository;
         this.resumeRepository = resumeRepository;
@@ -101,12 +101,12 @@ public class SessionRegistry {
     }
 
     /** Test-only: resume-id capture on (#102), events channel off — see above. */
-    public SessionRegistry(WorktreeSessionRepository repository, ConsoleResumeSessionRepository resumeRepository) {
+    public SessionRegistry(WorktreeSessionRepository repository, AgentSessionResumeSessionRepository resumeRepository) {
         this(repository, resumeRepository, new EventBroadcaster(new ObjectMapper()), null);
     }
 
     /** Test-only: a real events channel, no resume capture and no upload cleanup (#436). */
-    public SessionRegistry(WorktreeSessionRepository repository, ConsoleResumeSessionRepository resumeRepository,
+    public SessionRegistry(WorktreeSessionRepository repository, AgentSessionResumeSessionRepository resumeRepository,
             EventBroadcaster eventBroadcaster) {
         this(repository, resumeRepository, eventBroadcaster, null);
     }
@@ -139,7 +139,7 @@ public class SessionRegistry {
 
     /**
      * As above, but a brand-new session's process also gets {@code extraEnvironment}
-     * merged over the host's own environment (#139 — a project-level console's
+     * merged over the host's own environment (#139 — a project-level agent session's
      * {@code GH_TOKEN}) — like {@code launchCommand}/{@code columns}/{@code rows},
      * consulted only the first time a session is seen; a reattach reaches the
      * process already running, with whatever environment it already started with.
@@ -154,7 +154,7 @@ public class SessionRegistry {
         // counts it as open, including a reattach after this process restarted with no
         // live PtySession yet — broadcasting in that case would report a change that
         // never actually happened to the list.
-        boolean isNewConsole = repository.find(sessionId).isEmpty();
+        boolean isNewAgentSession = repository.find(sessionId).isEmpty();
         PtySession session = sessions.computeIfAbsent(sessionId, id -> {
             Map<String, String> environment = mergedEnvironment(extraEnvironment);
             PtySession created = new PtySession(id, workingDirectory, command, environment, initialColumns, initialRows);
@@ -182,8 +182,8 @@ public class SessionRegistry {
             return created;
         });
         repository.recordAttach(sessionId, workingDirectory, Instant.now(), ownerUsername);
-        if (isNewConsole) {
-            broadcastConsolesChanged(sessionId);
+        if (isNewAgentSession) {
+            broadcastAgentSessionsChanged(sessionId);
         }
         return session;
     }
@@ -271,7 +271,7 @@ public class SessionRegistry {
      * empty when capture is off or nothing was ever captured here for that tool.
      * This is what lets a reattach after an engine restart pick the conversation
      * back up (#173): the live process is gone, but the id it printed survives in
-     * {@link ConsoleResumeSessionRepository}.
+     * {@link AgentSessionResumeSessionRepository}.
      */
     public Optional<String> latestResumeId(String sessionId, String tool) {
         if (resumeRepository == null) {
@@ -282,7 +282,7 @@ public class SessionRegistry {
         return resumeRepository.findByWorktree(sessionId).stream()
                 .filter(record -> record.tool().equals(tool))
                 .reduce((older, newer) -> newer)
-                .map(ConsoleResumeSessionRecord::resumeId);
+                .map(AgentSessionResumeSessionRecord::resumeId);
     }
 
     private static String[] defaultShellCommand() {
@@ -320,26 +320,26 @@ public class SessionRegistry {
         // wasOpen, so it's never left running past a session it's tied to.
         closeListeners.forEach(listener -> listener.accept(sessionId));
         if (wasOpen) {
-            broadcastConsolesChanged(sessionId);
+            broadcastAgentSessionsChanged(sessionId);
         }
     }
 
     /**
      * Registers a listener invoked with a session's id on every {@link #close}, so a
      * session-scoped resource elsewhere (code-server's process, #628) can end when its
-     * console does without this class needing to know what kind of resource it is.
+     * agent session does without this class needing to know what kind of resource it is.
      */
     public void addCloseListener(Consumer<String> listener) {
         closeListeners.add(listener);
     }
 
     /**
-     * Tells every connected browser a project's open-console list may have changed
+     * Tells every connected browser a project's open-agent-session list may have changed
      * (#195), over the same app-wide channel {@code consoleAttention}/
      * {@code issuesChanged} already use — so a header widget watching this project
      * in another tab knows to re-fetch instead of going stale until a manual reload.
      */
-    private void broadcastConsolesChanged(String sessionId) {
+    private void broadcastAgentSessionsChanged(String sessionId) {
         Matcher matcher = PROJECT_ID_PREFIX.matcher(sessionId);
         if (matcher.find()) {
             eventBroadcaster.broadcast("consolesChanged", Map.of("projectId", Long.parseLong(matcher.group(1))));
@@ -363,13 +363,13 @@ public class SessionRegistry {
                 .toList();
         List<ProcessHandle> left = ProcessTrees.terminate(shells, SHUTDOWN_GRACE);
         if (!left.isEmpty()) {
-            log.warn("console processes still alive after shutdown: {}",
+            log.warn("session processes still alive after shutdown: {}",
                     left.stream().map(ProcessHandle::pid).toList());
         }
         sessions.values().forEach(PtySession::close);
         sessions.clear();
     }
 
-    /** How long shutdown waits for console process trees to exit before killing them. */
+    /** How long shutdown waits for session process trees to exit before killing them. */
     private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
 }

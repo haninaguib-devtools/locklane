@@ -23,35 +23,36 @@ import java.util.regex.Pattern;
  * <p>"main" and any id that does not start with two numeric segments belong to no
  * project/issue and never match — reported explicitly here rather than thrown, since
  * nothing enforces this naming today; a worktree id is just whatever string a
- * WebSocket client chose (#15). Project console ids — the legacy
+ * WebSocket client chose (#15). Project agent session ids — the legacy
  * {@code "<projectId>-console"} and the {@code "<projectId>-console-<suffix>"} family
- * minted since #177 (see {@link ProjectConsoleService}) — never match this pattern
- * either, since their second segment is the literal {@code console}, never a number;
+ * minted since #177 (see {@link ProjectAgentSessionService}) — never match this pattern
+ * either, since their second segment is the literal {@code console} (the persisted id shape, kept under ADR-112), never a number;
  * {@link #allWorktreeIds} recognizes them separately (#194) so the header
- * indicator/picker can show project consoles alongside issue ones, but
+ * indicator/picker can show project agent sessions alongside issue ones, but
  * {@link #worktreeIdsForIssue} and {@link #resumeSessionsForIssue} — both scoped to one
- * issue — correctly never match a console with no issue at all.
+ * issue — correctly never match an agent session with no issue at all.
  *
  * <p>#585: the periodic cleanup sweep's own listing of per-issue worktrees
  * ({@link WorktreeCleanupSweeper#allIssueWorktrees()}) no longer sources from this
- * class's persisted records at all — closing an issue console deletes the very row
+ * class's persisted records at all — closing an issue agent session deletes the very row
  * that discovery would need, so it asks git directly instead, the same way
- * {@link WorktreeCleanupSweeper#allProjectConsoleWorktrees()} already did for the
- * project-console family.
+ * {@link WorktreeCleanupSweeper#allProjectAgentSessionWorktrees()} already did for the
+ * project-agent-session family.
  */
 @Service
 public class IssueWorktreeService {
 
     private static final Pattern PROJECT_AND_ISSUE_PREFIXED = Pattern.compile("^(\\d+)-(\\d+)-");
-    private static final Pattern PROJECT_CONSOLE_PREFIXED = Pattern.compile("^(\\d+)-console(-.+)?$");
+    // The '-console' segment is the persisted id shape, kept under ADR-112.
+    private static final Pattern PROJECT_AGENT_SESSION_PREFIXED = Pattern.compile("^(\\d+)-console(-.+)?$");
 
     private final WorktreeSessionRepository repository;
-    private final ConsoleResumeSessionRepository resumeRepository;
+    private final AgentSessionResumeSessionRepository resumeRepository;
     private final WorktreeSessionAuthorization authorization;
 
     @Autowired
     public IssueWorktreeService(WorktreeSessionRepository repository,
-            ConsoleResumeSessionRepository resumeRepository, WorktreeSessionAuthorization authorization) {
+            AgentSessionResumeSessionRepository resumeRepository, WorktreeSessionAuthorization authorization) {
         this.repository = repository;
         this.resumeRepository = resumeRepository;
         this.authorization = authorization;
@@ -80,16 +81,16 @@ public class IssueWorktreeService {
     /**
      * Every worktree id {@code requestingUsername} may see, across every issue in
      * this project (#32's header indicator/picker, now scoped to one project since
-     * #43), plus every open project-level console (#194) — same visibility rule as
+     * #43), plus every open project-level agent session (#194) — same visibility rule as
      * {@link #worktreeIdsForIssue}, minus the single-issue filter. A bare {@code
-     * "main"} or other id with no project/issue-number prefix and no project-console
+     * "main"} or other id with no project/issue-number prefix and no project-agent-session
      * shape is excluded: the picker has nowhere to navigate an id that belongs to
-     * neither an issue nor the project's own console family.
+     * neither an issue nor the project's own agent session family.
      */
     public List<String> allWorktreeIds(long projectId, String requestingUsername) {
         return repository.findAll().stream()
                 .filter(record -> matchesProject(record.worktreeId(), projectId)
-                        || matchesProjectConsole(record.worktreeId(), projectId))
+                        || matchesProjectAgentSession(record.worktreeId(), projectId))
                 .filter(record -> isVisibleTo(record, requestingUsername))
                 .map(WorktreeSessionRecord::worktreeId)
                 .toList();
@@ -97,30 +98,30 @@ public class IssueWorktreeService {
 
     /**
      * The Claude/Codex conversations captured (#102) in this project's issue's
-     * consoles that {@code requestingUsername} may see, newest sighting first —
-     * including conversations whose console has since been closed; outliving the
-     * console is the point (#101). Visibility follows the console the id was
+     * agent sessions that {@code requestingUsername} may see, newest sighting first —
+     * including conversations whose agent session has since been closed; outliving the
+     * agent session is the point (#101). Visibility follows the agent session the id was
      * captured in, under the same project-owner rule as {@link #worktreeIdsForIssue}
-     * (#242): a closed console has no session record any more, which is visible to
+     * (#242): a closed agent session has no session record any more, which is visible to
      * everyone since there is no project to resolve and check against.
-     * The same conversation sighted in several consoles is listed once, at its
+     * The same conversation sighted in several agent sessions is listed once, at its
      * newest sighting.
      *
-     * <p>A conversation captured in a legacy {@code "...-main-..."} console (#341
+     * <p>A conversation captured in a legacy {@code "...-main-..."} agent session (#341
      * retired opening one) is excluded here rather than listed and then refused on
      * reopen: it can only ever be resumed in the project's main checkout it was
      * captured in — Claude/Codex key a stored conversation by directory, and that
-     * checkout is no longer a console location — so there is nothing a reopen could
+     * checkout is no longer an agent session location — so there is nothing a reopen could
      * ever do with it, and listing it would just be a dead end in the Overview tab.
      */
-    public List<ConsoleResumeSessionRecord> resumeSessionsForIssue(long projectId, int issueNumber,
+    public List<AgentSessionResumeSessionRecord> resumeSessionsForIssue(long projectId, int issueNumber,
             String requestingUsername) {
-        Map<String, ConsoleResumeSessionRecord> byConversation = new LinkedHashMap<>();
+        Map<String, AgentSessionResumeSessionRecord> byConversation = new LinkedHashMap<>();
         resumeRepository.findAll().stream()
                 .filter(record -> matches(record.worktreeId(), projectId, issueNumber))
                 .filter(record -> !isMainShaped(record.worktreeId()))
-                .filter(record -> isConsoleVisibleTo(record.worktreeId(), requestingUsername))
-                .sorted(Comparator.comparing(ConsoleResumeSessionRecord::capturedAt).reversed())
+                .filter(record -> isAgentSessionVisibleTo(record.worktreeId(), requestingUsername))
+                .sorted(Comparator.comparing(AgentSessionResumeSessionRecord::capturedAt).reversed())
                 .forEach(record -> byConversation.putIfAbsent(record.tool() + ":" + record.resumeId(), record));
         return List.copyOf(byConversation.values());
     }
@@ -130,7 +131,7 @@ public class IssueWorktreeService {
         return m.find() && worktreeId.substring(m.end()).startsWith("main-");
     }
 
-    private boolean isConsoleVisibleTo(String worktreeId, String requestingUsername) {
+    private boolean isAgentSessionVisibleTo(String worktreeId, String requestingUsername) {
         return repository.find(worktreeId)
                 .map(record -> isVisibleTo(record, requestingUsername))
                 .orElse(true);
@@ -146,8 +147,8 @@ public class IssueWorktreeService {
         return m.find() && Long.parseLong(m.group(1)) == projectId;
     }
 
-    private static boolean matchesProjectConsole(String worktreeId, long projectId) {
-        Matcher m = PROJECT_CONSOLE_PREFIXED.matcher(worktreeId);
+    private static boolean matchesProjectAgentSession(String worktreeId, long projectId) {
+        Matcher m = PROJECT_AGENT_SESSION_PREFIXED.matcher(worktreeId);
         return m.matches() && Long.parseLong(m.group(1)) == projectId;
     }
 
@@ -156,7 +157,7 @@ public class IssueWorktreeService {
     }
 
     /**
-     * Whether this project has any open worktree or console session at all (#231's
+     * Whether this project has any open worktree or agent session at all (#231's
      * delete refusal) — unlike {@link #allWorktreeIds}, ignores ownership entirely:
      * deleting the project would orphan a session no matter who owns it, so this is a
      * safety gate rather than a "what does this user see" listing.
@@ -167,7 +168,7 @@ public class IssueWorktreeService {
     }
 
     /**
-     * Forgets every worktree/console session belonging to this project (#240's
+     * Forgets every worktree/agent session belonging to this project (#240's
      * cascade-delete of a deleted user's owned projects, ADR-101 Decision 4) — the same
      * "does this session belong to this project" test as {@link #hasAnySessions}, but
      * removing the rows instead of just reporting them. Deliberately unconditional,
@@ -184,7 +185,7 @@ public class IssueWorktreeService {
 
     /**
      * Whether this session belongs to this project at all, whatever its family —
-     * issue worktree, project console, or shell (#445) — the shared test behind
+     * issue worktree, project agent session, or shell (#445) — the shared test behind
      * {@link #hasAnySessions} and {@link #deleteSessionsForProject}: both are
      * system-level sweeps over every session the project owns, so a family missing
      * here would let a project delete orphan a session, or a user cascade-delete
@@ -192,7 +193,7 @@ public class IssueWorktreeService {
      */
     private static boolean belongsToProject(String worktreeId, long projectId) {
         return matchesProject(worktreeId, projectId)
-                || matchesProjectConsole(worktreeId, projectId)
+                || matchesProjectAgentSession(worktreeId, projectId)
                 || ShellSessionService.belongsToProject(worktreeId, projectId);
     }
 

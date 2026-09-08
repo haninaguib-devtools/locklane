@@ -12,8 +12,8 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Reveals a console's worktree in the OS's native file manager (#441) — resolved
- * server-side from the console id via {@link SessionRegistry}, the same lookup PTY
+ * Reveals an agent session's worktree in the OS's native file manager (#441) — resolved
+ * server-side from the agent session id via {@link SessionRegistry}, the same lookup PTY
  * spawning itself uses for a session's working directory, so the client never sends a
  * path and can't be used to open an arbitrary one.
  */
@@ -44,18 +44,18 @@ public class FileManagerLauncher {
     }
 
     /**
-     * Launches the file manager at {@code consoleId}'s worktree; {@code false} and no
-     * launch at all when the console id names no known working directory.
+     * Launches the file manager at {@code agentSessionId}'s worktree; {@code false} and no
+     * launch at all when the agent session id names no known working directory.
      */
-    public boolean reveal(String consoleId) {
-        Optional<Path> workingDirectory = sessionRegistry.lastKnownWorkingDirectory(consoleId);
+    public boolean reveal(String agentSessionId) {
+        Optional<Path> workingDirectory = sessionRegistry.lastKnownWorkingDirectory(agentSessionId);
         if (workingDirectory.isEmpty()) {
             return false;
         }
         try {
             processRunner.run(revealCommand(System.getProperty("os.name", ""), workingDirectory.get()));
         } catch (IOException e) {
-            log.warn("Could not launch the file manager for console {} at {}", consoleId, workingDirectory.get(), e);
+            log.warn("Could not launch the file manager for agent session {} at {}", agentSessionId, workingDirectory.get(), e);
             throw new FileManagerLaunchException(e);
         }
         return true;

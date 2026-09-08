@@ -13,12 +13,12 @@ import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { AttentionStore } from '../../services/attention-store';
 import {
-  ConsolesService,
-  isProjectConsoleSessionId,
+  AgentSessionsService,
+  isProjectAgentSessionId,
   issueNumberFromSessionId,
-  projectIdFromProjectConsoleSessionId,
+  projectIdFromProjectAgentSessionId,
   projectIssueKeyFromSessionId,
-} from '../../services/consoles.service';
+} from '../../services/agent-sessions.service';
 import {
   AppEvent,
   EventsService,
@@ -109,7 +109,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   private readonly pinStore = inject(PinStore);
   private readonly collapseStore = inject(CollapseStore);
   private readonly projectSectionStore = inject(ProjectSectionStore);
-  private readonly consolesService = inject(ConsolesService);
+  private readonly agentSessionsService = inject(AgentSessionsService);
   private readonly eventsService = inject(EventsService);
   // The one shared "which sessions are waiting" store (#791): the dots below read
   // from it rather than this component keeping its own copy fed from `events$`.
@@ -190,22 +190,22 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   private revealTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRevealId: number | null = null;
   private pendingRevealDone: (() => void) | null = null;
-  // "<projectId>:<issueNumber>" for every issue with at least one open console
-  // (#108), refreshed whenever a console opens or closes anywhere in the app.
-  private openConsoleIssues = new Set<string>();
-  // Project ids with an open project-level console (#330) -- a session id like
-  // "<projectId>-console" or "<projectId>-console-<suffix>" carries no issue number,
-  // so it can never land in openConsoleIssues; tracked separately and merged into
-  // hasOpenConsoleForProject below.
-  private openConsoleProjects = new Set<number>();
-  private readonly consoleSub: Subscription;
+  // "<projectId>:<issueNumber>" for every issue with at least one open agent session
+  // (#108), refreshed whenever an agent session opens or closes anywhere in the app.
+  private openAgentSessionIssues = new Set<string>();
+  // Project ids with an open project-level agent session (#330) -- a session id like
+  // "<projectId>-console" or "<projectId>-console-<suffix>" (the persisted id shape, kept under ADR-112) carries no issue number,
+  // so it can never land in openAgentSessionIssues; tracked separately and merged into
+  // hasOpenAgentSessionForProject below.
+  private openAgentSessionProjects = new Set<number>();
+  private readonly agentSessionSub: Subscription;
   // "Notify, then fetch" (#129): the event carries no issue data, so a matching
   // project re-fetches its own tree over the existing REST endpoint -- and a project
   // not listed here reloads the whole list instead (#760), as does a `projectCreated`.
   // A reconnect instead does one full reload, since events missed while the socket
   // was down are gone for good.
   private readonly eventsSub: Subscription;
-  // Leaving the new project-level console (#140) asks the sidenav to bust the
+  // Leaving the new project-level agent session (#140) asks the sidenav to bust the
   // GhIssueCache for that one project's re-fetch, rather than waiting on the
   // engine's own 30s poll to notice an issue the agent may have just opened.
   private readonly staleSub: Subscription;
@@ -230,8 +230,8 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   private loadingTrees = new Set<number>();
 
   constructor() {
-    this.consoleSub = merge(this.consolesService.onOpened, this.consolesService.onClosed).subscribe(() =>
-      this.refreshConsoleIndicators(),
+    this.agentSessionSub = merge(this.agentSessionsService.onOpened, this.agentSessionsService.onClosed).subscribe(() =>
+      this.refreshAgentSessionIndicators(),
     );
     this.eventsSub = merge(
       this.eventsService.events$.pipe(
@@ -282,7 +282,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.clearTick();
     this.clearReveal();
-    this.consoleSub.unsubscribe();
+    this.agentSessionSub.unsubscribe();
     this.eventsSub.unsubscribe();
     this.staleSub.unsubscribe();
   }
@@ -316,24 +316,25 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  // The header's one-click "+" (#180): asks the project console page for a brand-new
-  // console (#177) and lands on it with that console's tab active. The request rides
+  // The header's one-click "+" (#180): asks the project agent session page for a brand-new
+  // agent session (#177) and lands on it with that agent session's tab active. The request rides
   // in the `new` query param rather than this button minting the session itself
   // (#370) — a session the engine has never attached to is absent from the page's
-  // open-console list, so the old `?session=<freshId>` handoff was discarded there
-  // and some existing console was shown instead, stranding the new console's
+  // open-agent-session list, so the old `?session=<freshId>` handoff was discarded there
+  // and some existing agent session was shown instead, stranding the new agent session's
   // worktree on disk. The page mints it, adds its tab, and drops the param again.
-  // One click still means no agent picker: the new console gets the Settings default
+  // One click still means no agent picker: the new agent session gets the Settings default
   // agent (#219), which the page applies.
-  openNewConsole(projectId: number, event: Event): void {
+  openNewAgentSession(projectId: number, event: Event): void {
     event.stopPropagation();
+    // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
     this.router.navigate(['/projects', projectId, 'console'], { queryParams: { new: 1 } });
   }
 
   // Opens this project alone in a new browser window (#286): the focused state rides
   // in the URL's `focus` query param, not a shared service, so the popped-out window
   // re-derives everything from its own route the same way this one does. When this
-  // project is the one currently open, the new window keeps whatever issue/console
+  // project is the one currently open, the new window keeps whatever issue/agent session
   // route is showing here; otherwise there is no "current" route to carry, so it
   // falls back to the project's own base route.
   popOutProject(projectId: number, event: Event): void {
@@ -452,7 +453,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
         // `applyProjectStatusEvent`) rather than sending a duplicate now.
         this.applyPendingStatusEvents();
         this.maybeReveal();
-        this.refreshConsoleIndicators();
+        this.refreshAgentSessionIndicators();
         if (relevant.length === 0) {
           onDone();
         }
@@ -581,7 +582,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
           return;
         }
         this.sections[index] = { ...this.sections[index], tree: response.nodes, github: response.github, treeState: 'loaded' };
-        this.refreshConsoleIndicators();
+        this.refreshAgentSessionIndicators();
       },
       error: () => {
         // The same per-project failure state a load's own request gets (#787),
@@ -704,16 +705,16 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
     return `${failure} — ${since}`;
   }
 
-  /** Recomputes which issues have an open console (#108), across every loaded project. */
-  private refreshConsoleIndicators(): void {
+  /** Recomputes which issues have an open agent session (#108), across every loaded project. */
+  private refreshAgentSessionIndicators(): void {
     if (this.sections.length === 0) {
-      this.openConsoleIssues = new Set();
-      this.openConsoleProjects = new Set();
+      this.openAgentSessionIssues = new Set();
+      this.openAgentSessionProjects = new Set();
       return;
     }
     forkJoin(
       this.sections.map((section) =>
-        this.consolesService.list(section.project.id).pipe(map((ids) => ({ projectId: section.project.id, ids }))),
+        this.agentSessionsService.list(section.project.id).pipe(map((ids) => ({ projectId: section.project.id, ids }))),
       ),
     ).subscribe((results) => {
       const issues = new Set<string>();
@@ -723,49 +724,50 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
           const issueNumber = issueNumberFromSessionId(id);
           if (issueNumber !== null) {
             issues.add(`${projectId}:${issueNumber}`);
-          } else if (isProjectConsoleSessionId(id)) {
+          } else if (isProjectAgentSessionId(id)) {
             projects.add(projectId);
           }
         }
       }
-      this.openConsoleIssues = issues;
-      this.openConsoleProjects = projects;
+      this.openAgentSessionIssues = issues;
+      this.openAgentSessionProjects = projects;
     });
   }
 
-  hasOpenConsole(projectId: number, issueNumber: number): boolean {
-    return this.openConsoleIssues.has(`${projectId}:${issueNumber}`);
+  hasOpenAgentSession(projectId: number, issueNumber: number): boolean {
+    return this.openAgentSessionIssues.has(`${projectId}:${issueNumber}`);
   }
 
-  // Backs the section header's per-project consoles button (#312). Tracks
-  // project-level console sessions exclusively (#330) -- it does not aggregate
-  // issue-attached consoles under the project; each issue row's own dot already
-  // covers those. A project-level session id ("<projectId>-console[-suffix]") carries
-  // no issue number, so it's tracked separately in openConsoleProjects rather than
-  // openConsoleIssues.
-  hasOpenConsoleForProject(projectId: number): boolean {
-    return this.openConsoleProjects.has(projectId);
+  // Backs the section header's per-project agent sessions button (#312). Tracks
+  // project-level agent sessions exclusively (#330) -- it does not aggregate
+  // issue-attached agent sessions under the project; each issue row's own dot already
+  // covers those. A project-level session id ("<projectId>-console[-suffix]", the persisted shape kept under ADR-112) carries
+  // no issue number, so it's tracked separately in openAgentSessionProjects rather than
+  // openAgentSessionIssues.
+  hasOpenAgentSessionForProject(projectId: number): boolean {
+    return this.openAgentSessionProjects.has(projectId);
   }
 
-  // Like hasOpenConsoleForProject above, tracks project-level console sessions
-  // exclusively (#450) -- an issue-attached console's wait shows on that issue row's
+  // Like hasOpenAgentSessionForProject above, tracks project-level agent sessions
+  // exclusively (#450) -- an issue-attached agent session's wait shows on that issue row's
   // own dot, never here. Reads the shared store (#791) by session id, so with two
-  // project consoles open, one going active does not clear a flag another
-  // still-waiting console set; `projectIdFromProjectConsoleSessionId` is null for an
+  // project agent sessions open, one going active does not clear a flag another
+  // still-waiting agent session set; `projectIdFromProjectAgentSessionId` is null for an
   // issue-attached session id, which keeps those off the project row.
   hasAttentionWaitingForProject(projectId: number): boolean {
     for (const sessionId of this.attentionStore.waiting()) {
-      if (projectIdFromProjectConsoleSessionId(sessionId) === projectId) {
+      if (projectIdFromProjectAgentSessionId(sessionId) === projectId) {
         return true;
       }
     }
     return false;
   }
 
-  // Jumps straight to this project's console page (#312) -- the button that
-  // triggers this only ever renders once hasOpenConsoleForProject is true.
-  openProjectConsoles(projectId: number, event: Event): void {
+  // Jumps straight to this project's agent session page (#312) -- the button that
+  // triggers this only ever renders once hasOpenAgentSessionForProject is true.
+  openProjectAgentSessions(projectId: number, event: Event): void {
     event.stopPropagation();
+    // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
     this.router.navigate(['/projects', projectId, 'console']);
   }
 
@@ -773,7 +775,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
    * Whether any session attached to this issue is waiting for attention (#130): the
    * shared store (#791) holds session ids, and a session's "<projectId>:<issueNumber>"
    * key is parsed straight out of its id, the same placement the sidenav used when it
-   * applied the events itself. A project-level console's id carries no issue number,
+   * applied the events itself. A project-level agent session's id carries no issue number,
    * so it never matches here -- it shows on the project row (#450) instead.
    */
   hasAttentionWaiting(projectId: number, issueNumber: number): boolean {
@@ -816,7 +818,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
     return Math.max(0, Math.floor((Date.now() - since) / 1000));
   }
 
-  /** Staged line for a cloning row (#717) -- same mapping as the dialog and console wait. */
+  /** Staged line for a cloning row (#717) -- same mapping as the dialog and agent session wait. */
   cloneStageHintFor(projectId: number): string {
     return cloneStageHint(this.cloneElapsedSecFor(projectId));
   }
@@ -939,7 +941,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
         );
       // hideShipped never removes a pin, only the text filter can -- see tree-filter.ts.
       const nodes = filterPinnedTree(ordered, this.filterText, this.hideShipped, [], (n) =>
-        this.hasOpenConsole(section.project.id, n.number),
+        this.hasOpenAgentSession(section.project.id, n.number),
       );
       if (nodes.length > 0) {
         groups.push({ project: section.project, nodes });
@@ -966,7 +968,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
           : n,
       );
     return filterTree(topLevel, this.filterText, this.hideShipped, [], (n) =>
-      this.hasOpenConsole(section.project.id, n.number),
+      this.hasOpenAgentSession(section.project.id, n.number),
     );
   }
 

@@ -12,7 +12,7 @@ import java.time.Instant;
  * project's {@code owner_user_id} instead — see {@link WorktreeSessionAuthorization}
  * — never from this column.
  *
- * <p>{@code displayName} is the name a user gave this console's tab (#393), or
+ * <p>{@code displayName} is the name a user gave this agent session's tab (#393), or
  * {@code null} when they have given it none — in which case the client falls back to
  * the label it generates itself from the session's id and agent.
  */

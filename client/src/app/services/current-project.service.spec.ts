@@ -6,6 +6,10 @@ import { CurrentProjectService, FocusPreservingRouter } from './current-project.
 import { Project } from '../models/issue.model';
 import { routes } from '../app.routes';
 
+// Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
+// /console and /consoles REST paths and the 'console' route segment below keep their persisted and
+// on-the-wire shape: compatibility surfaces kept under ADR-112 (#766 renamed only the identifiers).
+
 describe('CurrentProjectService', () => {
   let httpMock: HttpTestingController;
 
@@ -123,7 +127,7 @@ describe('CurrentProjectService', () => {
       tick();
       expect(router.url).toBe('/projects/1/console?new=1&focus=1');
 
-      // Back to the project page from the console (#265), and the window is still focused.
+      // Back to the project page from the agent session (#265), and the window is still focused.
       router.navigate(['/projects', 1, 'issues']);
       tick();
       expect(router.url).toBe('/projects/1/issues?focus=1');

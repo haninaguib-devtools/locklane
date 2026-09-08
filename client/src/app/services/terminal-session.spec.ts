@@ -1,5 +1,9 @@
 import { TerminalSession } from './terminal-session';
 
+// Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
+// /console and /consoles REST paths and the 'console' route segment below keep their persisted and
+// on-the-wire shape: compatibility surfaces kept under ADR-112 (#766 renamed only the identifiers).
+
 class FakeWebSocket {
   // Matches the real WebSocket API's readyState values (#279's reconnect/checkConnection
   // logic branches on CONNECTING/OPEN/CLOSED, not just the pre-existing OPEN).

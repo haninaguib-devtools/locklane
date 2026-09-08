@@ -3,7 +3,7 @@ import { Router, RouterLink } from '@angular/router';
 import { Subscription, catchError, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { Project, TreeNode } from '../../models/issue.model';
 import { AgentStore } from '../../services/agent-store';
-import { ConsolesService } from '../../services/consoles.service';
+import { AgentSessionsService } from '../../services/agent-sessions.service';
 import {
   EventsService,
   ProjectDeletedEvent,
@@ -12,7 +12,7 @@ import {
   isProjectStatusEvent,
 } from '../../services/events.service';
 import { IssuesService } from '../../services/issues.service';
-import { ProjectConsoleService } from '../../services/project-console.service';
+import { ProjectAgentSessionService } from '../../services/project-agent-session.service';
 import { ProjectsService } from '../../services/projects.service';
 import { IssueCounts, countIssues } from '../project-summary/project-summary.component';
 
@@ -37,9 +37,9 @@ export interface ProjectOverviewRow {
 export class OverviewComponent implements OnInit, OnDestroy {
   private readonly projectsService = inject(ProjectsService);
   private readonly issuesService = inject(IssuesService);
-  private readonly projectConsoleService = inject(ProjectConsoleService);
+  private readonly projectAgentSessionService = inject(ProjectAgentSessionService);
   private readonly agentStore = inject(AgentStore);
-  private readonly consolesService = inject(ConsolesService);
+  private readonly agentSessionsService = inject(AgentSessionsService);
   private readonly eventsService = inject(EventsService);
   private readonly router = inject(Router);
 
@@ -51,7 +51,7 @@ export class OverviewComponent implements OnInit, OnDestroy {
   loading = true;
   error = false;
 
-  // The project row currently minting a shell console (#256) -- guards the
+  // The project row currently minting a shell session (#256) -- guards the
   // button against a double-click opening two sessions, mirroring the
   // sidenav's own one-click "+" guard.
   private startingShellFor: number | null = null;
@@ -172,10 +172,10 @@ export class OverviewComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Opens a plain shell console for a project (#256) -- no LLM picker, no
+   * Opens a plain shell session for a project (#256) -- no LLM picker, no
    * default-agent involvement -- the one place that capability lives now that
    * both "+"s always launch the default LLM. Navigates the same way the other
-   * entry points (sidenav's "+", project-console's tab strip) do.
+   * entry points (sidenav's "+", project-agent-session's tab strip) do.
    */
   openShell(projectId: number, event: Event): void {
     event.preventDefault();
@@ -184,11 +184,12 @@ export class OverviewComponent implements OnInit, OnDestroy {
       return;
     }
     this.startingShellFor = projectId;
-    this.projectConsoleService.start(projectId).subscribe({
+    this.projectAgentSessionService.start(projectId).subscribe({
       next: (session) => {
         this.startingShellFor = null;
         this.agentStore.set(session.sessionId, 'shell');
-        this.consolesService.notifyOpened();
+        this.agentSessionsService.notifyOpened();
+        // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
         this.router.navigate(['/projects', projectId, 'console'], {
           queryParams: { session: session.sessionId },
         });

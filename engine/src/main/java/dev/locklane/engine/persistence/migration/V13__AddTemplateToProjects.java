@@ -11,7 +11,7 @@ import java.sql.Statement;
  * NULL for every project created without one — imported repositories, the engine's
  * own bootstrap checkout, and anything created before templates existed. Set once at
  * creation; #537 reads it to decide whether a project still owes its first seeded
- * console.
+ * agent session.
  */
 public class V13__AddTemplateToProjects extends BaseJavaMigration {
 

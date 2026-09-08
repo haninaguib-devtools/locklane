@@ -25,7 +25,7 @@ class DesktopIdeLauncherTest {
             "IntelliJ IDEA CE");
 
     @Test
-    void resolvesTheConsolesPathAndInvokesTheIdesLaunchCommand(@TempDir Path dbDir) {
+    void resolvesTheAgentSessionsPathAndInvokesTheIdesLaunchCommand(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Path worktree = dbDir.resolve("wt1");
         repository.recordAttach("1-174-rename-toggle", worktree, Instant.now(), "alice");
@@ -55,13 +55,13 @@ class DesktopIdeLauncherTest {
     }
 
     @Test
-    void returnsFalseAndNeverLaunchesForAnUnknownConsoleId(@TempDir Path dbDir) {
+    void returnsFalseAndNeverLaunchesForAnUnknownAgentSessionId(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         List<String[]> invocations = new ArrayList<>();
         DesktopIdeLauncher launcher = new DesktopIdeLauncher(new SessionRegistry(repository),
                 command -> invocations.add(command), "Linux", () -> true);
 
-        boolean launched = launcher.launch("no-such-console", VSCODE);
+        boolean launched = launcher.launch("no-such-agent-session", VSCODE);
 
         assertThat(launched).isFalse();
         assertThat(invocations).isEmpty();

@@ -10,8 +10,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * #678: engine shutdown ends every console's whole process tree, not only the shell.
- * A console shell running an agent or a build is the shape below: a shell with a
+ * #678: engine shutdown ends every agent session's whole process tree, not only the shell.
+ * An agent session shell running an agent or a build is the shape below: a shell with a
  * background child it waits on. On macOS nothing else would ever clean that up.
  */
 class SessionRegistryShutdownTest {

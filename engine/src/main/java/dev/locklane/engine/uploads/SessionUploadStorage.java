@@ -15,7 +15,7 @@ import java.util.Comparator;
 import java.util.stream.Stream;
 
 /**
- * Writes files a browser dropped or pasted onto a console terminal (#436) to disk,
+ * Writes files a browser dropped or pasted onto an agent session terminal (#436) to disk,
  * one folder per session under {@code locklane.uploads.dir}, so the client can hand
  * the CLI running in that session a real server-side path — the thing a browser
  * drop can never carry itself, since a page only ever gets the file's contents.
@@ -23,7 +23,7 @@ import java.util.stream.Stream;
  * <p>The per-session folder is the cleanup unit: {@link #deleteFor} removes it
  * recursively, and {@link dev.locklane.engine.pty.SessionRegistry#close} calls it
  * whenever a session ends for good — every closer (the per-tab close, the project
- * console close, the cleanup sweeps) already funnels through there. A disconnect or
+ * agent session close, the cleanup sweeps) already funnels through there. A disconnect or
  * engine restart is not an end: the session's record survives those, and so do its
  * uploads.
  */

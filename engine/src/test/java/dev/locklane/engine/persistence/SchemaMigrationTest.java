@@ -22,6 +22,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * up to date.
  */
 class SchemaMigrationTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     @Test
     void anExistingWorktreeSessionsTableGainsOwnerUsernameWithoutLosingRows(@TempDir Path dbDir) {
@@ -60,7 +63,7 @@ class SchemaMigrationTest {
                 INSERT INTO worktree_sessions (worktree_id, working_directory, created_at, last_attached_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                "7-console-aaaaaaaa", "/work/console", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z");
+                "7-console-aaaaaaaa", "/work/agent-session", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z");
 
         TestSqliteDatabases.migrateToLatest(oldShape);
         WorktreeSessionRepository repository = new WorktreeSessionRepository(oldShape);
@@ -186,7 +189,7 @@ class SchemaMigrationTest {
     }
 
     @Test
-    void anExistingDatabaseGainsTheConsoleResumeSessionsTableWithoutLosingWorktreeSessions(@TempDir Path dbDir) {
+    void anExistingDatabaseGainsTheAgentSessionResumeSessionsTableWithoutLosingWorktreeSessions(@TempDir Path dbDir) {
         // V1 created worktree_sessions; the console_resume_sessions table (#102) is
         // V8, added long after.
         DataSource oldShape = TestSqliteDatabases.newDataSourceAtVersion(dbDir, "7");
@@ -199,7 +202,7 @@ class SchemaMigrationTest {
         TestSqliteDatabases.migrateToLatest(oldShape);
 
         assertThat(new WorktreeSessionRepository(oldShape).find("1-102-console")).isPresent();
-        ConsoleResumeSessionRepository repository = new ConsoleResumeSessionRepository(oldShape);
+        AgentSessionResumeSessionRepository repository = new AgentSessionResumeSessionRepository(oldShape);
         assertThat(repository.findByWorktree("1-102-console")).isEmpty();
 
         repository.record("1-102-console", "claude", "123e4567-e89b-42d3-a456-426614174000",

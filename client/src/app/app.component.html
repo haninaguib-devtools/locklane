@@ -14,7 +14,7 @@
       </div>
       <div class="project-name" [attr.title]="projectName()">{{ projectName() }}</div>
       <div class="topbar-actions">
-        <app-console-indicator />
+        <app-agent-session-indicator />
         @if (!focusMode()) {
           <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>
         }
@@ -67,8 +67,8 @@
       <app-sidebar-resizer [width]="sidebarWidth" (widthChange)="setSidebarWidth($event)" />
       @if (selectedProjectId(); as projectId) {
         <div class="project-pages">
-          @if (onProjectConsole()) {
-            <app-project-console [projectId]="projectId" />
+          @if (onProjectAgentSession()) {
+            <app-project-agent-session [projectId]="projectId" />
           } @else {
             @if (selectedIssue(); as issue) {
               <app-main-content [projectId]="projectId" [issueNumber]="issue" />

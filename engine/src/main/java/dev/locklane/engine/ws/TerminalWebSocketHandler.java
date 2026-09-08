@@ -1,6 +1,6 @@
 package dev.locklane.engine.ws;
 
-import dev.locklane.engine.persistence.ProjectConsoleService;
+import dev.locklane.engine.persistence.ProjectAgentSessionService;
 import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
 import dev.locklane.engine.pty.PtySession;
 import dev.locklane.engine.pty.SessionRegistry;
@@ -50,18 +50,18 @@ import java.util.regex.Pattern;
  * with no explicit {@code resume} and no live process, the most recently captured resume
  * id for that session and tool fills in automatically.
  * {@code seed=template} (#537) makes a brand-new {@code claude}/{@code codex}/{@code
- * opencode}/{@code omp} project-console session start with the engine-composed first prompt that
+ * opencode}/{@code omp} project agent session start with the engine-composed first prompt that
  * tells the agent to read the template #536 committed and build the project — composed
- * by {@link ProjectConsoleService#templateSeedPrompt}, never taken from the client —
+ * by {@link ProjectAgentSessionService#templateSeedPrompt}, never taken from the client —
  * and records the launch on the project so it happens exactly once; ignored for a
- * shell, for a session that is not a project console's, for a project with no template
+ * shell, for a session that is not a project agent session's, for a project with no template
  * or one already seeded, for a reattach to a live process, and whenever a
  * {@code resume} is also given (a resumed conversation already has its history).
  * {@code cols}/{@code rows} size a brand-new session's PTY to the browser terminal's
  * actual size instead of a hardcoded default (#62); once attached, later size changes
  * arrive as resize messages (see below), not new query parameters. A brand-new
- * session also gets whatever extra environment {@link ProjectConsoleService}
- * resolves for its id (#139) — {@code GH_TOKEN} for a project console, nothing for
+ * session also gets whatever extra environment {@link ProjectAgentSessionService}
+ * resolves for its id (#139) — {@code GH_TOKEN} for a project agent session, nothing for
  * any other session — merged in before the process starts.
  *
  * <p>Closing a connection never kills the underlying session (#7's done-when) — only
@@ -94,18 +94,18 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     private static final char FOCUS = '2';
 
     private final SessionRegistry sessionRegistry;
-    private final ProjectConsoleService projectConsoleService;
+    private final ProjectAgentSessionService projectAgentSessionService;
     private final WorktreeSessionAuthorization authorization;
     private final TerminalHeartbeat heartbeat;
     private final AttachmentSizeArbiter sizeArbiter = new AttachmentSizeArbiter();
     private final Map<String, AutoCloseable> subscriptions = new ConcurrentHashMap<>();
 
     @Autowired
-    public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService,
+    public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
             WorktreeSessionAuthorization authorization, Clock clock,
             @Value("${locklane.terminal.heartbeat-interval-ms}") long heartbeatIntervalMs) {
         this.sessionRegistry = sessionRegistry;
-        this.projectConsoleService = projectConsoleService;
+        this.projectAgentSessionService = projectAgentSessionService;
         this.authorization = authorization;
         this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
     }
@@ -114,8 +114,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * Test-only: these tests never call {@link #afterConnectionEstablished}, so the
      * heartbeat and authorization (#242) are never exercised.
      */
-    public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectConsoleService projectConsoleService) {
-        this(sessionRegistry, projectConsoleService, null, Clock.systemUTC(), 20_000L);
+    public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService) {
+        this(sessionRegistry, projectAgentSessionService, null, Clock.systemUTC(), 20_000L);
     }
 
     @Override
@@ -147,7 +147,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         // #48's "first attach claims it": WorktreeSessionAuthorization resolves the
         // project this session id belongs to and checks the caller against that
         // project's owner_user_id (or admin status), the exact same check the REST
-        // listings (IssueWorktreeService, ProjectConsoleService) apply — one
+        // listings (IssueWorktreeService, ProjectAgentSessionService) apply — one
         // implementation, so the two paths can never disagree about the same id.
         String username = wsSession.getPrincipal() != null ? wsSession.getPrincipal().getName() : null;
         if (username == null || !authorization.isVisibleTo(sessionId, username)) {
@@ -159,15 +159,15 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
                 queryParam(wsSession, "seed"), workingDirectory);
         Integer columns = parseIntParam(wsSession, "cols");
         Integer rows = parseIntParam(wsSession, "rows");
-        // Empty for anything that isn't a project console's session id (#139) — a
+        // Empty for anything that isn't a project agent session's session id (#139) — a
         // no-op merge for every ordinary worktree/main-checkout session.
-        Map<String, String> extraEnvironment = projectConsoleService.environmentFor(sessionId);
+        Map<String, String> extraEnvironment = projectAgentSessionService.environmentFor(sessionId);
         PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launch.command(), username, columns,
                 rows, extraEnvironment);
         if (launch.seeded()) {
             // The launch just happened (resolveLaunch only seeds when no live process
             // existed), so this is the one write that turns the seed rule off (#537).
-            projectConsoleService.markTemplateSeeded(sessionId, Instant.now());
+            projectAgentSessionService.markTemplateSeeded(sessionId, Instant.now());
         }
 
         // Replay everything produced so far before subscribing, so nothing produced
@@ -376,15 +376,15 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * As {@link #resolveLaunchCommand(String, String, String)}, plus #537's seeded
      * launch: when {@code seed} is {@link #SEED_TEMPLATE}, {@code cmd} is an agent, no
      * {@code resume} was given, no live process exists for this session, and
-     * {@link ProjectConsoleService#templateSeedPrompt} says this project still owes its
-     * seeded console, the command carries the engine-composed prompt and the result is
+     * {@link ProjectAgentSessionService#templateSeedPrompt} says this project still owes its
+     * seeded agent session, the command carries the engine-composed prompt and the result is
      * flagged {@code seeded} so the caller records the launch. Anything else resolves
      * exactly as before, with {@code seeded} false. Package-visible for tests.
      */
     Launch resolveLaunch(String sessionId, String cmd, String resume, String seed, Path workingDirectory) {
         if (SEED_TEMPLATE.equals(seed) && resume == null && isAgent(cmd)
-                && sessionRegistry.find(sessionId).isEmpty() && projectConsoleService != null) {
-            Optional<String> prompt = projectConsoleService.templateSeedPrompt(sessionId, workingDirectory);
+                && sessionRegistry.find(sessionId).isEmpty() && projectAgentSessionService != null) {
+            Optional<String> prompt = projectAgentSessionService.templateSeedPrompt(sessionId, workingDirectory);
             if (prompt.isPresent()) {
                 return new Launch(seededLaunchCommand(cmd, prompt.get()), true);
             }

@@ -31,6 +31,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * repo.
  */
 class WorktreeCreationServiceTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     @Test
     void slugMatchesTheWipBranchConvention() {
@@ -101,7 +104,7 @@ class WorktreeCreationServiceTest {
                 .contains(projectId + "-42-add-the-frobnicator");
         Path worktreePath = tmp.resolve(projectRoot.getFileName() + "-42");
         assertThat(worktreePath).isDirectory();
-        // No branch is minted at console-open (#340) -- the worktree sits on a detached
+        // No branch is minted at agent-session-open (#340) -- the worktree sits on a detached
         // HEAD, pointed at the same commit as origin/main, and no wip/42-* branch exists.
         assertThat(GitTestRepos.currentBranch(worktreePath)).isEmpty();
         assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(GitTestRepos.headCommit(projectRoot));
@@ -149,11 +152,11 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void releasesTheTaskBranchFromAnIdleConsoleWorktreeAndChecksItOutInTheIssueWorktree(@TempDir Path tmp)
+    void releasesTheTaskBranchFromAnIdleAgentSessionWorktreeAndChecksItOutInTheIssueWorktree(@TempDir Path tmp)
             throws Exception {
-        // #592: /t-work ran inside a project console and minted wip/60-* there; the tab
+        // #592: /t-work ran inside a project agent session and minted wip/60-* there; the tab
         // was closed and the worktree kept (its commit is not on trunk yet). Opening the
-        // issue console used to fail on git's one-checkout-per-branch rule.
+        // issue agent session used to fail on git's one-checkout-per-branch rule.
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         Path holder = tmp.resolve(projectRoot.getFileName() + "-console-7399e19f");
         GitTestRepos.addWorktreeOnNewBranch(projectRoot, holder, "wip/60-held-branch");
@@ -172,7 +175,7 @@ class WorktreeCreationServiceTest {
                 .contains(worktreePath.toString());
         assertThat(GitTestRepos.currentBranch(worktreePath)).isEqualTo("wip/60-held-branch");
         assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(branchTip);
-        // The holder is detached -- at trunk, the idle state a fresh project console
+        // The holder is detached -- at trunk, the idle state a fresh project agent session
         // starts in, so the cleanup sweep can remove it -- and still on disk.
         assertThat(GitTestRepos.currentBranch(holder)).isEmpty();
         assertThat(GitTestRepos.headCommit(holder)).isEqualTo(GitTestRepos.commitOf(projectRoot, "origin/main"));
@@ -180,7 +183,7 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void refusesToReleaseAConsoleWorktreeWithUncommittedChangesNamingItsPath(@TempDir Path tmp) throws Exception {
+    void refusesToReleaseAAgentSessionWorktreeWithUncommittedChangesNamingItsPath(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         Path holder = tmp.resolve(projectRoot.getFileName() + "-console-0dd1e5");
         GitTestRepos.addWorktreeOnNewBranch(projectRoot, holder, "wip/61-dirty-holder");
@@ -202,7 +205,7 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void refusesToReleaseAConsoleWorktreeWithALiveSessionNamingItsPath(@TempDir Path tmp) throws Exception {
+    void refusesToReleaseAAgentSessionWorktreeWithALiveSessionNamingItsPath(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         Path holder = tmp.resolve(projectRoot.getFileName() + "-console-11ee5e55");
         GitTestRepos.addWorktreeOnNewBranch(projectRoot, holder, "wip/62-live-holder");
@@ -210,11 +213,11 @@ class WorktreeCreationServiceTest {
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
         GhIssue issue = new GhIssue(62, "Live holder", "OPEN", List.of(), "", "", "");
-        // The same registry the service consults has a live console in the holder --
+        // The same registry the service consults has a live agent session in the holder --
         // the exact check the cleanup sweep uses (SessionRegistry#hasLiveSessionIn).
         SessionRegistry sessionRegistry = new SessionRegistry(repository);
-        String consoleId = projectId + "-console-11ee5e55";
-        sessionRegistry.attach(consoleId, holder);
+        String agentSessionId = projectId + "-console-11ee5e55";
+        sessionRegistry.attach(agentSessionId, holder);
         WorktreeCreationService service = service(repository, projectRepository, List.of(issue), sessionRegistry);
 
         try {
@@ -225,12 +228,12 @@ class WorktreeCreationServiceTest {
             assertThat(GitTestRepos.currentBranch(holder)).isEqualTo("wip/62-live-holder");
             assertThat(tmp.resolve(projectRoot.getFileName() + "-62")).doesNotExist();
         } finally {
-            sessionRegistry.close(consoleId);
+            sessionRegistry.close(agentSessionId);
         }
     }
 
     @Test
-    void neverDetachesAWorktreeThatIsNotAnEngineConsoleToFreeTheBranch(@TempDir Path tmp) throws Exception {
+    void neverDetachesAWorktreeThatIsNotAnEngineAgentSessionToFreeTheBranch(@TempDir Path tmp) throws Exception {
         // A human's own hand-made worktree holds the branch: not the engine's to detach,
         // even when clean and session-less -- refused, naming the path.
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
@@ -245,7 +248,7 @@ class WorktreeCreationServiceTest {
         assertThatThrownBy(() -> service.startSession(projectId, 63))
                 .isInstanceOf(WorktreeCreationService.WorktreeCreationException.class)
                 .hasMessageContaining(holder.toString())
-                .hasMessageContaining("not a project-console worktree");
+                .hasMessageContaining("not a project-agent-session worktree");
         assertThat(GitTestRepos.currentBranch(holder)).isEqualTo("wip/63-hand-made-holder");
     }
 
@@ -268,7 +271,7 @@ class WorktreeCreationServiceTest {
         String freshCommit = GitTestRepos.headCommit(projectRoot);
         assertThat(freshCommit).isNotEqualTo(staleCommit);
 
-        // Reopening the console (no live session recorded) refreshes the idle worktree.
+        // Reopening the agent session (no live session recorded) refreshes the idle worktree.
         service.startSession(projectId, 45);
 
         assertThat(GitTestRepos.headCommit(worktreePath)).isEqualTo(freshCommit);
@@ -394,12 +397,12 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void reopeningMintsAFreshIdInTheOriginalConsolesRecordedDirectory(@TempDir Path tmp) throws Exception {
+    void reopeningMintsAFreshIdInTheOriginalAgentSessionsRecordedDirectory(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
-        Path recordedDir = tmp.resolve("still-open-console-dir");
+        Path recordedDir = tmp.resolve("still-open-agent-session-dir");
         String originalId = projectId + "-9-reopen-target";
         repository.recordAttach(originalId, recordedDir, Instant.now(), null);
         WorktreeCreationService service = service(repository, projectRepository, List.of());
@@ -413,15 +416,15 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void reopeningALegacyMainConsoleIsRefused(@TempDir Path tmp) throws Exception {
+    void reopeningALegacyMainAgentSessionIsRefused(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
         WorktreeCreationService service = service(repository, projectRepository, List.of());
 
-        // No session record exists any more — the original console was closed (#75).
-        // #341 retired the main-checkout console option: a conversation captured
+        // No session record exists any more — the original agent session was closed (#75).
+        // #341 retired the main-checkout agent session option: a conversation captured
         // there can only ever be resumed there, so this is refused rather than
         // resumed in the wrong directory (a worktree) or against the main checkout
         // again (no longer allowed at all).
@@ -429,13 +432,13 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void reopeningALegacyMainConsoleThatIsStillOpenIsAlsoRefused(@TempDir Path tmp) throws Exception {
+    void reopeningALegacyMainAgentSessionThatIsStillOpenIsAlsoRefused(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
         long projectId = readyProject(projectRepository, projectRoot).id();
         String originalId = projectId + "-9-main-deadbeef";
-        // The original main console is still recorded/running -- refusal does not
+        // The original main agent session is still recorded/running -- refusal does not
         // depend on the record being gone.
         repository.recordAttach(originalId, projectRoot, Instant.now(), null);
         WorktreeCreationService service = service(repository, projectRepository, List.of());
@@ -444,7 +447,7 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void reopeningAClosedWorktreeConsoleRecreatesTheWorktreeWhenItIsGone(@TempDir Path tmp) throws Exception {
+    void reopeningAClosedWorktreeAgentSessionRecreatesTheWorktreeWhenItIsGone(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp);
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
@@ -536,7 +539,7 @@ class WorktreeCreationServiceTest {
     }
 
     @Test
-    void reopeningAConsoleRecreatesAGoneWorktreeFromTheRecordedTrunk(@TempDir Path tmp) throws Exception {
+    void reopeningAAgentSessionRecreatesAGoneWorktreeFromTheRecordedTrunk(@TempDir Path tmp) throws Exception {
         Path projectRoot = GitTestRepos.initTestRepo(tmp, "master");
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(tmp);
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(tmp);
@@ -588,8 +591,8 @@ class WorktreeCreationServiceTest {
         assertThat(worktreePath).isDirectory();
         // Detached HEAD: "branch --show-current" reports nothing for it.
         assertThat(GitTestRepos.currentBranch(worktreePath)).isEmpty();
-        // No console/* branch (or any other) was minted on the project's behalf (#338).
-        assertThat(GitTestRepos.branchList(projectRoot, "console/*")).isEmpty();
+        // No agent session/* branch (or any other) was minted on the project's behalf (#338).
+        assertThat(GitTestRepos.branchList(projectRoot, "agent session/*")).isEmpty();
     }
 
     @Test
@@ -631,7 +634,7 @@ class WorktreeCreationServiceTest {
                 Instant.parse("2026-08-25T12:00:00Z"), "alice");
         assertThat(service.conversationDirectory(projectId, 174, projectId + "-174-rename-toggle"))
                 .contains(issueWorktree);
-        // Another issue's console, and an unknown project, resolve to nothing.
+        // Another issue's agent session, and an unknown project, resolve to nothing.
         assertThat(service.conversationDirectory(projectId, 174, projectId + "-175-something")).isEmpty();
         assertThat(service.conversationDirectory(999, 174, "999-174-rename-toggle")).isEmpty();
     }
