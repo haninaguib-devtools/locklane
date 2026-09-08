@@ -8,6 +8,17 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.24 — 2026-09-08
+
+### Features
+- Paint the PWA window-controls strip with the Appearance accent's soft tint (#825, #826)
+
+### Fixes
+- Include project pages as stops in sidenav arrow-key navigation (#827, #828)
+
+### Other
+- Rename console to agent across the product vocabulary (#764, #824)
+
 ## v0.2.23 — 2026-09-08
 
 ### Fixes
