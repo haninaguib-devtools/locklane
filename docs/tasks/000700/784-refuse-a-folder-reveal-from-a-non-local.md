@@ -1,0 +1,69 @@
+# 784 — Refuse a Folder reveal from a non-local browser server-side
+Issue: #784
+
+## Asked
+"Folder" on an agent tab launches the OS file manager on the engine's host. Today the
+only thing stopping a browser on another machine from doing that is the client hiding
+the menu item when the page hostname is not `localhost`; the
+`POST /api/projects/{projectId}/consoles/{id}/reveal-in-file-manager` endpoint itself
+accepts any authenticated owner of the project, from anywhere. Since locklane is
+multi-user (ADR-105), a remote user can pop file-manager windows on the host's desktop
+with one request. Make the endpoint apply the same server-side loopback check the
+desktop-IDE launch introduced in #781: honoured only when the request's peer address is
+loopback and it carries no `Forwarded` or `X-Forwarded-For` header, otherwise 403 and
+nothing launched. Also list the endpoint in `SecurityConfig`, so an anonymous call is a
+401 rather than the 500 on a null principal that #655's record noted and left for its
+own issue.
+
+## Done when
+- `reveal-in-file-manager` reuses #781's loopback check (`LoopbackRequests`). Engine
+  tests cover: loopback peer launches; non-loopback peer is 403 with no launch; loopback
+  peer plus `X-Forwarded-For` is 403 with no launch.
+- `SecurityConfig` lists `/api/projects/*/consoles/*/reveal-in-file-manager` as
+  `authenticated()`; a test covers the anonymous 401.
+- Existing behaviour for a `localhost` browser is unchanged: the same owner-only
+  visibility rule (404 for a console the caller may not see), 204 on launch.
+- `./mvnw -B test` passes.
+
+## Explicitly not
+- No client change: the item stays hidden off-`localhost` exactly as now.
+- No change to what "Folder" launches or how.
+
+## Origin
+none
+
+## Verification
+none
+
+## Feedback
+none
+
+## Decisions made along the way
+- The loopback check runs after the owner-only visibility check, mirroring `open-ide`'s
+  order (404 first, then 403): a remote caller probing console ids of another project
+  still learns nothing beyond what it could before. (agent, 2026-09-07)
+- The anonymous-401 test is a Spring Boot MockMvc route test in the same shape as
+  `InstalledIdesRouteIntegrationTest` (#781) and `TemplatesRouteIntegrationTest`, since
+  `SecurityConfig` ends in `permitAll` and only a test over the real filter chain proves
+  the matcher exists. (agent, 2026-09-07)
+
+## Deviations / notes
+- `./mvnw -B test` FAILS at commit `7fc23e2`, in the `client` module, before the engine
+  module is reached: Angular's production build reports `bundle initial exceeded maximum
+  budget. Budget 1.10 MB was not met by 346 bytes` (`client/angular.json`'s `initial`
+  `maximumError`). The same error fails CI's `checks` job on `main` at `1839dca`
+  (#806's merge), and this branch changes no file under `client/`, so it is a
+  pre-existing defect on `main`, not this task's. Fixing it means touching
+  `client/angular.json` or shrinking the initial bundle, both outside this task's Scope,
+  so it is not fixed here. The engine module's own suite was run separately
+  (`./mvnw -B -pl engine -am -Dskip.npm test`): 946 of 949 tests pass, and the three
+  that fail are all `SpaFallbackControllerTest`, which serves the client's built
+  `index.html` and gets a 404 because the skipped client build produced none — a
+  consequence of the same client failure, not of this diff. Every test this task adds
+  or touches passes. The human opened that defect as #809; it shipped as PR #811.
+  (agent, 2026-09-07)
+- Resolved: after #811 reached `main`, this branch was rebased onto it (a clean,
+  behind-only rebase; no conflict) and `./mvnw -B test` re-run in full: `BUILD SUCCESS`,
+  949 engine tests, 0 failures, `SpaFallbackControllerTest` included. This was the
+  driven run's one bounded fix pass (ADR-006 D5 / ADR-004 D2): nothing in the task's own
+  diff changed. (agent, 2026-09-08)

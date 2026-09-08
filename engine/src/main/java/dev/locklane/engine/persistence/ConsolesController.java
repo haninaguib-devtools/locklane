@@ -60,11 +60,23 @@ public class ConsolesController {
      * outside the caller's own project. 404 for a console id the caller may not see,
      * or one with no known working directory (never closed but never actually
      * attached to, or already closed).
+     *
+     * <p>The file manager opens on the host's own desktop, so, like a desktop IDE in
+     * {@link #openIde}, this is honoured only for a request straight from a browser on
+     * the engine's own machine ({@link LoopbackRequests#isDirectLoopback}, #784) — a
+     * remote account, or one relayed by a reverse proxy on this machine, gets 403 and
+     * nothing is launched. The client already hides "Folder" off {@code localhost};
+     * this is the server-side rule that hiding used to stand in for, since locklane is
+     * multi-user (ADR-105) and no one else may pop windows on the host's desktop.
      */
     @PostMapping("/{id}/reveal-in-file-manager")
-    public ResponseEntity<Void> reveal(@PathVariable long projectId, @PathVariable String id, Principal principal) {
+    public ResponseEntity<Void> reveal(@PathVariable long projectId, @PathVariable String id,
+            HttpServletRequest request, Principal principal) {
         if (!service.allWorktreeIds(projectId, principal.getName()).contains(id)) {
             return ResponseEntity.notFound().build();
+        }
+        if (!LoopbackRequests.isDirectLoopback(request)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         return fileManagerLauncher.reveal(id) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }

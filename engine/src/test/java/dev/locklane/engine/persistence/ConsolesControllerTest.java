@@ -92,7 +92,57 @@ class ConsolesControllerTest {
 
         // Never reaches FileManagerLauncher at all -- the ownership check refuses
         // before any lookup of a working directory, exactly like an unknown id would.
-        assertThat(controller.reveal(1, "2-174-not-alices", ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(controller.reveal(1, "2-174-not-alices", loopback(), ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        // And before the loopback rule (#784): a remote caller probing another
+        // project's console ids gets the same 404 it always did, never a 403.
+        assertThat(controller.reveal(1, "2-174-not-alices", remote("192.168.1.20"), ALICE).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void revealFromALoopbackPeerLaunchesTheFileManager(@TempDir Path dbDir) {
+        createProject(dbDir, "alice"); // project 1
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        Path worktree = dbDir.resolve("wt1");
+        repository.recordAttach("1-174-rename-toggle", worktree, Instant.now(), "alice");
+        List<String[]> launched = new CopyOnWriteArrayList<>();
+        ConsolesController controller = new ConsolesController(worktreeService(dbDir, repository),
+                launcher(repository, launched), codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+
+        assertThat(controller.reveal(1, "1-174-rename-toggle", loopback(), ALICE).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        // Unchanged for a localhost browser (#784): the same file-manager command
+        // #441 always ran, on the console's own worktree.
+        assertThat(launched).hasSize(1);
+        assertThat(launched.get(0)).isEqualTo(FileManagerLauncher.revealCommand(System.getProperty("os.name", ""), worktree));
+    }
+
+    @Test
+    void revealFromANonLoopbackPeerIsForbiddenAndLaunchesNothing(@TempDir Path dbDir) {
+        createProject(dbDir, "alice"); // project 1
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
+        List<String[]> launched = new CopyOnWriteArrayList<>();
+        ConsolesController controller = new ConsolesController(worktreeService(dbDir, repository),
+                launcher(repository, launched), codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+
+        // The owner of the project, but from another machine (#784): the file manager
+        // would open on the engine host's desktop, not the caller's.
+        assertThat(controller.reveal(1, "1-174-rename-toggle", remote("192.168.1.20"), ALICE).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(launched).isEmpty();
+    }
+
+    @Test
+    void revealFromALoopbackPeerBehindAProxyIsForbiddenAndLaunchesNothing(@TempDir Path dbDir) {
+        createProject(dbDir, "alice"); // project 1
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
+        List<String[]> launched = new CopyOnWriteArrayList<>();
+        ConsolesController controller = new ConsolesController(worktreeService(dbDir, repository),
+                launcher(repository, launched), codeServerService(repository), new InstalledIdesStore(), mock(DesktopIdeLauncher.class));
+        MockHttpServletRequest relayed = loopback();
+        relayed.addHeader("X-Forwarded-For", "203.0.113.7");
+
+        assertThat(controller.reveal(1, "1-174-rename-toggle", relayed, ALICE).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(launched).isEmpty();
     }
 
     @Test
@@ -240,6 +290,11 @@ class ConsolesControllerTest {
         return remote("127.0.0.1");
     }
 
+    /**
+     * A request whose peer is {@code peerAddress}. The path is nominal: neither
+     * {@link ConsolesController#openIde} nor {@link ConsolesController#reveal} reads it,
+     * only the peer address and the forwarding headers.
+     */
     private static MockHttpServletRequest remote(String peerAddress) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/projects/1/consoles/1-174-rename-toggle/open-ide");
         request.setRemoteAddr(peerAddress);
@@ -273,6 +328,11 @@ class ConsolesControllerTest {
 
     private static FileManagerLauncher launcher(WorktreeSessionRepository repository) {
         return new FileManagerLauncher(new SessionRegistry(repository));
+    }
+
+    /** A launcher that records each file-manager command in {@code launched} instead of spawning it (#784). */
+    private static FileManagerLauncher launcher(WorktreeSessionRepository repository, List<String[]> launched) {
+        return new FileManagerLauncher(new SessionRegistry(repository), command -> launched.add(command));
     }
 
     /**
