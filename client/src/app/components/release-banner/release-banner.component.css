@@ -15,3 +15,19 @@
   color: inherit;
   text-decoration: underline;
 }
+
+/* Under the window-controls overlay this banner sits at the very top of the window --
+   the strip the OS's own buttons are drawn onto -- so its plain grey background would
+   otherwise cover the chosen accent's tint there (#836). `min-height` guarantees the
+   banner alone covers that whole strip even when its own text is shorter than it, and
+   `:host-context` is what reaches the `.wco-active` ancestor app.component.html now
+   puts around both this banner and the topbar that paints the same tint when the
+   banner is absent -- reused unmodified, no ancestor-crossing lookup of its own. */
+:host-context(.wco-active) .release-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--titlebar-bottom);
+  background: var(--accent-soft);
+  -webkit-app-region: drag;
+}
