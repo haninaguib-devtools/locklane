@@ -8,6 +8,11 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.22 — 2026-09-08
+
+### Features
+- Integrate the PWA window controls into a compact desktop-style layout (#815, #816)
+
 ## v0.2.21 — 2026-09-07
 
 ### Features
