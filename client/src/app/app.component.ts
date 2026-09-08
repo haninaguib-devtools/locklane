@@ -22,7 +22,7 @@ import { ReleaseBannerComponent } from './components/release-banner/release-bann
 import { AccentThemeStore } from './services/accent-theme-store';
 import { AuthService } from './services/auth.service';
 import { CurrentProjectService } from './services/current-project.service';
-import { deriveProjectBackgroundTint } from './services/project-accent-tint';
+import { WindowChromeDirective } from './window-chrome.directive';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from './components/sidebar-resizer/sidebar-width';
 import { Project } from './models/issue.model';
 
@@ -49,6 +49,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     AddProjectPopupComponent,
     UpdateBannerComponent,
     ReleaseBannerComponent,
+    WindowChromeDirective,
   ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
@@ -84,17 +85,14 @@ export class AppComponent {
   // enforced server-side regardless of what this signal says.
   readonly isAdmin = this.auth.isAdmin;
 
-  // The header's account menu (#90) and the settings/admin-users/github-accounts
-  // dialogs it opens. All plain fields rather than signals: nothing derives from
-  // them, and the template reads them directly.
+  // The sidebar account menu and the settings/admin/GitHub dialogs it opens.
   menuOpen = false;
   settingsOpen = false;
   aboutOpen = false;
   adminUsersOpen = false;
   githubAccountsOpen = false;
 
-  // The add-project popup (#227) can be opened from the header button or from the
-  // overview's zero-project CTA, so its state lives here rather than in either opener.
+  // Shared by the sidebar footer and the overview's zero-project CTA.
   showAddProject = false;
 
   @ViewChild(SidenavComponent) private readonly sidenav?: SidenavComponent;
@@ -111,25 +109,11 @@ export class AppComponent {
   // initialization.
   readonly selectedProjectId = computed(() => this.currentProject.projectId());
 
-  // The selected project's name, shown as its own centered header element
-  // (#586) rather than fused into the "LockLane - {project}" brand link it
-  // used to be -- `null` with no project open in this window (#309), so the
-  // template can omit the element instead of rendering empty text.
+  // Shared with the workspace headers; null on the overview.
   readonly projectName = computed(() => this.currentProject.current()?.name ?? null);
 
-  // The background wash behind the persistent header bar (#555), derived from
-  // the selected project's accent color -- `null` for a project with none set
-  // (every pre-existing project, since the backend column is nullable) or with
-  // no project selected at all, which leaves `.topbar` at its plain CSS
-  // background, no visual regression. Applies whenever a project is selected,
-  // including while viewing that project's own console page -- unlike the
-  // full-page tint this replaced (#428/#433), the header is always visible so
-  // there is no console-page carve-out to make. Never affects `.project-pages`
-  // or anything under it, which always show their plain default background now.
-  readonly projectBackgroundTint = computed(() => {
-    const project = this.currentProject.current();
-    return project ? deriveProjectBackgroundTint(project.accentColor) : null;
-  });
+  // A narrow identity marker, never a broad header background.
+  readonly projectAccent = computed(() => this.currentProject.current()?.accentColor ?? null);
 
   readonly selectedIssue = toSignal(
     this.router.events.pipe(
@@ -285,7 +269,7 @@ export class AppComponent {
   }
 
   // Both the sidenav and the overview (#197) fetch the project list independently
-  // (#44), so a project created from the header or the overview's zero-state needs
+  // (#44), so a project created from the footer or the overview's zero-state needs
   // both refreshed in place rather than relying on either one's own next reload.
   // The sidenav reveal (#717) expands the new row, scrolls it into view, and
   // highlights it briefly -- the same refresh the old code did, plus the flash.

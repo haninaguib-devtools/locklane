@@ -8,6 +8,7 @@ import { EventsService, isConsolesChangedEvent } from '../../services/events.ser
 import { OpenShell, ShellsService } from '../../services/shells.service';
 import { ProjectsService } from '../../services/projects.service';
 import { Project } from '../../models/issue.model';
+import { WindowChromeDirective } from '../../window-chrome.directive';
 
 /**
  * The Shells window (#446, part of #444): the page behind the singleton popup a
@@ -29,7 +30,7 @@ import { Project } from '../../models/issue.model';
 @Component({
   selector: 'app-shells-window',
   standalone: true,
-  imports: [ConfirmDialogComponent, ShellsSidenavComponent, TerminalComponent],
+  imports: [ConfirmDialogComponent, ShellsSidenavComponent, TerminalComponent, WindowChromeDirective],
   templateUrl: './shells-window.component.html',
   styleUrl: './shells-window.component.css',
 })
@@ -49,21 +50,11 @@ export class ShellsWindowComponent implements OnInit, OnDestroy {
   pendingClose: OpenShell | null = null;
   closeError = false;
   openError = false;
-  /**
-   * True once the OS overlays its own window controls onto this window —
-   * feature-detected from `navigator.windowControlsOverlay`, never assumed
-   * from being installed, so a normal browser tab or a non-Chromium browser
-   * keeps its ordinary layout (#741).
-   */
-  wcoActive = false;
 
   private readonly subscriptions = new Subscription();
-  private readonly wcoGeometryChange = () => this.updateWco();
 
   ngOnInit(): void {
     this.selected = this.routeShellId();
-    this.updateWco();
-    navigator.windowControlsOverlay?.addEventListener('geometrychange', this.wcoGeometryChange);
     this.subscriptions.add(
       this.router.events
         .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
@@ -88,7 +79,6 @@ export class ShellsWindowComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.subscriptions.unsubscribe();
-    navigator.windowControlsOverlay?.removeEventListener('geometrychange', this.wcoGeometryChange);
   }
 
   select(shell: OpenShell): void {
@@ -153,9 +143,6 @@ export class ShellsWindowComponent implements OnInit, OnDestroy {
     });
   }
 
-  private updateWco(): void {
-    this.wcoActive = !!navigator.windowControlsOverlay?.visible;
-  }
 
   private routeShellId(): string | null {
     return this.route.snapshot.paramMap.get('id') ?? this.route.snapshot.firstChild?.paramMap.get('id') ?? null;

@@ -1,22 +1,15 @@
-.window {
+:host {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  min-height: 0;
+}
+
+.window {
+  display: flex;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
-}
-
-/* Empty by default — a normal browser tab or a non-Chromium install reserves
-   no space and drags nothing. Only .wco-active (set from
-   `navigator.windowControlsOverlay`) turns this into the overlay's title
-   area (#741). */
-.titlebar {
-  flex: none;
-  height: 0;
-}
-
-.window.wco-active .titlebar {
-  height: env(titlebar-area-height, 33px);
-  -webkit-app-region: drag;
+  --sidebar-size: min(260px, 36vw);
 }
 
 .body {
@@ -27,18 +20,27 @@
 }
 
 .side {
-  width: 260px;
-  min-width: 260px;
-  border-right: 1px solid rgba(0, 0, 0, 0.1);
+  width: var(--sidebar-size);
+  flex: none;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--sidebar);
 }
 
 .side-title {
-  font-size: 15px;
-  font-weight: 700;
-  padding: 12px 16px 6px;
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: var(--chrome-header-height);
+  padding: var(--chrome-top) 12px 0 calc(12px + var(--chrome-left));
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.wco-active .side-title {
+  -webkit-app-region: drag;
 }
 
 .content {
@@ -47,10 +49,11 @@
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+  --workspace-inset-left: max(0px, var(--chrome-left) - var(--sidebar-size));
 }
 
 .placeholder {
-  color: #778;
+  color: var(--muted);
   padding: 24px;
   font-size: 14px;
 }
@@ -61,9 +64,7 @@
   font-size: 13px;
 }
 
-/* The region the terminals share — the same positioned wrapper the console tab
-   strips use, so a hidden terminal is sized against exactly the box the selected
-   one fills (#375). */
+/* Keep a measurable layout box and the live connection for every shell. */
 .terminals {
   position: relative;
   display: flex;
@@ -72,10 +73,6 @@
   min-height: 0;
 }
 
-/* An unselected shell's terminal stays mounted — it holds a live PTY connection
-   that must survive switching shells and back. It keeps a layout box rather than
-   being removed with `display: none`, so a terminal that mounts while hidden can
-   still be measured and connects at its real size (#375). */
 app-terminal.tab-hidden {
   position: absolute;
   inset: 0;

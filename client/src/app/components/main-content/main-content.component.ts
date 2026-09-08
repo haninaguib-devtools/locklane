@@ -14,6 +14,8 @@ import { ConsoleTabsComponent, OpenConsoleRequest } from '../console-tabs/consol
 import { ConsoleTab, OVERVIEW_TAB_ID, labelConsoles } from '../console-tabs/console-labels';
 import { TerminalComponent } from '../terminal/terminal.component';
 import { repoWebUrl } from './repo-web-url';
+import { CurrentProjectService } from '../../services/current-project.service';
+import { ConsoleIndicatorComponent } from '../console-indicator/console-indicator.component';
 
 // One console tab's client-side state. `dir` is only known for a session this
 // page just started — reconnects leave it null and the engine resolves the
@@ -37,6 +39,7 @@ interface OpenConsole {
     OverviewTabComponent,
     ConsoleTabsComponent,
     TerminalComponent,
+    ConsoleIndicatorComponent,
   ],
   templateUrl: './main-content.component.html',
   styleUrl: './main-content.component.css',
@@ -47,6 +50,7 @@ export class MainContentComponent implements OnChanges, OnInit {
   private readonly consolesService = inject(ConsolesService);
   private readonly agentStore = inject(AgentStore);
   readonly defaultAgentStore = inject(DefaultAgentStore);
+  readonly currentProject = inject(CurrentProjectService);
   private readonly activeConsoleStore = inject(ActiveConsoleStore);
   private readonly activeTabStore = inject(ActiveTabStore);
 

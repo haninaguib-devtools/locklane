@@ -1,4 +1,5 @@
-<div class="tabs" role="tablist">
+<div class="tabs">
+  <div class="tab-scroll" role="tablist" aria-label="Workspace tabs" tabindex="0" (scroll)="closeMenu()">
   @if (overview) {
     <span class="tab-wrap" [class.active]="overviewId === selected">
       <button
@@ -38,7 +39,7 @@
           class="tab"
           [class.active]="tab.id === selected"
           [attr.aria-selected]="tab.id === selected"
-          [attr.title]="tabTitle(tab.id)"
+          [attr.title]="tabText(tab) + (tabTitle(tab.id) ? ' — ' + tabTitle(tab.id) : '')"
           [attr.aria-label]="isWaiting(tab.id) ? tabText(tab) + ', waiting for you' : null"
           (click)="select(tab.id)"
           (dblclick)="startRename(tab, $event)"
@@ -47,7 +48,7 @@
                for the user -- the sidenav's per-issue dot, on the tab itself. Decorative:
                the button's title and accessible name carry the state in words. -->
           <span class="tab-dot" [class.waiting]="isWaiting(tab.id)" aria-hidden="true"></span>
-          {{ tabText(tab) }}
+          <span class="tab-label">{{ tabText(tab) }}</span>
         </button>
       }
       <button
@@ -63,12 +64,17 @@
           type="button"
           class="tab-menu-trigger"
           aria-label="tab actions"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="isMenuOpen(tab.id)"
           (click)="toggleMenu(tab.id, $event)"
         >
           ⋮
         </button>
         @if (isMenuOpen(tab.id)) {
-          <div class="tab-menu" role="menu">
+          <div class="tab-menu" role="menu" [style.left.px]="menuLeft" [style.top.px]="menuTop" [style.max-height.px]="menuMaxHeight">
+            @if (renamable) {
+              <button type="button" role="menuitem" (click)="closeMenu(); startRename(tab, $event)">Rename</button>
+            }
             <button
               type="button"
               role="menuitem"
@@ -108,6 +114,7 @@
       </div>
     </span>
   }
+  </div>
   @if (showOpenButton) {
     <div class="plus-wrap">
       <button
@@ -125,7 +132,7 @@
         <!-- #757: one entry per installed agent, the same list Settings shows. Never
              `shell` -- the client adds that itself for plain shells, it is not a CLI
              the engine detected. -->
-        <div class="agent-picker" role="menu" aria-label="agent CLI for the new agent">
+        <div class="agent-picker" role="menu" aria-label="agent CLI for the new agent" [style.left.px]="menuLeft" [style.top.px]="menuTop" [style.max-height.px]="menuMaxHeight">
           @for (agent of installedAgents; track agent.id) {
             <button
               type="button"
@@ -142,12 +149,16 @@
   }
 </div>
 
+@if (shellOpenFailed || ideOpenFailed) {
+  <div class="action-errors">
 @if (shellOpenFailed) {
-  <div class="shell-error">could not open a shell at that agent's worktree — try again</div>
+  <div class="shell-error" role="alert">could not open a shell at that agent's worktree — try again</div>
 }
 
 @if (ideOpenFailed) {
-  <div class="ide-error">could not open the IDE for that agent — try again</div>
+  <div class="ide-error" role="alert">could not open the IDE for that agent — try again</div>
+}
+  </div>
 }
 
 @if (pendingCloseId !== null) {

@@ -13,7 +13,8 @@
       (click)="onTriggerClick()"
     >
       <span class="dot" aria-hidden="true"></span>
-      {{ count === 1 ? 'agent' : 'agents (' + count + ')' }}
+      <span class="badge-label">{{ count === 1 ? 'agent' : 'agents (' + count + ')' }}</span>
+      <span class="badge-count" aria-hidden="true">{{ count }}</span>
     </button>
 
     @if (open()) {

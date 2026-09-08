@@ -1,9 +1,8 @@
-/* Design tokens carrying the running app's visual style forward unchanged (#3's
-   Goal): off-white/gray surfaces, minimal borders, small-caps-ish muted labels. */
+/* Shared neutral surfaces; project and account accents stay restrained. */
 :root {
   --bg: #e9e6e1;
   --window: #faf9f7;
-  --sidebar: #f3f1ed;
+  --sidebar: #f2f0eb;
   --panel: #ffffff;
   --border: #ddd8d0;
   --border-soft: #e9e5df;
@@ -21,6 +20,11 @@
      and the agent tab strip's per-tab dot (#791) so the two cannot drift apart. */
   --agent-dot: #3b6fa8;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --workspace-header-height: 58px;
+  --workspace-header: #272521;
+  --workspace-text: #eeeae3;
+  --workspace-muted: #bcb5aa;
+  --workspace-border: #49453f;
 }
 
 * {
@@ -69,4 +73,59 @@ button {
    is safe; the padding ring then shows `.terminal`'s own theme background. */
 .terminal .xterm-viewport {
   display: none;
+}
+
+/* The browser supplies this rectangle, including whichever side owns native
+   controls. Hidden/unsupported overlays keep zero insets, never an empty bar. */
+[appWindowChrome] {
+  --chrome-left: 0px;
+  --chrome-top: 0px;
+  --chrome-width: 100vw;
+  --chrome-right: 0px;
+  --chrome-header-height: var(--workspace-header-height);
+  --workspace-inset-left: 0px;
+  --workspace-inset-right: var(--chrome-right);
+  --workspace-inset-top: var(--chrome-top);
+}
+
+[appWindowChrome].wco-active {
+  --chrome-left: env(titlebar-area-x, 0px);
+  --chrome-top: env(titlebar-area-y, 0px);
+  --chrome-width: env(titlebar-area-width, 100vw);
+  --chrome-right: max(0px, calc(100vw - var(--chrome-left) - var(--chrome-width)));
+  --chrome-header-height: max(var(--workspace-header-height), calc(var(--chrome-top) + env(titlebar-area-height, 0px)));
+}
+
+.workspace-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  min-width: 0;
+  min-height: var(--chrome-header-height, var(--workspace-header-height));
+  padding: var(--workspace-inset-top, 0px) calc(12px + var(--workspace-inset-right, 0px)) 0 calc(12px + var(--workspace-inset-left, 0px));
+  background: var(--workspace-header);
+  color: var(--workspace-text);
+  border-bottom: 1px solid var(--workspace-border);
+}
+
+.wco-active .workspace-header {
+  -webkit-app-region: drag;
+}
+
+.wco-active :is(button, a, input, select, textarea, [role='menu'], [role='tablist'], app-sidebar-resizer) {
+  -webkit-app-region: no-drag;
+}
+
+:is(.workspace-header, .sidebar, .side) :focus-visible {
+  outline: 2px solid var(--agent-dot);
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .workspace-header {
+    gap: 5px;
+    padding-right: calc(6px + var(--workspace-inset-right, 0px));
+    padding-left: calc(6px + var(--workspace-inset-left, 0px));
+  }
 }

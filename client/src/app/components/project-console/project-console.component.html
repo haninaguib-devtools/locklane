@@ -1,6 +1,30 @@
-<div class="header">
-  <button type="button" class="back" (click)="back()">← back to issues</button>
-</div>
+<header class="workspace-header">
+  <button type="button" class="back" aria-label="Back to issues" title="Back to issues" (click)="back()">
+    <span aria-hidden="true">←</span><span class="back-label">Issues</span>
+  </button>
+  <span class="project-name" [title]="currentProject.current()?.name ?? project?.name ?? 'Project'">
+    {{ currentProject.current()?.name ?? project?.name ?? 'Project' }}
+  </span>
+  @if (!loading && !cloning && !failed && consoles.length) {
+    <app-console-tabs
+      [tabs]="tabs"
+      [selected]="selected"
+      [starting]="starting"
+      [overview]="false"
+      [renamable]="true"
+      [defaultAgent]="defaultAgentStore.agent()"
+      [installedAgents]="defaultAgentStore.installed()"
+      (selectedChange)="selectTab($event)"
+      (open)="openFromTabs($event)"
+      (close)="closeConsole($event)"
+      (rename)="renameConsole($event)"
+      (reveal)="revealConsole($event)"
+    />
+  } @else {
+    <span class="header-space"></span>
+  }
+  <app-console-indicator />
+</header>
 @if (loading) {
   <div class="loading">loading…</div>
 } @else if (cloning) {
@@ -21,20 +45,6 @@
     </p>
   </div>
 } @else if (consoles.length) {
-  <app-console-tabs
-    [tabs]="tabs"
-    [selected]="selected"
-    [starting]="starting"
-    [overview]="false"
-    [renamable]="true"
-    [defaultAgent]="defaultAgentStore.agent()"
-    [installedAgents]="defaultAgentStore.installed()"
-    (selectedChange)="selectTab($event)"
-    (open)="openFromTabs($event)"
-    (close)="closeConsole($event)"
-    (rename)="renameConsole($event)"
-    (reveal)="revealConsole($event)"
-  />
   @if (startError) {
     <div class="action-error strip-error">could not start an agent — try again</div>
   }

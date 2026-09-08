@@ -7,6 +7,10 @@ import { ActiveConsoleStore } from '../../services/active-console-store';
 import { ActiveTabStore } from '../../services/active-tab-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
 import { GhIssue, IssueDetail, Project, ResumeSession } from '../../models/issue.model';
+import { signal } from '@angular/core';
+import { of } from 'rxjs';
+import { provideRouter } from '@angular/router';
+import { CurrentProjectService } from '../../services/current-project.service';
 
 describe('MainContentComponent', () => {
   let httpMock: HttpTestingController;
@@ -18,7 +22,15 @@ describe('MainContentComponent', () => {
     localStorage.removeItem('locklane.defaultAgent');
     TestBed.configureTestingModule({
       imports: [MainContentComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        {
+          provide: CurrentProjectService,
+          useValue: { current: signal(null), projects$: of([]), focusedProjectId$: of(null) },
+        },
+      ],
     });
     httpMock = TestBed.inject(HttpTestingController);
   });

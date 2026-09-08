@@ -11,7 +11,8 @@
   width: 5px;
   height: 100%;
   cursor: col-resize;
-  background: transparent;
+  background: var(--sidebar);
+  box-shadow: inset -1px 0 var(--border-soft);
   touch-action: none;
 }
 

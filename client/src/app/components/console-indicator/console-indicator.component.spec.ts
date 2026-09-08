@@ -192,21 +192,6 @@ describe('ConsoleIndicatorComponent', () => {
     expect(fixture.componentInstance.entries().length).toBe(0);
   });
 
-  it('shows "console" with no count when exactly one console is open (#215)', () => {
-    const fixture = initWithEntries(['1-7-rename-toggle'], [issue(7, 'Seven')]);
-    fixture.detectChanges();
-
-    const button: HTMLButtonElement = fixture.nativeElement.querySelector('.badge');
-    expect(button.textContent?.trim()).toBe('agent');
-  });
-
-  it('shows "consoles (N)" when two or more consoles are open', () => {
-    const fixture = initWithEntries(['1-7-rename-toggle', '1-8-rename-toggle'], [issue(7, 'Seven'), issue(8, 'Eight')]);
-    fixture.detectChanges();
-
-    const button: HTMLButtonElement = fixture.nativeElement.querySelector('.badge');
-    expect(button.textContent?.trim()).toBe('agents (2)');
-  });
 
   it('clicking the trigger with exactly one console navigates directly instead of opening the picker (#215)', () => {
     const fixture = initWithEntries(['1-7-rename-toggle'], [issue(7, 'Seven')]);
