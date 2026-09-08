@@ -39,15 +39,32 @@ public class AgentSessionsController {
     private final CodeServerService codeServerService;
     private final InstalledIdesStore installedIdesStore;
     private final DesktopIdeLauncher desktopIdeLauncher;
+    private final ProjectIdeSessionService projectIdeSessionService;
 
     public AgentSessionsController(IssueWorktreeService service, FileManagerLauncher fileManagerLauncher,
             CodeServerService codeServerService, InstalledIdesStore installedIdesStore,
-            DesktopIdeLauncher desktopIdeLauncher) {
+            DesktopIdeLauncher desktopIdeLauncher, ProjectIdeSessionService projectIdeSessionService) {
         this.service = service;
         this.fileManagerLauncher = fileManagerLauncher;
         this.codeServerService = codeServerService;
         this.installedIdesStore = installedIdesStore;
         this.desktopIdeLauncher = desktopIdeLauncher;
+        this.projectIdeSessionService = projectIdeSessionService;
+    }
+
+    /**
+     * Ensures this project's main-checkout IDE session exists (#831) and reports its
+     * id, for {@link #openIde} to then open exactly as it does any other session — the
+     * project page's own "Open IDE" button, beside "Open shells", targets the
+     * project's bare main checkout, never an issue or a project agent session. 404 for
+     * an unknown or not-yet-ready project, or a caller who does not own it.
+     */
+    @PostMapping("/main-checkout-ide")
+    public ResponseEntity<MainCheckoutIdeSessionResponse> openMainCheckoutIdeSession(@PathVariable long projectId,
+            Principal principal) {
+        return projectIdeSessionService.open(projectId, principal.getName())
+                .map(session -> ResponseEntity.ok(new MainCheckoutIdeSessionResponse(session.sessionId())))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping
@@ -86,7 +103,11 @@ public class AgentSessionsController {
      * Opens {@code id}'s worktree in an IDE — same visibility rule as {@link #agent sessions},
      * so this can't be used to open an editor on an agent session outside the caller's own
      * project: 404 for an agent session id the caller may not see, whatever IDE is asked for,
-     * or one with no known working directory.
+     * or one with no known working directory. {@code id} may also be a project's own
+     * main-checkout IDE session, minted by {@link #openMainCheckoutIdeSession} (#831) —
+     * {@link ProjectIdeSessionService#isOpenAndVisibleTo} covers it here alongside
+     * {@code allWorktreeIds}, since that family is deliberately excluded from the
+     * general listing.
      *
      * <p>Which IDE is the optional body's {@code ide} (#781), an id from
      * {@code GET /api/ides/installed}. No body, or {@code "code-server"}, is the
@@ -118,7 +139,9 @@ public class AgentSessionsController {
     @PostMapping("/{id}/open-ide")
     public ResponseEntity<OpenIdeResponse> openIde(@PathVariable long projectId, @PathVariable String id,
             @RequestBody(required = false) OpenIdeRequest body, HttpServletRequest request, Principal principal) {
-        if (!service.allWorktreeIds(projectId, principal.getName()).contains(id)) {
+        boolean visible = service.allWorktreeIds(projectId, principal.getName()).contains(id)
+                || projectIdeSessionService.isOpenAndVisibleTo(projectId, id, principal.getName());
+        if (!visible) {
             return ResponseEntity.notFound().build();
         }
         String ideId = body == null || body.ide() == null ? InstalledIdesStore.CODE_SERVER_ID : body.ide();
@@ -163,4 +186,7 @@ public class AgentSessionsController {
 
     /** {@code url} is the proxied code-server path, or {@code null} after a desktop launch (#781). */
     public record OpenIdeResponse(String url) {}
+
+    /** {@link #openMainCheckoutIdeSession}'s response (#831): the id to pass {@link #openIde}. */
+    public record MainCheckoutIdeSessionResponse(String sessionId) {}
 }

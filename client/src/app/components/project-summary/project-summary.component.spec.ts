@@ -8,7 +8,10 @@ import { OpenProjectAgentSession } from '../../services/project-agent-session.se
 import { OpenShell } from '../../services/shells.service';
 import { AgentStore } from '../../services/agent-store';
 import { AgentSessionsService } from '../../services/agent-sessions.service';
+import { DefaultIdeStore } from '../../services/default-ide-store';
 import { LastAgentSessionStore } from '../../services/last-agent-session-store';
+
+const IDE_STORAGE_KEY = 'locklane.defaultIde';
 
 // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
 // /console and /consoles REST paths and the 'console' route segment below keep their persisted and
@@ -83,6 +86,7 @@ describe('ProjectSummaryComponent', () => {
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.defaultAgent');
     localStorage.removeItem('locklane.lastConsole');
+    localStorage.removeItem(IDE_STORAGE_KEY);
     TestBed.configureTestingModule({
       imports: [ProjectSummaryComponent],
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
@@ -95,6 +99,7 @@ describe('ProjectSummaryComponent', () => {
     localStorage.removeItem('locklane.sessionAgents');
     localStorage.removeItem('locklane.defaultAgent');
     localStorage.removeItem('locklane.lastConsole');
+    localStorage.removeItem(IDE_STORAGE_KEY);
   });
 
   const ALL_AGENTS = [
@@ -385,6 +390,95 @@ describe('ProjectSummaryComponent', () => {
 
     expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-main-newer01', 'locklane-shells');
     httpMock.expectNone('/api/projects/1/shells');
+  });
+
+  describe('open-the-ide button (#831)', () => {
+    it('hides the button while the project is still cloning', () => {
+      const fixture = init([{ ...PROJECT, status: 'CLONING' }]);
+
+      expect((fixture.nativeElement as HTMLElement).querySelector('.open-ide-button')).toBeFalsy();
+    });
+
+    it('reads "Open IDE", mints the main-checkout session, opens it, and re-arms the button (#831)', () => {
+      const fixture = init();
+      const openSpy = spyOn(window, 'open');
+
+      const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.open-ide-button')!;
+      expect(button.textContent?.trim()).toBe('Open IDE');
+      button.click();
+      fixture.detectChanges();
+
+      expect(button.disabled).toBeTrue();
+      const mint = httpMock.expectOne('/api/projects/1/consoles/main-checkout-ide');
+      expect(mint.request.method).toBe('POST');
+      mint.flush({ sessionId: '1-ide-main' });
+      const open = httpMock.expectOne('/api/projects/1/consoles/1-ide-main/open-ide');
+      expect(open.request.method).toBe('POST');
+      expect(open.request.body).toEqual({ ide: 'code-server' });
+      open.flush({ url: '/api/projects/1/consoles/1-ide-main/ide/?folder=%2Ftmp%2Fa' });
+      fixture.detectChanges();
+
+      expect(openSpy).toHaveBeenCalledWith('/api/projects/1/consoles/1-ide-main/ide/?folder=%2Ftmp%2Fa', 'locklane-ide');
+      expect(button.disabled).toBeFalse();
+    });
+
+    it('shows an error and re-arms the button when minting the main-checkout session fails (#831)', () => {
+      const fixture = init();
+
+      const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.open-ide-button')!;
+      button.click();
+      httpMock.expectOne('/api/projects/1/consoles/main-checkout-ide').flush(null, { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.ideOpenFailed).toBeTrue();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not open the IDE');
+      expect(button.disabled).toBeFalse();
+    });
+
+    it('shows an error and re-arms the button when opening the IDE fails after a successful mint (#831)', () => {
+      const fixture = init();
+
+      const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.open-ide-button')!;
+      button.click();
+      httpMock.expectOne('/api/projects/1/consoles/main-checkout-ide').flush({ sessionId: '1-ide-main' });
+      httpMock.expectOne('/api/projects/1/consoles/1-ide-main/open-ide').flush(null, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.ideOpenFailed).toBeTrue();
+      expect(button.disabled).toBeFalse();
+    });
+
+    it('does not open a window for a desktop IDE launch, which returns no URL (#831)', () => {
+      const fixture = init();
+      const openSpy = spyOn(window, 'open');
+
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.open-ide-button')!.click();
+      httpMock.expectOne('/api/projects/1/consoles/main-checkout-ide').flush({ sessionId: '1-ide-main' });
+      httpMock.expectOne('/api/projects/1/consoles/1-ide-main/open-ide').flush({ url: null });
+      fixture.detectChanges();
+
+      expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it('names a desktop IDE chosen on localhost, and sends its id to open-ide (#831, #782)', () => {
+      localStorage.setItem(IDE_STORAGE_KEY, 'intellij');
+      spyOn<any>(TestBed.inject(DefaultIdeStore), 'currentHostname').and.returnValue('localhost');
+      const fixture = init();
+      httpMock.expectOne('/api/ides/installed').flush({
+        installed: [
+          { id: 'code-server', label: 'code-server', desktop: false },
+          { id: 'intellij', label: 'IntelliJ IDEA', desktop: true },
+        ],
+      });
+      fixture.detectChanges();
+
+      const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.open-ide-button')!;
+      expect(button.textContent?.trim()).toBe('Open in IntelliJ IDEA');
+      button.click();
+      httpMock.expectOne('/api/projects/1/consoles/main-checkout-ide').flush({ sessionId: '1-ide-main' });
+      const open = httpMock.expectOne('/api/projects/1/consoles/1-ide-main/open-ide');
+      expect(open.request.body).toEqual({ ide: 'intellij' });
+    });
   });
 
   it('reloads when the project id changes', () => {

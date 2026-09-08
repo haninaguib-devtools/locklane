@@ -17,6 +17,9 @@
           <button type="button" class="shells-button" [disabled]="startingShell" (click)="onShellsButtonClick()">
             {{ shellsButtonLabel }}
           </button>
+          <button type="button" class="open-ide-button" [disabled]="startingIde" (click)="onOpenIdeButtonClick()">
+            {{ ideButtonLabel }}
+          </button>
         }
         <button type="button" class="delete-project" [disabled]="deleting" (click)="openDeleteConfirm()">
           {{ deleting ? 'deleting…' : 'delete project' }}
@@ -33,6 +36,10 @@
 
       @if (shellError) {
         <div class="action-error">could not open a shell — try again</div>
+      }
+
+      @if (ideOpenFailed) {
+        <div class="action-error">could not open the IDE — try again</div>
       }
 
       @if (counts; as c) {

@@ -11,6 +11,11 @@ export interface OpenedIde {
   url: string | null;
 }
 
+/** What minting the project's main-checkout IDE session returns (#831): the id to pass {@link AgentSessionsService.openIde}. */
+export interface MainCheckoutIdeSession {
+  sessionId: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AgentSessionsService {
   private readonly http = inject(HttpClient);
@@ -59,6 +64,17 @@ export class AgentSessionsService {
   openIde(projectId: number, id: string, ide: string): Observable<OpenedIde> {
     // The /consoles REST path is a compatibility surface kept under ADR-112.
     return this.http.post<OpenedIde>(`/api/projects/${projectId}/consoles/${id}/open-ide`, { ide });
+  }
+
+  /**
+   * Ensures the project's own main-checkout IDE session exists (#831) and reports its
+   * id, for {@link openIde} to then open exactly as it does any other session -- the
+   * project page's own "Open IDE" button, beside "Open shells", targets the project's
+   * bare main checkout, never an issue or a project agent session. Idempotent: the
+   * same session is reused across opens, unlike minting a shell.
+   */
+  openMainCheckoutIdeSession(projectId: number): Observable<MainCheckoutIdeSession> {
+    return this.http.post<MainCheckoutIdeSession>(`/api/projects/${projectId}/consoles/main-checkout-ide`, {});
   }
 
   /**

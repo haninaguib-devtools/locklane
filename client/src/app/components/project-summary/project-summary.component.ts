@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, EventEmitter, Injector, Input, OnChanges, OnInit, Output, SimpleChanges, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { switchMap } from 'rxjs';
 import { Project, ResumeSession, TreeNode } from '../../models/issue.model';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { WorktreeListComponent } from '../worktree-list/worktree-list.component';
@@ -12,6 +13,7 @@ import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { OpenShell, ShellsService } from '../../services/shells.service';
 import { AgentStore } from '../../services/agent-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
+import { DefaultIdeStore, InstalledIde } from '../../services/default-ide-store';
 import { LastAgentSessionStore } from '../../services/last-agent-session-store';
 import { AccentPreset, ACCENT_PRESETS } from '../../services/accent-theme-store';
 import { CurrentProjectService } from '../../services/current-project.service';
@@ -45,6 +47,7 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   private readonly shellsService = inject(ShellsService);
   private readonly agentStore = inject(AgentStore);
   private readonly defaultAgentStore = inject(DefaultAgentStore);
+  private readonly defaultIdeStore = inject(DefaultIdeStore);
   private readonly lastAgentSessionStore = inject(LastAgentSessionStore);
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
@@ -102,6 +105,11 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   startingShell = false;
   shellError = false;
 
+  // The "Open IDE" button (#831): mints/reuses the project's main-checkout IDE
+  // session, then opens it exactly like the per-tab "Open IDE" action does.
+  startingIde = false;
+  ideOpenFailed = false;
+
   // This project's past agent session conversations (#752), shown in an always-visible
   // column the same way an issue's Overview tab shows its own (overview-tab's
   // sessions-rail) -- unlike that tab, and unlike the project agent session page's old
@@ -117,6 +125,13 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   // -- not only triggered from the settings dialog.
   ngOnInit(): void {
     this.defaultAgentStore.refreshInstalled();
+    // #782's own rule: a browser that never chose an IDE in Settings acts on
+    // code-server whatever is installed, so there is nothing to look up yet -- only a
+    // browser with a stored choice needs the engine's installed set to know whether it
+    // still holds (DefaultIdeStore.effective).
+    if (this.defaultIdeStore.ide() !== '') {
+      this.defaultIdeStore.refreshInstalled();
+    }
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -188,6 +203,8 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     this.openShells = [];
     this.startingShell = false;
     this.shellError = false;
+    this.startingIde = false;
+    this.ideOpenFailed = false;
     this.pastSessions = [];
     this.pastSessionsLoading = true;
     this.reopeningSession = false;
@@ -406,6 +423,50 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
       new Date(shell.lastAttachedAt).getTime() > new Date(latest.lastAttachedAt).getTime() ? shell : latest,
     );
     window.open(`/shells/${target.sessionId}`, 'locklane-shells');
+  }
+
+  // The IDE "Open IDE" acts on (#831, mirroring #782): the Settings choice when this
+  // browser may use it, else code-server.
+  get effectiveIde(): InstalledIde {
+    return this.defaultIdeStore.effective();
+  }
+
+  /** The "Open IDE" button's label (#831): names a desktop choice, same as the per-tab menu item (#782). */
+  get ideButtonLabel(): string {
+    if (this.startingIde) {
+      return 'opening…';
+    }
+    return this.effectiveIde.desktop ? `Open in ${this.effectiveIde.label}` : 'Open IDE';
+  }
+
+  /**
+   * Opens the project's main checkout in the effective IDE (#831): ensures the
+   * project's main-checkout IDE session exists, then opens it exactly the way the
+   * per-tab "Open IDE" action does -- mint/reuse server-side, then `window.open` the
+   * result, never a path sent from here. For code-server that is a singleton browser
+   * tab; a desktop IDE launches on the engine's own host and returns no URL.
+   */
+  onOpenIdeButtonClick(): void {
+    if (this.startingIde) {
+      return;
+    }
+    this.startingIde = true;
+    this.ideOpenFailed = false;
+    this.agentSessionsService
+      .openMainCheckoutIdeSession(this.projectId)
+      .pipe(switchMap((session) => this.agentSessionsService.openIde(this.projectId, session.sessionId, this.effectiveIde.id)))
+      .subscribe({
+        next: (opened) => {
+          this.startingIde = false;
+          if (opened.url !== null) {
+            window.open(opened.url, 'locklane-ide');
+          }
+        },
+        error: () => {
+          this.startingIde = false;
+          this.ideOpenFailed = true;
+        },
+      });
   }
 }
 
