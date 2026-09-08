@@ -8,6 +8,11 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.25 — 2026-09-08
+
+### Features
+- Add Open IDE button for a project's main checkout (#831, #832)
+
 ## v0.2.24 — 2026-09-08
 
 ### Features
