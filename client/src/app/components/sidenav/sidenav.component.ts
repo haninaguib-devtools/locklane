@@ -1072,11 +1072,16 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   /**
-   * Arrow-key navigation between sidenav rows (#747): moves focus to the next/previous
-   * row in DOM order -- which already reflects render order (expand/collapse, the text
-   * filter, the pinned section, project-section boundaries included), since a row not
-   * currently visible is simply not in the DOM -- then clicks it to drive the same
-   * navigation its routerLink would. Bound per-row, so this never fires from anywhere
+   * Arrow-key navigation between sidenav rows (#747), and a project's own row
+   * (#827) -- moves focus to the next/previous stop in DOM order, which already
+   * reflects render order (expand/collapse, the text filter, the pinned section,
+   * project-section boundaries included), since a row or header not currently
+   * visible is simply not in the DOM. `.section-header` sits right before its own
+   * project's issue rows in that order, so arrowing down through a project's issues
+   * lands on the next project's header before its issues, exactly the stop the old
+   * `a.row`-only query skipped over. Then clicks the landed-on element to drive the
+   * same navigation its own click handler would (routerLink for a row, `selectProject`
+   * for a header). Bound per-row and per-header, so this never fires from anywhere
    * else in the app (the filter `<input>` included).
    */
   onRowKeydown(event: KeyboardEvent): void {
@@ -1085,7 +1090,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
     }
     event.preventDefault();
     const direction = event.key === 'ArrowDown' ? 1 : -1;
-    const rows = Array.from(document.querySelectorAll<HTMLElement>('a.row'));
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('a.row, .section-header'));
     const index = rows.indexOf(event.currentTarget as HTMLElement);
     const next = rows[index + direction];
     if (next === undefined) {
