@@ -60,6 +60,10 @@ none
   that fail are all `SpaFallbackControllerTest`, which serves the client's built
   `index.html` and gets a 404 because the skipped client build produced none — a
   consequence of the same client failure, not of this diff. Every test this task adds
-  or touches passes. Proposed issue for the human
-  to open: "Client production build exceeds the 1.1 MB initial-bundle budget" (bug). The
-  check is recorded as FAIL, never softened. (agent, 2026-09-07)
+  or touches passes. The human opened that defect as #809; it shipped as PR #811.
+  (agent, 2026-09-07)
+- Resolved: after #811 reached `main`, this branch was rebased onto it (a clean,
+  behind-only rebase; no conflict) and `./mvnw -B test` re-run in full: `BUILD SUCCESS`,
+  949 engine tests, 0 failures, `SpaFallbackControllerTest` included. This was the
+  driven run's one bounded fix pass (ADR-006 D5 / ADR-004 D2): nothing in the task's own
+  diff changed. (agent, 2026-09-08)
