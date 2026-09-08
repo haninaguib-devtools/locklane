@@ -329,7 +329,7 @@ class ProjectCheckoutServiceTest {
     }
 
     @Test
-    void deleteRefusesAProjectWithAnOpenWorktreeOrConsole(@TempDir Path tmp) throws Exception {
+    void deleteRefusesAProjectWithAnOpenWorktreeOrAgentSession(@TempDir Path tmp) throws Exception {
         Path origin = initBareOriginWithDefaultBranch(tmp, "main");
         WorktreeSessionRepository sessions = TestSqliteDatabases.newRepository(tmp);
         IssueWorktreeService worktreeService = new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization());

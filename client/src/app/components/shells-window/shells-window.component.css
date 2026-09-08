@@ -61,7 +61,7 @@
   font-size: 13px;
 }
 
-/* The region the terminals share — the same positioned wrapper the console tab
+/* The region the terminals share — the same positioned wrapper the agent session tab
    strips use, so a hidden terminal is sized against exactly the box the selected
    one fills (#375). */
 .terminals {

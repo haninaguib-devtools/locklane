@@ -117,7 +117,7 @@ class ResumeIdScannerTest {
 
     @Test
     void aLabeledSessionIdWithNoToolHintIsIgnored() {
-        // A shell console printing "Session ID: <uuid>" could be anything — logs, a
+        // A shell session printing "Session ID: <uuid>" could be anything — logs, a
         // web request id — and a wrong tool attribution is worse than no capture.
         ResumeIdScanner scanner = new ResumeIdScanner(null);
 

@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 
 /**
  * The one authorization check for whether a caller may view or attach to a
- * worktree/console session (#242, ADR-101 Decision 6) — replacing "first attach
+ * worktree/agent session (#242, ADR-101 Decision 6) — replacing "first attach
  * claims it" (#48): a session's visibility now derives from its owning project's
  * {@code owner_user_id}, never from whichever authenticated request happened to
  * attach to it first (that is still recorded on the session row as
@@ -21,15 +21,15 @@ import java.util.regex.Pattern;
  * "administrative read" of a session to grant.
  *
  * <p>Shared, deliberately, by every path that makes this decision — the REST
- * listings ({@link IssueWorktreeService}, {@link ProjectConsoleService}) and the
+ * listings ({@link IssueWorktreeService}, {@link ProjectAgentSessionService}) and the
  * WebSocket attach itself ({@code TerminalWebSocketHandler}) — so the two can never
  * quietly drift into different answers for the same session id.
  */
 @Service
 public class WorktreeSessionAuthorization {
 
-    // Every real worktree/console session id is shaped "<projectId>-..." (#43,
-    // ProjectConsoleService's own "<projectId>-console..." family included) --
+    // Every real worktree/agent session id is shaped "<projectId>-..." (#43,
+    // ProjectAgentSessionService's own "<projectId>-console..." family, kept under ADR-112, included) --
     // mirrors SessionRegistry's own PROJECT_ID_PREFIX, used there for the same
     // purpose (attributing a broadcast to its project).
     private static final Pattern PROJECT_ID_PREFIX = Pattern.compile("^(\\d+)-");
@@ -42,7 +42,7 @@ public class WorktreeSessionAuthorization {
         this.userRepository = userRepository;
     }
 
-    /** The project id encoded in a worktree/console session id's leading numeric segment, if any. */
+    /** The project id encoded in a worktree/agent session id's leading numeric segment, if any. */
     static Optional<Long> projectIdOf(String worktreeId) {
         Matcher matcher = PROJECT_ID_PREFIX.matcher(worktreeId);
         return matcher.find() ? Optional.of(Long.parseLong(matcher.group(1))) : Optional.empty();

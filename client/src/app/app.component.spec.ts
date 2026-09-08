@@ -12,8 +12,12 @@ import { SidenavComponent } from './components/sidenav/sidenav.component';
 import { ProjectSummaryComponent } from './components/project-summary/project-summary.component';
 import { Project } from './models/issue.model';
 import { UsageSnapshot } from './models/usage.model';
-import { OpenProjectConsole } from './services/project-console.service';
+import { OpenProjectAgentSession } from './services/project-agent-session.service';
 import { routes } from './app.routes';
+
+// Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
+// /console and /consoles REST paths and the 'console' route segment below keep their persisted and
+// on-the-wire shape: compatibility surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
 describe('AppComponent', () => {
 
@@ -80,18 +84,18 @@ describe('AppComponent', () => {
   }
 
   /**
-   * The header's app-console-indicator fetches these per project on every init
+   * The header's app-agent-session-indicator fetches these per project on every init
    * (#32, #290) -- one call per id in `projectIds`, defaulting to just the
-   * fixture PROJECT most tests use. The sidenav also fetches the same consoles
-   * list, to drive its own open-console dot (#108), so there are two requests
+   * fixture PROJECT most tests use. The sidenav also fetches the same agent sessions
+   * list, to drive its own open-agent-session dot (#108), so there are two requests
    * for that endpoint once the sidenav is present.
    */
-  function flushConsoleIndicator(projectIds: number[] = [1]): void {
+  function flushAgentSessionIndicator(projectIds: number[] = [1]): void {
     for (const projectId of projectIds) {
       httpMock.match(`/api/projects/${projectId}/consoles`).forEach((request) => request.flush([]));
       httpMock.expectOne(`/api/projects/${projectId}/issues`).flush([]);
-      // #449: the widget also reads each project's open project-console
-      // sessions directly, to source a project console's row from the same
+      // #449: the widget also reads each project's open project-agent-session
+      // sessions directly, to source a project agent session's row from the same
       // place the tab strip gets its text.
       httpMock.match(`/api/projects/${projectId}/console/sessions`).forEach((request) => request.flush([]));
     }
@@ -119,7 +123,7 @@ describe('AppComponent', () => {
    */
   function flushSidenav(): void {
     // sidenav + main-content's own project-list fetch + the header's
-    // app-console-indicator (#290), all mounted in the same pass.
+    // app-agent-session-indicator (#290), all mounted in the same pass.
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT]));
@@ -138,7 +142,7 @@ describe('AppComponent', () => {
    */
   function flushSidenavAndSummary(): void {
     // sidenav + project-summary/overview's own project-list fetch + the header's
-    // app-console-indicator (#290), all mounted in the same pass.
+    // app-agent-session-indicator (#290), all mounted in the same pass.
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT]));
@@ -146,7 +150,7 @@ describe('AppComponent', () => {
     expect(trees.length).toBe(2);
     trees.forEach((request) => request.flush({ nodes: [], github: GITHUB_OK }));
     flushUsageWidget();
-    // The project summary's "Open console" button (#221, #695) fetches the installed
+    // The project summary's "Open agent" button (#221, #695) fetches the installed
     // agents once, on its own `ngOnInit`, whenever the summary (not the overview page,
     // #197) is what mounted.
     httpMock
@@ -155,16 +159,16 @@ describe('AppComponent', () => {
   }
 
   /**
-   * The project summary's own console button (#221) fetches the project's open
-   * consoles once it learns the project is READY -- only once flushSidenavAndSummary
-   * has resolved that project-list fetch. The header's own console indicator now
-   * reads the same endpoint for its project-console rows (#449), so this flushes
+   * The project summary's own agent session button (#221) fetches the project's open
+   * agent sessions once it learns the project is READY -- only once flushSidenavAndSummary
+   * has resolved that project-list fetch. The header's own agent session indicator now
+   * reads the same endpoint for its project-agent-session rows (#449), so this flushes
    * every pending request to it with the same data, whichever of the two (or
    * both) are outstanding at call time. The summary's past-sessions column (#752)
    * fetches alongside it, gated behind the same READY check, so this flushes that
    * too.
    */
-  function flushProjectConsoleSessions(sessions: OpenProjectConsole[] = []): void {
+  function flushProjectAgentSessions(sessions: OpenProjectAgentSession[] = []): void {
     httpMock.match('/api/projects/1/console/sessions').forEach((request) => request.flush(sessions));
     httpMock.match('/api/projects/1/console/resume-sessions').forEach((request) => request.flush([]));
   }
@@ -175,7 +179,7 @@ describe('AppComponent', () => {
    * `/api/projects` subscribe callback {@link flushSidenavAndSummary} resolves, so
    * (unlike the worktree list's own fetch of the same endpoint, gated behind
    * {@link flushProjectWorktrees} needing a further render pass) this request is
-   * already pending by the time {@link flushProjectConsoleSessions} is.
+   * already pending by the time {@link flushProjectAgentSessions} is.
    */
   function flushProjectShells(): void {
     httpMock.match('/api/shells').forEach((request) => request.flush([]));
@@ -185,7 +189,7 @@ describe('AppComponent', () => {
    * The project summary's worktree list (#320) fetches this project's worktrees, and
    * its own open shells (#733) -- as does the summary's own shells button (#745) --
    * once it learns the project is READY -- the same gate as
-   * {@link flushProjectConsoleSessions}, so every caller of that flushes this
+   * {@link flushProjectAgentSessions}, so every caller of that flushes this
    * immediately afterward too.
    */
   function flushProjectWorktrees(): void {
@@ -252,10 +256,10 @@ describe('AppComponent', () => {
     // The sidenav and app-overview each fetch the project list and its tree
     // independently (#44, #197) -- the same shape flushSidenavAndSummary()
     // already handles for the sidenav/project-summary pair. The header's
-    // app-console-indicator now mounts unconditionally too (#290), independent
+    // app-agent-session-indicator now mounts unconditionally too (#290), independent
     // of whether a project is selected, which '/' never has.
     flushSidenavAndSummary();
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
 
     expect(TestBed.inject(Router).url).toBe('/');
@@ -273,7 +277,7 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    // sidenav + app-overview + the header's app-console-indicator (#290), all
+    // sidenav + app-overview + the header's app-agent-session-indicator (#290), all
     // mounted in the same pass; zero projects means the indicator has nothing
     // further to fetch.
     const lists = httpMock.match('/api/projects');
@@ -293,7 +297,7 @@ describe('AppComponent', () => {
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
-    // sidenav + app-overview + the header's app-console-indicator (#290), all
+    // sidenav + app-overview + the header's app-agent-session-indicator (#290), all
     // mounted in the same pass.
     let lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
@@ -334,8 +338,8 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions();
-    flushConsoleIndicator();
+    flushProjectAgentSessions();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
     flushProjectWorktrees();
 
@@ -352,8 +356,8 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions();
-    flushConsoleIndicator();
+    flushProjectAgentSessions();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
     flushProjectWorktrees();
 
@@ -371,8 +375,8 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions();
-    flushConsoleIndicator();
+    flushProjectAgentSessions();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
     flushProjectWorktrees();
 
@@ -389,11 +393,11 @@ describe('AppComponent', () => {
     // explicit re-fetch, not a no-op left over from that earlier construction
     // (the bug this test guards against).
     httpMock.expectOne('/api/projects').flush([{ ...PROJECT, accentColor: '#5c8a4e' }]);
-    // The console indicator re-derives from CurrentProjectService's own
-    // `projects$` (console-indicator.component.ts), so this refresh also
-    // re-fires its consoles/issues fetch -- a real, expected ripple, not
+    // The agent session indicator re-derives from CurrentProjectService's own
+    // `projects$` (agent-session-indicator.component.ts), so this refresh also
+    // re-fires its agent sessions/issues fetch -- a real, expected ripple, not
     // specific to this bug fix.
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
 
     // sage (#5c8a4e) blended toward white at the same ~13% ratio.
@@ -427,8 +431,8 @@ describe('AppComponent', () => {
     httpMock
       .match('/api/agents/installed')
       .forEach((request) => request.flush({ installed: [{ id: 'claude', label: 'Claude' }] }));
-    flushProjectConsoleSessions();
-    flushConsoleIndicator();
+    flushProjectAgentSessions();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
     flushProjectWorktrees();
 
@@ -455,7 +459,7 @@ describe('AppComponent', () => {
     flushUsageWidget();
     // MainContentComponent's own ngOnInit fetch (#698).
     httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     flushIssue(42);
     fixture.detectChanges();
 
@@ -465,7 +469,7 @@ describe('AppComponent', () => {
     expect(compiled.querySelector<HTMLElement>('.project-pages')!.style.background).toBe('');
   }));
 
-  it('tints the topbar on the project console page too, now that the full-page carve-out is gone (#555)', fakeAsync(() => {
+  it('tints the topbar on the project agent session page too, now that the full-page carve-out is gone (#555)', fakeAsync(() => {
     const TINTED_PROJECT: Project = { ...PROJECT, accentColor: '#c15f3c' };
     logIn();
     TestBed.inject(Router).navigateByUrl('/projects/1/console');
@@ -474,19 +478,19 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
 
-    // sidenav + the header's app-console-indicator + the console page's own project
-    // read (#537), which decides whether the project is READY before asking for a console.
+    // sidenav + the header's app-agent-session-indicator + the agent session page's own project
+    // read (#537), which decides whether the project is READY before asking for an agent session.
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([TINTED_PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
-    // ProjectConsoleComponent's own ngOnInit fetch (#698).
+    // ProjectAgentSessionComponent's own ngOnInit fetch (#698).
     httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -501,8 +505,8 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions();
-    flushConsoleIndicator();
+    flushProjectAgentSessions();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
     flushProjectWorktrees();
 
@@ -524,7 +528,7 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenav();
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     flushIssue(7);
 
     fixture.componentInstance.selectProject(1);
@@ -536,7 +540,7 @@ describe('AppComponent', () => {
     // The installed-agents list was already fetched once, by MainContentComponent's
     // own `ngOnInit` on the initial route (#698, via flushSidenav() above) --
     // ProjectSummaryComponent's own refreshInstalled() call here is a no-op.
-    flushProjectConsoleSessions();
+    flushProjectAgentSessions();
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     fixture.detectChanges();
     flushProjectWorktrees();
@@ -553,9 +557,9 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions();
+    flushProjectAgentSessions();
     flushProjectShells();
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
 
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
     expect(sidenav.componentInstance.selectedProject).toBe(1);
@@ -576,9 +580,9 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions();
+    flushProjectAgentSessions();
     flushProjectShells();
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
 
     // What a sidenav row's routerLink (#170) does on a left-click.
     TestBed.inject(Router).navigateByUrl('/projects/1/issues/42');
@@ -592,7 +596,7 @@ describe('AppComponent', () => {
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
 
-  it('loading /projects/:projectId/console directly shows the project console (#140)', fakeAsync(() => {
+  it('loading /projects/:projectId/console directly shows the project agent session (#140)', fakeAsync(() => {
     logIn();
     TestBed.inject(Router).navigateByUrl('/projects/1/console');
     tick();
@@ -600,26 +604,26 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.onProjectConsole()).toBeTrue();
-    // sidenav + the header's app-console-indicator (#290) + ProjectConsoleComponent's
-    // own project read (#537): it looks the project up before asking for a console.
+    expect(fixture.componentInstance.onProjectAgentSession()).toBeTrue();
+    // sidenav + the header's app-agent-session-indicator (#290) + ProjectAgentSessionComponent's
+    // own project read (#537): it looks the project up before asking for an agent session.
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
-    // ProjectConsoleComponent's own ngOnInit fetch (#698), ahead of the auto-start below.
+    // ProjectAgentSessionComponent's own ngOnInit fetch (#698), ahead of the auto-start below.
     httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
-    // #256: no open console auto-starts one with the default agent -- which the
-    // header's console indicator and the sidenav both learn about in turn.
+    // #256: no open agent session auto-starts one with the default agent -- which the
+    // header's agent session indicator and the sidenav both learn about in turn.
     httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-project-console')).toBeTruthy();
+    expect(compiled.querySelector('app-project-agent-session')).toBeTruthy();
     expect(compiled.querySelector('app-main-content')).toBeFalsy();
     expect(compiled.querySelector('app-project-summary')).toBeFalsy();
   }));
@@ -634,23 +638,23 @@ describe('AppComponent', () => {
     fixture.detectChanges();
 
     // sidenav (restricted to project 1 by focus mode) + the header's
-    // app-console-indicator, now narrowed to project 1 too (#309) since the
+    // app-agent-session-indicator, now narrowed to project 1 too (#309) since the
     // route carries a projectId -- a focus window is always a single-project
-    // window, so it only ever fans consoles+issues calls out to project 1. Plus the
-    // console page's own project read (#537).
+    // window, so it only ever fans agent sessions+issues calls out to project 1. Plus the
+    // agent session page's own project read (#537).
     const lists = httpMock.match('/api/projects');
     expect(lists.length).toBe(3);
     lists.forEach((request) => request.flush([PROJECT, PROJECT2]));
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
     flushUsageWidget();
-    // ProjectConsoleComponent's own ngOnInit fetch (#698).
+    // ProjectAgentSessionComponent's own ngOnInit fetch (#698).
     httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
     httpMock
       .expectOne('/api/projects/1/console')
       .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
 
     httpMock.expectNone('/api/projects/2/issues/tree');
@@ -661,14 +665,14 @@ describe('AppComponent', () => {
     expect(sidenav.componentInstance.focusedProjectId).toBe(1);
   }));
 
-  it('the project summary\'s console button (#221) jumps into an already-open console, and the sidenav still shows the project selected', fakeAsync(() => {
+  it('the project summary\'s agent session button (#221) jumps into an already-open agent session, and the sidenav still shows the project selected', fakeAsync(() => {
     logIn();
     navigateToProjectSummary();
 
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions([
+    flushProjectAgentSessions([
       {
         sessionId: 'proj-1-console-abc',
         workingDirectory: '/tmp/proj',
@@ -676,17 +680,17 @@ describe('AppComponent', () => {
         lastAttachedAt: '2026-08-27T09:00:00Z',
       },
     ]);
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
     flushProjectWorktrees();
 
-    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.agent-session-button')!;
     expect(button.textContent?.trim()).toBe('Open agents');
     button.click();
     tick();
     fixture.detectChanges();
-    // The console page reads the project first (#537: it waits for READY and decides
-    // whether a seeded console is owed), then re-fetches the same already-open session
+    // The agent session page reads the project first (#537: it waits for READY and decides
+    // whether a seeded agent session is owed), then re-fetches the same already-open session
     // (#256: an empty list here would auto-start a redundant one).
     httpMock.expectOne('/api/projects').flush([PROJECT]);
     httpMock.expectOne('/api/projects/1/console/sessions').flush([
@@ -701,7 +705,7 @@ describe('AppComponent', () => {
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/console?session=proj-1-console-abc');
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('app-project-console')).toBeTruthy();
+    expect(compiled.querySelector('app-project-agent-session')).toBeTruthy();
     const sidenav = fixture.debugElement.query(By.directive(SidenavComponent));
     expect(sidenav.componentInstance.selectedProject).toBe(1);
   }));
@@ -717,7 +721,7 @@ describe('AppComponent', () => {
     expect(fixture.componentInstance.selectedProjectId()).toBe(1);
     expect(fixture.componentInstance.selectedIssue()).toBe(7);
     flushSidenav();
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
     flushIssue(7);
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('app-main-content')).toBeTruthy();
@@ -730,9 +734,9 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions();
+    flushProjectAgentSessions();
     flushProjectShells();
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
 
     // What a sidenav row's routerLink (#170) does on a left-click.
     TestBed.inject(Router).navigateByUrl('/projects/1/issues/42');
@@ -751,9 +755,9 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions();
+    flushProjectAgentSessions();
     flushProjectShells();
-    flushConsoleIndicator();
+    flushAgentSessionIndicator();
 
     fixture.componentInstance.logout();
     httpMock.expectOne('/api/auth/logout').flush(null);
@@ -774,8 +778,8 @@ describe('AppComponent', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     flushSidenavAndSummary();
-    flushProjectConsoleSessions();
-    flushConsoleIndicator();
+    flushProjectAgentSessions();
+    flushAgentSessionIndicator();
     fixture.detectChanges();
     flushProjectWorktrees();
     return fixture;
@@ -1078,7 +1082,7 @@ describe('AppComponent', () => {
       expect(location.back).not.toHaveBeenCalled();
     }));
 
-    it('leaves Alt+Left alone with a console terminal focused on non-mac, but still navigates from the page body', fakeAsync(() => {
+    it('leaves Alt+Left alone with an agent session terminal focused on non-mac, but still navigates from the page body', fakeAsync(() => {
       const fixture = openedApp();
       stubMacPlatform(fixture.componentInstance, false);
       const location = spiedLocation();
@@ -1097,7 +1101,7 @@ describe('AppComponent', () => {
       expect(location.back).toHaveBeenCalledTimes(1);
     }));
 
-    it('still navigates with Cmd+[ while a console terminal is focused on mac', fakeAsync(() => {
+    it('still navigates with Cmd+[ while an agent session terminal is focused on mac', fakeAsync(() => {
       const fixture = openedApp();
       stubMacPlatform(fixture.componentInstance, true);
       const location = spiedLocation();

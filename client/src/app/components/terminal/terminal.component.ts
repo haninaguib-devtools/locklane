@@ -19,7 +19,7 @@ import { forkJoin } from 'rxjs';
 import { SessionUploadsService } from '../../services/session-uploads.service';
 import { TerminalSession } from '../../services/terminal-session';
 
-// One console tab's terminal. An instance is bound to a single session for its
+// One agent session tab's terminal. An instance is bound to a single session for its
 // whole life (#30: every tab stays mounted and connected, hidden with CSS when
 // not selected, so switching tabs never drops a connection or its scrollback).
 @Component({
@@ -364,7 +364,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
 
   /**
    * A browser caps the number of live WebGL contexts per page, and every mounted
-   * console tab holds one -- so a context can be lost (not just at teardown) without
+   * agent session tab holds one -- so a context can be lost (not just at teardown) without
    * warning. onContextLoss is the addon's own signal for that; disposing it here is
    * what lets the tab keep working, falling back to xterm's DOM renderer instead of
    * going blank (#616).

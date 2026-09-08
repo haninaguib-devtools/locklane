@@ -9,10 +9,13 @@ import java.util.List;
  * A minimal throwaway local git repository — a bare "origin" and a pushed "main", no
  * network — for tests that exercise real {@code git worktree add} commands rather than
  * mocking them (#20). Extracted from {@code WorktreeCreationServiceTest} when {@code
- * ProjectConsoleServiceTest}/{@code ProjectConsoleControllerTest} needed the exact same
- * setup for #314's project-console worktrees.
+ * ProjectAgentSessionServiceTest}/{@code ProjectAgentSessionControllerTest} needed the exact same
+ * setup for #314's project-agent-session worktrees.
  */
 final class GitTestRepos {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     private GitTestRepos() {
     }
@@ -105,7 +108,7 @@ final class GitTestRepos {
         run(worktree, "git", "commit", "--allow-empty", "-m", message);
     }
 
-    /** Local branches matching {@code pattern} (e.g. {@code "console/*"}), one per line, trimmed. */
+    /** Local branches matching {@code pattern} (e.g. {@code "wip/*"}), one per line, trimmed. */
     static List<String> branchList(Path repo, String pattern) throws IOException, InterruptedException {
         Process p = new ProcessBuilder("git", "-C", repo.toString(), "branch", "--list", pattern).start();
         String out = new String(p.getInputStream().readAllBytes());
@@ -126,8 +129,8 @@ final class GitTestRepos {
     /**
      * Registers a new linked worktree of {@code repo} at {@code worktreePath} with a
      * brand-new {@code branch} checked out in it, created at the repo's current HEAD —
-     * what a project console's worktree looks like after {@code /t-work} ran inside it
-     * and minted the task branch there (#592). Named like a project-console worktree
+     * what a project agent session's worktree looks like after {@code /t-work} ran inside it
+     * and minted the task branch there (#592). Named like a project-agent-session worktree
      * ({@code <repoName>-console-<suffix>}) by the caller when that is what it should
      * stand in for.
      */

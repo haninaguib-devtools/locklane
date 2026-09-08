@@ -26,10 +26,10 @@ export interface CreatedShell {
 }
 
 /**
- * Shell-kind console sessions over REST (#445/#460) — minting one, the
+ * Shell-kind sessions over REST (#445/#460) — minting one, the
  * cross-project listing the Shells window's sidenav renders, and the per-session
  * close. Attaching to one is not here: the terminal component speaks the same
- * WebSocket pipeline every console uses, with `cmd=shell`.
+ * WebSocket pipeline every agent session uses, with `cmd=shell`.
  */
 @Injectable({ providedIn: 'root' })
 export class ShellsService {

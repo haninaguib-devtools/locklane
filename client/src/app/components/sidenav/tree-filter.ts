@@ -11,7 +11,7 @@ import { TreeNode } from '../../models/issue.model';
  * node matches if it carries *any* of the selected tags, ANDed against the other
  * filters.
  *
- * `hasOpenConsole` (#263) exempts a node with a live console from the text and
+ * `hasOpenAgentSession` (#263) exempts a node with a live agent session from the text and
  * ship filters -- it stays visible however it's typed or shipped -- but not from
  * the tag filter.
  */
@@ -20,12 +20,12 @@ export function filterNode(
   filterText: string,
   hideShipped: boolean,
   tags: string[] = [],
-  hasOpenConsole: (n: TreeNode) => boolean = () => false,
+  hasOpenAgentSession: (n: TreeNode) => boolean = () => false,
 ): TreeNode | null {
   const needle = filterText.trim().toLowerCase();
   const textOk = (n: TreeNode) =>
-    !needle || `#${n.number} ${n.title}`.toLowerCase().includes(needle) || hasOpenConsole(n);
-  const shipOk = (n: TreeNode) => !hideShipped || n.state !== 'CLOSED' || hasOpenConsole(n);
+    !needle || `#${n.number} ${n.title}`.toLowerCase().includes(needle) || hasOpenAgentSession(n);
+  const shipOk = (n: TreeNode) => !hideShipped || n.state !== 'CLOSED' || hasOpenAgentSession(n);
   const tagOk = (n: TreeNode) => tags.length === 0 || n.labels.some((l) => tags.includes(l));
   const selfOk = (n: TreeNode) => textOk(n) && shipOk(n) && tagOk(n);
 
@@ -46,17 +46,17 @@ export function filterTree(
   filterText: string,
   hideShipped: boolean,
   tags: string[] = [],
-  hasOpenConsole: (n: TreeNode) => boolean = () => false,
+  hasOpenAgentSession: (n: TreeNode) => boolean = () => false,
 ): TreeNode[] {
   return nodes
-    .map((n) => filterNode(n, filterText, hideShipped, tags, hasOpenConsole))
+    .map((n) => filterNode(n, filterText, hideShipped, tags, hasOpenAgentSession))
     .filter((n): n is TreeNode => n !== null);
 }
 
 /**
  * A pinned entry is never removed for being shipped — only for not matching the
  * text filter. Its children are still filtered normally (text, ship, and tag all
- * apply). `hasOpenConsole` (#263) exempts a node from the text filter too, on top
+ * apply). `hasOpenAgentSession` (#263) exempts a node from the text filter too, on top
  * of the always-on ship exemption pinning already gives it.
  */
 export function filterPinnedNode(
@@ -64,12 +64,12 @@ export function filterPinnedNode(
   filterText: string,
   hideShipped: boolean,
   tags: string[] = [],
-  hasOpenConsole: (n: TreeNode) => boolean = () => false,
+  hasOpenAgentSession: (n: TreeNode) => boolean = () => false,
 ): TreeNode | null {
   const needle = filterText.trim().toLowerCase();
   const textOk = (n: TreeNode) =>
-    !needle || `#${n.number} ${n.title}`.toLowerCase().includes(needle) || hasOpenConsole(n);
-  const shipOk = (n: TreeNode) => !hideShipped || n.state !== 'CLOSED' || hasOpenConsole(n);
+    !needle || `#${n.number} ${n.title}`.toLowerCase().includes(needle) || hasOpenAgentSession(n);
+  const shipOk = (n: TreeNode) => !hideShipped || n.state !== 'CLOSED' || hasOpenAgentSession(n);
   const tagOk = (n: TreeNode) => tags.length === 0 || n.labels.some((l) => tags.includes(l));
 
   if (!textOk(node)) {
@@ -83,9 +83,9 @@ export function filterPinnedTree(
   filterText: string,
   hideShipped: boolean,
   tags: string[] = [],
-  hasOpenConsole: (n: TreeNode) => boolean = () => false,
+  hasOpenAgentSession: (n: TreeNode) => boolean = () => false,
 ): TreeNode[] {
   return nodes
-    .map((n) => filterPinnedNode(n, filterText, hideShipped, tags, hasOpenConsole))
+    .map((n) => filterPinnedNode(n, filterText, hideShipped, tags, hasOpenAgentSession))
     .filter((n): n is TreeNode => n !== null);
 }

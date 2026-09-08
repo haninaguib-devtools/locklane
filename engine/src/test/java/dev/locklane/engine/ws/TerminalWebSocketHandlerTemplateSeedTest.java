@@ -1,8 +1,8 @@
 package dev.locklane.engine.ws;
 
-import dev.locklane.engine.persistence.ConsoleResumeSessionRepository;
+import dev.locklane.engine.persistence.AgentSessionResumeSessionRepository;
 import dev.locklane.engine.persistence.GhAccountRepository;
-import dev.locklane.engine.persistence.ProjectConsoleService;
+import dev.locklane.engine.persistence.ProjectAgentSessionService;
 import dev.locklane.engine.persistence.ProjectRecord;
 import dev.locklane.engine.persistence.ProjectRepository;
 import dev.locklane.engine.persistence.TestSqliteDatabases;
@@ -24,13 +24,16 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * #537's seeded launch: a brand-new agent session of a project console whose project
- * was created from a template (#536) and has not had its seeded console yet starts
+ * #537's seeded launch: a brand-new project agent session whose project
+ * was created from a template (#536) and has not had its seeded agent session yet starts
  * with the engine-composed first prompt — the t-workflow preface when the checkout
  * carries {@code .t-workflow/}, the plain one otherwise — and is flagged so the
  * attach records it. Everything else resolves exactly as before this task.
  */
 class TerminalWebSocketHandlerTemplateSeedTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     @TempDir
     Path dbDir;
@@ -39,7 +42,7 @@ class TerminalWebSocketHandlerTemplateSeedTest {
 
     private ProjectRepository projects;
     private SessionRegistry registry;
-    private ProjectConsoleService consoleService;
+    private ProjectAgentSessionService agentSessionService;
     private TerminalWebSocketHandler handler;
 
     @BeforeEach
@@ -47,17 +50,17 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         DataSource dataSource = TestSqliteDatabases.newDataSource(dbDir);
         projects = new ProjectRepository(dataSource);
         WorktreeSessionRepository sessions = new WorktreeSessionRepository(dataSource);
-        registry = new SessionRegistry(sessions, new ConsoleResumeSessionRepository(dataSource));
+        registry = new SessionRegistry(sessions, new AgentSessionResumeSessionRepository(dataSource));
         // Only the project lookup and the template columns matter here; the other
         // collaborators are never reached by templateSeedPrompt/markTemplateSeeded.
-        consoleService = new ProjectConsoleService(projects, new GhAccountRepository(dataSource),
+        agentSessionService = new ProjectAgentSessionService(projects, new GhAccountRepository(dataSource),
                 new TokenCipher(new EncryptionKeyProvider(dbDir.toString())), registry, sessions, null, null, null);
-        handler = new TerminalWebSocketHandler(registry, consoleService);
+        handler = new TerminalWebSocketHandler(registry, agentSessionService);
     }
 
     @AfterEach
     void tearDown() {
-        registry.close("live-console");
+        registry.close("live-agent-session");
     }
 
     private long templatedProject() {
@@ -68,22 +71,22 @@ class TerminalWebSocketHandlerTemplateSeedTest {
     @Test
     void eachAgentStartsWithThePlainPrefaceInAPlainCheckout() {
         long id = templatedProject();
-        String consoleId = id + "-console-a1b2c3d4";
+        String agentSessionId = id + "-console-a1b2c3d4";
 
-        TerminalWebSocketHandler.Launch claude = handler.resolveLaunch(consoleId, "claude", null, "template", workDir);
-        TerminalWebSocketHandler.Launch codex = handler.resolveLaunch(consoleId, "codex", null, "template", workDir);
+        TerminalWebSocketHandler.Launch claude = handler.resolveLaunch(agentSessionId, "claude", null, "template", workDir);
+        TerminalWebSocketHandler.Launch codex = handler.resolveLaunch(agentSessionId, "codex", null, "template", workDir);
         TerminalWebSocketHandler.Launch opencode =
-                handler.resolveLaunch(consoleId, "opencode", null, "template", workDir);
-        TerminalWebSocketHandler.Launch omp = handler.resolveLaunch(consoleId, "omp", null, "template", workDir);
+                handler.resolveLaunch(agentSessionId, "opencode", null, "template", workDir);
+        TerminalWebSocketHandler.Launch omp = handler.resolveLaunch(agentSessionId, "omp", null, "template", workDir);
 
         assertThat(claude.seeded()).isTrue();
-        assertThat(claude.command()).containsExactly("claude", ProjectConsoleService.PLAIN_SEED_PROMPT);
-        assertThat(codex.command()).containsExactly("codex", ProjectConsoleService.PLAIN_SEED_PROMPT);
+        assertThat(claude.command()).containsExactly("claude", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
+        assertThat(codex.command()).containsExactly("codex", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
         assertThat(opencode.command())
-                .containsExactly("opencode", "--prompt", ProjectConsoleService.PLAIN_SEED_PROMPT);
+                .containsExactly("opencode", "--prompt", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
         assertThat(omp.seeded()).isTrue();
-        assertThat(omp.command()).containsExactly("omp", ProjectConsoleService.PLAIN_SEED_PROMPT);
-        assertThat(ProjectConsoleService.PLAIN_SEED_PROMPT).contains("PROJECT_TEMPLATE.md").contains("push")
+        assertThat(omp.command()).containsExactly("omp", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
+        assertThat(ProjectAgentSessionService.PLAIN_SEED_PROMPT).contains("PROJECT_TEMPLATE.md").contains("push")
                 .doesNotContain("/t-open");
     }
 
@@ -96,13 +99,13 @@ class TerminalWebSocketHandlerTemplateSeedTest {
                 handler.resolveLaunch(id + "-console-a1b2c3d4", "claude", null, "template", workDir);
 
         assertThat(launch.seeded()).isTrue();
-        assertThat(launch.command()).containsExactly("claude", ProjectConsoleService.T_WORKFLOW_SEED_PROMPT);
-        assertThat(ProjectConsoleService.T_WORKFLOW_SEED_PROMPT).contains("PROJECT_TEMPLATE.md").contains("/t-open")
+        assertThat(launch.command()).containsExactly("claude", ProjectAgentSessionService.T_WORKFLOW_SEED_PROMPT);
+        assertThat(ProjectAgentSessionService.T_WORKFLOW_SEED_PROMPT).contains("PROJECT_TEMPLATE.md").contains("/t-open")
                 .contains("/t-drive");
     }
 
     @Test
-    void seedIsIgnoredForAShellForANonConsoleSessionAndForAProjectWithNoTemplate() {
+    void seedIsIgnoredForAShellForANonAgentSessionAndForAProjectWithNoTemplate() {
         long templated = templatedProject();
         long plain = projects.create("plain", "url", dbDir.resolve("plain"), 1L, Instant.now()).id();
 
@@ -142,27 +145,27 @@ class TerminalWebSocketHandlerTemplateSeedTest {
     @Test
     void aReattachToALiveProcessIsNeverSeeded() {
         long id = templatedProject();
-        registry.attach("live-console", workDir, new String[] {"sh"});
-        // The live session's id is not this project's console id -- what matters is
+        registry.attach("live-agent-session", workDir, new String[] {"sh"});
+        // The live session's id is not this project's agent session id -- what matters is
         // that a live process short-circuits the seed before any project lookup.
-        assertThat(handler.resolveLaunch("live-console", "claude", null, "template", workDir).seeded()).isFalse();
-        // And a genuine console id with a live process behind it: attach one under that id too.
-        String consoleId = id + "-console-b2c3d4e5";
-        registry.attach(consoleId, workDir, new String[] {"sh"});
+        assertThat(handler.resolveLaunch("live-agent-session", "claude", null, "template", workDir).seeded()).isFalse();
+        // And a genuine agent session id with a live process behind it: attach one under that id too.
+        String agentSessionId = id + "-console-b2c3d4e5";
+        registry.attach(agentSessionId, workDir, new String[] {"sh"});
         try {
-            assertThat(handler.resolveLaunch(consoleId, "claude", null, "template", workDir).seeded()).isFalse();
+            assertThat(handler.resolveLaunch(agentSessionId, "claude", null, "template", workDir).seeded()).isFalse();
         } finally {
-            registry.close(consoleId);
+            registry.close(agentSessionId);
         }
     }
 
     @Test
     void onceRecordedAsSeededTheNextSeededAttachLaunchesWithoutAPrompt() {
         long id = templatedProject();
-        String consoleId = id + "-console-a1b2c3d4";
-        assertThat(handler.resolveLaunch(consoleId, "codex", null, "template", workDir).seeded()).isTrue();
+        String agentSessionId = id + "-console-a1b2c3d4";
+        assertThat(handler.resolveLaunch(agentSessionId, "codex", null, "template", workDir).seeded()).isTrue();
 
-        assertThat(consoleService.markTemplateSeeded(consoleId, Instant.parse("2026-09-01T12:00:00Z"))).isTrue();
+        assertThat(agentSessionService.markTemplateSeeded(agentSessionId, Instant.parse("2026-09-01T12:00:00Z"))).isTrue();
 
         ProjectRecord after = projects.findById(id).orElseThrow();
         assertThat(after.templateSeededAt()).isEqualTo(Instant.parse("2026-09-01T12:00:00Z"));
@@ -171,19 +174,19 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         assertThat(second.seeded()).isFalse();
         assertThat(second.command()).containsExactly("codex");
         // A second mark is refused rather than moving the timestamp.
-        assertThat(consoleService.markTemplateSeeded(consoleId, Instant.parse("2026-09-02T12:00:00Z"))).isFalse();
+        assertThat(agentSessionService.markTemplateSeeded(agentSessionId, Instant.parse("2026-09-02T12:00:00Z"))).isFalse();
         assertThat(projects.findById(id).orElseThrow().templateSeededAt())
                 .isEqualTo(Instant.parse("2026-09-01T12:00:00Z"));
     }
 
     @Test
-    void markingAProjectWithNoTemplateOrANonConsoleIdWritesNothing() {
+    void markingAProjectWithNoTemplateOrANonAgentSessionIdWritesNothing() {
         long plain = projects.create("plain", "url", dbDir.resolve("plain"), 1L, Instant.now()).id();
         long templated = templatedProject();
 
-        assertThat(consoleService.markTemplateSeeded(plain + "-console-a1b2c3d4", Instant.now())).isFalse();
-        assertThat(consoleService.markTemplateSeeded(templated + "-7-main-a1b2c3d4", Instant.now())).isFalse();
-        assertThat(consoleService.markTemplateSeeded("garbage", Instant.now())).isFalse();
+        assertThat(agentSessionService.markTemplateSeeded(plain + "-console-a1b2c3d4", Instant.now())).isFalse();
+        assertThat(agentSessionService.markTemplateSeeded(templated + "-7-main-a1b2c3d4", Instant.now())).isFalse();
+        assertThat(agentSessionService.markTemplateSeeded("garbage", Instant.now())).isFalse();
 
         assertThat(projects.findById(plain).orElseThrow().templateSeededAt()).isNull();
         assertThat(projects.findById(templated).orElseThrow().templateSeededAt()).isNull();

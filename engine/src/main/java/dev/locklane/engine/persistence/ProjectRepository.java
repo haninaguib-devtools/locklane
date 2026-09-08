@@ -191,7 +191,7 @@ public class ProjectRepository {
     }
 
     /**
-     * Records that the project's one seeded console has been launched (#537), at
+     * Records that the project's one seeded agent session has been launched (#537), at
      * {@code now}. Written exactly once per project, by the WebSocket attach that
      * performed the launch; never cleared.
      */

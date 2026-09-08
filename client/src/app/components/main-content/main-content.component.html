@@ -3,7 +3,7 @@
   @if (detail) {
     <app-flow-strip [steps]="detail.flowSteps" />
   }
-  <app-console-tabs
+  <app-agent-session-tabs
     [tabs]="tabs"
     [selected]="activeTab"
     [starting]="starting"
@@ -12,9 +12,9 @@
     openLabel="Agent"
     [hideOpenWhenActive]="true"
     (selectedChange)="onTabSelected($event)"
-    (open)="openConsole($event)"
-    (close)="closeConsole($event)"
-    (reveal)="revealConsole($event)"
+    (open)="openAgentSession($event)"
+    (close)="closeAgentSession($event)"
+    (reveal)="revealAgentSession($event)"
   />
   @if (startError) {
     <div class="action-error">could not open an agent — try again</div>
@@ -39,14 +39,14 @@
       [busy]="starting"
       (reopen)="reopenSession($event)"
     />
-    @for (console of consoles; track console.id) {
+    @for (agentSession of agentSessions; track agentSession.id) {
       <app-terminal
-        [class.tab-hidden]="console.id !== activeTab"
-        [sessionId]="console.id"
-        [dir]="console.dir"
-        [cmd]="console.agent"
-        [resume]="console.resume"
-        [active]="console.id === activeTab"
+        [class.tab-hidden]="agentSession.id !== activeTab"
+        [sessionId]="agentSession.id"
+        [dir]="agentSession.dir"
+        [cmd]="agentSession.agent"
+        [resume]="agentSession.resume"
+        [active]="agentSession.id === activeTab"
       />
     }
   </div>

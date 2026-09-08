@@ -9,10 +9,11 @@ export const routes: Routes = [
   // sidenav lands here. Since #85 AppComponent renders the project's own
   // summary here rather than an empty state.
   { path: 'projects/:projectId/issues', children: [] },
-  // The project-level console (#140), consolidated from two pages into this one
-  // (#221) -- reached from the sidenav's "+" or the project summary's console
+  // The project-level agent session (#140), consolidated from two pages into this one
+  // (#221) -- reached from the sidenav's "+" or the project summary's agent session
   // button, which create a session when none is open yet or jump back into an
   // existing one.
+  // The path keeps its 'console' segment: a compatibility surface kept under ADR-112.
   { path: 'projects/:projectId/console', children: [] },
   // The Shells window (#446): a singleton popup with its own minimal shell --
   // AppComponent renders ShellsWindowComponent for these instead of the authed

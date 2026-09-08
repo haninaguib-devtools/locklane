@@ -49,7 +49,7 @@ import java.util.regex.Pattern;
  * checkout root before the first push — inside the initial commit on the plain
  * {@code git init} path, as one extra commit on top of the t-workflow installer's tree
  * on the bootstrap path. Nothing here reads or runs the template; #537 hands it to an
- * agent in a console later. With no template, both paths are byte-for-byte unchanged.
+ * agent in an agent session later. With no template, both paths are byte-for-byte unchanged.
  */
 @Service
 public class ProjectCheckoutService {
@@ -314,7 +314,7 @@ public class ProjectCheckoutService {
 
     /**
      * Forgets the project and best-effort removes its workarea directory — refusing
-     * (#231) when any worktree or console session is still open for it, so deleting
+     * (#231) when any worktree or agent session is still open for it, so deleting
      * never orphans one out from under whoever is attached to it.
      */
     public DeleteOutcome delete(long id) {
@@ -336,7 +336,7 @@ public class ProjectCheckoutService {
 
     /**
      * Unconditionally deletes a project and everything scoped to it: any worktree or
-     * console sessions, its DB row, and its on-disk workarea checkout (best-effort, same
+     * agent sessions, its DB row, and its on-disk workarea checkout (best-effort, same
      * as {@link #delete}) — never refuses on an open session the way {@link #delete}
      * does. Only {@link UserCascadeDeleteService} calls this (#240, ADR-101 Decision 4):
      * cascade-deleting a user is exactly the case where its projects' sessions are

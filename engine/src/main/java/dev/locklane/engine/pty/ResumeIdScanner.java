@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  *
  * <p>An explicit resume command names its own tool. A bare labeled form
  * ("Session ID: &lt;uuid&gt;") is attributed to {@code toolHint} — the tool the
- * session's launch command names — and ignored when there is none: a shell console
+ * session's launch command names — and ignored when there is none: a shell session
  * printing an unattributable uuid is noise, not a capture.
  *
  * <p>Not thread-safe; {@link #feed} is only ever called from the session's single

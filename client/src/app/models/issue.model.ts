@@ -76,10 +76,10 @@ export interface TreeResponse {
 
 // Mirrors dev.locklane.engine.persistence.WorktreeController.ResumeSessionView:
 // one past Claude/Codex/OpenCode conversation captured in one of the issue's
-// consoles (#102), reopenable from the Overview tab (#103). Since #372 the
-// project console page lists its own consoles' conversations through the same
-// shape. `worktreeId` is the console the conversation was captured in, not a
-// console to attach to.
+// agent sessions (#102), reopenable from the Overview tab (#103). Since #372 the
+// project agent session page lists its own agent sessions' conversations through the same
+// shape. `worktreeId` is the agent session the conversation was captured in, not a
+// agent session to attach to.
 export interface ResumeSession {
   worktreeId: string;
   tool: string;
@@ -108,7 +108,7 @@ export interface Project {
   /** The project template this project was created from (#536), or null for none. */
   template: string | null;
   /**
-   * When the template's one seeded console was launched (#537), or null while the
+   * When the template's one seeded agent session was launched (#537), or null while the
    * project still owes it (and always null with no template). Optional so the many
    * spec fixtures that build a Project literal need not all name it.
    */

@@ -105,8 +105,8 @@ class WorktreeControllerTest {
     @Test
     void listsTheCapturedResumeSessionsForAnIssue(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        ConsoleResumeSessionRepository resumeRepository =
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        AgentSessionResumeSessionRepository resumeRepository =
+                new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         resumeRepository.record("1-174-rename-toggle", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-25T12:00:00Z"));
         WorktreeController controller = controller(dbDir, repository, resumeRepository, List.of());
@@ -118,17 +118,17 @@ class WorktreeControllerTest {
     }
 
     @Test
-    void resumeSessionsExcludesALegacyMainConsolesConversation(@TempDir Path dbDir) {
+    void resumeSessionsExcludesALegacyMainAgentSessionsConversation(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        ConsoleResumeSessionRepository resumeRepository =
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        AgentSessionResumeSessionRepository resumeRepository =
+                new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         resumeRepository.record("1-174-main-a1b2c3d4", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-25T12:00:00Z"));
         resumeRepository.record("1-174-rename-toggle", "claude", "bbbbbbbb-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-25T12:00:00Z"));
         WorktreeController controller = controller(dbDir, repository, resumeRepository, List.of());
 
-        // #341: a legacy main-checkout console's conversation can never be
+        // #341: a legacy main-checkout agent session's conversation can never be
         // resumed (there is no worktree that contains it), so it is left off the
         // list rather than shown as a dead end.
         assertThat(controller.resumeSessions(1, 174, ALICE)).extracting(WorktreeController.ResumeSessionView::worktreeId)
@@ -136,10 +136,10 @@ class WorktreeControllerTest {
     }
 
     @Test
-    void reopeningALegacyMainConsolesConversationIsNotFound(@TempDir Path dbDir) {
+    void reopeningALegacyMainAgentSessionsConversationIsNotFound(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        ConsoleResumeSessionRepository resumeRepository =
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        AgentSessionResumeSessionRepository resumeRepository =
+                new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         resumeRepository.record("1-174-main-a1b2c3d4", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-25T12:00:00Z"));
         WorktreeController controller = controller(dbDir, repository, resumeRepository, List.of());
@@ -150,12 +150,12 @@ class WorktreeControllerTest {
     }
 
     @Test
-    void reopeningAConsoleWithNoVisibleConversationIsNotFound(@TempDir Path dbDir) {
+    void reopeningAAgentSessionWithNoVisibleConversationIsNotFound(@TempDir Path dbDir) {
         createProject(dbDir, "bob"); // project 1, owned by bob -- not alice
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        ConsoleResumeSessionRepository resumeRepository =
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
-        // Bob's console is open in his own project, so its conversation stays his (#242).
+        AgentSessionResumeSessionRepository resumeRepository =
+                new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        // Bob's agent session is open in his own project, so its conversation stays his (#242).
         repository.recordAttach("1-174-bobs-session", dbDir.resolve("wt"), Instant.parse("2026-08-25T12:00:00Z"), "bob");
         resumeRepository.record("1-174-bobs-session", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-25T12:00:00Z"));
@@ -170,8 +170,8 @@ class WorktreeControllerTest {
     @Test
     void reopeningAVisibleConversationMintsAFreshSessionInItsDirectory(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        ConsoleResumeSessionRepository resumeRepository =
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        AgentSessionResumeSessionRepository resumeRepository =
+                new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(dbDir);
         long ownerId = TestSqliteDatabases.newUserRepository(dbDir).create("alice", "bcrypt-hash", Instant.now()).id();
         long projectId =
@@ -203,18 +203,18 @@ class WorktreeControllerTest {
 
     private static WorktreeController controller(Path dbDir, WorktreeSessionRepository repository,
             SessionRegistry sessionRegistry, List<GhIssue> issues) {
-        return controller(repository, new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)),
+        return controller(repository, new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir)),
                 TestSqliteDatabases.newProjectRepository(dbDir), sessionRegistry, issues, dbDir);
     }
 
     private static WorktreeController controller(Path dbDir, WorktreeSessionRepository repository,
-            ConsoleResumeSessionRepository resumeRepository, List<GhIssue> issues) {
+            AgentSessionResumeSessionRepository resumeRepository, List<GhIssue> issues) {
         return controller(repository, resumeRepository, TestSqliteDatabases.newProjectRepository(dbDir),
                 new SessionRegistry(repository), issues, dbDir);
     }
 
     private static WorktreeController controller(WorktreeSessionRepository repository,
-            ConsoleResumeSessionRepository resumeRepository, ProjectRepository projectRepository,
+            AgentSessionResumeSessionRepository resumeRepository, ProjectRepository projectRepository,
             SessionRegistry sessionRegistry, List<GhIssue> issues, Path dbDir) {
         WorktreeSessionAuthorization authorization =
                 new WorktreeSessionAuthorization(projectRepository, TestSqliteDatabases.newUserRepository(dbDir));
@@ -227,7 +227,7 @@ class WorktreeControllerTest {
                         TestSqliteDatabases.newGhAccountRepository(dbDir), tokenCipher(dbDir));
         // No CLI title storage in these temp homes and no opencode process: every
         // lookup resolves to "no title", the fallback #373 defines as ordinary.
-        ConsoleSessionTitles titles = new ConsoleSessionTitles(dbDir.resolve("claude"), dbDir.resolve("codex"),
+        AgentSessionTitles titles = new AgentSessionTitles(dbDir.resolve("claude"), dbDir.resolve("codex"),
                 directory -> null);
         return new WorktreeController(worktreeService, creationService, sessionRegistry, titles,
                 new InstalledAgentsStore());

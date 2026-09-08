@@ -1,6 +1,6 @@
 import { Injectable, OnDestroy, inject, signal } from '@angular/core';
 import { Subscription, filter } from 'rxjs';
-import { ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from './events.service';
+import { AgentSessionAttentionEvent, EventsService, isAgentSessionAttentionEvent } from './events.service';
 
 /**
  * Which agent sessions are currently waiting for the user (#130, #789): a bell, or
@@ -16,7 +16,7 @@ import { ConsoleAttentionEvent, EventsService, isConsoleAttentionEvent } from '.
  * State is one signal holding the set of waiting session ids: readers that key by
  * something other than the session id (the sidenav, by issue or by project) walk
  * {@link waiting} and classify each id with the session-id parsers in
- * `consoles.service.ts`; readers that ask about one id use {@link isWaiting}. Both are
+ * `agent-sessions.service.ts`; readers that ask about one id use {@link isWaiting}. Both are
  * signal reads, so a template binding re-evaluates as events land.
  */
 @Injectable({ providedIn: 'root' })
@@ -30,7 +30,7 @@ export class AttentionStore implements OnDestroy {
 
   constructor() {
     this.sub = this.eventsService.events$
-      .pipe(filter(isConsoleAttentionEvent))
+      .pipe(filter(isAgentSessionAttentionEvent))
       .subscribe((event) => this.apply(event));
   }
 
@@ -48,7 +48,7 @@ export class AttentionStore implements OnDestroy {
    * (`waiting` for an id already waiting, `active` for one that is not) changes
    * nothing and does not notify readers.
    */
-  apply(event: ConsoleAttentionEvent): void {
+  apply(event: AgentSessionAttentionEvent): void {
     const current = this.waitingSignal();
     const isWaiting = current.has(event.sessionId);
     if (event.state === 'waiting' ? isWaiting : !isWaiting) {

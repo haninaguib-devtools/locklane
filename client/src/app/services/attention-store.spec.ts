@@ -2,6 +2,10 @@ import { TestBed } from '@angular/core/testing';
 import { AttentionStore } from './attention-store';
 import { EventsService } from './events.service';
 
+// Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
+// /console and /consoles REST paths and the 'console' route segment below keep their persisted and
+// on-the-wire shape: compatibility surfaces kept under ADR-112 (#766 renamed only the identifiers).
+
 describe('AttentionStore (#791)', () => {
   let store: AttentionStore;
 

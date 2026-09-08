@@ -1,6 +1,6 @@
 package dev.locklane.engine.ws;
 
-import dev.locklane.engine.persistence.ConsoleResumeSessionRepository;
+import dev.locklane.engine.persistence.AgentSessionResumeSessionRepository;
 import dev.locklane.engine.persistence.TestSqliteDatabases;
 import dev.locklane.engine.persistence.WorktreeSessionRepository;
 import dev.locklane.engine.pty.SessionRegistry;
@@ -36,14 +36,14 @@ class TerminalWebSocketHandlerRestartResumeTest {
     @TempDir
     Path workDir;
 
-    private ConsoleResumeSessionRepository resumeRepository;
+    private AgentSessionResumeSessionRepository resumeRepository;
     private SessionRegistry registry;
     private TerminalWebSocketHandler handler;
 
     @BeforeEach
     void setUp() {
         DataSource dataSource = TestSqliteDatabases.newDataSource(dbDir);
-        resumeRepository = new ConsoleResumeSessionRepository(dataSource);
+        resumeRepository = new AgentSessionResumeSessionRepository(dataSource);
         registry = new SessionRegistry(new WorktreeSessionRepository(dataSource), resumeRepository);
         handler = new TerminalWebSocketHandler(registry, null);
     }

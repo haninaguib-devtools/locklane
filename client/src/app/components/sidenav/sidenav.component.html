@@ -102,11 +102,11 @@
                 }
               </span>
             }
-            @if (hasOpenConsoleForProject(section.project.id)) {
+            @if (hasOpenAgentSessionForProject(section.project.id)) {
               <button
                 type="button"
-                class="project-consoles"
-                (click)="openProjectConsoles(section.project.id, $event)"
+                class="project-agent-sessions"
+                (click)="openProjectAgentSessions(section.project.id, $event)"
                 [attr.aria-label]="
                   hasAttentionWaitingForProject(section.project.id)
                     ? 'This project has an agent waiting for you'
@@ -119,7 +119,7 @@
                 "
               >
                 <span
-                  class="console-dot"
+                  class="agent-session-dot"
                   [class.waiting]="hasAttentionWaitingForProject(section.project.id)"
                 ></span>
               </button>
@@ -127,8 +127,8 @@
             @if (section.project.status === 'READY') {
               <button
                 type="button"
-                class="new-console"
-                (click)="openNewConsole(section.project.id, $event)"
+                class="new-agent-session"
+                (click)="openNewAgentSession(section.project.id, $event)"
                 aria-label="Open a new agent for this project"
                 title="Open a new agent for this project"
               >
@@ -226,9 +226,9 @@
 
         <span class="issue-number">#{{ node.number }}</span>
         <span class="issue-title" [title]="node.title">{{ node.title }}</span>
-        @if (hasOpenConsole(projectId, node.number)) {
+        @if (hasOpenAgentSession(projectId, node.number)) {
           <span
-            class="console-dot"
+            class="agent-session-dot"
             [class.waiting]="hasAttentionWaiting(projectId, node.number)"
             [title]="hasAttentionWaiting(projectId, node.number) ? 'Waiting for you' : 'Has an open agent'"
           ></span>

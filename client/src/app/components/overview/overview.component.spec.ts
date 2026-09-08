@@ -5,8 +5,12 @@ import { provideRouter, Router } from '@angular/router';
 import { OverviewComponent, aggregateCounts } from './overview.component';
 import { Project, TreeNode } from '../../models/issue.model';
 import { AgentStore } from '../../services/agent-store';
-import { ConsolesService } from '../../services/consoles.service';
+import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { EventsService } from '../../services/events.service';
+
+// Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
+// /console and /consoles REST paths and the 'console' route segment below keep their persisted and
+// on-the-wire shape: compatibility surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
 describe('OverviewComponent', () => {
 
@@ -243,14 +247,14 @@ describe('OverviewComponent', () => {
     expect(label!.textContent?.trim()).toBe('2/4 closed');
   });
 
-  it('opens a shell console for a READY project and navigates to it (#256)', () => {
+  it('opens a shell session for a READY project and navigates to it (#256)', () => {
     const fixture = init([PROJECT_A]);
     httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     fixture.detectChanges();
     const router = TestBed.inject(Router);
     spyOn(router, 'navigate');
     const opened = jasmine.createSpy('onOpened');
-    TestBed.inject(ConsolesService).onOpened.subscribe(opened);
+    TestBed.inject(AgentSessionsService).onOpened.subscribe(opened);
 
     (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shell-btn')!.click();
     const req = httpMock.expectOne('/api/projects/1/console');

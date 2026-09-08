@@ -28,8 +28,8 @@
   min-height: 0;
 }
 
-/* The inactive tab stays mounted -- a console holds a live PTY connection
-   that must survive switching to Overview or another console and back.
+/* The inactive tab stays mounted -- an agent session holds a live PTY connection
+   that must survive switching to Overview or another agent session and back.
    It keeps a layout box rather than being removed with `display: none`: an
    element in a display:none subtree cannot be measured at all, so xterm's
    FitAddon proposed NaN columns for it and a tab that mounted while hidden

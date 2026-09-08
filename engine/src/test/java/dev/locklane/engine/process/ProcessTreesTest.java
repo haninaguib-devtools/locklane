@@ -17,7 +17,7 @@ class ProcessTreesTest {
     @Test
     void endsTheRootAndEveryDescendant() throws Exception {
         // A shell with a background child it waits on: the child is a grandchild of
-        // this JVM, exactly the shape a console shell running an agent has.
+        // this JVM, exactly the shape a session shell running an agent has.
         Process root = new ProcessBuilder("/bin/sh", "-c", "sleep 300 & wait").start();
         ProcessHandle rootHandle = root.toHandle();
         List<ProcessHandle> children = waitForDescendants(rootHandle);

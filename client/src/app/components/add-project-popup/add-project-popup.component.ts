@@ -19,8 +19,8 @@ export type AddProjectMode = 'import' | 'create';
 // a "template" pull-down (#536) listing the project
 // templates on the engine host, defaulting to none; the chosen one is committed into
 // the new repository by the engine. A successful create also navigates straight to
-// the new project's console page (#537), while it is still cloning -- that page waits
-// for READY and, for a templated project, opens the seeded console itself. Import
+// the new project's agent session page (#537), while it is still cloning -- that page waits
+// for READY and, for a templated project, opens the seeded agent session itself. Import
 // keeps today's behaviour: the dialog closes and the sidenav refreshes.
 @Component({
   selector: 'app-add-project-popup',
@@ -106,7 +106,7 @@ export class AddProjectPopupComponent implements OnInit, OnDestroy {
     return Math.max(0, Math.floor((Date.now() - this.submitStartedAt) / 1000));
   }
 
-  /** Staged hint for the in-flight submit (#717) -- same mapping as the sidenav row and console wait. */
+  /** Staged hint for the in-flight submit (#717) -- same mapping as the sidenav row and agent session wait. */
   get submitStageHint(): string {
     return cloneStageHint(this.submitElapsedSec);
   }
@@ -219,7 +219,8 @@ export class AddProjectPopupComponent implements OnInit, OnDestroy {
         next: (project) => {
           this.finishSubmit();
           // Navigate before emitting: the host closes the popup on `created`, and the
-          // console page should already be the destination when it does (#537).
+          // agent session page should already be the destination when it does (#537).
+          // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
           this.router.navigate(['/projects', project.id, 'console']);
           this.created.emit(project);
         },

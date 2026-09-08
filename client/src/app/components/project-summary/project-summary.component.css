@@ -2,7 +2,7 @@
    rule it sits at the default `flex: 0 1 auto` and is only as wide as its own widest
    line, so every "fill the available width" rule inside it (#767) stretches inside a
    box no wider than its own text, leaving the rest of the row empty. Same rule
-   main-content's and project-console's hosts declare, so the page fills the row and
+   main-content's and project-agent-session's hosts declare, so the page fills the row and
    `.summary` receives the full width beside the sidenav (#785). */
 :host {
   display: flex;
@@ -97,7 +97,7 @@ h1 {
   color: var(--accent);
 }
 
-.console-button {
+.agent-session-button {
   margin-left: auto;
   padding: 5px 12px;
   font-size: 11px;
@@ -108,12 +108,12 @@ h1 {
   cursor: pointer;
 }
 
-.console-button:hover {
+.agent-session-button:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-.console-button:disabled {
+.agent-session-button:disabled {
   cursor: default;
   opacity: 0.6;
 }

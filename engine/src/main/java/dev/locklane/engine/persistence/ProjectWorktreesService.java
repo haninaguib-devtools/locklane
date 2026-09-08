@@ -8,13 +8,13 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
- * The project page's worktree list (#320): every console-created worktree for one
+ * The project page's worktree list (#320): every agent-session-created worktree for one
  * project's issues, with the clean/dirty and session-attached status a human needs to
  * judge each row, plus the manual "remove worktree" action and the on-demand "run
  * cleanup now" trigger. Deliberately thin — {@link WorktreeCleanupSweeper} already
  * owns the whole of the removal guard, the sweep itself (#319), and both families'
  * discovery ({@link WorktreeCleanupSweeper#allIssueWorktrees()}, git-native since
- * #585, and {@link WorktreeCleanupSweeper#allProjectConsoleWorktrees()}); this service
+ * #585, and {@link WorktreeCleanupSweeper#allProjectAgentSessionWorktrees()}); this service
  * reuses all of it rather than re-deriving any of it, so the manual path and the
  * periodic one can never quietly drift apart.
  *
@@ -27,9 +27,9 @@ import java.util.stream.Stream;
  * eligible worktree too — no less safe, since the guard is unchanged, just wider in
  * scope than the button's own page.
  *
- * <p>Since #339, a project-console worktree (no issue of its own) appears in {@link
+ * <p>Since #339, a project-agent-session worktree (no issue of its own) appears in {@link
  * #listForProject} too, with a {@code null} {@link WorktreeRow#issueNumber()} — {@link
- * WorktreeCleanupSweeper#allProjectConsoleWorktrees()} discovers those the same
+ * WorktreeCleanupSweeper#allProjectAgentSessionWorktrees()} discovers those the same
  * git-native way the sweep itself does, never from a persisted session record. {@link
  * #remove} dispatches to whichever guard applies (issue-closed vs. detached +
  * ancestor-of-{@code origin/main}) purely by which of the two collections the id
@@ -49,7 +49,7 @@ public class ProjectWorktreesService {
 
     /**
      * Every worktree belonging to one of this project's issues, plus every one of its
-     * project-console worktrees (#339), in no particular order. A console row's
+     * project-agent-session worktrees (#339), in no particular order. An agent session row's
      * {@link WorktreeRow#issueNumber()} is {@code null} — it has no issue to report.
      */
     public List<WorktreeRow> listForProject(long projectId) {
@@ -58,21 +58,21 @@ public class ProjectWorktreesService {
                 .map(worktree -> new WorktreeRow(worktree.worktreeId(), worktree.issueNumber(),
                         worktree.workingDirectory().toString(), sweeper.isClean(worktree.workingDirectory()),
                         sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())));
-        Stream<WorktreeRow> consoleRows = sweeper.allProjectConsoleWorktrees().stream()
+        Stream<WorktreeRow> agentSessionRows = sweeper.allProjectAgentSessionWorktrees().stream()
                 .filter(worktree -> worktree.projectId() == projectId)
                 .map(worktree -> new WorktreeRow(worktree.worktreeId(), null,
                         worktree.workingDirectory().toString(), sweeper.isClean(worktree.workingDirectory()),
                         sessionRegistry.hasLiveSessionIn(worktree.workingDirectory())));
-        return Stream.concat(issueRows, consoleRows).toList();
+        return Stream.concat(issueRows, agentSessionRows).toList();
     }
 
     /**
      * Removes one worktree by id, scoped to {@code projectId} so a request naming
      * another project's worktree id is treated the same as an unknown one. Looks
-     * among this project's per-issue worktrees first, then its project-console ones
+     * among this project's per-issue worktrees first, then its project-agent-session ones
      * (#339) — the two id shapes never collide — and applies whichever guard matches
      * ({@link WorktreeCleanupSweeper#removalRefusalReason} or {@link
-     * WorktreeCleanupSweeper#removalRefusalReasonForProjectConsole}) before removing.
+     * WorktreeCleanupSweeper#removalRefusalReasonForProjectAgentSession}) before removing.
      */
     public RemovalResult remove(long projectId, String worktreeId) {
         Optional<WorktreeCleanupSweeper.IssueWorktree> issueWorktree = sweeper.allIssueWorktrees().stream()
@@ -81,12 +81,12 @@ public class ProjectWorktreesService {
         if (issueWorktree.isPresent()) {
             return removeIssueWorktree(issueWorktree.get());
         }
-        Optional<WorktreeCleanupSweeper.ProjectConsoleWorktree> consoleWorktree =
-                sweeper.allProjectConsoleWorktrees().stream()
+        Optional<WorktreeCleanupSweeper.ProjectAgentSessionWorktree> agentSessionWorktree =
+                sweeper.allProjectAgentSessionWorktrees().stream()
                         .filter(w -> w.projectId() == projectId && w.worktreeId().equals(worktreeId))
                         .findFirst();
-        if (consoleWorktree.isPresent()) {
-            return removeProjectConsoleWorktree(consoleWorktree.get());
+        if (agentSessionWorktree.isPresent()) {
+            return removeProjectAgentSessionWorktree(agentSessionWorktree.get());
         }
         return RemovalResult.notFound();
     }
@@ -107,12 +107,12 @@ public class ProjectWorktreesService {
         return RemovalResult.succeeded();
     }
 
-    private RemovalResult removeProjectConsoleWorktree(WorktreeCleanupSweeper.ProjectConsoleWorktree worktree) {
-        Optional<String> refusal = sweeper.removalRefusalReasonForProjectConsole(worktree);
+    private RemovalResult removeProjectAgentSessionWorktree(WorktreeCleanupSweeper.ProjectAgentSessionWorktree worktree) {
+        Optional<String> refusal = sweeper.removalRefusalReasonForProjectAgentSession(worktree);
         if (refusal.isPresent()) {
             return RemovalResult.refused(refusal.get());
         }
-        if (!sweeper.removeProjectConsoleWorktree(worktree)) {
+        if (!sweeper.removeProjectAgentSessionWorktree(worktree)) {
             return RemovalResult.refused("failed to remove the worktree — see the server log");
         }
         return RemovalResult.succeeded();
@@ -120,7 +120,7 @@ public class ProjectWorktreesService {
 
     /**
      * One row of {@link #listForProject} — {@code issueNumber} is {@code null} for a
-     * project-console worktree (#339), which has no issue of its own.
+     * project-agent-session worktree (#339), which has no issue of its own.
      */
     public record WorktreeRow(String worktreeId, Integer issueNumber, String workingDirectory, boolean clean,
             boolean sessionAttached) {

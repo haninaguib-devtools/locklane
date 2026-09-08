@@ -3,8 +3,8 @@ import { DatePipe } from '@angular/common';
 import { ResumeSession } from '../../models/issue.model';
 
 // The list of past Claude/Codex/OpenCode conversations captured in a set of
-// consoles — an issue's, on the Overview tab (#102/#103), or a project's own,
-// on the project console page (#372). Each row is reopenable as a new console
+// agent sessions — an issue's, on the Overview tab (#102/#103), or a project's own,
+// on the project agent session page (#372). Each row is reopenable as a new agent session
 // that resumes that exact conversation. Display-only otherwise: no editing,
 // renaming or deleting saved sessions here.
 //
@@ -22,7 +22,7 @@ import { ResumeSession } from '../../models/issue.model';
 })
 export class SessionListComponent {
   @Input({ required: true }) sessions: ResumeSession[] = [];
-  /** Disables the reopen buttons while a console is already being started. */
+  /** Disables the reopen buttons while an agent session is already being started. */
   @Input() busy = false;
   @Output() reopen = new EventEmitter<ResumeSession>();
 }

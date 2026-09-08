@@ -8,11 +8,11 @@ import java.sql.Statement;
 
 /**
  * template_seeded_at (#537) is the instant a project created from a template (#536)
- * had its one seeded console launched — the agent started with the engine-composed
+ * had its one seeded agent session launched — the agent started with the engine-composed
  * "read PROJECT_TEMPLATE.md and build it" prompt. NULL until then, and forever NULL
  * for a project with no template. Set exactly once, by the WebSocket attach that
  * performed the launch, which is what makes "a READY project with a template and no
- * seeded console yet gets one" a stateless rule that survives reloads.
+ * seeded agent session yet gets one" a stateless rule that survives reloads.
  */
 public class V14__AddTemplateSeededAtToProjects extends BaseJavaMigration {
 

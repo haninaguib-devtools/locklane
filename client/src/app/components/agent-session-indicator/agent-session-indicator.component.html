@@ -1,0 +1,68 @@
+@if (entries().length; as count) {
+  <div class="indicator">
+    <button
+      #trigger
+      type="button"
+      class="badge"
+      [class.waiting]="hasWaitingEntry()"
+      aria-haspopup="dialog"
+      [attr.aria-expanded]="open()"
+      [attr.aria-label]="
+        'Open agents, ' + count + ' ' + (count === 1 ? 'agent' : 'agents') + (hasWaitingEntry() ? ', waiting for you' : '')
+      "
+      (click)="onTriggerClick()"
+    >
+      <span class="dot" aria-hidden="true"></span>
+      {{ count === 1 ? 'agent' : 'agents (' + count + ')' }}
+    </button>
+
+    @if (open()) {
+      <div class="scrim" (click)="close()"></div>
+
+      <div class="picker" role="dialog" aria-modal="true" aria-labelledby="agent-session-picker-title">
+        <div class="picker-head">
+          <div>
+            <h2 id="agent-session-picker-title">Open agents</h2>
+            <p>Choose an agent to jump back into.</p>
+          </div>
+          <kbd class="keycap">esc</kbd>
+        </div>
+
+        <div
+          #results
+          class="session-results"
+          role="listbox"
+          tabindex="0"
+          [attr.aria-activedescendant]="'agent-session-row-' + selected()"
+          (keydown)="onKey($event)"
+        >
+          @for (group of groups(); track group.projectId) {
+            @if (showGroupHeadings()) {
+              <div class="group-heading">{{ group.projectName }}</div>
+            }
+            @for (item of group.entries; track item.entry.sessionId) {
+              <button
+                type="button"
+                class="entry"
+                role="option"
+                [id]="'agent-session-row-' + item.index"
+                [attr.aria-selected]="item.index === selected()"
+                [class.selected]="item.index === selected()"
+                (mouseenter)="selected.set(item.index)"
+                (click)="jumpTo(item.entry)"
+              >
+                <span class="issue ellipsis">
+                  @if (item.entry.issueNumber !== null) {
+                    #{{ item.entry.issueNumber }} {{ item.entry.title }}
+                  } @else {
+                    {{ item.entry.title }}
+                  }
+                </span>
+              </button>
+            }
+          }
+        </div>
+      </div>
+    }
+  </div>
+}

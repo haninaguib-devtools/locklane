@@ -30,6 +30,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * repository, the same approach {@code WorktreeCleanupSweeperTest} uses.
  */
 class ProjectWorktreesServiceTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     @Test
     void listsClosedCleanUnattachedRowsForTheirOwnProjectOnly(@TempDir Path tmp) throws Exception {
@@ -178,62 +181,62 @@ class ProjectWorktreesServiceTest {
     }
 
     @Test
-    void listIncludesACleanDetachedProjectConsoleWorktreeWithNoIssueNumber(@TempDir Path tmp) throws Exception {
+    void listIncludesACleanDetachedProjectAgentSessionWorktreeWithNoIssueNumber(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
-        WorktreeAndId console = createProjectConsoleWorktree(fx);
+        WorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
         ProjectWorktreesService service = service(fx, List.of());
 
         List<ProjectWorktreesService.WorktreeRow> rows = service.listForProject(fx.projectId);
 
         assertThat(rows).containsExactly(
-                new ProjectWorktreesService.WorktreeRow(console.worktreeId(), null, console.path().toString(), true, false));
+                new ProjectWorktreesService.WorktreeRow(agentSession.worktreeId(), null, agentSession.path().toString(), true, false));
     }
 
     @Test
-    void removeSucceedsForACleanDetachedProjectConsoleWorktree(@TempDir Path tmp) throws Exception {
+    void removeSucceedsForACleanDetachedProjectAgentSessionWorktree(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
-        WorktreeAndId console = createProjectConsoleWorktree(fx);
+        WorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
         ProjectWorktreesService service = service(fx, List.of());
 
-        ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, console.worktreeId());
+        ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, agentSession.worktreeId());
 
         assertThat(result.found()).isTrue();
         assertThat(result.removed()).isTrue();
-        assertThat(console.path()).doesNotExist();
+        assertThat(agentSession.path()).doesNotExist();
     }
 
     @Test
-    void removeRefusesAProjectConsoleWorktreeWithABranchCheckedOut(@TempDir Path tmp) throws Exception {
+    void removeRefusesAProjectAgentSessionWorktreeWithABranchCheckedOut(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
-        WorktreeAndId console = createProjectConsoleWorktree(fx);
+        WorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
         // #554/ADR-107: a bare checkout with no commits at all is trivially identical
         // to origin/main and would count as landed -- an actual commit not reachable
         // from origin/main is what keeps this branch genuinely un-landed.
-        run(console.path(), "git", "checkout", "-b", "wip/1-do-the-thing");
-        run(console.path(), "git", "commit", "--allow-empty", "-m", "unshipped work");
+        run(agentSession.path(), "git", "checkout", "-b", "wip/1-do-the-thing");
+        run(agentSession.path(), "git", "commit", "--allow-empty", "-m", "unshipped work");
         ProjectWorktreesService service = service(fx, List.of());
 
-        ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, console.worktreeId());
+        ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, agentSession.worktreeId());
 
         assertThat(result.found()).isTrue();
         assertThat(result.removed()).isFalse();
         assertThat(result.refusalReason()).contains("outgrown scratch use");
-        assertThat(console.path()).isDirectory();
+        assertThat(agentSession.path()).isDirectory();
     }
 
     @Test
-    void removeRefusesAProjectConsoleWorktreeWithCommitsNotOnOriginMain(@TempDir Path tmp) throws Exception {
+    void removeRefusesAProjectAgentSessionWorktreeWithCommitsNotOnOriginMain(@TempDir Path tmp) throws Exception {
         Fixture fx = fixture(tmp);
-        WorktreeAndId console = createProjectConsoleWorktree(fx);
-        run(console.path(), "git", "commit", "--allow-empty", "-m", "unpushed work on detached HEAD");
+        WorktreeAndId agentSession = createProjectAgentSessionWorktree(fx);
+        run(agentSession.path(), "git", "commit", "--allow-empty", "-m", "unpushed work on detached HEAD");
         ProjectWorktreesService service = service(fx, List.of());
 
-        ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, console.worktreeId());
+        ProjectWorktreesService.RemovalResult result = service.remove(fx.projectId, agentSession.worktreeId());
 
         assertThat(result.found()).isTrue();
         assertThat(result.removed()).isFalse();
         assertThat(result.refusalReason()).contains("not yet reachable from origin/main");
-        assertThat(console.path()).isDirectory();
+        assertThat(agentSession.path()).isDirectory();
     }
 
     private record WorktreeAndId(String worktreeId, Path path) {
@@ -269,8 +272,8 @@ class ProjectWorktreesServiceTest {
         return new WorktreeAndId(discoveryId, Path.of(started.workingDirectory()));
     }
 
-    /** A project-console-shaped sibling worktree (#339) — detached at origin/main, matching the naming convention {@link WorktreeCleanupSweeper#allProjectConsoleWorktrees()} discovers. */
-    private static WorktreeAndId createProjectConsoleWorktree(Fixture fx) {
+    /** A project-agent-session-shaped sibling worktree (#339) — detached at origin/main, matching the naming convention {@link WorktreeCleanupSweeper#allProjectAgentSessionWorktrees()} discovers. */
+    private static WorktreeAndId createProjectAgentSessionWorktree(Fixture fx) {
         String suffix = "abcd1234";
         Path worktreePath =
                 fx.projectRoot().resolveSibling(WorktreeCreationService.repoName(fx.projectRoot()) + "-console-" + suffix);

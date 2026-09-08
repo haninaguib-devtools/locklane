@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 const STORAGE_KEY = 'locklane.activeTabByIssue';
 
 /**
- * Which tab (Overview, or an open console by session id) was last selected on
+ * Which tab (Overview, or an open agent session by session id) was last selected on
  * a given issue's page, remembered per-browser (#135) — returning to the
  * issue restores that tab instead of always opening on Overview.
  */

@@ -5,7 +5,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Opens a WebSocket from the engine to a console's loopback code-server (#655) — the
+ * Opens a WebSocket from the engine to an agent session's loopback code-server (#655) — the
  * upstream half of {@link CodeServerWebSocketProxy}, behind an interface so the relay
  * can be exercised against a fake with no code-server and no network. The JDK's own
  * client ({@link JdkUpstreamWebSockets}) is the production implementation.

@@ -7,7 +7,7 @@ import java.sql.Connection;
 import java.sql.Statement;
 
 /**
- * display_name (#393) is the name a user typed for a console tab, overriding the
+ * display_name (#393) is the name a user typed for an agent session tab, overriding the
  * auto-generated label the client derives from the session's id and agent. NULL —
  * the value every session created before this migration carries, and the value a
  * cleared name is stored back as — means "no custom name", so the client falls back

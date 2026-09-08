@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class FileManagerLauncherTest {
 
     @Test
-    void resolvesTheConsolesPathAndInvokesTheHostsRevealCommand(@TempDir Path dbDir) {
+    void resolvesTheAgentSessionsPathAndInvokesTheHostsRevealCommand(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Path worktree = dbDir.resolve("wt1");
         repository.recordAttach("1-174-rename-toggle", worktree, Instant.now(), "alice");
@@ -30,13 +30,13 @@ class FileManagerLauncherTest {
     }
 
     @Test
-    void returnsFalseAndNeverLaunchesForAnUnknownConsoleId(@TempDir Path dbDir) {
+    void returnsFalseAndNeverLaunchesForAnUnknownAgentSessionId(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         List<String[]> invocations = new ArrayList<>();
         FileManagerLauncher launcher = new FileManagerLauncher(new SessionRegistry(repository),
                 command -> invocations.add(command));
 
-        boolean revealed = launcher.reveal("no-such-console");
+        boolean revealed = launcher.reveal("no-such-agent-session");
 
         assertThat(revealed).isFalse();
         assertThat(invocations).isEmpty();

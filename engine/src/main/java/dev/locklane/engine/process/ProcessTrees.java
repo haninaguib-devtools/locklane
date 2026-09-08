@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Ends whole process trees, not just their roots (#678). The engine spawns console
+ * Ends whole process trees, not just their roots (#678). The engine spawns session
  * shells, whatever runs inside them, and code-server; on Linux systemd's control
  * group sweeps all of that up when the JVM stops, but on macOS launchd signals only
  * the JVM and everything it spawned lives on. So shutdown ends each tree itself:

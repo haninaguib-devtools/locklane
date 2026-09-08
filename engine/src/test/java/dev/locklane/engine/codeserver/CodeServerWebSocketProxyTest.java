@@ -32,6 +32,9 @@ import static org.mockito.Mockito.when;
  * upstream connection exists.
  */
 class CodeServerWebSocketProxyTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     private static final URI UPSTREAM = URI.create("http://127.0.0.1:41231");
     private static final Principal ALICE = () -> "alice";
@@ -54,7 +57,7 @@ class CodeServerWebSocketProxyTest {
     }
 
     @Test
-    void connectsUpstreamAtTheSamePathAndQueryUnderTheConsolesLoopbackBase() throws Exception {
+    void connectsUpstreamAtTheSamePathAndQueryUnderTheAgentSessionsLoopbackBase() throws Exception {
         WebSocketSession session = session("s1", "/api/projects/1/consoles/1-174-x/ide/stable-abc", "reconnectionToken=t1", ALICE);
         when(authorization.upstreamFor(new IdeProxyPath(1, "1-174-x", "/stable-abc"), "alice")).thenReturn(Optional.of(UPSTREAM));
 

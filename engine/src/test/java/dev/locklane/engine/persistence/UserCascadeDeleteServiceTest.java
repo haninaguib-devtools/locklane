@@ -16,10 +16,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Covers #240's cascade-delete done-when (ADR-101 Decision 4): deleting a user removes
  * every project it owns, those projects' on-disk workarea checkouts, and any
- * worktree/console sessions scoped to them -- and nothing belonging to a different
+ * worktree/agent sessions scoped to them -- and nothing belonging to a different
  * user.
  */
 class UserCascadeDeleteServiceTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     @Test
     void deletesEveryOwnedProjectItsWorkareaAndItsSessions(@TempDir Path tmp) throws Exception {

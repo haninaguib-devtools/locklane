@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Maps the proxied-IDE path family (#655), {@code /api/projects/{projectId}/consoles/{id}/ide/**},
+ * Maps the proxied-IDE path family (#655), {@code /api/projects/{projectId}/consoles/{id} (a path kept under ADR-112)/ide/**},
  * onto its two handlers: a WebSocket upgrade goes to {@link CodeServerWebSocketProxy},
  * everything else to {@link CodeServerHttpProxy}. Two handler mappings of its own,
  * rather than a {@code @RequestMapping} controller plus the shared registry in
@@ -31,13 +31,14 @@ import java.util.Map;
  * </ul>
  *
  * The WebSocket side keeps the same {@code locklane.security.allowed-origins}
- * restriction as the terminal socket: whoever may attach a console may open its IDE,
+ * restriction as the terminal socket: whoever may attach an agent session may open its IDE,
  * and no other origin gains anything new. Authentication itself is enforced upstream
  * of both mappings, in {@code SecurityConfig}.
  */
 @Configuration
 public class CodeServerProxyConfig {
 
+    // The /consoles REST path is a compatibility surface kept under ADR-112.
     static final String IDE_PATHS = "/api/projects/*/consoles/*/ide/**";
     static final String IDE_ROOT = "/api/projects/*/consoles/*/ide";
 

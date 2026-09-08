@@ -10,6 +10,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * or unfocused-only set of clients behaving exactly as before (every resize applies).
  */
 class AttachmentSizeArbiterTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     private static final String TERMINAL = "1-console";
     private static final Size WIDE = new Size(200, 50);

@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 /**
- * Uploads a file the user dropped or pasted onto a console terminal (#436) to the
+ * Uploads a file the user dropped or pasted onto an agent session terminal (#436) to the
  * engine, which writes it to disk next to the session and answers with the
  * server-side path — the piece a browser drop can never provide by itself, since a
  * page only ever receives a file's contents. The terminal then injects that path

@@ -9,8 +9,8 @@ import { ProjectSummaryComponent } from './components/project-summary/project-su
 import { OverviewComponent } from './components/overview/overview.component';
 import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-resizer.component';
 import { LoginComponent } from './components/login/login.component';
-import { ConsoleIndicatorComponent } from './components/console-indicator/console-indicator.component';
-import { ProjectConsoleComponent } from './components/project-console/project-console.component';
+import { AgentSessionIndicatorComponent } from './components/agent-session-indicator/agent-session-indicator.component';
+import { ProjectAgentSessionComponent } from './components/project-agent-session/project-agent-session.component';
 import { ShellsWindowComponent } from './components/shells-window/shells-window.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
 import { AboutDialogComponent } from './components/about-dialog/about-dialog.component';
@@ -40,12 +40,12 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     OverviewComponent,
     SidebarResizerComponent,
     LoginComponent,
-    ConsoleIndicatorComponent,
+    AgentSessionIndicatorComponent,
     SettingsDialogComponent,
     AboutDialogComponent,
     AdminUsersComponent,
     GithubAccountsComponent,
-    ProjectConsoleComponent,
+    ProjectAgentSessionComponent,
     ShellsWindowComponent,
     AddProjectPopupComponent,
     UpdateBannerComponent,
@@ -107,7 +107,7 @@ export class AppComponent {
   // the route on every navigation so a direct load, a browser back/forward, or a
   // shared link all select the right project and issue. The project id itself
   // comes from CurrentProjectService (#309), shared with the header title below
-  // and the consoles widget, rather than re-derived here privately -- wrapped in
+  // and the agent sessions widget, rather than re-derived here privately -- wrapped in
   // `computed()` (rather than assigned straight to its signal) so reading it is
   // what triggers the lazy `currentProject` getter above, not this field's own
   // initialization.
@@ -124,9 +124,9 @@ export class AppComponent {
   // (every pre-existing project, since the backend column is nullable) or with
   // no project selected at all, which leaves `.topbar` at its plain CSS
   // background, no visual regression. Applies whenever a project is selected,
-  // including while viewing that project's own console page -- unlike the
+  // including while viewing that project's own agent session page -- unlike the
   // full-page tint this replaced (#428/#433), the header is always visible so
-  // there is no console-page carve-out to make. Never affects `.project-pages`
+  // there is no agent-session-page carve-out to make. Never affects `.project-pages`
   // or anything under it, which always show their plain default background now.
   readonly projectBackgroundTint = computed(() => {
     const project = this.currentProject.current();
@@ -141,20 +141,20 @@ export class AppComponent {
     { initialValue: this.currentIssueId() },
   );
 
-  // The project-level console route (#140) has no `:id` segment of its own --
-  // distinguished from the project summary route by its literal 'console' path
+  // The project-level agent session route (#140) has no `:id` segment of its own --
+  // distinguished from the project summary route by its literal 'agent session' path
   // segment instead, since both otherwise carry just a `:projectId`.
-  readonly onProjectConsole = toSignal(
+  readonly onProjectAgentSession = toSignal(
     this.router.events.pipe(
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-      map(() => this.isProjectConsoleRoute()),
+      map(() => this.isProjectAgentSessionRoute()),
     ),
-    { initialValue: this.isProjectConsoleRoute() },
+    { initialValue: this.isProjectAgentSessionRoute() },
   );
 
   // The Shells window routes (#446) render their own minimal shell -- no
   // topbar/sidebar -- so the template branches on this before the authed layout,
-  // the same way the project-console route is detected below.
+  // the same way the project-agent-session route is detected below.
   readonly onShellsWindow = toSignal(
     this.router.events.pipe(
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),
@@ -173,7 +173,7 @@ export class AppComponent {
   });
 
   // A single-project focused window (#286), now shared via CurrentProjectService
-  // (#449) so the consoles widget can narrow by the same state this sidenav
+  // (#449) so the agent sessions widget can narrow by the same state this sidenav
   // already does, rather than a second private computation of it here.
   readonly focusMode = computed(() => this.currentProject.focusMode());
 
@@ -225,7 +225,7 @@ export class AppComponent {
     if (direction === null) {
       return;
     }
-    // A focused terminal keeps Alt+Left/Right as its own word-jump keys (the console
+    // A focused terminal keeps Alt+Left/Right as its own word-jump keys (the agent session
     // forwards them to the shell) -- excluded only on non-mac, since xterm.js never
     // consumes the Cmd chords in the first place, so Cmd+[ still navigates back with a
     // terminal focused. An editable field always keeps its own Left/Right meaning,
@@ -330,8 +330,9 @@ export class AppComponent {
     return Number.isFinite(id) ? id : null;
   }
 
-  private isProjectConsoleRoute(): boolean {
+  private isProjectAgentSessionRoute(): boolean {
     const segments = this.route.snapshot.firstChild?.url ?? [];
+    // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
     return segments.some((segment) => segment.path === 'console');
   }
 

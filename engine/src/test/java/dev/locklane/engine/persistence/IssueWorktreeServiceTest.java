@@ -18,6 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * (ADR-105) neither does the caller's role.
  */
 class IssueWorktreeServiceTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     @Test
     void returnsWorktreeIdsMatchingTheProjectAndIssuePrefix(@TempDir Path dbDir) {
@@ -79,7 +82,7 @@ class IssueWorktreeServiceTest {
     }
 
     @Test
-    void projectConsoleIdsNeverReadAsAnIssuesSession(@TempDir Path dbDir) {
+    void projectAgentSessionIdsNeverReadAsAnIssuesSession(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");
         repository.recordAttach("1-console", dbDir.resolve("wt1"), now, "alice"); // legacy pre-#177 shape
@@ -88,7 +91,7 @@ class IssueWorktreeServiceTest {
 
         IssueWorktreeService service = service(dbDir, repository);
 
-        // The console family's second segment is the literal "console", never a
+        // The agent session family's second segment is the literal "console" (ADR-112 compatibility surface), never a
         // number — so neither shape can collide with any single issue's session list.
         for (int n = 0; n < 1000; n++) {
             assertThat(service.worktreeIdsForIssue(1, n, "alice"))
@@ -97,7 +100,7 @@ class IssueWorktreeServiceTest {
     }
 
     @Test
-    void allWorktreeIdsIncludesTheProjectsOwnConsoles(@TempDir Path dbDir) {
+    void allWorktreeIdsIncludesTheProjectsOwnAgentSessions(@TempDir Path dbDir) {
         createProject(dbDir, "alice", "one"); // project 1
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");
@@ -109,7 +112,7 @@ class IssueWorktreeServiceTest {
         IssueWorktreeService service = service(dbDir, repository);
 
         // #194: the header indicator/picker reads this list, so it must include the
-        // project's own consoles alongside its issues' — scoped to the requested
+        // project's own agent sessions alongside its issues' — scoped to the requested
         // project, same as any other row here.
         assertThat(service.allWorktreeIds(1, "alice")).containsExactlyInAnyOrder(
                 "1-console", "1-console-0a1b2c3d", "1-174-rename-toggle");
@@ -163,7 +166,7 @@ class IssueWorktreeServiceTest {
 
     /**
      * #394 (ADR-105) withdrew the administrator exemption ADR-101 Decision 6 granted:
-     * an administrator sees another account's worktree and console sessions exactly
+     * an administrator sees another account's worktree and agent sessions exactly
      * as any other non-owner does — not at all.
      */
     @Test
@@ -186,8 +189,8 @@ class IssueWorktreeServiceTest {
     @Test
     void resumeSessionsAreListedForTheIssueNewestFirst(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        ConsoleResumeSessionRepository resumeRepository =
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        AgentSessionResumeSessionRepository resumeRepository =
+                new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         resumeRepository.record("1-174-rename-toggle", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-25T12:00:00Z"));
         resumeRepository.record("1-174-rename-toggle", "codex", "bbbbbbbb-0000-0000-0000-000000000000",
@@ -200,17 +203,17 @@ class IssueWorktreeServiceTest {
         IssueWorktreeService service = service(dbDir, repository, resumeRepository);
 
         assertThat(service.resumeSessionsForIssue(1, 174, "alice"))
-                .extracting(ConsoleResumeSessionRecord::resumeId)
+                .extracting(AgentSessionResumeSessionRecord::resumeId)
                 .containsExactly("bbbbbbbb-0000-0000-0000-000000000000", "aaaaaaaa-0000-0000-0000-000000000000");
     }
 
     @Test
-    void resumeSessionsExcludesALegacyMainConsolesConversation(@TempDir Path dbDir) {
+    void resumeSessionsExcludesALegacyMainAgentSessionsConversation(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        ConsoleResumeSessionRepository resumeRepository =
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
-        // #341 retired opening a console against the project's main checkout; a
-        // conversation captured in one of these legacy consoles can never be
+        AgentSessionResumeSessionRepository resumeRepository =
+                new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        // #341 retired opening an agent session against the project's main checkout; a
+        // conversation captured in one of these legacy agent sessions can never be
         // resumed (there is no worktree that contains it), so it never appears here.
         resumeRepository.record("1-174-main-a1b2c3d4", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-25T12:00:00Z"));
@@ -220,52 +223,52 @@ class IssueWorktreeServiceTest {
         IssueWorktreeService service = service(dbDir, repository, resumeRepository);
 
         assertThat(service.resumeSessionsForIssue(1, 174, "alice"))
-                .extracting(ConsoleResumeSessionRecord::worktreeId)
+                .extracting(AgentSessionResumeSessionRecord::worktreeId)
                 .containsExactly("1-174-rename-toggle");
     }
 
     @Test
-    void resumeSessionsFollowTheConsolesProjectOwnershipAndTreatAClosedConsoleAsVisibleToAnyone(@TempDir Path dbDir) {
+    void resumeSessionsFollowTheAgentSessionsProjectOwnershipAndTreatAClosedAgentSessionAsVisibleToAnyone(@TempDir Path dbDir) {
         createProject(dbDir, "alice", "one"); // project 1
         createProject(dbDir, "bob", "bobs"); // project 2, owned by bob -- not alice
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        ConsoleResumeSessionRepository resumeRepository =
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        AgentSessionResumeSessionRepository resumeRepository =
+                new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
         Instant now = Instant.parse("2026-08-25T12:00:00Z");
-        repository.recordAttach("2-174-bobs-console", dbDir.resolve("wt1"), now, "bob");
-        repository.recordAttach("1-174-alices-console", dbDir.resolve("wt2"), now, "alice");
-        resumeRepository.record("2-174-bobs-console", "claude", "aaaaaaaa-0000-0000-0000-000000000000", now);
-        resumeRepository.record("1-174-alices-console", "claude", "bbbbbbbb-0000-0000-0000-000000000000", now);
-        // No session record at all — the console was closed (#75), which deletes it.
-        resumeRepository.record("1-174-closed-console", "codex", "cccccccc-0000-0000-0000-000000000000", now);
+        repository.recordAttach("2-174-bobs-agent-session", dbDir.resolve("wt1"), now, "bob");
+        repository.recordAttach("1-174-alices-agent-session", dbDir.resolve("wt2"), now, "alice");
+        resumeRepository.record("2-174-bobs-agent-session", "claude", "aaaaaaaa-0000-0000-0000-000000000000", now);
+        resumeRepository.record("1-174-alices-agent-session", "claude", "bbbbbbbb-0000-0000-0000-000000000000", now);
+        // No session record at all — the agent session was closed (#75), which deletes it.
+        resumeRepository.record("1-174-closed-agent-session", "codex", "cccccccc-0000-0000-0000-000000000000", now);
 
         IssueWorktreeService service = service(dbDir, repository, resumeRepository);
 
         assertThat(service.resumeSessionsForIssue(1, 174, "alice"))
-                .extracting(ConsoleResumeSessionRecord::resumeId)
+                .extracting(AgentSessionResumeSessionRecord::resumeId)
                 .containsExactlyInAnyOrder("bbbbbbbb-0000-0000-0000-000000000000",
                         "cccccccc-0000-0000-0000-000000000000");
     }
 
     @Test
-    void theSameConversationSightedInTwoConsolesIsListedOnceAtItsNewestSighting(@TempDir Path dbDir) {
+    void theSameConversationSightedInTwoAgentSessionsIsListedOnceAtItsNewestSighting(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
-        ConsoleResumeSessionRepository resumeRepository =
-                new ConsoleResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
-        resumeRepository.record("1-174-first-console", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+        AgentSessionResumeSessionRepository resumeRepository =
+                new AgentSessionResumeSessionRepository(TestSqliteDatabases.newDataSource(dbDir));
+        resumeRepository.record("1-174-first-agent-session", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-25T12:00:00Z"));
-        resumeRepository.record("1-174-second-console", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
+        resumeRepository.record("1-174-second-agent-session", "claude", "aaaaaaaa-0000-0000-0000-000000000000",
                 Instant.parse("2026-08-26T12:00:00Z"));
 
         IssueWorktreeService service = service(dbDir, repository, resumeRepository);
 
         assertThat(service.resumeSessionsForIssue(1, 174, "alice"))
-                .extracting(ConsoleResumeSessionRecord::worktreeId)
-                .containsExactly("1-174-second-console");
+                .extracting(AgentSessionResumeSessionRecord::worktreeId)
+                .containsExactly("1-174-second-agent-session");
     }
 
     @Test
-    void hasAnySessionsIsTrueForAWorktreeOrAConsoleRegardlessOfOwner(@TempDir Path dbDir) {
+    void hasAnySessionsIsTrueForAWorktreeOrAAgentSessionRegardlessOfOwner(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");
         repository.recordAttach("1-174-bobs-session", dbDir.resolve("wt1"), now, "bob");
@@ -277,7 +280,7 @@ class IssueWorktreeServiceTest {
     }
 
     @Test
-    void hasAnySessionsIsTrueForAProjectConsoleWithNoIssue(@TempDir Path dbDir) {
+    void hasAnySessionsIsTrueForAProjectAgentSessionWithNoIssue(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");
         repository.recordAttach("1-console-0a1b2c3d", dbDir.resolve("wt1"), now, "alice");
@@ -299,7 +302,7 @@ class IssueWorktreeServiceTest {
     // #585: the cleanup sweep's own per-issue worktree listing no longer sources from
     // this class's persisted records at all -- it moved to
     // WorktreeCleanupSweeper#allIssueWorktrees(), which asks git directly, the same
-    // way WorktreeCleanupSweeperTest already covers allProjectConsoleWorktrees().
+    // way WorktreeCleanupSweeperTest already covers allProjectAgentSessionWorktrees().
 
     @Test
     void allWorktreeIdsSpansEveryIssueInOneProjectRegardlessOfAttacherButExcludesOtherProjectsAndNonConformingIds(
@@ -352,7 +355,7 @@ class IssueWorktreeServiceTest {
     }
 
     private static IssueWorktreeService service(Path dbDir, WorktreeSessionRepository repository,
-            ConsoleResumeSessionRepository resumeRepository) {
+            AgentSessionResumeSessionRepository resumeRepository) {
         return new IssueWorktreeService(repository, resumeRepository, authorization(dbDir));
     }
 
@@ -362,7 +365,7 @@ class IssueWorktreeServiceTest {
     }
 
     @Test
-    void deleteSessionsForProjectRemovesWorktreesAndConsolesForThatProjectOnly(@TempDir Path dbDir) {
+    void deleteSessionsForProjectRemovesWorktreesAndAgentSessionsForThatProjectOnly(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Instant now = Instant.parse("2026-08-25T12:00:00Z");
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), now, "alice");
