@@ -1,6 +1,6 @@
 package dev.locklane.engine.ws;
 
-import dev.locklane.engine.persistence.ProjectConsoleService;
+import dev.locklane.engine.persistence.ProjectAgentSessionService;
 import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
 import dev.locklane.engine.pty.PtySession;
 import dev.locklane.engine.pty.PtySession.OutputListener;
@@ -132,7 +132,7 @@ class TerminalWebSocketHandlerSerializedWritesTest {
         when(registry.attach(eq("s1"), any(), any(), anyString(), any(), any(), any())).thenReturn(pty);
         WorktreeSessionAuthorization authorization = mock(WorktreeSessionAuthorization.class);
         when(authorization.isVisibleTo(eq("s1"), anyString())).thenReturn(true);
-        TerminalWebSocketHandler handler = new TerminalWebSocketHandler(registry, mock(ProjectConsoleService.class),
+        TerminalWebSocketHandler handler = new TerminalWebSocketHandler(registry, mock(ProjectAgentSessionService.class),
                 authorization, Clock.systemUTC(), 60_000L);
 
         List<SingleWriterSocket> sockets = new ArrayList<>();

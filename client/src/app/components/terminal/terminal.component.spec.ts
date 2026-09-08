@@ -198,12 +198,12 @@ describe('TerminalComponent', () => {
       writeText: (): Promise<void> => Promise.reject(new Error('denied')),
     } as unknown as Clipboard);
     spyOn(document, 'execCommand').and.returnValue(false);
-    const consoleErrorSpy = spyOn(console, 'error');
+    const agentSessionErrorSpy = spyOn(console, 'error');
 
     handler(copyChordEvent(false, true));
     tick();
 
-    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(agentSessionErrorSpy).toHaveBeenCalled();
   }));
 
   it('loads the clipboard addon so an OSC 52 write from the PTY application is not dropped (#435)', () => {
@@ -373,7 +373,7 @@ describe('TerminalComponent', () => {
 
   it('refits on a container resize that happens while the tab is hidden (#375)', fakeAsync(() => {
     // The debounced refit used to be gated on the tab being active, so a window resize
-    // while a console sat in the background was simply dropped and the tab kept the
+    // while an agent session sat in the background was simply dropped and the tab kept the
     // size it had before. It is measurable while hidden now, so it must react.
     const originalResizeObserver = window.ResizeObserver;
     // The component's own ResizeObserver is constructed synchronously here, before

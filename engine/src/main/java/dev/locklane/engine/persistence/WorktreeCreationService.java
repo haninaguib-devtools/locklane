@@ -29,12 +29,12 @@ import java.util.regex.Pattern;
  * model (ADR-002); a session that silently reused the main checkout would undermine
  * that. See the task record for the full reasoning.
  *
- * <p>Since #340, opening a console never mints a {@code wip/<id>-<slug>} branch itself:
+ * <p>Since #340, opening an agent session never mints a {@code wip/<id>-<slug>} branch itself:
  * if one already exists for the issue (locally or on origin) it is checked out — work
  * is already in flight there — otherwise the worktree is created detached at the
  * current tip of the project's trunk on origin, leaving branch creation to
  * {@code /t-work} once implementation actually starts (see {@link #openIssueWorktree}).
- * A console opened only to discuss or plan an issue therefore leaves no branch behind.
+ * An agent session opened only to discuss or plan an issue therefore leaves no branch behind.
  *
  * <p>Since #582 that trunk is the branch the project recorded when its checkout was
  * set up ({@link ProjectRecord#defaultBranch}, e.g. {@code master} for a repository
@@ -44,15 +44,15 @@ import java.util.regex.Pattern;
  * {@code fatal: invalid reference: origin/main}, on any project whose trunk is called
  * something else.
  *
- * <p>Since #592, opening an issue console whose {@code wip/<id>-<slug>} branch is
- * still checked out in one of this engine's own closed project-console worktrees —
- * the ordinary outcome of running {@code /t-work} inside a project console and then
+ * <p>Since #592, opening an issue agent session whose {@code wip/<id>-<slug>} branch is
+ * still checked out in one of this engine's own closed project-agent-session worktrees —
+ * the ordinary outcome of running {@code /t-work} inside a project agent session and then
  * closing its tab while the work is un-landed — releases that branch itself instead
  * of failing on git's one-checkout-per-branch rule: a holder with no live session and
  * no uncommitted changes is detached at the project's trunk (the idle state a fresh
- * project console starts in, so the cleanup sweep removes it normally), and anything
+ * project agent session starts in, so the cleanup sweep removes it normally), and anything
  * else is refused with the holder's path and the reason in the message — see
- * {@link #releaseBranchHeldByConsoleWorktree}.
+ * {@link #releaseBranchHeldByAgentSessionWorktree}.
  *
  * <p>Since #43, the checkout a session is created against is resolved per project
  * (each project's own workarea, from {@link ProjectRepository}) rather than a
@@ -137,7 +137,7 @@ public class WorktreeCreationService {
      * let several sessions share the one checkout every {@code git worktree}
      * operation and the cleanup sweep themselves run from — exactly what the
      * workflow forbids, and in the one place it could break worst). A project
-     * console (#314) covers the "a console with no worktree yet" use case this
+     * agent session (#314) covers the "an agent session with no worktree yet" use case this
      * used to serve, with its own cheap detached scratch worktree instead.
      */
     public Optional<StartedSession> startSession(long projectId, int issueNumber, String requestingUsername) {
@@ -178,18 +178,18 @@ public class WorktreeCreationService {
 
     /**
      * Mints a brand-new session for reopening a past Claude/Codex conversation
-     * (#103) next to the console it was captured in — never a reattach: the
-     * original console may still be running, and the point is a second console
+     * (#103) next to the agent session it was captured in — never a reattach: the
+     * original agent session may still be running, and the point is a second agent session
      * resuming the same conversation. The new session runs in the original
-     * console's working directory, because Claude keys stored conversations by
+     * agent session's working directory, because Claude keys stored conversations by
      * directory: the original session's recorded directory when that record still
      * exists, otherwise the issue's worktree path (recreated if it is gone). The
      * minted id keeps the "-resume-" shape so it lists under the issue like any
-     * other console without ever being mistaken for the issue's one reusable
+     * other agent session without ever being mistaken for the issue's one reusable
      * worktree session. Empty when the project is not ready, {@code
      * originalWorktreeId} does not belong to this project's issue, or {@code
-     * originalWorktreeId} is a legacy {@code "...-main-..."} console (#341
-     * retired opening a console against the project's main checkout, and a
+     * originalWorktreeId} is a legacy {@code "...-main-..."} agent session (#341
+     * retired opening an agent session against the project's main checkout, and a
      * conversation captured there can only ever be resumed there — there is no
      * worktree that would actually contain it, so this is refused deliberately
      * rather than silently resumed in the wrong directory; the controller's
@@ -224,10 +224,10 @@ public class WorktreeCreationService {
     }
 
     /**
-     * Where a conversation captured in {@code worktreeId} actually ran — the console's
+     * Where a conversation captured in {@code worktreeId} actually ran — the agent session's
      * recorded working directory while that record exists, and otherwise the issue's
-     * one sibling checkout, whether or not it is still on disk. The project-console
-     * counterpart is {@link ProjectConsoleService#conversationDirectory}.
+     * one sibling checkout, whether or not it is still on disk. The project-agent-session
+     * counterpart is {@link ProjectAgentSessionService#conversationDirectory}.
      *
      * <p>#373 needs this to read a conversation's generated title: Claude and OpenCode
      * both file a stored conversation under the directory it ran in, so the title
@@ -270,7 +270,7 @@ public class WorktreeCreationService {
      * {@code ProjectCheckoutService} detected and {@code ProjectRepository#markReady}
      * recorded, so a {@code master} project resolves to {@code origin/master} — or
      * {@code origin/}{@link #DEFAULT_TRUNK} when the record carries none. Package-visible
-     * so {@link ProjectConsoleService} resolves it the same way.
+     * so {@link ProjectAgentSessionService} resolves it the same way.
      */
     static String trunkRef(ProjectRecord project) {
         return trunkRef(project.defaultBranch());
@@ -285,8 +285,8 @@ public class WorktreeCreationService {
     /**
      * Runs a real {@code git worktree add} for {@code branch} at {@code worktreePath}
      * inside {@code projectRoot} — package-visible (and static: it touches no
-     * instance state) so {@link ProjectConsoleService} (#314) can reuse the exact
-     * same git plumbing for a project console's own sibling worktree, rather than
+     * instance state) so {@link ProjectAgentSessionService} (#314) can reuse the exact
+     * same git plumbing for a project agent session's own sibling worktree, rather than
      * duplicating it. A branch that does not exist yet is created from
      * {@code trunkRef} ({@link #trunkRef}, #582). {@code credential} authenticates the
      * initial {@code git fetch} as the project's account (#569).
@@ -313,23 +313,23 @@ public class WorktreeCreationService {
     }
 
     /**
-     * Opens the one worktree an issue console runs in, git-wise (#340): if a
+     * Opens the one worktree an issue agent session runs in, git-wise (#340): if a
      * {@code wip/<issueNumber>-*} branch already exists — locally or on origin, work is
      * already in flight there — check it out, so naming/branch-creation authority stays
-     * with {@code /t-work} rather than being split between it and console-open.
+     * with {@code /t-work} rather than being split between it and agent-session-open.
      * Otherwise no branch is minted here at all: the worktree is created detached at
      * the current {@code trunkRef} — the project's trunk on origin, {@link #trunkRef}
-     * (#582) — so a console opened only to discuss or plan leaves no machine-made
+     * (#582) — so an agent session opened only to discuss or plan leaves no machine-made
      * branch behind. When the worktree already exists on disk — a still-standing
-     * checkout from an earlier console — and it is idle (detached, clean, its
+     * checkout from an earlier agent session — and it is idle (detached, clean, its
      * {@code HEAD} entirely contained in {@code trunkRef}'s history, i.e. no commits
      * of its own), it is refreshed to the current {@code trunkRef} rather than handed
      * back as stale as the day it was created; a worktree carrying a branch, dirty
      * state, or its own commits is left untouched.
      *
      * <p>A branch that already exists may be checked out in another worktree — since
-     * #592 one of this engine's own project-console worktrees holding it is released
-     * first, or the open fails naming it ({@link #releaseBranchHeldByConsoleWorktree}),
+     * #592 one of this engine's own project-agent-session worktrees holding it is released
+     * first, or the open fails naming it ({@link #releaseBranchHeldByAgentSessionWorktree}),
      * rather than tripping over git's {@code already used by worktree} refusal with
      * nothing a user can act on.
      */
@@ -344,7 +344,7 @@ public class WorktreeCreationService {
 
         Optional<String> branch = existingBranch(issueNumber, projectRoot);
         if (branch.isPresent()) {
-            releaseBranchHeldByConsoleWorktree(branch.get(), projectRoot, trunkRef);
+            releaseBranchHeldByAgentSessionWorktree(branch.get(), projectRoot, trunkRef);
         }
         ProcessOutcome result = branch.isPresent()
                 ? run("git", "-C", projectRoot.toString(), "worktree", "add", worktreePath.toString(), branch.get())
@@ -363,17 +363,17 @@ public class WorktreeCreationService {
      * Frees {@code branch} for the {@code git worktree add} that follows when another
      * worktree of the repository at {@code projectRoot} has it checked out (#592) — git
      * allows a branch in one worktree at a time. Nothing to do when no worktree holds
-     * it. Only a holder this engine created as a project console
-     * ({@code <repoName>-console-<suffix>}, {@code ProjectConsoleService}) is ever
+     * it. Only a holder this engine created as a project agent session
+     * ({@code <repoName>-console-<suffix>}, kept under ADR-112; {@code ProjectAgentSessionService}) is ever
      * released, and only when nothing would be lost: no live session in it
      * ({@link SessionRegistry#hasLiveSessionIn}, the same check the cleanup sweep
      * uses) and a clean {@code git status}. It is then detached at {@code trunkRef} —
      * the branch and every commit on it live on in the issue worktree about to be
      * created, and the holder returns to the idle scratch state a fresh project
-     * console starts in, which the cleanup sweep removes normally (a holder left
+     * agent session starts in, which the cleanup sweep removes normally (a holder left
      * detached at an un-landed commit instead would never satisfy that sweep's
      * "ancestor of trunk" rule, since a squash-merge never lands that exact commit).
-     * A console holder whose directory is already gone is a stale registration and is
+     * An agent session holder whose directory is already gone is a stale registration and is
      * released with {@code git worktree prune}, what git itself suggests there.
      *
      * <p>Every other case refuses with a {@link WorktreeCreationException} whose
@@ -381,7 +381,7 @@ public class WorktreeCreationService {
      * session, uncommitted changes, or a checkout that is not the engine's to detach
      * (the project's main checkout, or a worktree a human made by hand).
      */
-    private void releaseBranchHeldByConsoleWorktree(String branch, Path projectRoot, String trunkRef) {
+    private void releaseBranchHeldByAgentSessionWorktree(String branch, Path projectRoot, String trunkRef) {
         Optional<Path> holder = worktreeHolding(branch, projectRoot);
         if (holder.isEmpty()) {
             return;
@@ -389,10 +389,11 @@ public class WorktreeCreationService {
         Path holderPath = holder.get();
         String held = "branch '" + branch + "' is checked out in another worktree at " + holderPath + ", ";
         Path holderName = holderPath.getFileName();
-        boolean consoleWorktree = holderName != null
+        // "-console-" is the persisted session id and worktree directory shape, kept under ADR-112.
+        boolean agentSessionWorktree = holderName != null
                 && holderName.toString().startsWith(repoName(projectRoot) + "-console-");
-        if (!consoleWorktree) {
-            throw new WorktreeCreationException(held + "which is not a project-console worktree this engine "
+        if (!agentSessionWorktree) {
+            throw new WorktreeCreationException(held + "which is not a project-agent-session worktree this engine "
                     + "manages, so it was not released — detach or remove that checkout by hand first");
         }
         if (!Files.isDirectory(holderPath)) {
@@ -406,8 +407,8 @@ public class WorktreeCreationService {
             return;
         }
         if (sessionRegistry.hasLiveSessionIn(holderPath)) {
-            throw new WorktreeCreationException(held + "and a console session is still attached to it, so it "
-                    + "was not released — close that console first");
+            throw new WorktreeCreationException(held + "and an agent session is still attached to it, so it "
+                    + "was not released — close that agent session first");
         }
         ProcessOutcome status = run("git", "-C", holderPath.toString(), "status", "--porcelain");
         if (status.failed()) {
@@ -428,7 +429,7 @@ public class WorktreeCreationService {
         if (detach.failed()) {
             throw new WorktreeCreationException(held + "and detaching it failed: " + detach.describe());
         }
-        log.info("Released branch '{}' from idle console worktree {} (detached at {})", branch, holderPath,
+        log.info("Released branch '{}' from idle agent session worktree {} (detached at {})", branch, holderPath,
                 trunkRef);
     }
 
@@ -517,9 +518,9 @@ public class WorktreeCreationService {
      * {@code projectRoot}, at current {@code trunkRef} — the project's trunk on origin,
      * {@link #trunkRef} (#582) — no branch is created or checked out (#338).
      * Package-visible (and static, like {@link #createWorktree}) so
-     * {@link ProjectConsoleService} can reuse it for a project console's sibling
-     * worktree: a console exists for pre-issue discussion and almost never commits,
-     * so minting it a branch left one behind on disk permanently for every console
+     * {@link ProjectAgentSessionService} can reuse it for a project agent session's sibling
+     * worktree: an agent session exists for pre-issue discussion and almost never commits,
+     * so minting it a branch left one behind on disk permanently for every agent session
      * ever opened. The worktree still gives full file isolation between sessions; a
      * session that legitimately transitions to task work gets its proper
      * {@code wip/<id>-<slug>} branch from {@code /t-work} at that point instead.
@@ -549,7 +550,7 @@ public class WorktreeCreationService {
         createDetachedWorktree(worktreePath, projectRoot, "origin/" + DEFAULT_TRUNK, credential);
     }
 
-    /** Package-visible for the same reason as {@link #createWorktree}: shared with {@link ProjectConsoleService}. */
+    /** Package-visible for the same reason as {@link #createWorktree}: shared with {@link ProjectAgentSessionService}. */
     static String repoName(Path projectRoot) {
         Path name = projectRoot.getFileName();
         return name != null ? name.toString() : "repo";

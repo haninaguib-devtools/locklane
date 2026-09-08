@@ -92,10 +92,10 @@ class EventsWebSocketHandlerIntegrationTest {
         // on the real observable condition — the message actually landing. Waiting on
         // this exact message rather than "any message" matters now that every
         // connection also gets an unrelated engineVersion greeting (#273) up front.
-        String expected = "{\"type\":\"console.attention\",\"consoleId\":\"7-worktree\"}";
+        String expected = "{\"type\":\"agentSession.attention\",\"agentSessionId\":\"7-worktree\"}";
         waitUntil(() -> {
             if (!client.messages.contains(expected)) {
-                eventBroadcaster.broadcast("console.attention", Map.of("consoleId", "7-worktree"));
+                eventBroadcaster.broadcast("agentSession.attention", Map.of("agentSessionId", "7-worktree"));
             }
             return client.messages.contains(expected);
         }, Duration.ofSeconds(5));

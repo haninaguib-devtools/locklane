@@ -23,8 +23,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Forwards plain HTTP traffic under {@code /api/projects/{projectId}/consoles/{id}/ide/}
- * to that console's loopback code-server (#655) — pages, scripts, the editor's
+ * Forwards plain HTTP traffic under {@code /api/projects/{projectId}/consoles/{id} (a path kept under ADR-112)/ide/}
+ * to that agent session's loopback code-server (#655) — pages, scripts, the editor's
  * resource and extension requests — once {@link CodeServerProxyAuthorization} has
  * admitted the caller. Mapped by {@link CodeServerProxyConfig} behind the WebSocket
  * handler mapping, so an {@code Upgrade: websocket} request on the same path family

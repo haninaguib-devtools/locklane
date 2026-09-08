@@ -12,9 +12,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
- * Opens a console's worktree in a desktop IDE on the engine host (#781) — VS Code or
+ * Opens an agent session's worktree in a desktop IDE on the engine host (#781) — VS Code or
  * IntelliJ IDEA, the way {@code FileManagerLauncher} opens it in the OS file manager
- * for "Folder". The worktree is resolved server-side from the console id via
+ * for "Folder". The worktree is resolved server-side from the agent session id via
  * {@link SessionRegistry}, so the client never sends a path and cannot open an
  * arbitrary one; which IDE, and how it was found, comes from {@link InstalledIdesStore}
  * through the {@link InstalledIde} the caller passes.
@@ -64,11 +64,11 @@ public class DesktopIdeLauncher {
     }
 
     /**
-     * Launches {@code ide} on {@code consoleId}'s worktree; {@code false} and no launch
-     * at all when the console id names no known working directory.
+     * Launches {@code ide} on {@code agentSessionId}'s worktree; {@code false} and no launch
+     * at all when the agent session id names no known working directory.
      */
-    public boolean launch(String consoleId, InstalledIde ide) {
-        Optional<Path> workingDirectory = sessionRegistry.lastKnownWorkingDirectory(consoleId);
+    public boolean launch(String agentSessionId, InstalledIde ide) {
+        Optional<Path> workingDirectory = sessionRegistry.lastKnownWorkingDirectory(agentSessionId);
         if (workingDirectory.isEmpty()) {
             return false;
         }
@@ -77,10 +77,10 @@ public class DesktopIdeLauncher {
         try {
             processRunner.run(command);
         } catch (IOException e) {
-            log.warn("Could not launch {} for console {} at {}", ide.id(), consoleId, workingDirectory.get(), e);
+            log.warn("Could not launch {} for agent session {} at {}", ide.id(), agentSessionId, workingDirectory.get(), e);
             throw new DesktopIdeLaunchException(e);
         }
-        log.info("Launched {} for console {} at {}", ide.id(), consoleId, workingDirectory.get());
+        log.info("Launched {} for agent session {} at {}", ide.id(), agentSessionId, workingDirectory.get());
         return true;
     }
 

@@ -37,11 +37,11 @@ public class WorktreeController {
     private final IssueWorktreeService service;
     private final WorktreeCreationService creationService;
     private final SessionRegistry sessionRegistry;
-    private final ConsoleSessionTitles titles;
+    private final AgentSessionTitles titles;
     private final InstalledAgentsStore agents;
 
     public WorktreeController(IssueWorktreeService service, WorktreeCreationService creationService,
-            SessionRegistry sessionRegistry, ConsoleSessionTitles titles, InstalledAgentsStore agents) {
+            SessionRegistry sessionRegistry, AgentSessionTitles titles, InstalledAgentsStore agents) {
         this.service = service;
         this.creationService = creationService;
         this.sessionRegistry = sessionRegistry;
@@ -70,18 +70,18 @@ public class WorktreeController {
     }
 
     /**
-     * The past Claude/Codex conversations captured in this issue's consoles (#102),
+     * The past Claude/Codex conversations captured in this issue's agent sessions (#102),
      * newest first — what the Overview tab's session list shows (#103). Same
-     * visibility rule as {@link #worktrees}, applied to the console each
+     * visibility rule as {@link #worktrees}, applied to the agent session each
      * conversation was captured in.
      */
     @GetMapping("/{number}/resume-sessions")
     public List<ResumeSessionView> resumeSessions(@PathVariable long projectId, @PathVariable int number,
             Principal principal) {
-        List<ConsoleResumeSessionRecord> records =
+        List<AgentSessionResumeSessionRecord> records =
                 service.resumeSessionsForIssue(projectId, number, principal.getName());
         Map<String, String> byConversation = titles.titlesFor(records.stream()
-                .map(record -> new ConsoleSessionTitles.Sighting(record.tool(), record.resumeId(),
+                .map(record -> new AgentSessionTitles.Sighting(record.tool(), record.resumeId(),
                         creationService.conversationDirectory(projectId, number, record.worktreeId()).orElse(null)))
                 .toList());
         return records.stream()
@@ -92,10 +92,10 @@ public class WorktreeController {
     }
 
     /**
-     * Mints a brand-new console session for resuming a past conversation (#103), in
-     * the working directory of the console ({@code from}) the conversation was
+     * Mints a brand-new agent session for resuming a past conversation (#103), in
+     * the working directory of the agent session ({@code from}) the conversation was
      * captured in. The client attaches to the returned session id with
-     * {@code cmd=<tool>&resume=<id>} exactly as it attaches any other new console.
+     * {@code cmd=<tool>&resume=<id>} exactly as it attaches any other new agent session.
      * {@code 404} when {@code from} carries no conversation the caller may see —
      * same visibility rule as {@link #resumeSessions}.
      */
@@ -115,7 +115,7 @@ public class WorktreeController {
 
     /**
      * One row of {@link #resumeSessions} — mirrored client-side as {@code
-     * ResumeSession}, and shared with {@link ProjectConsoleController}'s own listing so
+     * ResumeSession}, and shared with {@link ProjectAgentSessionController}'s own listing so
      * both pages render through one component. {@code toolLabel} (#695) is
      * {@link InstalledAgentsStore}'s display label for {@code tool}, so the client shows
      * it without knowing any agent's name itself. {@code title} is the short name the

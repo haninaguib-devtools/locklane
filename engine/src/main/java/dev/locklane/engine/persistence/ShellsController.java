@@ -14,10 +14,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Shell-kind console sessions over REST (#445, part of #444): minting a shell at a
+ * Shell-kind sessions over REST (#445, part of #444): minting a shell at a
  * project's issue worktree or main checkout, and the cross-project listing the
  * singleton Shells window's sidenav renders. Same response shape as
- * {@link ProjectConsoleController} ({@code sessionId}/{@code workingDirectory}) and
+ * {@link ProjectAgentSessionController} ({@code sessionId}/{@code workingDirectory}) and
  * the same "the actual ownership gate is the WebSocket attach, not the creation
  * endpoint" split; the listing applies the usual project-owner visibility rule.
  */

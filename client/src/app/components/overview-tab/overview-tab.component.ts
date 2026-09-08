@@ -14,9 +14,9 @@ export class OverviewTabComponent implements OnChanges {
   @Input({ required: true }) issue!: GhIssue;
   @Input() detail: IssueDetail | null = null;
   @Input() repoWebUrl: string | null = null;
-  /** Past Claude/Codex conversations captured in this issue's consoles (#103). */
+  /** Past Claude/Codex conversations captured in this issue's agent sessions (#103). */
   @Input() sessions: ResumeSession[] = [];
-  /** Disables reopening while a console is already being started. */
+  /** Disables reopening while an agent session is already being started. */
   @Input() busy = false;
   @Output() reopen = new EventEmitter<ResumeSession>();
 

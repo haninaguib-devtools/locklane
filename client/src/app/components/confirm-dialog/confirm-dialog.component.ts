@@ -5,8 +5,8 @@ import { Component, EventEmitter, HostListener, Input, Output } from '@angular/c
  * backdrop that dismisses on click, holding a bordered panel whose own clicks do not --
  * the same visual pattern `settings-dialog`/`add-project-popup` already use, rather than
  * a new one. Every "are you sure" prompt in the app renders this, parameterized by its
- * caller: project delete (`project-summary`, `sidenav`) and closing a console
- * (`console-tabs`).
+ * caller: project delete (`project-summary`, `sidenav`) and closing an agent session
+ * (`agent-session-tabs`).
  */
 @Component({
   selector: 'app-confirm-dialog',

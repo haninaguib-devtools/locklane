@@ -159,7 +159,7 @@ public class ProjectController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    /** 409 (#231) when the project still has an open worktree or console session. */
+    /** 409 (#231) when the project still has an open worktree or agent session. */
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable long id, Authentication authentication) {
         if (findAuthorized(id, authentication).isEmpty()) {
@@ -168,7 +168,7 @@ public class ProjectController {
         return switch (checkoutService.delete(id)) {
             case NOT_FOUND -> ResponseEntity.notFound().build();
             case HAS_OPEN_SESSIONS -> ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error",
-                    "This project has an open worktree or console — close it before deleting the project."));
+                    "This project has an open worktree or agent session — close it before deleting the project."));
             case DELETED -> {
                 ghResources.evict(id);
                 yield ResponseEntity.noContent().build();

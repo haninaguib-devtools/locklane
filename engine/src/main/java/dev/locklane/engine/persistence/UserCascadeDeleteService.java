@@ -6,14 +6,14 @@ import java.util.List;
 
 /**
  * Deletes everything a user owned (#240, ADR-101 Decision 4): their projects, those
- * projects' on-disk workarea checkouts, and any worktree/console sessions scoped to
+ * projects' on-disk workarea checkouts, and any worktree/agent sessions scoped to
  * them. The user row itself is deleted last, by the caller
  * ({@link dev.locklane.engine.security.AdminUserController}), once every owned project
  * is confirmed gone — nothing here touches the {@code users} table.
  *
  * <p>Reuses {@link ProjectCheckoutService#forceDelete}, the same removal
  * {@link ProjectCheckoutService#delete} does for a single project, minus that path's
- * refusal on an open worktree/console session — deleting those sessions along with
+ * refusal on an open worktree/agent session — deleting those sessions along with
  * the project is exactly the point when the *owner* is being removed, not a reason to
  * stop.
  *

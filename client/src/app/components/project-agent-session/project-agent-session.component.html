@@ -1,0 +1,76 @@
+<div class="header">
+  <button type="button" class="back" (click)="back()">← back to issues</button>
+</div>
+@if (loading) {
+  <div class="loading">loading…</div>
+} @else if (cloning) {
+    <!-- #537: the add-project popup lands here while the engine is still
+         creating the project; the agent opens itself once it is READY.
+         #717 keeps the wait visibly alive with the same spinner, staged hint,
+         and elapsed counter as the dialog and the sidenav row. -->
+    <div class="loading cloning">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>creating the project… {{ cloneStage }} · {{ cloneElapsedSec }}s — the agent will open when it is ready</span>
+  </div>
+} @else if (failed) {
+  <div class="starter failed">
+    <p class="hint">
+      This project's creation failed, so no agent can be opened here. Retry it from the
+      project page; if it was created from a template, the seeded agent opens on its own
+      once the retry succeeds.
+    </p>
+  </div>
+} @else if (agentSessions.length) {
+  <app-agent-session-tabs
+    [tabs]="tabs"
+    [selected]="selected"
+    [starting]="starting"
+    [overview]="false"
+    [renamable]="true"
+    [defaultAgent]="defaultAgentStore.agent()"
+    [installedAgents]="defaultAgentStore.installed()"
+    (selectedChange)="selectTab($event)"
+    (open)="openFromTabs($event)"
+    (close)="closeAgentSession($event)"
+    (rename)="renameAgentSession($event)"
+    (reveal)="revealAgentSession($event)"
+  />
+  @if (startError) {
+    <div class="action-error strip-error">could not start an agent — try again</div>
+  }
+  @if (closeError) {
+    <div class="action-error strip-error">could not close that agent — try again</div>
+  }
+  @if (renameError) {
+    <div class="action-error strip-error">could not rename that agent — try again</div>
+  }
+  @if (revealError) {
+    <div class="action-error strip-error">could not open the file manager — try again</div>
+  }
+  <!-- The positioning context every tab body is sized against (#375) -- see the same
+       wrapper in main-content.component.html. -->
+  <div class="tab-bodies">
+    @for (agentSession of agentSessions; track agentSession.id) {
+      <app-terminal
+        [class.tab-hidden]="agentSession.id !== selected"
+        [sessionId]="agentSession.id"
+        [dir]="agentSession.dir"
+        [cmd]="agentSession.agent"
+        [resume]="agentSession.resume"
+        [seed]="agentSession.seed"
+        [active]="agentSession.id === selected"
+      />
+    }
+  </div>
+} @else {
+  <div class="starter">
+    <p class="hint">
+      Starting an agent here to open a new issue — the agent runs in its own fresh
+      checkout of this project, with <code>gh</code> available to it.
+    </p>
+    @if (startError) {
+      <div class="action-error">could not start an agent — try again</div>
+      <button type="button" class="retry" (click)="retryStart()">retry</button>
+    }
+  </div>
+}

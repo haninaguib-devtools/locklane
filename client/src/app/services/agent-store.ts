@@ -7,7 +7,7 @@ const STORAGE_KEY = 'locklane.sessionAgents';
 export type Agent = string;
 
 /**
- * Which agent each console session was launched with, keyed by session id.
+ * Which agent each agent session was launched with, keyed by session id.
  * Client-only state, persisted in localStorage: the engine deliberately does not
  * persist a session's launch command (#29), so this is what lets tab labels keep
  * showing an agent's name after a reload. A session opened from another browser

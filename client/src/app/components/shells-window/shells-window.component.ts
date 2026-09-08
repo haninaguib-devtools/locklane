@@ -4,7 +4,7 @@ import { Subscription, filter, merge } from 'rxjs';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { ShellsSidenavComponent } from '../shells-sidenav/shells-sidenav.component';
 import { TerminalComponent } from '../terminal/terminal.component';
-import { EventsService, isConsolesChangedEvent } from '../../services/events.service';
+import { EventsService, isAgentSessionsChangedEvent } from '../../services/events.service';
 import { OpenShell, ShellsService } from '../../services/shells.service';
 import { ProjectsService } from '../../services/projects.service';
 import { Project } from '../../models/issue.model';
@@ -16,15 +16,15 @@ import { WindowChromeDirective } from '../../window-chrome.directive';
  * AppComponent for the `/shells[/:id]` routes with none of the main app's
  * topbar/sidebar — a sidenav of every open shell the caller may see (grouped by
  * project, then issue/main) and the selected shell's terminal in the content area,
- * attached over the same WebSocket pipeline every console uses (`cmd=shell`).
+ * attached over the same WebSocket pipeline every agent session uses (`cmd=shell`).
  *
  * Every listed shell's terminal stays mounted, hidden with CSS when not selected —
- * the same keep-alive pattern the console tab strips use (#30) — so switching
+ * the same keep-alive pattern the agent session tab strips use (#30) — so switching
  * shells never drops a connection or its scrollback. The sidenav follows the
  * app-wide `consolesChanged` event (plus the events socket's own reconnect
  * catch-up), so a shell opened or closed anywhere — another browser tab, or this
  * window itself — appears and disappears without a reload. Closing a shell here
- * asks the same confirmation closing a console tab does, and never closes this
+ * asks the same confirmation closing an agent session tab does, and never closes this
  * window, even when the last shell goes.
  */
 @Component({
@@ -64,7 +64,7 @@ export class ShellsWindowComponent implements OnInit, OnDestroy {
     // (#195; the shell endpoints broadcast it too, #445/#460); a reconnect
     // re-fetches in case a change was missed while the socket was down.
     this.subscriptions.add(
-      merge(this.eventsService.events$.pipe(filter(isConsolesChangedEvent)), this.eventsService.reconnected$)
+      merge(this.eventsService.events$.pipe(filter(isAgentSessionsChangedEvent)), this.eventsService.reconnected$)
         .subscribe(() => this.reload()),
     );
     this.projectsService.list().subscribe({

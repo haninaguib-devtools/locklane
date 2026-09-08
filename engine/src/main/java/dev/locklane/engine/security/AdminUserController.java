@@ -98,7 +98,7 @@ public class AdminUserController {
 
     /**
      * Cascade-deletes the account (ADR-101 Decision 4) — its owned projects, those
-     * projects' on-disk workarea checkouts, and any worktree/console sessions scoped to
+     * projects' on-disk workarea checkouts, and any worktree/agent sessions scoped to
      * them — then the account row itself. 404 for an unknown id, indistinguishable from
      * a bad request; 409 rather than served for an admin's own account, so a caller can
      * never lock themselves out of the account they're using to make this very request.

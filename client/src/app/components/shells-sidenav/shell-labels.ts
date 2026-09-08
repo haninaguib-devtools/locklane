@@ -8,7 +8,7 @@ export interface ShellRow {
 
 /**
  * Row labels for one project's shells, following the tab-label convention
- * (console-labels.ts): the location, plus an index from the second shell of that
+ * (agent-session-labels.ts): the location, plus an index from the second shell of that
  * location on — `Main`, `Main 2`, `#438`, `#438 · wtree 2` — and never an agent
  * suffix, since every row here is already known to be a shell. Order is preserved;
  * the caller passes one project's shells already sorted.

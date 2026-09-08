@@ -19,11 +19,14 @@ import org.springframework.test.web.servlet.MockMvc;
  * controller and failed with a 500 on a null principal (#655's record). The logged-in
  * case here only shows the matcher lets an authenticated caller through to the
  * controller's own answer; the controller's rules themselves — owner-only visibility,
- * the loopback gate — are {@code ConsolesControllerTest}'s.
+ * the loopback gate — are {@code AgentSessionsControllerTest}'s.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 class RevealInFileManagerRouteIntegrationTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     @Autowired
     private MockMvc mockMvc;
@@ -42,7 +45,7 @@ class RevealInFileManagerRouteIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn();
 
-        // No such project or console for this account: the controller's own 404, not
+        // No such project or agent session for this account: the controller's own 404, not
         // the filter chain's 401 -- which is all this test is about.
         mockMvc.perform(post("/api/projects/1/consoles/1-174-rename-toggle/reveal-in-file-manager")
                         .session((MockHttpSession) loginResult.getRequest().getSession(false)))

@@ -4,11 +4,15 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { Router, provideRouter } from '@angular/router';
 import { ProjectSummaryComponent, countIssues } from './project-summary.component';
 import { Project, ResumeSession, TreeNode } from '../../models/issue.model';
-import { OpenProjectConsole } from '../../services/project-console.service';
+import { OpenProjectAgentSession } from '../../services/project-agent-session.service';
 import { OpenShell } from '../../services/shells.service';
 import { AgentStore } from '../../services/agent-store';
-import { ConsolesService } from '../../services/consoles.service';
-import { LastConsoleStore } from '../../services/last-console-store';
+import { AgentSessionsService } from '../../services/agent-sessions.service';
+import { LastAgentSessionStore } from '../../services/last-agent-session-store';
+
+// Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
+// /console and /consoles REST paths and the 'console' route segment below keep their persisted and
+// on-the-wire shape: compatibility surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
 describe('ProjectSummaryComponent', () => {
 
@@ -45,7 +49,7 @@ describe('ProjectSummaryComponent', () => {
     ];
   }
 
-  function session(sessionId: string, createdAt = '2026-08-27T09:00:00Z'): OpenProjectConsole {
+  function session(sessionId: string, createdAt = '2026-08-27T09:00:00Z'): OpenProjectAgentSession {
     return { sessionId, workingDirectory: '/tmp/a', createdAt, lastAttachedAt: createdAt };
   }
 
@@ -102,8 +106,8 @@ describe('ProjectSummaryComponent', () => {
   /**
    * Creates the component for a project id and flushes its requests: the project
    * list and issue tree always, the installed-agents list (#695: `ngOnInit` fetches
-   * it so "Open console" launches with the right fallback default), plus the
-   * open-consoles list, the past-sessions list (#752), and the worktree list (#320),
+   * it so "Open agent" launches with the right fallback default), plus the
+   * open-agent-sessions list, the past-sessions list (#752), and the worktree list (#320),
    * which also fetches every open shell (#733), whenever the target project is READY
    * (#221) -- a cloning or failed project never fetches any of these.
    */
@@ -111,7 +115,7 @@ describe('ProjectSummaryComponent', () => {
     projects: Project[] = [PROJECT],
     nodes: TreeNode[] = tree(),
     projectId = 1,
-    consoles: OpenProjectConsole[] = [],
+    agentSessions: OpenProjectAgentSession[] = [],
     installedAgents = ALL_AGENTS,
     shells: OpenShell[] = [],
     pastSessions: ResumeSession[] = [],
@@ -123,7 +127,7 @@ describe('ProjectSummaryComponent', () => {
     httpMock.expectOne('/api/projects').flush(projects);
     const ready = projects.find((p) => p.id === projectId)?.status === 'READY';
     if (ready) {
-      httpMock.expectOne(`/api/projects/${projectId}/console/sessions`).flush(consoles);
+      httpMock.expectOne(`/api/projects/${projectId}/console/sessions`).flush(agentSessions);
       httpMock.expectOne(`/api/projects/${projectId}/console/resume-sessions`).flush(pastSessions);
     }
     httpMock.expectOne(`/api/projects/${projectId}/issues/tree`).flush({ nodes: nodes, github: GITHUB_OK });
@@ -222,19 +226,19 @@ describe('ProjectSummaryComponent', () => {
     expect(text).toContain('could not load the issue counts');
   });
 
-  it('hides the console button while the project is still cloning', () => {
+  it('hides the agent session button while the project is still cloning', () => {
     const fixture = init([{ ...PROJECT, status: 'CLONING' }]);
 
-    expect((fixture.nativeElement as HTMLElement).querySelector('.console-button')).toBeFalsy();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.agent-session-button')).toBeFalsy();
   });
 
   it('reads "Open agent" and starts one, landing on it with the default agent, when none is open (#221)', () => {
     const fixture = init();
     const opened = jasmine.createSpy('onOpened');
-    TestBed.inject(ConsolesService).onOpened.subscribe(opened);
+    TestBed.inject(AgentSessionsService).onOpened.subscribe(opened);
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
-    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.agent-session-button')!;
     expect(button.textContent?.trim()).toBe('Open agent');
     button.click();
     fixture.detectChanges();
@@ -244,13 +248,13 @@ describe('ProjectSummaryComponent', () => {
     expect(req.request.method).toBe('POST');
     req.flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
     fixture.detectChanges();
-    // Starting a console notifies ConsolesService.onOpened (below), which the
+    // Starting an agent session notifies AgentSessionsService.onOpened (below), which the
     // worktree list's shell listing also reacts to (#733) to stay live.
     httpMock.expectOne('/api/shells').flush([]);
 
     // `dir` rides along (#795): the engine does not list a never-attached session,
-    // so the console page adds the tab from the handoff itself rather than
-    // auto-starting a second console.
+    // so the agent session page adds the tab from the handoff itself rather than
+    // auto-starting a second agent session.
     expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
       queryParams: { session: 'proj-1-console-abc', dir: '/tmp/a' },
     });
@@ -258,12 +262,12 @@ describe('ProjectSummaryComponent', () => {
     expect(opened).toHaveBeenCalled();
   });
 
-  it('uses the Settings default agent (not a hardcoded one) when starting a console', () => {
+  it('uses the Settings default agent (not a hardcoded one) when starting an agent session', () => {
     localStorage.setItem('locklane.defaultAgent', 'codex');
     const fixture = init();
     spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!.click();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.agent-session-button')!.click();
     httpMock
       .expectOne('/api/projects/1/console')
       .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
@@ -272,25 +276,25 @@ describe('ProjectSummaryComponent', () => {
     expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('codex');
   });
 
-  it('shows an error and re-arms the button when starting a console fails', () => {
+  it('shows an error and re-arms the button when starting an agent session fails', () => {
     const fixture = init();
 
-    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.agent-session-button')!;
     button.click();
     httpMock.expectOne('/api/projects/1/console').flush(null, { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.consoleError).toBeTrue();
+    expect(fixture.componentInstance.agentSessionError).toBeTrue();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not start an agent');
     expect(button.disabled).toBeFalse();
   });
 
   it('reads "Open agents" and navigates to the most recently interacted-with one when any are open (#221)', () => {
     const fixture = init([PROJECT], tree(), 1, [session('proj-1-console-a'), session('proj-1-console-b')]);
-    TestBed.inject(LastConsoleStore).set(1, 'proj-1-console-b');
+    TestBed.inject(LastAgentSessionStore).set(1, 'proj-1-console-b');
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
-    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!;
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.agent-session-button')!;
     expect(button.textContent?.trim()).toBe('Open agents');
     button.click();
 
@@ -299,23 +303,23 @@ describe('ProjectSummaryComponent', () => {
     });
   });
 
-  it('falls back to the last console in the list when there is no recorded recency (#221)', () => {
+  it('falls back to the last agent session in the list when there is no recorded recency (#221)', () => {
     const fixture = init([PROJECT], tree(), 1, [session('proj-1-console-a'), session('proj-1-console-b')]);
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!.click();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.agent-session-button')!.click();
 
     expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
       queryParams: { session: 'proj-1-console-b' },
     });
   });
 
-  it('falls back to the last console in the list when the recorded one is no longer open (#221)', () => {
+  it('falls back to the last agent session in the list when the recorded one is no longer open (#221)', () => {
     const fixture = init([PROJECT], tree(), 1, [session('proj-1-console-a'), session('proj-1-console-b')]);
-    TestBed.inject(LastConsoleStore).set(1, 'proj-1-console-gone');
+    TestBed.inject(LastAgentSessionStore).set(1, 'proj-1-console-gone');
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.console-button')!.click();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.agent-session-button')!.click();
 
     expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
       queryParams: { session: 'proj-1-console-b' },
@@ -511,7 +515,7 @@ describe('ProjectSummaryComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not set the accent color');
   });
 
-  it('shows the backend refusal inline when the project has an open worktree or console', () => {
+  it('shows the backend refusal inline when the project has an open worktree or agent session', () => {
     const fixture = init();
     fixture.componentInstance.openDeleteConfirm();
     const router = TestBed.inject(Router);
@@ -522,17 +526,17 @@ describe('ProjectSummaryComponent', () => {
     httpMock
       .expectOne(`/api/projects/${PROJECT.id}`)
       .flush(
-        { error: 'This project has an open worktree or console — close it before deleting the project.' },
+        { error: 'This project has an open worktree or agent session — close it before deleting the project.' },
         { status: 409, statusText: 'Conflict' },
       );
 
     expect(navigateSpy).not.toHaveBeenCalled();
     expect(fixture.componentInstance.deleteError).toBe(
-      'This project has an open worktree or console — close it before deleting the project.',
+      'This project has an open worktree or agent session — close it before deleting the project.',
     );
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
-      'This project has an open worktree or console',
+      'This project has an open worktree or agent session',
     );
   });
 
@@ -580,11 +584,11 @@ describe('ProjectSummaryComponent', () => {
       expect(compiled.textContent).toContain('release notes');
     });
 
-    it('reopens a past conversation and navigates to the console page with it selected, carrying the resume info', () => {
+    it('reopens a past conversation and navigates to the agent session page with it selected, carrying the resume info', () => {
       const fixture = init([PROJECT], tree(), 1, [], ALL_AGENTS, [], [pastSession()]);
       const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
       const opened = jasmine.createSpy('onOpened');
-      TestBed.inject(ConsolesService).onOpened.subscribe(opened);
+      TestBed.inject(AgentSessionsService).onOpened.subscribe(opened);
 
       (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('app-session-list .reopen')!.click();
 
@@ -596,10 +600,10 @@ describe('ProjectSummaryComponent', () => {
       expect(reopen.request.method).toBe('POST');
       reopen.flush({ sessionId: '1-console-a1b2c3d4-resume-99887766', workingDirectory: '/tmp/a' });
       // notifyOpened() (below) is also what the worktree list's own shell listing
-      // reacts to (#733), the same as starting an ordinary console (#221).
+      // reacts to (#733), the same as starting an ordinary agent session (#221).
       httpMock.expectOne('/api/shells').flush([]);
 
-      // `dir` is the reopen response's working directory (#795): the console page
+      // `dir` is the reopen response's working directory (#795): the agent session page
       // needs it to mount the never-attached session's terminal itself.
       expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
         queryParams: {

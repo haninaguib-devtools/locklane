@@ -48,7 +48,7 @@ describe('SessionListComponent', () => {
     // The time is not lost -- it moves onto the title's own tooltip.
     expect(row.querySelector('.title').getAttribute('title')).toContain('Aug 27');
     expect(row.querySelector('.time')).toBeNull();
-    // The tool still shows: it is what the reopened console will be launched with.
+    // The tool still shows: it is what the reopened agent session will be launched with.
     expect(row.querySelector('.tool').textContent).toBe('Claude');
   });
 
@@ -73,7 +73,7 @@ describe('SessionListComponent', () => {
     expect(emitted).toEqual([past]);
   });
 
-  it('disables reopening while a console is already being started', () => {
+  it('disables reopening while an agent session is already being started', () => {
     const fixture = render([session()], true);
 
     expect(fixture.nativeElement.querySelector('.reopen').disabled).toBeTrue();

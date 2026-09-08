@@ -8,12 +8,12 @@ import java.util.Optional;
 
 /**
  * Decides, for one proxied IDE request (#655), whether the caller may reach the
- * console it names and where its code-server is — the same decision for the HTTP
+ * agent session it names and where its code-server is — the same decision for the HTTP
  * proxy and the WebSocket proxy, made in one place. The visibility rule is exactly the
- * one {@code ConsolesController#openIde} applies when starting the process
- * ({@link IssueWorktreeService#allWorktreeIds}: the console must belong to the named
+ * one {@code AgentSessionsController#openIde} applies when starting the process
+ * ({@link IssueWorktreeService#allWorktreeIds}: the agent session must belong to the named
  * project and that project to the caller, CONSTITUTION.md §4.5), so the proxy can
- * never admit a request the start endpoint would have refused. A console whose IDE is
+ * never admit a request the start endpoint would have refused. An agent session whose IDE is
  * not running resolves to nothing: the proxy never starts one, and it never
  * distinguishes "not yours" from "not there" to a caller.
  */
@@ -30,7 +30,7 @@ public class CodeServerProxyAuthorization {
 
     /**
      * The loopback base of the code-server behind {@code path}, when {@code username}
-     * may see that console and its IDE is running; empty otherwise. A {@code null}
+     * may see that agent session and its IDE is running; empty otherwise. A {@code null}
      * username (no authenticated caller — {@code SecurityConfig} never lets one this
      * far, but the check fails closed regardless) is always empty.
      */
@@ -38,9 +38,9 @@ public class CodeServerProxyAuthorization {
         if (username == null) {
             return Optional.empty();
         }
-        if (!worktrees.allWorktreeIds(path.projectId(), username).contains(path.consoleId())) {
+        if (!worktrees.allWorktreeIds(path.projectId(), username).contains(path.agentSessionId())) {
             return Optional.empty();
         }
-        return codeServerService.upstream(path.consoleId());
+        return codeServerService.upstream(path.agentSessionId());
     }
 }

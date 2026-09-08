@@ -24,7 +24,7 @@
 }
 
 /* The per-project "open a shell at main" control (#448) — mirrors the project
-   console's own "+". */
+   agent session's own "+". */
 .group-add {
   background: none;
   border: none;

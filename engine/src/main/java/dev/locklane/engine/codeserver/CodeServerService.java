@@ -26,17 +26,17 @@ import java.util.concurrent.Executors;
 
 /**
  * Starts and stops one code-server (open-source, web-based VS Code, #627) process per
- * console, bound to {@code 127.0.0.1} only, with the working directory resolved
- * server-side from the console id via {@link SessionRegistry} — the same lookup {@code
+ * agent session, bound to {@code 127.0.0.1} only, with the working directory resolved
+ * server-side from the agent session id via {@link SessionRegistry} — the same lookup {@code
  * FileManagerLauncher} and PTY spawning itself already use, so the browser never
- * supplies a path. A second {@link #start} for the same console reuses the process
+ * supplies a path. A second {@link #start} for the same agent session reuses the process
  * already running rather than starting a second one; the process is stopped when its
- * console's session ends (registered as a {@link SessionRegistry} close listener, since
+ * agent session ends (registered as a {@link SessionRegistry} close listener, since
  * every session closer already funnels through {@link SessionRegistry#close}).
  *
  * <p>Since #655 the loopback address a process listens on is never what a browser is
- * given: the engine reverse-proxies each console's IDE under
- * {@code /api/projects/{projectId}/consoles/{id}/ide/} ({@link CodeServerHttpProxy},
+ * given: the engine reverse-proxies each agent session's IDE under
+ * {@code /api/projects/{projectId}/consoles/{id} (a path kept under ADR-112)/ide/} ({@link CodeServerHttpProxy},
  * {@link CodeServerWebSocketProxy}), behind locklane's own session and owner-only
  * check, so a remote browser reaches it on the engine's own host and port. What this
  * service hands out is the loopback base ({@link #start}, {@link #upstream}) those
@@ -50,7 +50,7 @@ public class CodeServerService {
     /**
      * Spawns a subprocess — injected so a test can assert on the command without
      * spawning one. Public, unlike {@code FileManagerLauncher}'s own private twin,
-     * because this service's controller ({@code ConsolesController}) is tested from a
+     * because this service's controller ({@code AgentSessionsController}) is tested from a
      * different package.
      */
     public interface ProcessRunner {
@@ -82,7 +82,7 @@ public class CodeServerService {
      * Runs {@link #stop}'s termination off the caller's thread, since that caller is a
      * {@link SessionRegistry} close listener ({@code sessionRegistry.close()} invokes
      * every listener in turn) and terminating a tree that ignores SIGTERM can take the
-     * full grace-plus-forced-wait before it returns — up to 7s the console-close path
+     * full grace-plus-forced-wait before it returns — up to 7s the agent-session-close path
      * has no reason to sit through. {@link #stopAll()} never uses this: shutdown is
      * exactly what that bounded wait is for, so it terminates synchronously and closes
      * this worker afterward, which waits for any stop() still in flight.
@@ -119,45 +119,45 @@ public class CodeServerService {
     }
 
     /**
-     * Starts (or reuses) code-server for {@code consoleId}'s worktree and returns the
+     * Starts (or reuses) code-server for {@code agentSessionId}'s worktree and returns the
      * loopback base the engine's proxy forwards to ({@code http://127.0.0.1:<port>}).
-     * Empty, with nothing started, when the console id names no known working
+     * Empty, with nothing started, when the agent session id names no known working
      * directory.
      */
-    public Optional<URI> start(String consoleId) {
-        Running existing = running.get(consoleId);
+    public Optional<URI> start(String agentSessionId) {
+        Running existing = running.get(agentSessionId);
         if (existing != null) {
             return Optional.of(existing.upstream());
         }
-        Optional<Path> workingDirectory = sessionRegistry.lastKnownWorkingDirectory(consoleId);
+        Optional<Path> workingDirectory = sessionRegistry.lastKnownWorkingDirectory(agentSessionId);
         if (workingDirectory.isEmpty()) {
             return Optional.empty();
         }
         // computeIfAbsent, not the plain get-then-put above, is what makes a second
-        // concurrent start() for the same console reuse one process rather than a race
+        // concurrent start() for the same agent session reuse one process rather than a race
         // spawning two — the up-front get() above is only a fast path once one exists.
-        Running started = running.computeIfAbsent(consoleId, id -> spawn(workingDirectory.get()));
+        Running started = running.computeIfAbsent(agentSessionId, id -> spawn(workingDirectory.get()));
         return Optional.of(started.upstream());
     }
 
     /**
-     * The loopback base of {@code consoleId}'s already-running code-server, or empty
+     * The loopback base of {@code agentSessionId}'s already-running code-server, or empty
      * when none is running — never starts one. The proxies resolve their target
-     * through this: an IDE nobody asked to open (or whose console has since closed,
-     * which stops it) is not reachable, the same as a console that does not exist.
+     * through this: an IDE nobody asked to open (or whose agent session has since closed,
+     * which stops it) is not reachable, the same as an agent session that does not exist.
      */
-    public Optional<URI> upstream(String consoleId) {
-        return Optional.ofNullable(running.get(consoleId)).map(Running::upstream);
+    public Optional<URI> upstream(String agentSessionId) {
+        return Optional.ofNullable(running.get(agentSessionId)).map(Running::upstream);
     }
 
     /**
-     * The worktree {@code consoleId}'s already-running code-server was started at, or
+     * The worktree {@code agentSessionId}'s already-running code-server was started at, or
      * empty when none is running. Lets a caller building the browser-facing URL append
      * a {@code folder} query parameter (#776) without a second lookup through
      * {@link SessionRegistry}.
      */
-    public Optional<Path> workingDirectory(String consoleId) {
-        return Optional.ofNullable(running.get(consoleId)).map(Running::workingDirectory);
+    public Optional<Path> workingDirectory(String agentSessionId) {
+        return Optional.ofNullable(running.get(agentSessionId)).map(Running::workingDirectory);
     }
 
     private Running spawn(Path workingDirectory) {
@@ -180,7 +180,7 @@ public class CodeServerService {
                     // Every code-server process shares one user data directory, so
                     // without this flag a request whose URL carries no `folder` query
                     // (a bookmark, a bare refresh) reopens whatever folder was last
-                    // opened by *any* console rather than the one named on this command
+                    // opened by *any* agent session rather than the one named on this command
                     // line (#776, code-server's own `lastOpened` preference).
                     "--ignore-last-opened",
                     workingDirectory.toString());
@@ -229,15 +229,15 @@ public class CodeServerService {
     }
 
     /**
-     * Stops {@code consoleId}'s running code-server process, if any — the whole tree
+     * Stops {@code agentSessionId}'s running code-server process, if any — the whole tree
      * it spawned, not just the node process the engine started. A no-op otherwise.
      * Returns as soon as the process is no longer tracked; the termination itself
      * (which can take up to the grace period plus a forced wait) runs in the
      * background (#682) so the caller — a {@link SessionRegistry} close listener — is
      * never held up by a code-server that ignores SIGTERM.
      */
-    public void stop(String consoleId) {
-        Running stopped = running.remove(consoleId);
+    public void stop(String agentSessionId) {
+        Running stopped = running.remove(agentSessionId);
         if (stopped != null) {
             stopWorker.execute(() -> terminate(List.of(stopped)));
         }

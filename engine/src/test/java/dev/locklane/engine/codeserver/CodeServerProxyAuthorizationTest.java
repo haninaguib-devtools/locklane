@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The proxy's admission decision (#655) is the start endpoint's own visibility rule
  * plus "and its IDE is running" — checked here against real SQLite-backed ownership,
- * the same fixtures {@code ConsolesControllerTest} uses.
+ * the same fixtures {@code AgentSessionsControllerTest} uses.
  */
 class CodeServerProxyAuthorizationTest {
 
@@ -52,7 +52,7 @@ class CodeServerProxyAuthorizationTest {
         assertThat(authorization.upstreamFor(path, "bob")).isEmpty();
         assertThat(authorization.upstreamFor(path, "nobody")).isEmpty();
         assertThat(authorization.upstreamFor(path, null)).isEmpty();
-        // The same console named under the wrong project is not that project's.
+        // The same agent session named under the wrong project is not that project's.
         assertThat(authorization.upstreamFor(new IdeProxyPath(2, "1-174-rename-toggle", "/"), "bob")).isEmpty();
     }
 

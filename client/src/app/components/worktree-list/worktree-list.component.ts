@@ -3,21 +3,21 @@ import { Component, Input, OnChanges, OnDestroy, OnInit, SimpleChanges, inject }
 import { Subscription, merge } from 'rxjs';
 import { ProjectWorktree, WorktreesService } from '../../services/worktrees.service';
 import { OpenShell, ShellsService } from '../../services/shells.service';
-import { ConsolesService } from '../../services/consoles.service';
+import { AgentSessionsService } from '../../services/agent-sessions.service';
 
 /**
  * The project page's worktree list (#320): every worktree tied to the project's
  * issues, with a manual "remove worktree" per row and a page-level "run cleanup now"
- * button — so a human can directly verify the console button (#318) and the periodic
+ * button — so a human can directly verify the agent session button (#318) and the periodic
  * cleanup sweep (#319) are behaving as expected, and clear out a stray worktree
  * without waiting on the schedule. Both actions go through the engine's
  * {@code ProjectWorktreesController}, which applies the exact same safety guard as
  * the periodic sweep rather than a separate, potentially-drifting copy of it.
  *
  * Also lists the project's open shells (#733) — the standalone terminals opened from a
- * console tab's hover-revealed terminal icon, which otherwise have no home on the
+ * agent session tab's hover-revealed terminal icon, which otherwise have no home on the
  * project page even though the delete-project guard blocks on them same as a
- * worktree/console. `ShellsService.list()` has no per-project endpoint, so it is
+ * worktree/agent session. `ShellsService.list()` has no per-project endpoint, so it is
  * filtered client-side, same as `ShellsSidenavComponent`'s own per-project grouping.
  */
 @Component({
@@ -29,7 +29,7 @@ import { ConsolesService } from '../../services/consoles.service';
 export class WorktreeListComponent implements OnChanges, OnInit, OnDestroy {
   private readonly worktreesService = inject(WorktreesService);
   private readonly shellsService = inject(ShellsService);
-  private readonly consolesService = inject(ConsolesService);
+  private readonly agentSessionsService = inject(AgentSessionsService);
 
   @Input({ required: true }) projectId!: number;
 
@@ -53,16 +53,16 @@ export class WorktreeListComponent implements OnChanges, OnInit, OnDestroy {
   closingShellId: string | null = null;
   closeShellErrors = new Map<string, string>();
 
-  // A shell (or console) opened or closed anywhere reaches this page as `consolesChanged`
-  // (#195; the shell endpoints broadcast it too, #445/#460) -- ConsolesService already
+  // A shell (or agent session) opened or closed anywhere reaches this page as `consolesChanged`
+  // (#195; the shell endpoints broadcast it too, #445/#460) -- AgentSessionsService already
   // folds that, plus a reconnect, into `onOpened`/`onClosed` (the same signal
-  // ConsoleIndicatorComponent reacts to), so this page's shell list stays live without
+  // AgentSessionIndicatorComponent reacts to), so this page's shell list stays live without
   // talking to EventsService directly.
   private readonly subscriptions = new Subscription();
 
   ngOnInit(): void {
     this.subscriptions.add(
-      merge(this.consolesService.onOpened, this.consolesService.onClosed).subscribe(() => this.loadShells()),
+      merge(this.agentSessionsService.onOpened, this.agentSessionsService.onClosed).subscribe(() => this.loadShells()),
     );
   }
 

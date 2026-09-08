@@ -17,7 +17,7 @@ export class IssuesService {
 
   /**
    * `fresh` (#140) bypasses the engine's GhIssueCache for this one call -- for a
-   * caller that just left a project-level console session where an agent may have
+   * caller that just left a project-level agent session where an agent may have
    * opened an issue via `gh`, and wants it to show up without waiting on the
    * engine's own 30s poll.
    */
@@ -54,15 +54,15 @@ export class IssuesService {
     );
   }
 
-  /** Past Claude/Codex conversations captured in this issue's consoles (#102), newest first. */
+  /** Past Claude/Codex conversations captured in this issue's agent sessions (#102), newest first. */
   resumeSessions(projectId: number, number: number): Observable<ResumeSession[]> {
     return this.http.get<ResumeSession[]>(`/api/projects/${projectId}/issues/${number}/resume-sessions`);
   }
 
   /**
-   * Mints a brand-new console session for resuming a past conversation (#103), in the
-   * working directory of the console (`from`) the conversation was captured in — the
-   * resume command itself is passed when attaching, like any other new console's cmd.
+   * Mints a brand-new agent session for resuming a past conversation (#103), in the
+   * working directory of the agent session (`from`) the conversation was captured in — the
+   * resume command itself is passed when attaching, like any other new agent session's cmd.
    */
   reopenSession(
     projectId: number,

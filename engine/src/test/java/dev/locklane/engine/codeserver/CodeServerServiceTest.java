@@ -51,7 +51,7 @@ class CodeServerServiceTest {
     }
 
     @Test
-    void startsCodeServerBoundToLoopbackAtTheConsolesWorktree(@TempDir Path dbDir) throws Exception {
+    void startsCodeServerBoundToLoopbackAtTheAgentSessionsWorktree(@TempDir Path dbDir) throws Exception {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         Path worktree = dbDir.resolve("wt1");
         repository.recordAttach("1-174-rename-toggle", worktree, Instant.now(), "alice");
@@ -67,7 +67,7 @@ class CodeServerServiceTest {
         var upstream = service.start("1-174-rename-toggle");
 
         // The loopback base the engine's proxy forwards to (#655) -- never handed to
-        // a browser as such; ConsolesController maps it to the proxied path.
+        // a browser as such; AgentSessionsController maps it to the proxied path.
         assertThat(upstream).isPresent();
         assertThat(upstream.get().toString()).matches("http://127\\.0\\.0\\.1:\\d+");
         assertThat(invocations).hasSize(1);
@@ -100,7 +100,7 @@ class CodeServerServiceTest {
     }
 
     @Test
-    void returnsEmptyAndNeverStartsForAnUnknownConsoleId(@TempDir Path dbDir) {
+    void returnsEmptyAndNeverStartsForAnUnknownAgentSessionId(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         List<String[]> invocations = new ArrayList<>();
         CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
@@ -109,7 +109,7 @@ class CodeServerServiceTest {
                     return new ProcessBuilder("true").start();
                 });
 
-        var upstream = service.start("no-such-console");
+        var upstream = service.start("no-such-agent-session");
 
         assertThat(upstream).isEmpty();
         assertThat(invocations).isEmpty();
@@ -128,7 +128,7 @@ class CodeServerServiceTest {
                     return new ProcessBuilder("true").start();
                 });
 
-        // A console that exists but whose IDE nobody asked to open (#655): the proxy
+        // An agent session that exists but whose IDE nobody asked to open (#655): the proxy
         // resolves nothing, and asking did not spawn anything.
         assertThat(service.upstream("1-174-rename-toggle")).isEmpty();
         assertThat(invocations).isEmpty();
@@ -142,7 +142,7 @@ class CodeServerServiceTest {
     }
 
     @Test
-    void stopIsANoOpForAConsoleWithNothingRunning(@TempDir Path dbDir) {
+    void stopIsANoOpForAAgentSessionWithNothingRunning(@TempDir Path dbDir) {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         CodeServerService service = new CodeServerService(new SessionRegistry(repository), BINARY,
                 command -> new ProcessBuilder("true").start());

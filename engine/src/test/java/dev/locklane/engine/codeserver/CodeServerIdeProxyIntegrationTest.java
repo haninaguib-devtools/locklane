@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * #655's done-when over the real dispatch, security and WebSocket stack: the IDE is
  * reachable at the engine's own proxied path, an anonymous request gets 401, a
  * non-owner gets 404, an IDE nobody started is 404, plain HTTP is forwarded to the
- * console's loopback code-server with the outer proxy's headers stripped and
+ * agent session's loopback code-server with the outer proxy's headers stripped and
  * {@code Origin} rewritten, and an {@code Upgrade: websocket} on the same path family
  * reaches the WebSocket proxy (not the HTTP one) and relays. "code-server" here is a
  * {@link HttpServer} started on exactly the port the service told the (fake) process
@@ -56,6 +56,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class CodeServerIdeProxyIntegrationTest {
+    // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories and the
+    // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
+    // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
     private static final long RUN_ID = Instant.now().toEpochMilli();
     private static final List<HttpServer> FAKE_CODE_SERVERS = new CopyOnWriteArrayList<>();
@@ -132,23 +135,23 @@ class CodeServerIdeProxyIntegrationTest {
         String aliceCookie = login(alice, "alice-password");
         String bobCookie = login(bob, "bob-password");
         long projectId = projectOwnedBy(alice);
-        // Real console ids are "<project>-<issue>-..." or "<project>-console-..." --
+        // Real agent session ids are "<project>-<issue>-..." or "<project>-console-..." --
         // the shapes IssueWorktreeService's listing recognizes as the project's own.
-        String consoleId = projectId + "-174-ide-owned";
+        String agentSessionId = projectId + "-174-ide-owned";
         String neverOpened = projectId + "-console-never-opened";
-        worktreeSessionRepository.recordAttach(consoleId, worktree, Instant.now(), alice);
+        worktreeSessionRepository.recordAttach(agentSessionId, worktree, Instant.now(), alice);
         worktreeSessionRepository.recordAttach(neverOpened, worktree, Instant.now(), alice);
 
-        HttpResponse<String> opened = send(post(url("/api/projects/" + projectId + "/consoles/" + consoleId + "/open-ide"), aliceCookie));
+        HttpResponse<String> opened = send(post(url("/api/projects/" + projectId + "/consoles/" + agentSessionId + "/open-ide"), aliceCookie));
         assertThat(opened.statusCode()).isEqualTo(200);
-        String idePath = "/api/projects/" + projectId + "/consoles/" + consoleId + "/ide/";
-        // Carries the console's own worktree as a `folder` query parameter (#776).
+        String idePath = "/api/projects/" + projectId + "/consoles/" + agentSessionId + "/ide/";
+        // Carries the agent session's own worktree as a `folder` query parameter (#776).
         String encodedFolder = java.net.URLEncoder.encode(worktree.toString(), StandardCharsets.UTF_8);
         assertThat(opened.body()).isEqualTo("{\"url\":\"" + idePath + "?folder=" + encodedFolder + "\"}");
 
         // Anonymous: 401 from the security entry point, never IDE content.
         assertThat(send(get(url(idePath), null)).statusCode()).isEqualTo(401);
-        // Another account: 404, indistinguishable from a console that does not exist.
+        // Another account: 404, indistinguishable from an agent session that does not exist.
         assertThat(send(get(url(idePath), bobCookie)).statusCode()).isEqualTo(404);
         // The owner, but an IDE nobody started: 404, and nothing got started by asking.
         assertThat(send(get(url("/api/projects/" + projectId + "/consoles/" + neverOpened + "/ide/"), aliceCookie)).statusCode())
@@ -170,10 +173,10 @@ class CodeServerIdeProxyIntegrationTest {
         String alice = "ide-headers-alice-" + RUN_ID;
         String aliceCookie = login(alice, "alice-password");
         long projectId = projectOwnedBy(alice);
-        String consoleId = projectId + "-175-ide-headers";
-        worktreeSessionRepository.recordAttach(consoleId, worktree, Instant.now(), alice);
-        send(post(url("/api/projects/" + projectId + "/consoles/" + consoleId + "/open-ide"), aliceCookie));
-        String idePath = "/api/projects/" + projectId + "/consoles/" + consoleId + "/ide";
+        String agentSessionId = projectId + "-175-ide-headers";
+        worktreeSessionRepository.recordAttach(agentSessionId, worktree, Instant.now(), alice);
+        send(post(url("/api/projects/" + projectId + "/consoles/" + agentSessionId + "/open-ide"), aliceCookie));
+        String idePath = "/api/projects/" + projectId + "/consoles/" + agentSessionId + "/ide";
 
         HttpResponse<String> asset = send(HttpRequest.newBuilder(URI.create(url(idePath + "/static/out/vs/a%20b.js?v=1&x=y")))
                 .header("Cookie", aliceCookie)
@@ -205,10 +208,10 @@ class CodeServerIdeProxyIntegrationTest {
         String aliceCookie = login(alice, "alice-password");
         String bobCookie = login(bob, "bob-password");
         long projectId = projectOwnedBy(alice);
-        String consoleId = projectId + "-176-ide-ws";
-        worktreeSessionRepository.recordAttach(consoleId, worktree, Instant.now(), alice);
-        send(post(url("/api/projects/" + projectId + "/consoles/" + consoleId + "/open-ide"), aliceCookie));
-        String wsUrl = "ws://localhost:" + port + "/api/projects/" + projectId + "/consoles/" + consoleId
+        String agentSessionId = projectId + "-176-ide-ws";
+        worktreeSessionRepository.recordAttach(agentSessionId, worktree, Instant.now(), alice);
+        send(post(url("/api/projects/" + projectId + "/consoles/" + agentSessionId + "/open-ide"), aliceCookie));
+        String wsUrl = "ws://localhost:" + port + "/api/projects/" + projectId + "/consoles/" + agentSessionId
                 + "/ide/stable-abc?reconnectionToken=t1";
 
         RecordingHandler bobHandler = new RecordingHandler();

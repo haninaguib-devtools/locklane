@@ -24,10 +24,10 @@ import java.time.Instant;
  * no template, and for every row that predates templates. Set once at creation and
  * never edited.
  *
- * <p>{@code templateSeededAt} (#537) is when that template's one seeded console was
+ * <p>{@code templateSeededAt} (#537) is when that template's one seeded agent session was
  * launched — the agent started with the engine-composed first prompt — and
  * {@code null} until then. A READY project with a {@code template} and a
- * {@code null} {@code templateSeededAt} still owes its first console; the launch
+ * {@code null} {@code templateSeededAt} still owes its first agent session; the launch
  * that sets this is what turns that rule off.
  *
  * <p>{@code sortOrder} (#541) is the owner's chosen position for this project in their

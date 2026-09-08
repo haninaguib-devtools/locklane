@@ -1,0 +1,554 @@
+package dev.locklane.engine.persistence;
+
+import dev.locklane.engine.pty.SessionRegistry;
+import dev.locklane.engine.security.TokenCipher;
+import org.springframework.stereotype.Service;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Project-scoped agent sessions (#139) — unlike a worktree session (#29), they have
+ * no issue of their own. Since #314 each session gets its own freshly created git
+ * worktree — a sibling checkout next to the project's own
+ * ({@link ProjectCheckoutService}'s workarea), following the same
+ * {@code ../<repo-name>-<suffix>} pattern. Since #338 that worktree's HEAD is
+ * detached at the current tip of the project's trunk on origin — its recorded default
+ * branch, {@link WorktreeCreationService#trunkRef}, since #582; a hardcoded
+ * {@code origin/main} before that ({@link
+ * WorktreeCreationService#createDetachedWorktree}) — rather than sitting on a freshly
+ * minted per-session branch (retired by #340): an agent session exists for pre-issue discussion
+ * and almost never commits, so every one opened left a branch behind permanently. A
+ * session that legitimately transitions to task work gets its proper
+ * {@code wip/<id>-<slug>} branch from {@code /t-work} at that point instead — the
+ * detached worktree still gives full file isolation in the meantime, rather than
+ * every agent session sharing that one checkout, as before #314. Since #339/ADR-104,
+ * closing an agent session tab attempts to remove its worktree too, guarded: the session
+ * has just ended, HEAD is still detached (a checked-out branch means the agent session
+ * outgrew scratch — left alone permanently, ADR-005), the worktree is clean, and its
+ * HEAD is an ancestor of the project's default branch on origin (#583/ADR-108;
+ * {@code origin/main} unless the project recorded a different one) — so a commit
+ * made on detached HEAD is never lost when the worktree's reflog goes with it. A worktree failing any of
+ * those is kept — the same {@link WorktreeCleanupSweeper} guard is what
+ * {@code WorktreeCleanupSweeper#sweep()} later re-checks as the backstop, and what
+ * the project worktree list shows the refusal reason from. A project can have
+ * several open at
+ * once (#177): each {@link #start} mints a fresh id
+ * {@code "<projectId>-console-<8-hex>"} — the same short-suffix convention
+ * {@code WorktreeCreationService} uses for its {@code -main-}/{@code -resume-} ids —
+ * stored in the same {@link WorktreeSessionRepository} table as any other session and
+ * recognized purely by that id shape. The bare {@code "<projectId>-console"} id the
+ * pre-#177 single-agent-session code minted stays a member of the family, so an agent session
+ * opened before this change keeps reattaching, resolving its environment, and closing
+ * exactly as before. Neither shape ever collides with
+ * {@link IssueWorktreeService}'s {@code ^(\d+)-(\d+)-} prefix (its second segment is
+ * the literal {@code console} — the persisted id shape kept under ADR-112 — not a number), so a project agent session never appears in
+ * {@link IssueWorktreeService#worktreeIdsForIssue} or {@link
+ * IssueWorktreeService#resumeSessionsForIssue} — both scoped to one issue, which a
+ * project agent session has none of. It does appear in {@link
+ * IssueWorktreeService#allWorktreeIds} (#194), the project-wide list the header
+ * indicator/picker reads, and since #372 the same conversations an issue's Overview
+ * tab lists are listed for a project's own agent sessions here — see
+ * {@link #resumeSessionsForProject} and {@link #reopenSession}.
+ *
+ * <p>Every {@code -console} id, directory and REST path shape in this class is a persisted or on-the-wire
+ * compatibility surface kept under ADR-112; only the identifiers around them were renamed (#766).
+ */
+@Service
+public class ProjectAgentSessionService {
+
+    // The whole family: the legacy bare "<projectId>-console" plus every
+    // "<projectId>-console-<suffix>" minted since #177. Both are persisted id shapes:
+    // compatibility surfaces kept under ADR-112.
+    private static final Pattern AGENT_SESSION_ID = Pattern.compile("^(\\d+)-console(-.+)?$");
+    // An issue-worktree session id (IssueWorktreeService's own
+    // PROJECT_AND_ISSUE_PREFIXED shape, #551): "<projectId>-<issueNumber>-<slug>" --
+    // also matches the "main" and "resume" id variants, which share the same
+    // project/issue prefix.
+    private static final Pattern ISSUE_WORKTREE_SESSION_ID = Pattern.compile("^(\\d+)-\\d+-.*$");
+    // The tail {@link #reopenSession} appends to an agent session's own suffix (#372).
+    // Stripped back off when the conversation's directory is derived from the id, so
+    // reopening a reopened agent session still lands in the one directory the conversation
+    // was ever captured in, instead of a chain of never-created ones.
+    private static final Pattern REOPENED_SUFFIX = Pattern.compile("-resume-[0-9a-f]{8}$");
+
+    private final ProjectRepository projectRepository;
+    private final GhAccountRepository ghAccountRepository;
+    private final TokenCipher tokenCipher;
+    private final SessionRegistry sessionRegistry;
+    private final WorktreeSessionRepository sessionRepository;
+    private final AgentSessionResumeSessionRepository resumeRepository;
+    private final WorktreeSessionAuthorization authorization;
+    private final WorktreeCleanupSweeper sweeper;
+
+    public ProjectAgentSessionService(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
+            TokenCipher tokenCipher, SessionRegistry sessionRegistry, WorktreeSessionRepository sessionRepository,
+            AgentSessionResumeSessionRepository resumeRepository, WorktreeSessionAuthorization authorization,
+            WorktreeCleanupSweeper sweeper) {
+        this.projectRepository = projectRepository;
+        this.ghAccountRepository = ghAccountRepository;
+        this.tokenCipher = tokenCipher;
+        this.sessionRegistry = sessionRegistry;
+        this.sessionRepository = sessionRepository;
+        this.resumeRepository = resumeRepository;
+        this.authorization = authorization;
+        this.sweeper = sweeper;
+    }
+
+    /**
+     * Mints a brand-new agent session id in the project's family, creates it a
+     * fresh sibling git worktree (#314), and reports that worktree's directory — a
+     * fresh id and a fresh worktree every call (#177), so several agent sessions can run
+     * side by side, each in its own checkout; never a reattach to one already open,
+     * and never the project's shared checkout. Empty for an unknown or
+     * not-yet-{@link ProjectStatus#READY} project — same rule
+     * {@code WorktreeCreationService.startSession} already applies. No owner check
+     * here: like starting a worktree session, the real ownership gate is the
+     * WebSocket attach itself (see {@code TerminalWebSocketHandler}), not this
+     * creation step.
+     */
+    public Optional<AgentSession> start(long projectId) {
+        return projectRepository.findById(projectId)
+                .filter(project -> project.status() == ProjectStatus.READY)
+                .map(project -> startWorktreeSession(projectId, project));
+    }
+
+    private AgentSession startWorktreeSession(long projectId, ProjectRecord project) {
+        Path projectRoot = project.workareaPath();
+        String suffix = shortId();
+        // "-console-" is the persisted session id and worktree directory shape, kept under ADR-112.
+        String sessionId = projectId + "-console-" + suffix;
+        // "-console-" is the persisted session id and worktree directory shape, kept under ADR-112.
+        Path worktreePath = projectRoot.resolveSibling(WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix);
+        WorktreeCreationService.createDetachedWorktree(worktreePath, projectRoot,
+                WorktreeCreationService.trunkRef(project), gitCredential(projectId));
+        return new AgentSession(sessionId, worktreePath.toString());
+    }
+
+    /**
+     * The project's current agent session — the most recently attached open one
+     * visible to {@code requestingUsername} (this project's owner, and nobody else
+     * — #242, #394, same visibility rule as {@link IssueWorktreeService}). "Open" means it
+     * has a persisted record: attached to at least once and not explicitly closed.
+     * Empty when the project has none. With a single open agent session this is exactly
+     * the pre-#177 "the project's one agent session" answer.
+     */
+    public Optional<AgentSession> find(long projectId, String requestingUsername) {
+        return openRecords(projectId, requestingUsername).stream()
+                .max(Comparator.comparing(WorktreeSessionRecord::lastAttachedAt))
+                .map(record -> new AgentSession(record.worktreeId(), record.workingDirectory().toString()));
+    }
+
+    /**
+     * Every open agent session of the project's family that
+     * {@code requestingUsername} may see, oldest-created first — a stable order for
+     * a client tab strip (#178). Empty for a project with none (including an unknown
+     * project — nothing recorded, nothing listed).
+     */
+    public List<OpenAgentSession> listOpen(long projectId, String requestingUsername) {
+        return openRecords(projectId, requestingUsername).stream()
+                .sorted(Comparator.comparing(WorktreeSessionRecord::createdAt))
+                .map(record -> new OpenAgentSession(record.worktreeId(), record.workingDirectory().toString(),
+                        record.createdAt(), record.lastAttachedAt(), record.displayName()))
+                .toList();
+    }
+
+    /**
+     * The past Claude/Codex/OpenCode conversations captured (#102) in this project's
+     * own agent sessions that {@code requestingUsername} may see, newest sighting first
+     * (#372) — the project-level counterpart of {@link
+     * IssueWorktreeService#resumeSessionsForIssue}, reading the same
+     * {@link AgentSessionResumeSessionRepository} table, which {@code ResumeIdScanner}
+     * already writes to for every agent session regardless of scope. Conversations whose
+     * agent session has since been closed are the point: the row outlives the agent session
+     * (#101). Visibility follows the agent session the conversation was captured in, under
+     * the same project-owner rule as {@link #listOpen} (#242, #394) — decided
+     * straight from the agent session id, which carries the project it belongs to, so a
+     * closed agent session with no session record left is still filtered rather than shown
+     * to everyone. The same conversation sighted in several of this project's
+     * agent sessions is listed once, at its newest sighting.
+     *
+     * <p>The legacy bare {@code "<projectId>-console"} id is excluded — the
+     * project-family counterpart of the {@code "...-main-..."} exclusion the
+     * issue-scoped listing already makes. That id was only ever minted before #177,
+     * and so only ever ran in the project's own shared checkout (#314 gave agent sessions
+     * their own worktrees later); a conversation captured there can only be resumed
+     * there, and #341 retired the project checkout as an agent session location — so listing
+     * it would offer a reopen that could never work.
+     */
+    public List<AgentSessionResumeSessionRecord> resumeSessionsForProject(long projectId, String requestingUsername) {
+        Map<String, AgentSessionResumeSessionRecord> byConversation = new LinkedHashMap<>();
+        resumeRepository.findAll().stream()
+                .filter(record -> belongsToProject(record.worktreeId(), projectId))
+                .filter(record -> !agentSessionSuffix(record.worktreeId()).isEmpty())
+                .filter(record -> authorization.isVisibleTo(record.worktreeId(), requestingUsername))
+                .sorted(Comparator.comparing(AgentSessionResumeSessionRecord::capturedAt).reversed())
+                .forEach(record -> byConversation.putIfAbsent(record.tool() + ":" + record.resumeId(), record));
+        return List.copyOf(byConversation.values());
+    }
+
+    /**
+     * Mints a brand-new agent session for reopening one of this project's past
+     * conversations (#372), in the directory that conversation was captured in —
+     * never a reattach, exactly like {@link WorktreeCreationService#reopenSession}
+     * does for an issue: the original agent session may still be running, and the point is
+     * a second agent session resuming the same conversation. The directory matters because
+     * Claude/OpenCode key a stored conversation by working directory, so resuming
+     * anywhere else finds nothing.
+     *
+     * <p>Where the issue-side reopen can always fall back to the issue's one stable
+     * worktree path, a project agent session's directory belongs to that agent session alone —
+     * and closing its tab deletes both its session record and (#339/ADR-104) its
+     * worktree. So the directory is resolved from the record while one exists, and
+     * otherwise rebuilt from the session id itself: {@code
+     * "<projectId>-console-<suffix>"} always named the sibling checkout {@code
+     * "<repoName>-console-<suffix>"} ({@link #startWorktreeSession}). A directory
+     * that is gone is recreated as a fresh detached worktree at that same path, which
+     * is all the CLI needs to find the conversation again.
+     *
+     * <p>The minted id carries the original agent session's suffix ahead of its own
+     * {@code "-resume-<8-hex>"} tail, so it stays inside the project's agent session family
+     * (reattaching, environment resolution and closing all work unchanged) while
+     * still naming the directory it runs in. Empty when the project is not ready,
+     * when {@code originalSessionId} is not one of this project's agent sessions, or when
+     * it is the legacy bare {@code "<projectId>-console"} — refused for the same
+     * reason {@link #resumeSessionsForProject} never lists it.
+     */
+    public Optional<AgentSession> reopenSession(long projectId, String originalSessionId) {
+        Optional<ProjectRecord> project = projectRepository.findById(projectId);
+        if (project.isEmpty() || project.get().status() != ProjectStatus.READY) {
+            return Optional.empty();
+        }
+        if (!belongsToProject(originalSessionId, projectId)) {
+            return Optional.empty();
+        }
+        Optional<Path> resolved = conversationDirectory(projectId, originalSessionId);
+        if (resolved.isEmpty()) {
+            return Optional.empty();
+        }
+        Path projectRoot = project.get().workareaPath();
+        Path directory = resolved.get();
+        if (!Files.exists(directory)) {
+            WorktreeCreationService.createDetachedWorktree(directory, projectRoot,
+                    WorktreeCreationService.trunkRef(project.get()), gitCredential(projectId));
+        }
+        return Optional.of(new AgentSession(
+                // "-console-" is the persisted session id and worktree directory shape, kept under ADR-112.
+                projectId + "-console-" + originalAgentSessionSuffix(originalSessionId) + "-resume-" + shortId(),
+                directory.toString()));
+    }
+
+    /**
+     * Where a conversation captured in {@code sessionId} actually ran — its agent session's
+     * recorded working directory while that record exists, and otherwise the sibling
+     * checkout its id names ({@link #startWorktreeSession}), whether or not that
+     * directory is still on disk. Empty for a session outside this project's agent session
+     * family and for the legacy bare {@code "<projectId>-console"}, which ran in the
+     * project's own shared checkout rather than an agent session worktree of its own.
+     *
+     * <p>Both {@link #reopenSession} and #373's title lookup need this same answer:
+     * one to run a resumed conversation where the CLI will find it, the other to read
+     * the title the CLI filed under that same directory.
+     */
+    public Optional<Path> conversationDirectory(long projectId, String sessionId) {
+        Optional<ProjectRecord> project = projectRepository.findById(projectId);
+        if (project.isEmpty() || !belongsToProject(sessionId, projectId)) {
+            return Optional.empty();
+        }
+        String suffix = originalAgentSessionSuffix(sessionId);
+        if (suffix.isEmpty()) {
+            return Optional.empty();
+        }
+        Path projectRoot = project.get().workareaPath();
+        return Optional.of(sessionRepository.find(sessionId)
+                .map(WorktreeSessionRecord::workingDirectory)
+                .orElseGet(() -> projectRoot.resolveSibling(
+                        // "-console-" is the persisted session id and worktree directory shape, kept under ADR-112.
+                        WorktreeCreationService.repoName(projectRoot) + "-console-" + suffix)));
+    }
+
+    /**
+     * The file #536 commits a chosen template's body to, in the new repository's root
+     * — what the seeded first prompt below tells the agent to read (#537).
+     */
+    static final String TEMPLATE_FILE = "PROJECT_TEMPLATE.md";
+
+    /** Marks a checkout bootstrapped with t-workflow (#491): its own rules forbid changing the tree outside a task. */
+    static final String T_WORKFLOW_MARKER = ".t-workflow";
+
+    /**
+     * The seeded first prompt for a plain (non-t-workflow) checkout (#537). An agent session
+     * runs in a detached worktree, so a scaffold merely left there would never be
+     * seen — the preface says to push it to {@code main} when done.
+     */
+    public static final String PLAIN_SEED_PROMPT =
+            "This repository was just created from a project template. Read " + TEMPLATE_FILE
+                    + " in the repository root and build the project it describes, working in the current"
+                    + " worktree: implement it step by step, commit as you go, and push the result to main when"
+                    + " it builds and its checks pass. Ask before anything destructive.";
+
+    /**
+     * The seeded first prompt for a t-workflow checkout (#537): that repository's
+     * AGENTS.md forbids editing the tree outside a task, so the agent is told to open
+     * one and drive it rather than build in place.
+     */
+    public static final String T_WORKFLOW_SEED_PROMPT =
+            "This repository was just created from a project template and is governed by t-workflow: its"
+                    + " AGENTS.md forbids changing the tree outside a task. Read " + TEMPLATE_FILE
+                    + " in the repository root, then open a task with /t-open that asks for the scaffold it"
+                    + " describes, and drive that task through the pipeline with /t-drive so the scaffold lands"
+                    + " on main through a pull request. Ask before anything destructive.";
+
+    /**
+     * The engine-composed first prompt for a project agent session's seeded launch (#537),
+     * or empty when this attach must not seed: {@code sessionId} is not a project
+     * agent session's, its project is unknown, has no {@code template} (#536), or already
+     * had its seeded agent session ({@code templateSeededAt} set). The preface is chosen from
+     * the checkout itself — {@code workingDirectory} (the agent session's worktree, a
+     * checkout of the project) carrying a {@link #T_WORKFLOW_MARKER} directory means a
+     * t-workflow bootstrap — never from stored state. The template body is never part
+     * of the prompt; the agent reads {@link #TEMPLATE_FILE} itself.
+     */
+    public Optional<String> templateSeedPrompt(String sessionId, Path workingDirectory) {
+        return seedableProject(sessionId)
+                .map(project -> Files.isDirectory(workingDirectory.resolve(T_WORKFLOW_MARKER))
+                        ? T_WORKFLOW_SEED_PROMPT : PLAIN_SEED_PROMPT);
+    }
+
+    /**
+     * Records that {@code sessionId}'s project just had its seeded agent session launched
+     * (#537), at {@code now} — the write that turns {@link #templateSeedPrompt} off for
+     * that project from here on. False, and nothing written, when the project was not
+     * seedable in the first place (the same conditions as {@link #templateSeedPrompt}),
+     * so a stray {@code seed} parameter can never stamp an unrelated project.
+     */
+    public boolean markTemplateSeeded(String sessionId, Instant now) {
+        Optional<ProjectRecord> project = seedableProject(sessionId);
+        if (project.isEmpty()) {
+            return false;
+        }
+        projectRepository.markTemplateSeeded(project.get().id(), now);
+        return true;
+    }
+
+    /** The project behind an agent session id, if it still owes its seeded agent session (#537). */
+    private Optional<ProjectRecord> seedableProject(String sessionId) {
+        Matcher matcher = AGENT_SESSION_ID.matcher(sessionId);
+        if (!matcher.matches()) {
+            return Optional.empty();
+        }
+        return projectRepository.findById(Long.parseLong(matcher.group(1)))
+                .filter(project -> project.template() != null && project.templateSeededAt() == null);
+    }
+
+    /** The longest tab name accepted (#393) — long enough to be useful, short enough not to break the strip. */
+    public static final int MAX_DISPLAY_NAME_LENGTH = 60;
+
+    /**
+     * Sets or clears the name a user gave one of this project's agent session tabs (#393).
+     * A blank or {@code null} name clears it, so the client falls back to the label
+     * it generates itself; anything else is stored trimmed. Whitespace-only input is
+     * a clear rather than a name made of spaces.
+     *
+     * <p>{@link RenameOutcome#NOT_FOUND} — nothing renamed — when {@code sessionId}
+     * is not in this project's agent session family, has no record, or is not visible to
+     * {@code requestingUsername}: exactly the gate {@link #close(long, String,
+     * String)} applies, so one user can no more rename another's agent session than close
+     * it. {@link RenameOutcome#TOO_LONG} when the trimmed name exceeds
+     * {@link #MAX_DISPLAY_NAME_LENGTH} — rejected rather than silently truncated, so
+     * the user is told instead of surprised.
+     */
+    public RenameOutcome rename(long projectId, String sessionId, String requestingUsername, String name) {
+        Optional<WorktreeSessionRecord> record = sessionRepository.find(sessionId);
+        boolean renamable = belongsToProject(sessionId, projectId)
+                && record.map(r -> isVisibleTo(r, requestingUsername)).orElse(false);
+        if (!renamable) {
+            return RenameOutcome.NOT_FOUND;
+        }
+        String trimmed = name == null ? "" : name.trim();
+        if (trimmed.length() > MAX_DISPLAY_NAME_LENGTH) {
+            return RenameOutcome.TOO_LONG;
+        }
+        sessionRepository.setDisplayName(sessionId, trimmed.isEmpty() ? null : trimmed);
+        return RenameOutcome.RENAMED;
+    }
+
+    /** What {@link #rename} did: renamed (or cleared), refused, or rejected as over-long. */
+    public enum RenameOutcome {
+        RENAMED,
+        NOT_FOUND,
+        TOO_LONG
+    }
+
+    /**
+     * Tears down the project's current agent session — the one {@link #find}
+     * reports — for good (#75-style close), and, per {@link #close(long, String,
+     * String)}, attempts to remove its worktree too. False — nothing closed — for a
+     * project with no open agent session visible to {@code requestingUsername}.
+     */
+    public boolean close(long projectId, String requestingUsername) {
+        return find(projectId, requestingUsername)
+                .map(session -> close(projectId, session.sessionId(), requestingUsername))
+                .orElse(false);
+    }
+
+    /**
+     * Tears down one specific agent session of the project's family (#177 — the
+     * per-tab close) and, once the session has ended, attempts to remove its worktree
+     * (#339/ADR-104): kept, never force-removed, when HEAD is not detached, the
+     * worktree is dirty, or HEAD is not yet an ancestor of the project's default
+     * branch on origin (#583/ADR-108) — the
+     * same guard {@link WorktreeCleanupSweeper#removalRefusalReasonForProjectAgentSession}
+     * exposes, so a refusal here and the periodic sweep's own backstop check never
+     * quietly drift apart. False — nothing closed — when {@code sessionId} is not in
+     * this project's family, has no record, or is not visible to
+     * {@code requestingUsername}; the worktree-removal attempt is skipped entirely in
+     * that case, same as before this task.
+     */
+    public boolean close(long projectId, String sessionId, String requestingUsername) {
+        Optional<WorktreeSessionRecord> record = sessionRepository.find(sessionId);
+        boolean closeable = belongsToProject(sessionId, projectId)
+                && record.map(r -> isVisibleTo(r, requestingUsername)).orElse(false);
+        if (!closeable) {
+            return false;
+        }
+        // Captured before sessionRegistry#close deletes this record as part of ending
+        // the session -- there is nothing left to read the working directory from
+        // once that happens.
+        Path workingDirectory = record.map(WorktreeSessionRecord::workingDirectory).orElse(null);
+        sessionRegistry.close(sessionId);
+        if (workingDirectory != null) {
+            WorktreeCleanupSweeper.ProjectAgentSessionWorktree worktree =
+                    new WorktreeCleanupSweeper.ProjectAgentSessionWorktree(projectId, sessionId, workingDirectory);
+            if (sweeper.removalRefusalReasonForProjectAgentSession(worktree).isEmpty()) {
+                sweeper.removeProjectAgentSessionWorktree(worktree);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The extra PTY environment for a session id, resolved purely from its own
+     * shape — empty for anything that is neither a project agent session's id nor an
+     * issue-worktree session's id (#551 widened this from agent-session-only, so every
+     * agent process the engine spawns for a project carries its account's token, not
+     * only a project agent session's). A project with no chosen GitHub account (#550) also
+     * resolves to empty: {@code gh} then falls back to whatever ambient session the
+     * host has, exactly as it does for project issue/PR fetches with no account
+     * chosen.
+     *
+     * <p>Since #572 the same token also reaches plain {@code git} in the session: for
+     * an HTTPS remote, {@link GitCredential#sessionEnvironment()} adds the inline
+     * credential-helper config variables next to {@code GH_TOKEN}, so {@code git
+     * fetch}/{@code push} act as the project's account too. An SSH remote gets
+     * {@code GH_TOKEN} alone, and keeps the host's key handling for git.
+     */
+    public Map<String, String> environmentFor(String sessionId) {
+        Long projectId = projectIdFor(sessionId);
+        if (projectId == null) {
+            return Map.of();
+        }
+        Optional<String> token = projectRepository.findGithubAccountId(projectId)
+                .flatMap(ghAccountRepository::findEncryptedToken)
+                .map(tokenCipher::decrypt);
+        if (token.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> environment = new LinkedHashMap<>();
+        environment.put("GH_TOKEN", token.get());
+        projectRepository.findById(projectId)
+                .map(project -> GitCredential.forRemote(project.gitUrl(), token).sessionEnvironment())
+                .ifPresent(environment::putAll);
+        return Map.copyOf(environment);
+    }
+
+    /** The project's token for the {@code git fetch} an agent session worktree's creation starts with (#569). */
+    private GitCredential gitCredential(long projectId) {
+        return GitCredential.forProject(projectId, projectRepository, ghAccountRepository, tokenCipher);
+    }
+
+    /** The project id a session id's own shape carries, or {@code null} for a shape that carries none. */
+    private static Long projectIdFor(String sessionId) {
+        Matcher agentSession = AGENT_SESSION_ID.matcher(sessionId);
+        if (agentSession.matches()) {
+            return Long.parseLong(agentSession.group(1));
+        }
+        Matcher worktree = ISSUE_WORKTREE_SESSION_ID.matcher(sessionId);
+        if (worktree.matches()) {
+            return Long.parseLong(worktree.group(1));
+        }
+        return null;
+    }
+
+    private List<WorktreeSessionRecord> openRecords(long projectId, String requestingUsername) {
+        return sessionRepository.findAll().stream()
+                .filter(record -> belongsToProject(record.worktreeId(), projectId))
+                .filter(record -> isVisibleTo(record, requestingUsername))
+                .toList();
+    }
+
+    private static boolean belongsToProject(String sessionId, long projectId) {
+        Matcher matcher = AGENT_SESSION_ID.matcher(sessionId);
+        return matcher.matches() && Long.parseLong(matcher.group(1)) == projectId;
+    }
+
+    /**
+     * What follows {@code "<projectId>-console-"} in an agent session id, or the
+     * empty string for the legacy bare {@code "<projectId>-console"} (and for any id
+     * outside the family). This is exactly the sibling-directory suffix
+     * {@link #startWorktreeSession} named the agent session's worktree with.
+     */
+    private static String agentSessionSuffix(String sessionId) {
+        Matcher matcher = AGENT_SESSION_ID.matcher(sessionId);
+        if (!matcher.matches() || matcher.group(2) == null) {
+            return "";
+        }
+        return matcher.group(2).substring(1);
+    }
+
+    /**
+     * The suffix of the agent session a conversation was actually captured in, with any
+     * {@code "-resume-<8-hex>"} tails {@link #reopenSession} appended stripped back
+     * off — a reopened agent session runs in the original's directory, not one of its own,
+     * so reopening from it must resolve to that same directory rather than to a path
+     * nothing ever created.
+     */
+    private static String originalAgentSessionSuffix(String sessionId) {
+        String suffix = agentSessionSuffix(sessionId);
+        Matcher tail = REOPENED_SUFFIX.matcher(suffix);
+        while (tail.find()) {
+            suffix = suffix.substring(0, tail.start());
+            tail = REOPENED_SUFFIX.matcher(suffix);
+        }
+        return suffix;
+    }
+
+    private boolean isVisibleTo(WorktreeSessionRecord record, String requestingUsername) {
+        return authorization.isVisibleTo(record.worktreeId(), requestingUsername);
+    }
+
+    private static String shortId() {
+        return UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    public record AgentSession(String sessionId, String workingDirectory) {
+    }
+
+    /**
+     * One row of {@link #listOpen} — what the agent sessions page (#179) renders.
+     * {@code displayName} is the name the user gave this tab (#393), or {@code null}
+     * when they have given it none.
+     */
+    public record OpenAgentSession(String sessionId, String workingDirectory, Instant createdAt, Instant lastAttachedAt,
+            String displayName) {
+    }
+}

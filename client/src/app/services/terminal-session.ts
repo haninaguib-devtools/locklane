@@ -1,4 +1,4 @@
-// A thin wrapper around one console session's WebSocket connection
+// A thin wrapper around one agent session's WebSocket connection
 // (dev.locklane.engine.ws.TerminalWebSocketHandler, /ws/sessions/{sessionId}).
 // Not an Angular service: each terminal tab owns its own instance and its own
 // connection, so this is plain state a component creates and destroys directly.
@@ -146,7 +146,7 @@ export class TerminalSession {
    * Called when the tab regains focus/visibility (#279, terminal.component.ts): if
    * the connection is not currently open, reconnect right away instead of waiting
    * out whatever backoff delay is pending -- the whole point of watching for this is
-   * to make the console interactive again the moment the user comes back, not after
+   * to make the agent session interactive again the moment the user comes back, not after
    * a timer that may itself have been throttled while the tab was backgrounded.
    */
   checkConnection(): void {

@@ -213,9 +213,9 @@ app-usage-widget {
   color: var(--muted);
 }
 
-/* The section header's per-project consoles button (#312): jumps to this
-   project's console page, and is only rendered while it has an open console. */
-.project-consoles {
+/* The section header's per-project agent sessions button (#312): jumps to this
+   project's agent session page, and is only rendered while it has an open agent session. */
+.project-agent-sessions {
   flex: none;
   width: 24px;
   height: 24px;
@@ -228,12 +228,12 @@ app-usage-widget {
   cursor: pointer;
 }
 
-.project-consoles:hover {
+.project-agent-sessions:hover {
   background: var(--panel);
 }
 
-/* The header's one-click new-console entry (#180). */
-.new-console {
+/* The header's one-click new-agent-session entry (#180). */
+.new-agent-session {
   flex: none;
   width: 24px;
   height: 24px;
@@ -246,12 +246,12 @@ app-usage-widget {
   cursor: pointer;
 }
 
-.new-console:hover {
+.new-agent-session:hover {
   background: var(--panel);
   color: var(--text);
 }
 
-.new-console:disabled {
+.new-agent-session:disabled {
   cursor: default;
   opacity: 0.5;
 }
@@ -287,7 +287,7 @@ app-usage-widget {
   color: var(--danger, #b3432b);
 }
 
-/* Live clone progress (#717): amber, like the console dot's waiting pulse below. */
+/* Live clone progress (#717): amber, like the agent session dot's waiting pulse below. */
 .project-status.cloning {
   color: var(--amber);
 }
@@ -298,7 +298,7 @@ app-usage-widget {
   height: 7px;
   border-radius: 50%;
   background: var(--amber);
-  animation: console-dot-pulse 1.2s ease-in-out infinite;
+  animation: agent-session-dot-pulse 1.2s ease-in-out infinite;
   flex: none;
 }
 
@@ -495,7 +495,7 @@ ul.branch {
   text-transform: uppercase;
 }
 
-.console-dot {
+.agent-session-dot {
   flex: none;
   width: 7px;
   height: 7px;
@@ -504,12 +504,12 @@ ul.branch {
   background: var(--agent-dot);
 }
 
-.console-dot.waiting {
+.agent-session-dot.waiting {
   background: var(--amber);
-  animation: console-dot-pulse 1.2s ease-in-out infinite;
+  animation: agent-session-dot-pulse 1.2s ease-in-out infinite;
 }
 
-@keyframes console-dot-pulse {
+@keyframes agent-session-dot-pulse {
   0%,
   100% {
     opacity: 1;
@@ -594,8 +594,8 @@ ul.branch {
     min-height: 40px;
   }
 
-  .project-consoles,
-  .new-console,
+  .project-agent-sessions,
+  .new-agent-session,
   .pop-out,
   .kebab {
     width: 32px;
