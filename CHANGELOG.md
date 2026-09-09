@@ -8,6 +8,11 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.27 — 2026-09-09
+
+### Other
+- Replace accent color swatches with a free color picker and a reset to default (#843, #844)
+
 ## v0.2.26 — 2026-09-08
 
 ### Fixes
