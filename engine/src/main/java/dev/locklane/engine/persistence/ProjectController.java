@@ -203,10 +203,12 @@ public class ProjectController {
     }
 
     /**
-     * Sets this project's accent color (#427), so its own pages can be tinted with a
-     * lighter version of it — separate from, and with no effect on, the global,
-     * client-only accent that keeps driving the navbar/header. Ownership-gated the
-     * same as every other by-id operation here; the value must be a 6-digit hex color.
+     * Sets or clears this project's accent color (#427, clearing added by #843), so
+     * its own pages can be tinted with a lighter version of it — separate from, and
+     * with no effect on, the global, client-only accent that keeps driving the
+     * navbar/header. Ownership-gated the same as every other by-id operation here; a
+     * non-null value must be a 6-digit hex color, while {@code null} clears the color
+     * back to no tint.
      */
     @PutMapping("/{id}/accent-color")
     public ResponseEntity<?> setAccentColor(
@@ -214,7 +216,7 @@ public class ProjectController {
         if (findAuthorized(id, authentication).isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        if (request.accentColor() == null || !HEX_COLOR.matcher(request.accentColor()).matches()) {
+        if (request.accentColor() != null && !HEX_COLOR.matcher(request.accentColor()).matches()) {
             return ResponseEntity.badRequest().body(Map.of("error", "accentColor must be a hex color like #c15f3c"));
         }
         repository.setAccentColor(id, request.accentColor());

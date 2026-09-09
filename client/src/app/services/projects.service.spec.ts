@@ -164,6 +164,15 @@ describe('ProjectsService', () => {
     req.flush(null);
   });
 
+  it('clears a project accent color by sending null (#843)', () => {
+    service.setAccentColor(1, null).subscribe();
+
+    const req = httpMock.expectOne('/api/projects/1/accent-color');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ accentColor: null });
+    req.flush(null);
+  });
+
   it('persists a new project order via PUT /api/projects/order (#541)', () => {
     service.setOrder([2, 1, 3]).subscribe();
 

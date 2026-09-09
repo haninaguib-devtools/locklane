@@ -15,7 +15,6 @@ import { AgentStore } from '../../services/agent-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
 import { DefaultIdeStore, InstalledIde } from '../../services/default-ide-store';
 import { LastAgentSessionStore } from '../../services/last-agent-session-store';
-import { AccentPreset, ACCENT_PRESETS } from '../../services/accent-theme-store';
 import { CurrentProjectService } from '../../services/current-project.service';
 
 /** The issue counts shown on a project's summary, all derived from its tree (#85). */
@@ -64,11 +63,10 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     this.injector.get(CurrentProjectService).refresh();
   }
 
-  // The project's own accent-color picker (#428) reuses the global setting's four
-  // presets (accent-theme-store.ts) as swatches, submitting each preset's raw
-  // `accent` hex to the backend (#427) rather than its preset id -- unlike the
-  // global setting, this is per-project state with no client-only representation.
-  readonly accentPresets = ACCENT_PRESETS;
+  // The project's own accent-color picker (#428, a free picker plus Reset since #843)
+  // submits the chosen hex straight to the backend (#427); unlike the global setting,
+  // this is per-project state with no client-only representation -- Reset persists
+  // NULL rather than falling back to a client-side default.
   savingAccentColor = false;
   accentColorError: string | null = null;
 
@@ -168,17 +166,26 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     });
   }
 
-  /** Sets this project's accent color (#428) to the clicked preset's raw hex value. */
-  chooseAccentColor(preset: AccentPreset): void {
+  /** Sets this project's accent color (#428) to the picked hex value. */
+  chooseAccentColor(accentColor: string): void {
+    this.setAccentColor(accentColor);
+  }
+
+  /** Clears this project's accent color (#843) back to no tint. */
+  resetAccentColor(): void {
+    this.setAccentColor(null);
+  }
+
+  private setAccentColor(accentColor: string | null): void {
     if (!this.project || this.savingAccentColor) {
       return;
     }
     this.savingAccentColor = true;
     this.accentColorError = null;
-    this.projectsService.setAccentColor(this.project.id, preset.accent).subscribe({
+    this.projectsService.setAccentColor(this.project.id, accentColor).subscribe({
       next: () => {
         this.savingAccentColor = false;
-        this.project = { ...this.project!, accentColor: preset.accent };
+        this.project = { ...this.project!, accentColor };
         // The tint AppComponent shows behind every page of this project (#428)
         // reads from CurrentProjectService's own cached list, which this page
         // never otherwise refreshes -- without this, the new color wouldn't

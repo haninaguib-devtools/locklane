@@ -268,31 +268,40 @@ h1 {
   color: var(--muted);
 }
 
-.accent-swatches {
+.accent-picker {
   display: flex;
+  align-items: center;
   gap: 10px;
 }
 
-.accent-swatch {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 2px solid transparent;
+.accent-color-input {
+  width: 28px;
+  height: 28px;
   padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
   cursor: pointer;
-  box-shadow: 0 0 0 1px var(--border);
 }
 
-.accent-swatch:disabled {
+.accent-color-input:disabled {
   cursor: default;
   opacity: 0.6;
 }
 
-.accent-swatch.chosen {
-  border-color: var(--panel);
-  box-shadow:
-    0 0 0 1px var(--panel),
-    0 0 0 3px var(--text);
+.accent-picker button.secondary {
+  padding: 5px 12px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.accent-picker button.secondary:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .accent-color-error {
