@@ -10,14 +10,14 @@ description: Cut a release with one command — gates on the version, drives the
 `0.1.1-SNAPSHOT`); give it a bare version too (`/l-release 0.1.0 0.2.0` bumps to
 `0.2.0-SNAPSHOT`).
 
-This is locklane's own second explicitly-invoked exception to
-[ADR-001](../../../docs/adr/001-phase0-delivery-workflow.md) D1's "nothing
-auto-chains" — [ADR-109](../../../docs/adr/109-one-release-task-one-stop-and-build-only-on-build-inputs.md)
+This is locklane's own second exception to the workflow's "nothing chains" rule
+(`.t-workflow/AGENTS.md` rule 5 names `/t-drive` as the first) —
+[ADR-109](../../../docs/adr/109-one-release-task-one-stop-and-build-only-on-build-inputs.md)
 (superseding [ADR-106](../../../docs/adr/106-l-release-single-command-release.md) D1
-and D2) records why, alongside `/t-drive`'s own. **One `/l-release <version>` invocation
-is the human's ask covering every write the single `/t-drive` call below makes for its
-own chained stages** (`AGENTS.md` §Conventions), exactly as a bare `/t-drive <id>`
-invocation covers its own chain. This skill composes `/t-open`, `/t-drive`, and
+and D2) records why. **One `/l-release <version>` invocation is the human's ask
+covering every write the single `/t-drive` call below makes for its own chained
+stages** (`.t-workflow/AGENTS.md` rule 6), exactly as a bare `/t-drive <id>` invocation
+covers its own chain. This skill composes `/t-open`, `/t-drive`, and
 `scripts/release.sh`; it never reimplements any of them, and it never touches
 `.github/workflows/release.yml` or `scripts/generate-release-notes.sh` beyond running
 them exactly as `docs/architecture/releasing.md` already documents.
@@ -78,18 +78,18 @@ them exactly as `docs/architecture/releasing.md` already documents.
    § Non-goals); a human overrides it by passing `<next-version>`, or by editing the
    task's PR before its gate.
 
-3. **Drive the release task.** `/t-drive <id>` (solo mode, ADR-006): plan-if-needed,
-   work, review-if-needed, chained into `/t-ship`'s merge-confirmation gate exactly as
-   ADR-006 D3 describes. Neither `CHANGELOG.md` nor `pom.xml` is a protected surface,
-   so the ordinary case is work straight into the gate. The diff's only `pom.xml`
-   change is the `<revision>` line, so `AGENTS.md` §Checks item 1 skips Maven locally
-   and in the PR's CI (`scripts/build-inputs.sh`); the push to `main` after the merge
-   and the Release build itself still run the full build.
+3. **Drive the release task.** `/t-drive <id>`: plan if the diff is protected, work,
+   review if the diff is protected, chained into `/t-ship`'s merge question. Neither
+   `CHANGELOG.md` nor `pom.xml` is a protected path, so the ordinary case is work
+   straight into the gate. The diff's only `pom.xml` change is the `<revision>` line:
+   locally, `/t-work` runs the check command in `.t-workflow/config`; in the PR's CI,
+   `.github/workflows/build.yml`'s build-inputs step skips the Maven build for it
+   (`scripts/build-inputs.sh`); the push to `main` after the merge and the Release
+   build itself still run the full build.
 
    **At that gate, extend `/t-ship`'s own evidence and question — do not replace
-   them** — to also name the dispatch this confirmation authorizes (ADR-109 D1, the
-   same "fold the enabling action into the one gate that authorizes it" shape
-   `/t-ship` Procedure step 3/5 already uses for its own branch-protection flip):
+   them** — to also name the dispatch this confirmation authorizes (ADR-109 D1: the
+   enabling action is folded into the one gate that authorizes it):
 
    - evidence: everything `/t-ship`'s own gate already states, plus: `release
      v<version> will be dispatched and published immediately after this merge, and
@@ -98,7 +98,7 @@ them exactly as `docs/architecture/releasing.md` already documents.
    - options: unchanged — `confirm` / `abort`.
 
    **`abort` stops `/l-release` entirely here** — no dispatch. `confirm` merges the PR
-   (`/t-ship`'s own Procedure) and authorizes step 4. This gate is the run's one and
+   (`/t-ship`'s own procedure) and authorizes step 4. This gate is the run's one and
    only stop.
 
 4. **Dispatch and verify, immediately after the merge.**

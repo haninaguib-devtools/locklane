@@ -1,175 +1,65 @@
-# AGENTS.md
+Read `.t-workflow/AGENTS.md` first — the delivery workflow for this repository.
 
-This repository starts from the **delivery system** template: the workflow skills, the
-constitution, and the document/record structure. The application's ratified constraints
-live in `CONSTITUTION.md` §4; nothing here may assume more than §4 ratifies.
+## Project notes
 
-## Read first
+*(this repository's own session-start instructions)*
 
-- `CONSTITUTION.md` — the invariants. Binding on every task.
-- `docs/workflow.md` — a short overview of how any change moves from idea to `main`.
-  The skills in `.claude/skills/` are the instructions; the overview explains the shape
-  and does not restate them.
+## Constraints
 
-## The pipeline
+1. Spring Boot engine + Angular PWA client + SQLite for durable non-binding state, with
+   one persistent PTY (pseudo-terminal) session per git worktree, reattachable from any
+   browser, from anywhere — never a job queue (ADR-100).
+2. An agent-created, per-issue worktree is removed automatically once its issue is
+   confirmed closed, its git status is clean, and no agent session is attached — a
+   narrow, guarded exception to the pipeline's own "left alone permanently" default
+   (ADR-102). Once such a worktree is removed, its local `wip/<id>-<slug>` branch is
+   deleted too, but only via `git branch -d`: a fully merged branch goes, an unmerged
+   one is refused and left alone (ADR-103).
+3. Reserved protected surfaces, per ADR-101: once the ratified multi-user tenancy and
+   authorization model is implemented, these application surfaces join §3's list — the
+   Flyway migrations under `engine/src/main/resources/db/migration/` and
+   `engine/src/main/java/dev/locklane/engine/persistence/migration/`, the
+   `owner_user_id` ownership/authorization checks in `ProjectController` and
+   `ProjectRepository`, the account and authentication code in
+   `EngineUserDetailsService` and `SecurityConfig`, and the future admin
+   user-management controller. They are not yet backticked into §3's bullet list or
+   into `.t-workflow/scripts/protected-paths.sh`: check 9 of
+   `.t-workflow/scripts/consistency-check.sh` requires every backticked §3 path to
+   already be enforced there, and this code does not carry the ratified checks yet.
+   The task that lands each surface (#238–#242) adds its §3 bullet and its
+   `protected-paths.sh` pattern together, per §3's own "one rule in two forms"
+   invariant.
+4. A project-agent worktree (no issue of its own) is removed on tab close, and by
+   the same periodic sweep as a backstop, once its session has ended and its git
+   status is clean, and either its HEAD is detached and an ancestor of the project's
+   default branch on origin, or a branch is checked out whose work has already landed
+   there — even under a rewritten SHA, e.g. via squash-merge — while a checked-out
+   branch that still carries real, un-landed work is left alone unconditionally, the
+   same as before — a second, distinct guarded exception to ADR-005, alongside point
+   2's rather than folded into it (ADR-104, amended by ADR-107 and ADR-108).
+5. A project is visible and operable only to the account that owns it, and a
+   worktree/agent session only to the owner of its project — no role, administrator
+   included, is exempt; administrators manage accounts and nothing more (ADR-105,
+   superseding the administrator exemption in ADR-101 Decisions 1 and 6).
+6. On macOS the server is a launchd agent in the `user/<uid>` domain, its plist
+   declaring `LimitLoadToSessionType` = `Background` so it loads without a graphical
+   login (ADR-111, superseding ADR-110 Decision 1); a refused `launchctl bootstrap` leaves the
+   plist in place; and any change to the launchd registration ships only after
+   `.github/workflows/mac-lifecycle.yml` has passed against a real `launchctl`, never
+   on the stub harness alone (ADR-110 Decisions 2 and 3).
+7. Wherever a person reads the product, a tab running an AI coding agent is an
+   *agent*, a plain shell is a *shell*, a resumable past agent conversation is a
+   *conversation*, *session* is the engine's own word for any persistent PTY and is
+   never shown to a user, and *agent CLI* names the program an agent runs where a
+   sentence must tell it from a running agent. On-the-wire and persisted names —
+   session id shapes, database schema, REST paths, WebSocket event names, route
+   paths, localStorage keys — are compatibility surfaces the vocabulary never forces
+   to change, and pre-existing ADRs, CHANGELOG entries and task records keep their
+   wording (ADR-112).
 
-Stages are chosen per task (ADR-001). Two things are never optional: work starts from a
-tracker issue, and `main` moves only by a PR a human confirmed.
 
-**Backends are pluggable.** The skills speak in `tracker:*` (issues, labels) and
-`forge:*` (PRs, CI, merges) operations; `docs/adapters/TRACKER.md` and
-`docs/adapters/FORGE.md` map each operation to concrete commands for the active backend
-(GitHub Issues + GitHub PRs today; a future backend adopts by editing those two files
-only). Plain `git` is never abstracted.
+## Skills of this repository
 
-| Skill | Stage |
-|---|---|
-| `/t-open` | Conversation → issue(s). How all work starts. |
-| `/t-plan` | Optional; required before changing a protected surface. Pins scope, risks, and validation onto the issue. |
-| `/t-work` | Branch, record, implement, check, draft PR. One invocation, in the current checkout. |
-| `/t-review` | Cold-context review; findings posted on the PR. Required before shipping a protected surface. |
-| `/t-drive` | Optional. Drives an initiative or a single task. An initiative's children walk to completion on an integration branch — plan, implement, and independently review each — merging what review authorizes and excluding what fails a bounded retry; stops once, for the human's confirmation on a single PR to `main` (ADR-004). A single ordinary task runs its own pipeline — plan and review only where the gates require them — chained into `/t-ship`'s merge gate, whose pause is the same single stop (ADR-006). Either way, a task with unresolved required human verification pauses cleanly after review instead of shipping or merging — the default for a task that declares such a check, never a mode chosen by hand — and a later invocation resumes without replaying finished stages (ADR-010, `docs/workflow.md` §5). |
-| `/t-ship` | Human-confirmed squash merge. Every path to `main` is a human-confirmed PR. |
-| `/t-cancel` | Terminal exit: the reason recorded on the issue, every neighbour decided, then the PR closed and its branch deleted. |
-| `/t-update` | For a repo generated from this template. Syncs its template-owned files to a pinned release, preserving local slots and applying pending migrations, as one ordinary task. |
-| `/t-config` | Guided editor for `AGENTS.md`'s §Reviewer model slot — asks which model `/t-review`'s subagent reviewer should default to, or to clear the override, and writes only that. |
-| `/t-status` | Read-only pipeline overview. |
-
-Skills outside the `t-*` namespace are the consumer's own; each gets a row in its own
-table below.
-
-<!-- local -->
 | Skill | Stage |
 |---|---|
 | `/l-release` | Cut a release with one command — gates on the version (`scripts/release.sh gate`), opens one task carrying the version's `CHANGELOG.md` section and the `<revision>` bump to the next snapshot, drives it to a single merge-and-dispatch confirmation, then dispatches and verifies the release (`scripts/release.sh dispatch`). One human stop (ADR-109, superseding ADR-106 D1/D2). |
-<!-- /local -->
-
-## Reviewer model
-
-`/t-review` spawns a read-only subagent to review a task independently whenever the
-invoking session implemented that task itself. Which model that subagent runs under is
-resolved with this precedence, most specific first: a model a human names explicitly on
-that invocation; otherwise this repo's own default below, if one is set; otherwise the
-invoking session's own model, exactly as before this section existed.
-
-<!-- local -->
-Default reviewer model: (none — reviews inherit the invoking session's model)
-<!-- /local -->
-
-## Conventions
-
-- **All changes go through the pipeline.** A request to change anything — code, config,
-  docs — is work: open it with `/t-open` before touching any file. Never edit the tree
-  outside that task's own `/t-work` session, however small the ask. Answering questions,
-  reading, and designing need no task; changing files always does. The **one** exception
-  is repository genesis (`CONSTITUTION.md` §3): the template's placeholder fills and the
-  first commit happen by hand, because there is no tracker and no `main` to open a PR
-  against yet. It expires once that commit is pushed.
-- **No skill runs without the human's ask.** An agent starts a stage from the pipeline
-  table above only when the human explicitly named it or clearly directed that specific
-  action in their own words ("open a task for this", "ship it", "cancel this one",
-  "what's the status", "sync the template") — `/t-status` included, even though it is
-  read-only, so the rule stays uniform rather than carving out exceptions by
-  side-effect. A description, bug report, or observation in conversation is never by
-  itself such an ask, even when it obviously describes something worth fixing or the
-  action would be harmless: say what you noticed and wait, the same as a mid-task
-  discovery.
-
-  The one exception is `/t-drive`: its own `SKILL.md` calls it "the one narrow,
-  explicitly-invoked exception to ADR-001 D1's 'nothing auto-chains'" — the human names
-  `/t-drive <id>` once, and that single ask covers every stage it chains internally.
-- **Writing to the tracker needs the human's ask.** Creating or changing anything on the
-  tracker — opening an issue, commenting, adding or removing a label, closing or
-  reopening one — puts an item on the owner's tracker under the owner's name, so an agent
-  does it only when the human asked for that specific thing. Noticing that an issue
-  *should* exist is not being asked to create it: say what you found, propose the issue in
-  the report, and wait. An agent that opens one unprompted has routed around `/t-open`,
-  the pipeline's entrance, while appearing to follow it.
-
-  The exception is **the stage the human invoked, doing what that invocation asked for**:
-  `/t-open` creating the issues it was called to create and the labels they need,
-  `/t-plan` writing the `## Plan` section onto the issue in its argument, `/t-work` and
-  `/t-review` posting on their own task's PR, `/t-cancel` labelling and closing the
-  cancelled issue, `/t-ship` closing the shipped issue after the merge gate. Where a stage
-  reaches past its own task's issue — `/t-cancel` writing each neighbour's disposition,
-  `/t-ship` ticking or closing a tracking issue — the human agreed to that specific write
-  at that stage's gate, and the gate is what makes it asked-for.
-
-  Everything outside that is a proposal, never an act: an issue nobody named, a label on
-  an issue you merely noticed, a comment on a task that is not yours.
-- **Nothing chains automatically.** Each stage ends by naming the next command and
-  stopping (ADR-001). Review does not follow implementation on its own, and findings do
-  not trigger their own fix pass.
-- **Protected surfaces are where the ceremony stays** (`CONSTITUTION.md` §3): a plan
-  before the work, an independent review before the ship. Protection comes from the paths
-  a diff touches, never from a label.
-- **Abandoning work is a stage, not a cleanup.** A task that will not be done is
-  cancelled through `/t-cancel`: the reason and every neighbour's disposition land on the
-  issue before anything is destroyed, and a cancelled blocker is abandoned, never
-  satisfied (ADR-001 D3).
-- Task ID = the tracker's issue number. Branch `wip/<id>-<slug>`. Record
-  `docs/tasks/<bucket>/<id>-<slug>.md`, where `<bucket>` is the ID rounded down to the
-  nearest 100, zero-padded to 6 digits — e.g. task 142 → `docs/tasks/000100/142-<slug>.md`
-  (ADR-001 §D4).
-- **A task worktree is optional.** A task that wants its own checkout — two tasks at
-  once, or a long-running one — gets one by hand (`git worktree add`) or from a
-  launching engine; the pipeline no longer ships a skill for it. Otherwise `/t-work`
-  runs on the task branch in the current checkout. Two sessions never share a checkout.
-  `/t-ship` and `/t-cancel` run from any checkout, including inside a task's own
-  worktree — neither one destroys it (ADR-002), and nothing else does either: a stale
-  local worktree or branch is left alone permanently (ADR-005), removed by hand
-  (`git worktree remove`, `git branch -D`) only if it is ever actually in the way.
-- `main` only moves by pull request. Never commit or push to `main` directly. The
-  skills and scripts resolve the actual trunk branch name (`.t-workflow/scripts/trunk-ref.sh`,
-  falling back to `main` only when it cannot be determined) rather than hardcoding
-  `main` — a consumer whose default branch is named something else is followed, not
-  silently mishandled.
-- Commit messages: imperative, descriptive, no `wip`, no trailers. A task's
-  squash-merge subject (and the draft PR title `/t-work` opens) is
-  `[<id>] <title> (#<pr>)` — the bracketed issue number ties every commit in
-  `git log --oneline` back to its tracker issue.
-- Decisions live in `docs/adr/` (one file per decision, via PR). Anything durable settled
-  in a PR thread is promoted into the record, an ADR, or any other protected surface
-  `CONSTITUTION.md` §3 names, before merge.
-- Out-of-scope work discovered mid-task is never a drive-by change: report it and
-  propose an issue, which the human opens or asks you to open (see the tracker rule
-  above). Exception (ADR-001): a pure typo or formatting fix in a file already inside the
-  task's scope may ride along, listed in the record.
-
-## Communication
-
-Binding on every conversation in this project — design discussions before any skill
-runs, and every stage's reports:
-
-- **Lead with what a change means in ordinary language** — what the person using the
-  system will experience, what risk was taken, what needs a human's judgment — before
-  any internal terminology.
-- Introduce a technical term only after its plain-language meaning. Freshly-coined
-  names (event types, payload fields, block conventions) are for the artifacts, not
-  the conversation.
-- Section references (§N, doc names) *point* the reader somewhere; they never
-  substitute for saying the thing.
-- Issue bodies and task records stay precise — they are contracts for cold sessions —
-  but their opening Goal/Asked paragraph follows this rule: that text is the first
-  thing a human reads.
-
-## Checks
-
-Where a skill says "run the checks", the current check set is:
-
-<!-- local -->
-1. `./mvnw -B test` (Maven, from the repo root) — builds every module and runs its
-   test suite. Added to `.github/workflows/ci.yml`. **Runs only when the diff touches
-   a build input** (ADR-109 D3): `scripts/build-inputs.sh origin/main` is the one
-   definition of that set — exit 0 (a build input changed) or 2 (nothing decided) →
-   run Maven; exit 1 (no build input in the diff) → skip it. CI applies the same
-   script to the PR's diff, and a push to `main` always builds. A skipped run is
-   recorded in the PR's `## Checks run` as
-   `- \`./mvnw -B test\` — SKIPPED (no build inputs in diff) — commit \`<sha>\``,
-   never as PASS: the check did not run, and `/t-review` reuses only a PASS.
-<!-- /local -->
-2. `./.t-workflow/scripts/consistency-check.sh` — cross-artifact document consistency.
-3. `git diff` review against the task's declared scope (always applicable).
-
-`.github/workflows/ci.yml` runs check 2 on every PR today, plus a `record` job asserting
-that a task PR carries its task record. Add check 1 to it once the stack exists.

@@ -1,0 +1,20 @@
+# t-workflow configuration. Owned by this repository; never touched by an update.
+# Shell syntax: key="value". Read by .t-workflow/scripts/*.
+
+# Build/test command the agent runs locally before opening a PR (empty = none yet).
+# CI does not run it; the project's own CI does.
+check="./mvnw -B test"
+
+# Extra protected globs, space-separated, on top of the built-in set
+# (e.g. "db/migrate/* config/*"). A protected diff needs a plan and a cold review.
+protected=""
+
+# Extra documentation globs, space-separated, on top of *.md and docs/*
+# (e.g. "site/*"). A documentation-only diff skips check 1.
+docs=""
+
+# Branch globs exempt from the task gates in CI (e.g. "dependabot/*").
+exempt=""
+
+# Model /t-review's subagent reviewer runs under (empty = the invoking session's own).
+reviewer_model=""

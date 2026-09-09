@@ -29,5 +29,3 @@ tmp/
 scratch/
 
 # Consumer additions go inside this region; a template sync carries it forward unchanged.
-# <!-- local -->
-# <!-- /local -->
