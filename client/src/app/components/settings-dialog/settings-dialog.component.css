@@ -80,26 +80,30 @@
   color: var(--accent);
 }
 
-.accent-swatches {
+.accent-picker {
   display: flex;
+  align-items: center;
   gap: 10px;
 }
 
-.accent-swatch {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 2px solid transparent;
+.accent-color-input {
+  width: 32px;
+  height: 32px;
   padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
   cursor: pointer;
-  box-shadow: 0 0 0 1px var(--border);
 }
 
-.accent-swatch.chosen {
-  border-color: var(--panel);
-  box-shadow:
-    0 0 0 1px var(--panel),
-    0 0 0 3px var(--text);
+.accent-picker button.secondary {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .muted {

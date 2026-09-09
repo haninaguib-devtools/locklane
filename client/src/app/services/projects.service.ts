@@ -81,8 +81,11 @@ export class ProjectsService {
     return this.http.delete<void>(`/api/projects/${id}`);
   }
 
-  /** Sets this project's accent color (#427/#428) — a 6-digit hex string like `#c15f3c`. */
-  setAccentColor(id: number, accentColor: string): Observable<void> {
+  /**
+   * Sets this project's accent color (#427/#428) — a 6-digit hex string like
+   * `#c15f3c`, or `null` (#843) to clear it back to no tint.
+   */
+  setAccentColor(id: number, accentColor: string | null): Observable<void> {
     return this.http.put<void>(`/api/projects/${id}/accent-color`, { accentColor });
   }
 

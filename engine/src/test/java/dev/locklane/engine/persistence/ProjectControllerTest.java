@@ -553,16 +553,20 @@ class ProjectControllerTest {
     }
 
     @Test
-    void settingANullAccentColorIsABadRequest(@TempDir Path tmp) throws IOException {
+    void settingANullAccentColorClearsItBackToNoTint(@TempDir Path tmp) throws IOException {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(tmp);
         Caller alice = user(tmp, "alice", UserRecord.Role.USER);
         ProjectRecord created = repository.create("foo", "url", tmp.resolve("foo"), alice.id(), Instant.now());
         ProjectController controller = controller(tmp, repository);
+        controller.setAccentColor(
+                created.id(), new ProjectController.SetAccentColorRequest("#c15f3c"), alice.authentication());
 
         ResponseEntity<?> response = controller.setAccentColor(
                 created.id(), new ProjectController.SetAccentColorRequest(null), alice.authentication());
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(repository.findById(created.id())).isPresent().get()
+                .extracting(ProjectRecord::accentColor).isNull();
     }
 
     @Test

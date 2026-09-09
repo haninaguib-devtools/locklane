@@ -47,19 +47,15 @@
       <section class="section">
         <h2>Appearance</h2>
         <p class="muted">Pick the accent color used for buttons, selections, and highlights.</p>
-        <div class="accent-swatches" role="group" aria-label="Accent color">
-          @for (preset of accentPresets; track preset.id) {
-            <button
-              type="button"
-              class="accent-swatch"
-              [class.chosen]="accentPreset().id === preset.id"
-              [style.background]="preset.accent"
-              [attr.aria-pressed]="accentPreset().id === preset.id"
-              [attr.aria-label]="preset.label"
-              [title]="preset.label"
-              (click)="chooseAccent(preset)"
-            ></button>
-          }
+        <div class="accent-picker">
+          <input
+            type="color"
+            class="accent-color-input"
+            aria-label="Accent color"
+            [value]="accentTheme().accent"
+            (input)="chooseAccent($any($event.target).value)"
+          />
+          <button type="button" class="secondary" (click)="resetAccent()">Reset</button>
         </div>
       </section>
 

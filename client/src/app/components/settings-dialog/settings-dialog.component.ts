@@ -1,7 +1,7 @@
 import { Component, EventEmitter, HostListener, OnInit, Output, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AccountService, TwoFactorEnrollment } from '../../services/account.service';
-import { AccentPreset, ACCENT_PRESETS, AccentThemeStore } from '../../services/accent-theme-store';
+import { AccentThemeStore } from '../../services/accent-theme-store';
 import { DefaultAgent, DefaultAgentStore } from '../../services/default-agent-store';
 import { DefaultIdeStore } from '../../services/default-ide-store';
 
@@ -13,8 +13,8 @@ type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enable
  * startup (#359, {@link DefaultAgentStore.installed}) -- an IDE section (#782) of the
  * same shape, one button per IDE this browser may open a worktree in
  * ({@link DefaultIdeStore.available}) and hidden altogether when there is only one so
- * there is nothing to choose between -- an appearance section (#387)
- * of accent-color swatches, a password section (#241) for self-service password
+ * there is nothing to choose between -- an appearance section (#387, a free color
+ * picker plus Reset since #843) for the accent color, a password section (#241) for self-service password
  * change, and the two-factor authentication section (#91) -- enable (enroll,
  * scan/enter, confirm), disable (password), and the current status in between.
  * Visually it follows
@@ -52,8 +52,7 @@ export class SettingsDialogComponent implements OnInit {
   readonly availableIdes = this.defaultIdeStore.available;
   readonly effectiveIde = this.defaultIdeStore.effective;
 
-  readonly accentPresets = ACCENT_PRESETS;
-  readonly accentPreset = this.accentThemeStore.preset;
+  readonly accentTheme = this.accentThemeStore.theme;
 
   currentPasswordForChange = '';
   newPasswordForChange = '';
@@ -92,8 +91,12 @@ export class SettingsDialogComponent implements OnInit {
     this.defaultIdeStore.set(ide);
   }
 
-  chooseAccent(preset: AccentPreset): void {
-    this.accentThemeStore.choose(preset);
+  chooseAccent(accent: string): void {
+    this.accentThemeStore.choose(accent);
+  }
+
+  resetAccent(): void {
+    this.accentThemeStore.reset();
   }
 
   changePassword(): void {

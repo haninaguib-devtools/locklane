@@ -383,8 +383,9 @@ describe('AppComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector<HTMLElement>('.topbar')!.style.backgroundColor).toBe('');
 
-    // Sage is the second preset (accent-theme-store.ts).
-    compiled.querySelectorAll<HTMLButtonElement>('.accent-swatch')[1].click();
+    const accentInput = compiled.querySelector<HTMLInputElement>('.accent-color-input')!;
+    accentInput.value = '#5c8a4e';
+    accentInput.dispatchEvent(new Event('input'));
     httpMock.expectOne('/api/projects/1/accent-color').flush(null);
     fixture.detectChanges();
 

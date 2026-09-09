@@ -559,25 +559,26 @@ describe('ProjectSummaryComponent', () => {
     expect(deleted).not.toHaveBeenCalled();
   });
 
-  it('shows no chosen accent swatch when the project has no accent color set (#428)', () => {
+  it('shows the default color in the picker when the project has no accent color set (#428, #843)', () => {
     const fixture = init();
 
-    const chosen = (fixture.nativeElement as HTMLElement).querySelectorAll('.accent-swatch.chosen');
-    expect(chosen.length).toBe(0);
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('.accent-color-input')!;
+    expect(input.value).toBe('#c15f3c');
   });
 
-  it('marks the swatch matching the project\'s stored accent color as chosen (#428)', () => {
+  it('shows the project\'s stored accent color in the picker (#428, #843)', () => {
     const fixture = init([{ ...PROJECT, accentColor: '#5c8a4e' }]);
 
-    const chosen = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.accent-swatch.chosen')!;
-    expect(chosen.title).toBe('Sage');
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('.accent-color-input')!;
+    expect(input.value).toBe('#5c8a4e');
   });
 
-  it('sets the project accent color via PUT, updates the swatch, and refreshes CurrentProjectService (#428)', () => {
+  it('sets the project accent color via PUT, updates the picker, and refreshes CurrentProjectService (#428, #843)', () => {
     const fixture = init();
 
-    const swatches = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.accent-swatch');
-    swatches[1].click();
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('.accent-color-input')!;
+    input.value = '#5c8a4e';
+    input.dispatchEvent(new Event('input'));
 
     const req = httpMock.expectOne('/api/projects/1/accent-color');
     expect(req.request.method).toBe('PUT');
@@ -597,10 +598,27 @@ describe('ProjectSummaryComponent', () => {
     requests.forEach((request) => request.flush([{ ...PROJECT, accentColor: '#5c8a4e' }]));
   });
 
-  it('shows an error and re-arms the swatches when setting the accent color fails (#428)', () => {
+  it('resets the project accent color to NULL via PUT and drops the tint (#843)', () => {
+    const fixture = init([{ ...PROJECT, accentColor: '#5c8a4e' }]);
+
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.accent-picker button.secondary')!.click();
+
+    const req = httpMock.expectOne('/api/projects/1/accent-color');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ accentColor: null });
+    req.flush(null);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.project?.accentColor).toBeNull();
+    httpMock.match('/api/projects').forEach((request) => request.flush([{ ...PROJECT, accentColor: null }]));
+  });
+
+  it('shows an error and re-arms the picker when setting the accent color fails (#428)', () => {
     const fixture = init();
 
-    (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.accent-swatch')[0].click();
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('.accent-color-input')!;
+    input.value = '#5c8a4e';
+    input.dispatchEvent(new Event('input'));
     httpMock.expectOne('/api/projects/1/accent-color').flush(null, { status: 400, statusText: 'Bad Request' });
     fixture.detectChanges();
 
