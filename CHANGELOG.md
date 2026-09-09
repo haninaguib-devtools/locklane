@@ -8,6 +8,14 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## v0.2.26 — 2026-09-08
+
+### Fixes
+- Keep the PWA window-controls strip tinted across reloads and under the release banner (#836, #837)
+
+### Other
+- Replace the old t-workflow with t-workflow v0.0.5 (#839, #840)
+
 ## v0.2.25 — 2026-09-08
 
 ### Features
