@@ -24,12 +24,16 @@ import java.util.Optional;
  * {@link ProviderUsage#unavailable()} — never a broken sidebar (#137's Goal).
  *
  * <p>The response also carries a generic {@code limits} array (#288) — confirmed live
- * with an entry whose {@code group} is {@code "weekly"} and whose {@code scope.model}
- * names a model (e.g. {@code display_name: "Fable"}) that gets its own weekly quota
- * separate from the account-wide {@code seven_day} figure. Every such entry is read into
- * {@link ProviderUsage#modelWeeklyLimits()}; any other {@code limits} entry, and every
- * other top-level field the response happens to carry (this account's response also has
- * several null/undocumented ones), is ignored rather than failing the parse.
+ * with entries whose {@code group} is {@code "weekly"} (and whose {@code kind} is
+ * {@code "weekly_scoped"}) and whose {@code scope.model} names a model (e.g.
+ * {@code display_name: "Fable"}) that gets its own weekly quota separate from the
+ * account-wide {@code seven_day} figure. Each such entry carries its percentage in
+ * {@code percent} — not {@code utilization} as the top-level windows do (#848) — so
+ * the reader accepts {@code percent} with {@code utilization} kept as a fallback.
+ * Every such entry is read into {@link ProviderUsage#modelWeeklyLimits()}; any other
+ * {@code limits} entry, and every other top-level field the response happens to carry
+ * (this account's response also has several null/undocumented ones), is ignored rather
+ * than failing the parse.
  */
 public class ClaudeUsageProvider implements UsageProvider {
 
@@ -89,13 +93,18 @@ public class ClaudeUsageProvider implements UsageProvider {
     }
 
     private static WindowUsage window(JsonNode node) {
+        // Top-level windows carry `utilization`; `limits` entries carry `percent` (#848).
+        // Accept either, preferring `percent` so the live `limits` shape reads, with
+        // `utilization` kept as a fallback.
+        JsonNode percent = node.path("percent");
         JsonNode utilization = node.path("utilization");
+        JsonNode value = percent.isNumber() ? percent : utilization;
         JsonNode resetsAt = node.path("resets_at");
-        if (!utilization.isNumber() || !resetsAt.isTextual()) {
+        if (!value.isNumber() || !resetsAt.isTextual()) {
             return null;
         }
         try {
-            double percentLeft = Math.max(0, 100 - utilization.asDouble());
+            double percentLeft = Math.max(0, 100 - value.asDouble());
             return new WindowUsage(percentLeft, OffsetDateTime.parse(resetsAt.asText()).toInstant());
         } catch (DateTimeParseException e) {
             // silent: same "unexpected shape degrades gracefully" reasoning as above.

@@ -8,6 +8,11 @@ Release is this file's matching section, extracted verbatim at cut time. The cha
 starts with the first release cut after #464 landed; earlier releases have no section
 here.
 
+## Unreleased
+
+### Fixes
+- Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
+
 ## v0.2.27 — 2026-09-09
 
 ### Other

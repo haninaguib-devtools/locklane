@@ -83,10 +83,12 @@ class ClaudeUsageProviderTest {
                 {"five_hour": {"utilization": 25, "resets_at": "2026-01-01T00:00:00Z"},
                  "seven_day": {"utilization": 35, "resets_at": "2026-01-08T00:00:00Z"},
                  "limits": [
-                   {"group": "weekly", "utilization": 43, "resets_at": "2026-01-08T00:00:00Z",
-                    "scope": {"model": {"display_name": "Fable"}}},
-                   {"group": "weekly", "utilization": 12, "resets_at": "2026-01-09T00:00:00Z",
-                    "scope": {"model": {"display_name": "Opus"}}}
+                   {"kind": "weekly_scoped", "group": "weekly", "percent": 37, "severity": "normal",
+                    "resets_at": "2026-09-15T20:59:59.678487+00:00",
+                    "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": null}, "is_active": true},
+                   {"kind": "weekly_scoped", "group": "weekly", "percent": 12, "severity": "normal",
+                    "resets_at": "2026-01-09T00:00:00Z",
+                    "scope": {"model": {"id": null, "display_name": "Opus"}, "surface": null}, "is_active": true}
                  ]}""";
         ClaudeUsageProvider provider = new ClaudeUsageProvider(tokenSource, stub((url, headers) -> Optional.of(body)));
 
@@ -94,10 +96,29 @@ class ClaudeUsageProviderTest {
 
         assertThat(usage.modelWeeklyLimits()).hasSize(2);
         assertThat(usage.modelWeeklyLimits().get(0).modelName()).isEqualTo("Fable");
-        assertThat(usage.modelWeeklyLimits().get(0).window().percentLeft()).isEqualTo(57.0);
-        assertThat(usage.modelWeeklyLimits().get(0).window().resetsAt()).isEqualTo(Instant.parse("2026-01-08T00:00:00Z"));
+        assertThat(usage.modelWeeklyLimits().get(0).window().percentLeft()).isEqualTo(63.0);
+        assertThat(usage.modelWeeklyLimits().get(0).window().resetsAt()).isEqualTo(Instant.parse("2026-09-15T20:59:59.678487Z"));
         assertThat(usage.modelWeeklyLimits().get(1).modelName()).isEqualTo("Opus");
         assertThat(usage.modelWeeklyLimits().get(1).window().percentLeft()).isEqualTo(88.0);
+    }
+
+    @Test
+    void modelWeeklyLimitsFallsBackToUtilizationWhenPercentIsAbsent() throws IOException {
+        ClaudeTokenSource tokenSource = credentialsFile("a-token");
+        String body = """
+                {"five_hour": {"utilization": 25, "resets_at": "2026-01-01T00:00:00Z"},
+                 "seven_day": {"utilization": 35, "resets_at": "2026-01-08T00:00:00Z"},
+                 "limits": [
+                   {"group": "weekly", "utilization": 43, "resets_at": "2026-01-08T00:00:00Z",
+                    "scope": {"model": {"display_name": "Fable"}}}
+                 ]}""";
+        ClaudeUsageProvider provider = new ClaudeUsageProvider(tokenSource, stub((url, headers) -> Optional.of(body)));
+
+        ProviderUsage usage = provider.fetch();
+
+        assertThat(usage.modelWeeklyLimits()).hasSize(1);
+        assertThat(usage.modelWeeklyLimits().get(0).modelName()).isEqualTo("Fable");
+        assertThat(usage.modelWeeklyLimits().get(0).window().percentLeft()).isEqualTo(57.0);
     }
 
     @Test
@@ -118,10 +139,10 @@ class ClaudeUsageProviderTest {
                  "tangelo": null,
                  "nimbus_quill": null,
                  "limits": [
-                   {"group": "five_hour", "utilization": 10, "resets_at": "2026-01-01T00:00:00Z",
+                   {"group": "five_hour", "percent": 10, "resets_at": "2026-01-01T00:00:00Z",
                     "scope": {"model": {"display_name": "Fable"}}},
-                   {"group": "weekly", "utilization": 10, "resets_at": "2026-01-01T00:00:00Z"},
-                   {"group": "weekly", "utilization": 10, "resets_at": "2026-01-01T00:00:00Z", "scope": {}},
+                   {"group": "weekly", "percent": 10, "resets_at": "2026-01-01T00:00:00Z"},
+                   {"group": "weekly", "percent": 10, "resets_at": "2026-01-01T00:00:00Z", "scope": {}},
                    "not-an-object"
                  ]}""";
         ClaudeUsageProvider provider = new ClaudeUsageProvider(tokenSource, stub((url, headers) -> Optional.of(body)));
