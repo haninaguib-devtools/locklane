@@ -3,7 +3,7 @@
 
 # Build/test command the agent runs locally before opening a PR (empty = none yet).
 # CI does not run it; the project's own CI does.
-check="./mvnw -B test"
+check="scripts/check.sh"
 
 # Extra protected globs, space-separated, on top of the built-in set
 # (e.g. "db/migrate/* config/*"). A protected diff needs a plan and a cold review.

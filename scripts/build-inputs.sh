@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Does a diff touch anything Maven builds? (#602, ADR-109 D3)
 #
-# This is the one definition of the project's build inputs. AGENTS.md §Checks item 1
-# (the local `./mvnw -B test` check) and `.github/workflows/ci.yml`'s build step both
+# This is the one definition of the project's build inputs. scripts/check.sh
+# (the local check) and `.github/workflows/build.yml`'s build step both
 # call this script and neither restates the set, so the two rules cannot drift — the
 # same "one rule in one place, read from two sides" shape `.t-workflow/scripts/
 # protected-paths.sh` gives CONSTITUTION.md §3.
@@ -34,7 +34,7 @@ patterns=(
   'mvnw'
   'mvnw.cmd'
   '.mvn/*'
-  '.github/workflows/ci.yml'
+  '.github/workflows/build.yml'
   'scripts/build-inputs.sh'
 )
 
