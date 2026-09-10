@@ -82,7 +82,9 @@ them exactly as `docs/architecture/releasing.md` already documents.
    review if the diff is protected, chained into `/t-ship`'s merge question. Neither
    `CHANGELOG.md` nor `pom.xml` is a protected path, so the ordinary case is work
    straight into the gate. The diff's only `pom.xml` change is the `<revision>` line:
-   locally, `/t-work` runs the check command in `.t-workflow/config`; in the PR's CI,
+   locally, `/t-work` runs the check command in `.t-workflow/config`
+   (`scripts/check.sh`), which skips `./mvnw -B test` for it via
+   `scripts/build-inputs.sh`; in the PR's CI,
    `.github/workflows/build.yml`'s build-inputs step skips the Maven build for it
    (`scripts/build-inputs.sh`); the push to `main` after the merge and the Release
    build itself still run the full build.

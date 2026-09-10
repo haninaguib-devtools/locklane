@@ -21,7 +21,7 @@ jobs:
       - name: Lifecycle scripts behave under stub service managers
         if: "!cancelled()"
         run: bash scripts/tests/lifecycle/run.sh
-      # AGENTS.md §Checks item 1 is the single place that names the build command, and
+      # scripts/check.sh is the single place that names the build command, and
       # scripts/build-inputs.sh is the single place that names what Maven builds (#602,
       # ADR-109 D3): on a pull request the two steps below run only when the diff
       # touches a build input, and are skipped — leaving this job, and so the required
