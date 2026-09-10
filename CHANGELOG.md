@@ -13,6 +13,11 @@ here.
 ### Fixes
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 
+## v0.2.28 — 2026-09-10
+
+### Other
+- Fable weekly usage never shows: the usage API reports percent, not utilization, inside limits (#848, #849)
+
 ## v0.2.27 — 2026-09-09
 
 ### Other
