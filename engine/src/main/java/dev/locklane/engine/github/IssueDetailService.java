@@ -1,13 +1,17 @@
 package dev.locklane.engine.github;
 
+import dev.locklane.engine.process.ProcessOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -28,14 +32,26 @@ public class IssueDetailService {
     // otherwise read as having a plan section it does not have.
     private static final Pattern PLAN_HEADING = Pattern.compile("(?m)^## Plan\\b");
 
+    /** Mirrors {@code WorktreeCreationService.DEFAULT_TRUNK} (#582) — duplicated rather than shared since that one is persistence-package-private and this is the only other place it is needed. */
+    private static final String DEFAULT_TRUNK = "main";
+
     private final GhIssueCache cache;
     private final GhClient ghClient;
     private final Path projectRoot;
+    private final String trunkRef;
 
-    public IssueDetailService(GhIssueCache cache, GhClient ghClient, String projectRoot) {
+    /**
+     * {@code defaultBranch} is the project's recorded default branch (#582), or
+     * {@code null}/blank for a project row that predates that field — resolved to
+     * {@code origin/<branch>} (or {@code origin/}{@link #DEFAULT_TRUNK}) the same way
+     * {@code WorktreeCreationService} resolves its own trunk ref.
+     */
+    public IssueDetailService(GhIssueCache cache, GhClient ghClient, String projectRoot, String defaultBranch) {
         this.cache = cache;
         this.ghClient = ghClient;
         this.projectRoot = Path.of(projectRoot).normalize();
+        String branch = defaultBranch == null || defaultBranch.isBlank() ? DEFAULT_TRUNK : defaultBranch.strip();
+        this.trunkRef = "origin/" + branch;
     }
 
     public Optional<IssueDetail> detail(int number) {
@@ -74,8 +90,74 @@ public class IssueDetailService {
                 new FlowStep("ship", shipped));
     }
 
-    /** The task record's path relative to the project root, e.g. docs/tasks/892-....md or docs/tasks/000000/16-....md. */
+    /**
+     * The task record's path relative to the project root, e.g. docs/tasks/892-....md
+     * or docs/tasks/000000/16-....md. Resolved against {@link #trunkRef} — the fetched
+     * trunk, {@code origin/<default branch>} — rather than the holder checkout's own
+     * working tree (#896): the holder is a detached checkout the engine only ever
+     * re-detaches, never advances, so a record landed since can sit on the trunk while
+     * the checkout on disk is still whatever commit it was cloned or last detached at.
+     * Falls back to the on-disk scan only when {@link #trunkRef} does not resolve at
+     * all — a project that has never fetched, or (in tests) no git repository here.
+     */
     private Optional<String> recordPath(int number) {
+        if (run("git", "-C", projectRoot.toString(), "rev-parse", "--verify", "--quiet", trunkRef).exitCode() == 0) {
+            return recordPathFromTrunk(number);
+        }
+        return recordPathFromDisk(number);
+    }
+
+    /** Same precedence as {@link #recordPathFromDisk}: flat first, then each bucket directory. */
+    private Optional<String> recordPathFromTrunk(int number) {
+        Map<String, Boolean> top = lsTree("docs/tasks");
+        Optional<String> flat = matchingRecord(top, number);
+        if (flat.isPresent()) {
+            return Optional.of("docs/tasks/" + flat.get());
+        }
+        for (Map.Entry<String, Boolean> entry : top.entrySet()) {
+            if (!entry.getValue()) {
+                continue; // a file at this level, not a bucket directory
+            }
+            String bucket = entry.getKey();
+            Optional<String> match = matchingRecord(lsTree("docs/tasks/" + bucket), number);
+            if (match.isPresent()) {
+                return Optional.of("docs/tasks/" + bucket + "/" + match.get());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<String> matchingRecord(Map<String, Boolean> entries, int number) {
+        String prefix = number + "-";
+        return entries.entrySet().stream()
+                .filter(entry -> !entry.getValue())
+                .map(Map.Entry::getKey)
+                .filter(name -> name.startsWith(prefix) && name.endsWith(".md"))
+                .findFirst();
+    }
+
+    /** {@link #trunkRef}'s direct entries under {@code path}, as name → is-a-directory. Empty when {@code path} does not exist in that tree. */
+    private Map<String, Boolean> lsTree(String path) {
+        ProcessOutcome result = run("git", "-C", projectRoot.toString(), "ls-tree", trunkRef + ":" + path);
+        if (result.failed()) {
+            return Map.of();
+        }
+        Map<String, Boolean> entries = new LinkedHashMap<>();
+        for (String line : result.stdout().split("\n")) {
+            if (line.isBlank()) {
+                continue;
+            }
+            int tab = line.indexOf('\t');
+            if (tab < 0) {
+                continue;
+            }
+            entries.put(line.substring(tab + 1), line.substring(0, tab).contains(" tree "));
+        }
+        return entries;
+    }
+
+    /** The pre-#896 on-disk scan, kept as the fallback for a project whose {@link #trunkRef} does not exist yet. */
+    private Optional<String> recordPathFromDisk(int number) {
         Path tasks = projectRoot.resolve("docs/tasks");
         if (!Files.isDirectory(tasks)) {
             return Optional.empty();
@@ -101,5 +183,23 @@ public class IssueDetailService {
             return Optional.empty();
         }
         return Optional.empty();
+    }
+
+    private ProcessOutcome run(String... command) {
+        try {
+            Process process = new ProcessBuilder(command).start();
+            String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            String err = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+            int exit = process.waitFor();
+            return new ProcessOutcome(exit, out, err);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while running git {} in {}", String.join(" ", command), projectRoot, e);
+            return new ProcessOutcome(-1, "", "interrupted");
+        } catch (IOException e) {
+            log.warn("Could not run git {} in {} — is it installed and on PATH?", String.join(" ", command),
+                    projectRoot, e);
+            return new ProcessOutcome(-1, "", e.getMessage() == null ? "" : e.getMessage());
+        }
     }
 }

@@ -240,7 +240,8 @@ public class ProjectGhResources {
                 project.id(), project.status());
         GhClient client = new NoCheckoutGhClient();
         GhIssueCache cache = new GhIssueCache(client);
-        IssueDetailService detailService = new IssueDetailService(cache, client, project.workareaPath().toString());
+        IssueDetailService detailService =
+                new IssueDetailService(cache, client, project.workareaPath().toString(), project.defaultBranch());
         IssueTreeService treeService = new IssueTreeService(cache);
         return new ProjectGhContext(client, cache, detailService, treeService);
     }
@@ -270,7 +271,8 @@ public class ProjectGhResources {
                 .orElse(null);
         GhClient client = clientFactory.apply(project.workareaPath(), token);
         GhIssueCache cache = new GhIssueCache(client);
-        IssueDetailService detailService = new IssueDetailService(cache, client, project.workareaPath().toString());
+        IssueDetailService detailService =
+                new IssueDetailService(cache, client, project.workareaPath().toString(), project.defaultBranch());
         IssueTreeService treeService = new IssueTreeService(cache);
         return new ProjectGhContext(client, cache, detailService, treeService);
     }

@@ -99,7 +99,35 @@ class IssueDetailServiceTest {
     }
 
     @Test
-    void recordPathIsFoundAtTheFlatLayoutLocation(@TempDir Path root) throws IOException {
+    void recordPathIsFoundAtTheFlatLayoutLocationOnTheFetchedTrunkEvenWhenTheHolderCheckoutIsStale(@TempDir Path root)
+            throws IOException, InterruptedException {
+        // The record exists on origin/main, but the holder checkout (HEAD) never
+        // advanced past the commit before it landed — exactly #896's staleness bug.
+        initRepoWithRecordOnlyOnOrigin(root, "docs/tasks/16-fetch-pr-checks-data.md", "# 16");
+
+        IssueDetailService service = service(root, List.of(issue(16, "OPEN", "")), List.of(), Optional.empty());
+
+        assertThat(service.detail(16).orElseThrow().recordPath())
+                .isEqualTo("docs/tasks/16-fetch-pr-checks-data.md");
+    }
+
+    @Test
+    void recordPathIsFoundUnderItsBucketDirectoryOnTheFetchedTrunkEvenWhenTheHolderCheckoutIsStale(@TempDir Path root)
+            throws IOException, InterruptedException {
+        initRepoWithRecordOnlyOnOrigin(root, "docs/tasks/000000/16-fetch-pr-checks-data.md", "# 16");
+
+        IssueDetailService service = service(root, List.of(issue(16, "OPEN", "")), List.of(), Optional.empty());
+
+        assertThat(service.detail(16).orElseThrow().recordPath())
+                .isEqualTo("docs/tasks/000000/16-fetch-pr-checks-data.md");
+    }
+
+    @Test
+    void recordPathFallsBackToTheOnDiskScanWhenOriginHasNeverBeenFetched(@TempDir Path root)
+            throws IOException, InterruptedException {
+        // A real repo with no refs/remotes/origin/main at all -- a project that has
+        // never fetched -- so recordPath() must fall back to scanning the checkout.
+        run(root, "git", "init", "--quiet", "-b", "main");
         Files.createDirectories(root.resolve("docs/tasks"));
         Files.writeString(root.resolve("docs/tasks/16-fetch-pr-checks-data.md"), "# 16");
 
@@ -109,16 +137,39 @@ class IssueDetailServiceTest {
                 .isEqualTo("docs/tasks/16-fetch-pr-checks-data.md");
     }
 
-    @Test
-    void recordPathIsFoundUnderItsBucketDirectory(@TempDir Path root) throws IOException {
-        Path bucket = root.resolve("docs/tasks/000000");
-        Files.createDirectories(bucket);
-        Files.writeString(bucket.resolve("16-fetch-pr-checks-data.md"), "# 16");
+    /**
+     * Builds a real repo at {@code root} whose {@code refs/remotes/origin/main}
+     * carries {@code recordRelativePath} but whose checked-out {@code main} branch
+     * (the stand-in for the holder's own working tree) was reset back to the commit
+     * before it landed -- so a plain on-disk scan would find nothing.
+     */
+    private static void initRepoWithRecordOnlyOnOrigin(Path root, String recordRelativePath, String content)
+            throws IOException, InterruptedException {
+        run(root, "git", "init", "--quiet", "-b", "main");
+        run(root, "git", "config", "user.email", "test@example.com");
+        run(root, "git", "config", "user.name", "Test");
+        run(root, "git", "commit", "--quiet", "--allow-empty", "-m", "base");
+        String baseSha = run(root, "git", "rev-parse", "HEAD").strip();
 
-        IssueDetailService service = service(root, List.of(issue(16, "OPEN", "")), List.of(), Optional.empty());
+        Path record = root.resolve(recordRelativePath);
+        Files.createDirectories(record.getParent());
+        Files.writeString(record, content);
+        run(root, "git", "add", recordRelativePath);
+        run(root, "git", "commit", "--quiet", "-m", "add record");
+        String recordSha = run(root, "git", "rev-parse", "HEAD").strip();
 
-        assertThat(service.detail(16).orElseThrow().recordPath())
-                .isEqualTo("docs/tasks/000000/16-fetch-pr-checks-data.md");
+        run(root, "git", "update-ref", "refs/remotes/origin/main", recordSha);
+        run(root, "git", "reset", "--quiet", "--hard", baseSha);
+    }
+
+    private static String run(Path cwd, String... command) throws IOException, InterruptedException {
+        Process process = new ProcessBuilder(command).directory(cwd.toFile()).redirectErrorStream(true).start();
+        String output = new String(process.getInputStream().readAllBytes());
+        int exit = process.waitFor();
+        if (exit != 0) {
+            throw new AssertionError("Command failed (" + exit + "): " + String.join(" ", command) + "\n" + output);
+        }
+        return output;
     }
 
     private static boolean step(IssueDetailService service, int number, String name) {
@@ -139,7 +190,7 @@ class IssueDetailServiceTest {
             Optional<GhPullRequestDetail> prDetail) {
         FakeGhClient fake = new FakeGhClient(issues, prs, prDetail);
         GhIssueCache cache = new GhIssueCache(fake);
-        return new IssueDetailService(cache, fake, root.toString());
+        return new IssueDetailService(cache, fake, root.toString(), "main");
     }
 
     private static final class FakeGhClient implements GhClient {
