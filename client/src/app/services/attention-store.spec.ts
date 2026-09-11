@@ -113,4 +113,47 @@ describe('AttentionStore (#791)', () => {
       expect(store.reason('1-7-rename-toggle')).toBe('bell');
     });
   });
+
+  describe('changes$ (#859)', () => {
+    function collect(): { sessionId: string; waiting: boolean; reason: string | null }[] {
+      const seen: { sessionId: string; waiting: boolean; reason: string | null }[] = [];
+      store.changes$.subscribe((change) => seen.push(change));
+      return seen;
+    }
+
+    it('emits once for a session becoming waiting with a reason', () => {
+      const seen = collect();
+
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+
+      expect(seen).toEqual([{ sessionId: '1-7-rename-toggle', waiting: true, reason: 'bell' }]);
+    });
+
+    it('emits again on the quiet-to-bell upgrade, even though isWaiting stays true throughout', () => {
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'quiet' });
+      const seen = collect();
+
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+
+      expect(seen).toEqual([{ sessionId: '1-7-rename-toggle', waiting: true, reason: 'bell' }]);
+    });
+
+    it('emits with reason null when a session goes active', () => {
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+      const seen = collect();
+
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'active' });
+
+      expect(seen).toEqual([{ sessionId: '1-7-rename-toggle', waiting: false, reason: null }]);
+    });
+
+    it('never emits for a repeat that changes nothing', () => {
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+      const seen = collect();
+
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+
+      expect(seen).toEqual([]);
+    });
+  });
 });

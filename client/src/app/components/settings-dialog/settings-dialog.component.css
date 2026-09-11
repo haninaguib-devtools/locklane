@@ -200,6 +200,27 @@ input {
   color: var(--danger, #b3432b);
 }
 
+.notification-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.notification-toggle input {
+  width: auto;
+}
+
+.notification-denied {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
 .actions {
   display: flex;
   gap: 8px;

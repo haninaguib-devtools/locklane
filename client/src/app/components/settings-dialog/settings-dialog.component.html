@@ -60,6 +60,24 @@
       </section>
 
       <section class="section">
+        <h2>Notifications</h2>
+        <p class="muted">Show a browser notification when an agent rings the bell and its tab is not in view.</p>
+        <label class="notification-toggle">
+          <input
+            type="checkbox"
+            [checked]="notificationsEnabled()"
+            (change)="toggleNotifications($any($event.target).checked)"
+          />
+          Notify me when an agent is waiting
+        </label>
+        @if (notificationPermission() === 'denied') {
+          <p class="muted notification-denied">
+            Notifications are blocked for this site in your browser settings.
+          </p>
+        }
+      </section>
+
+      <section class="section">
         <h2>Password</h2>
         <p class="muted">Change the password used to sign in.</p>
 

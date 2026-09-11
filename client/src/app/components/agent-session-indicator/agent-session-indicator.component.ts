@@ -1,32 +1,12 @@
 import { Component, ElementRef, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
-import { Observable, combineLatest, forkJoin, map, merge, of, switchMap } from 'rxjs';
-import { AgentSessionsService, issueNumberFromSessionId } from '../../services/agent-sessions.service';
-import { IssuesService } from '../../services/issues.service';
+import { Observable, combineLatest, map, merge, of, switchMap } from 'rxjs';
+import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { CurrentProjectService } from '../../services/current-project.service';
-import { OpenProjectAgentSession, ProjectAgentSessionService } from '../../services/project-agent-session.service';
-import { AgentStore } from '../../services/agent-store';
-import { ActiveAgentSessionStore } from '../../services/active-agent-session-store';
 import { AttentionStore } from '../../services/attention-store';
+import { AgentSessionEntriesService, AgentSessionEntry } from '../../services/agent-session-entries.service';
+import { NotificationService } from '../../services/notification.service';
 import { Project } from '../../models/issue.model';
-import { labelProjectAgentSessions, tabText } from '../agent-session-tabs/agent-session-labels';
-
-/**
- * An issue's own agent session (issueNumber set) or one of the project's own agent sessions
- * (#139/#177, issueNumber null -- there is no issue to jump to, and no per-issue
- * "active agent session" to remember). Carries its own project (#290) since entries now
- * span every project the user has, not just whichever one is currently selected.
- * `title` is the single line a row renders (#449) -- for a project agent session this
- * already includes the "Project - " prefix and the tab's own current text, read
- * from the same source (`tabText()`) the tab strip itself uses.
- */
-export interface AgentSessionEntry {
-  sessionId: string;
-  projectId: number;
-  issueNumber: number | null;
-  title: string;
-}
 
 /** One project's entries, in the order `groups` below picks headings by (#290). */
 export interface AgentSessionGroup {
@@ -43,7 +23,9 @@ export interface AgentSessionGroup {
 // `entries` off a reactive stream --
 // `onOpened`/`onClosed` (#108) -- instead of a cached field only `refresh()` ever
 // touched, which is what let the badge miss an opened agent session until something else
-// happened to close.
+// happened to close. Entry-building and jump-to-entry navigation live in
+// {@link AgentSessionEntriesService} (#859), shared with the notification service
+// rather than duplicated.
 @Component({
   selector: 'app-agent-session-indicator',
   standalone: true,
@@ -53,13 +35,16 @@ export interface AgentSessionGroup {
 export class AgentSessionIndicatorComponent {
   private readonly currentProject = inject(CurrentProjectService);
   private readonly agentSessionsService = inject(AgentSessionsService);
-  private readonly issuesService = inject(IssuesService);
-  private readonly projectAgentSessionService = inject(ProjectAgentSessionService);
-  private readonly agentStore = inject(AgentStore);
-  private readonly activeAgentSessionStore = inject(ActiveAgentSessionStore);
+  private readonly agentSessionEntries = inject(AgentSessionEntriesService);
   // The one shared "which sessions are waiting" store (#791), read by session id.
   private readonly attentionStore = inject(AttentionStore);
-  private readonly router = inject(Router);
+  // Unused beyond construction: this component only ever mounts once signed in
+  // (app.component.html's `@else` branch), which is what makes this the safe place
+  // to start NotificationService (#859) watching for a bell to notify on -- eagerly
+  // injecting it from AppComponent itself, the way AccentThemeStore is, would
+  // construct it (and the project-fetching services it depends on) before login,
+  // exactly what CurrentProjectService's own lazy-getter comment there guards against.
+  private readonly notificationService = inject(NotificationService);
 
   @ViewChild('results') private readonly resultsRef?: ElementRef<HTMLElement>;
   @ViewChild('trigger') private readonly triggerRef?: ElementRef<HTMLElement>;
@@ -86,7 +71,7 @@ export class AgentSessionIndicatorComponent {
     this.visibleProjects$.pipe(
       switchMap((projects) =>
         merge(of(null), this.agentSessionsService.onOpened, this.agentSessionsService.onClosed, this.agentSessionsService.onRenamed).pipe(
-          switchMap(() => this.fetchEntries(projects)),
+          switchMap(() => this.agentSessionEntries.fetchEntries(projects)),
         ),
       ),
     ),
@@ -217,19 +202,9 @@ export class AgentSessionIndicatorComponent {
     }
   }
 
-  // Navigates to the entry's own project (#290) -- not necessarily whichever
-  // project happens to be selected elsewhere in the app.
   jumpTo(entry: AgentSessionEntry): void {
     this.open.set(false);
-    if (entry.issueNumber !== null) {
-      this.activeAgentSessionStore.set(entry.issueNumber, entry.sessionId);
-      this.router.navigate(['/projects', entry.projectId, 'issues', entry.issueNumber]);
-    } else {
-      // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
-      this.router.navigate(['/projects', entry.projectId, 'console'], {
-        queryParams: { session: entry.sessionId },
-      });
-    }
+    this.agentSessionEntries.jumpTo(entry);
   }
 
   private move(delta: number): void {
@@ -237,62 +212,5 @@ export class AgentSessionIndicatorComponent {
     if (count > 0) {
       this.selected.set((this.selected() + delta + count) % count);
     }
-  }
-
-  // Fans the existing per-project agent sessions/issues calls out across every project
-  // the user has (#290), the same forkJoin pattern sidenav.component.ts's own
-  // refreshAgentSessionIndicators() already uses.
-  private fetchEntries(projects: Project[]): Observable<AgentSessionEntry[]> {
-    return projects.length === 0
-      ? of([])
-      : forkJoin(projects.map((project) => this.fetchProjectEntries(project))).pipe(map((perProject) => perProject.flat()));
-  }
-
-  private fetchProjectEntries(project: Project): Observable<AgentSessionEntry[]> {
-    return forkJoin([
-      this.agentSessionsService.list(project.id),
-      this.issuesService.list(project.id),
-      this.projectAgentSessionService.listOpen(project.id),
-    ]).pipe(
-      map(([ids, issues, projectAgentSessions]) => {
-        const titles = new Map(issues.map((issue) => [issue.number, issue.title]));
-        const issueEntries = ids
-          .map((id) => this.toIssueEntry(project, id, titles))
-          .filter((entry): entry is AgentSessionEntry => entry !== null);
-        const projectEntries = this.toProjectEntries(project, projectAgentSessions);
-        return [...issueEntries, ...projectEntries];
-      }),
-    );
-  }
-
-  private toIssueEntry(project: Project, sessionId: string, titles: Map<number, string>): AgentSessionEntry | null {
-    const issueNumber = issueNumberFromSessionId(sessionId);
-    if (issueNumber === null) {
-      return null;
-    }
-    return {
-      sessionId,
-      projectId: project.id,
-      issueNumber,
-      title: titles.get(issueNumber) ?? `#${issueNumber}`,
-    };
-  }
-
-  // Read from the exact same source the project-agent-session tab strip itself uses
-  // (#449) -- labelProjectAgentSessions()'s numbering, `displayName` fetched from the
-  // same listOpen() call and in the same order the tab strip gets it, and
-  // tabText()'s rename lookup -- so the two titles can never drift onto separately
-  // maintained computations. The title is still baked in at fetch time, so a rename
-  // reaches this row only because `entries` refetches on onRenamed (#456).
-  private toProjectEntries(project: Project, agentSessions: OpenProjectAgentSession[]): AgentSessionEntry[] {
-    const tabs = labelProjectAgentSessions(
-      agentSessions.map((c) => ({ id: c.sessionId, agent: this.agentStore.get(c.sessionId), name: c.displayName ?? null })),
-    );
-    return tabs.map((tab) => ({
-      sessionId: tab.id,
-      projectId: project.id,
-      issueNumber: null,
-      title: `Project - ${tabText(tab)}`,
-    }));
   }
 }

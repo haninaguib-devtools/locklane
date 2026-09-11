@@ -92,8 +92,8 @@ describe('AgentSessionIndicatorComponent', () => {
     const fixture = initWithEntries(['1-7-main-a1b2c3d4', '1-8-rename-toggle'], [issue(7, 'Seven'), issue(8, 'Eight')]);
 
     expect(fixture.componentInstance.entries()).toEqual([
-      { sessionId: '1-7-main-a1b2c3d4', projectId: 1, issueNumber: 7, title: 'Seven' },
-      { sessionId: '1-8-rename-toggle', projectId: 1, issueNumber: 8, title: 'Eight' },
+      { sessionId: '1-7-main-a1b2c3d4', projectId: 1, projectName: 'Alpha', issueNumber: 7, title: 'Seven' },
+      { sessionId: '1-8-rename-toggle', projectId: 1, projectName: 'Alpha', issueNumber: 8, title: 'Eight' },
     ]);
   });
 
@@ -114,8 +114,8 @@ describe('AgentSessionIndicatorComponent', () => {
     const fixture = initWithEntries(['1-7-rename-toggle'], [issue(7, 'Seven')], [projectAgentSession('1-console-a1b2c3d4')]);
 
     expect(fixture.componentInstance.entries()).toEqual([
-      { sessionId: '1-7-rename-toggle', projectId: 1, issueNumber: 7, title: 'Seven' },
-      { sessionId: '1-console-a1b2c3d4', projectId: 1, issueNumber: null, title: 'Project - agent' },
+      { sessionId: '1-7-rename-toggle', projectId: 1, projectName: 'Alpha', issueNumber: 7, title: 'Seven' },
+      { sessionId: '1-console-a1b2c3d4', projectId: 1, projectName: 'Alpha', issueNumber: null, title: 'Project - agent' },
     ]);
   });
 
