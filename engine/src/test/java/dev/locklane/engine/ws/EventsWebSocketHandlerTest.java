@@ -111,7 +111,7 @@ class EventsWebSocketHandlerTest {
         }).when(broadcaster).register(any());
         Supplier<Collection<SessionRegistry.WaitingSession>> waitingSessions = () -> {
             snapshotReadAfterRegister.add(registered.get() ? "after" : "before");
-            return List.of(new SessionRegistry.WaitingSession("42-7-slug", PtySession.WaitingReason.QUIET));
+            return List.of(new SessionRegistry.WaitingSession("42-7-slug", PtySession.WaitingReason.QUIET, null));
         };
         EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
                 Optional::empty, waitingSessions);

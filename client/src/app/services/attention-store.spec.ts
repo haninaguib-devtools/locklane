@@ -115,8 +115,8 @@ describe('AttentionStore (#791)', () => {
   });
 
   describe('changes$ (#859)', () => {
-    function collect(): { sessionId: string; waiting: boolean; reason: string | null }[] {
-      const seen: { sessionId: string; waiting: boolean; reason: string | null }[] = [];
+    function collect(): { sessionId: string; waiting: boolean; reason: string | null; message: string | null }[] {
+      const seen: { sessionId: string; waiting: boolean; reason: string | null; message: string | null }[] = [];
       store.changes$.subscribe((change) => seen.push(change));
       return seen;
     }
@@ -126,7 +126,7 @@ describe('AttentionStore (#791)', () => {
 
       emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
 
-      expect(seen).toEqual([{ sessionId: '1-7-rename-toggle', waiting: true, reason: 'bell' }]);
+      expect(seen).toEqual([{ sessionId: '1-7-rename-toggle', waiting: true, reason: 'bell', message: null }]);
     });
 
     it('emits again on the quiet-to-bell upgrade, even though isWaiting stays true throughout', () => {
@@ -135,7 +135,7 @@ describe('AttentionStore (#791)', () => {
 
       emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
 
-      expect(seen).toEqual([{ sessionId: '1-7-rename-toggle', waiting: true, reason: 'bell' }]);
+      expect(seen).toEqual([{ sessionId: '1-7-rename-toggle', waiting: true, reason: 'bell', message: null }]);
     });
 
     it('emits with reason null when a session goes active', () => {
@@ -144,7 +144,7 @@ describe('AttentionStore (#791)', () => {
 
       emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'active' });
 
-      expect(seen).toEqual([{ sessionId: '1-7-rename-toggle', waiting: false, reason: null }]);
+      expect(seen).toEqual([{ sessionId: '1-7-rename-toggle', waiting: false, reason: null, message: null }]);
     });
 
     it('never emits for a repeat that changes nothing', () => {
@@ -154,6 +154,44 @@ describe('AttentionStore (#791)', () => {
       emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
 
       expect(seen).toEqual([]);
+    });
+
+    it('carries the agent message and re-emits when only it changes (#861)', () => {
+      emitAppEvent({
+        type: 'consoleAttention',
+        sessionId: '1-7-rename-toggle',
+        state: 'waiting',
+        reason: 'bell',
+        message: 'Merge PR #851 into main?',
+      });
+      expect(store.message('1-7-rename-toggle')).toBe('Merge PR #851 into main?');
+      const seen = collect();
+
+      emitAppEvent({
+        type: 'consoleAttention',
+        sessionId: '1-7-rename-toggle',
+        state: 'waiting',
+        reason: 'bell',
+        message: 'A different question?',
+      });
+
+      expect(seen).toEqual([
+        { sessionId: '1-7-rename-toggle', waiting: true, reason: 'bell', message: 'A different question?' },
+      ]);
+      expect(store.message('1-7-rename-toggle')).toBe('A different question?');
+    });
+
+    it('an active event clears the message', () => {
+      emitAppEvent({
+        type: 'consoleAttention',
+        sessionId: '1-7-rename-toggle',
+        state: 'waiting',
+        reason: 'bell',
+        message: 'Merge PR #851 into main?',
+      });
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'active' });
+
+      expect(store.message('1-7-rename-toggle')).toBeNull();
     });
   });
 });

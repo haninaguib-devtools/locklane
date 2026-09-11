@@ -23,6 +23,7 @@ export interface AgentSessionAttentionEvent extends AppEvent {
   sessionId: string;
   state: 'waiting' | 'active';
   reason?: 'bell' | 'quiet';
+  message?: string;
 }
 
 export function isAgentSessionAttentionEvent(event: AppEvent): event is AgentSessionAttentionEvent {
@@ -30,7 +31,8 @@ export function isAgentSessionAttentionEvent(event: AppEvent): event is AgentSes
     event.type === 'consoleAttention' &&
     typeof event['sessionId'] === 'string' &&
     (event['state'] === 'waiting' || event['state'] === 'active') &&
-    (event['reason'] === undefined || event['reason'] === 'bell' || event['reason'] === 'quiet')
+    (event['reason'] === undefined || event['reason'] === 'bell' || event['reason'] === 'quiet') &&
+    (event['message'] === undefined || typeof event['message'] === 'string')
   );
 }
 

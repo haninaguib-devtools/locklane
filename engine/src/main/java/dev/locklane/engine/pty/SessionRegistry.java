@@ -183,11 +183,11 @@ public class SessionRegistry {
             // Lives for the session's whole lifetime — never unsubscribed, unlike a
             // browser's own subscription in TerminalWebSocketHandler, which comes and
             // goes with that one connection.
-            created.subscribeAttention((state, reason) -> {
-                eventBroadcaster.broadcast("consoleAttention", attentionFields(id, state, reason));
+            created.subscribeAttention((state, reason, message) -> {
+                eventBroadcaster.broadcast("consoleAttention", attentionFields(id, state, reason, message));
                 for (AttentionListener listener : attentionListeners) {
                     try {
-                        listener.onAttentionChange(id, state, reason);
+                        listener.onAttentionChange(id, state, reason, message);
                     } catch (RuntimeException e) {
                         // Contained (#860): this runs on the session's drain thread, and
                         // a listener's failure must not cost the broadcast or the thread.
@@ -266,27 +266,32 @@ public class SessionRegistry {
     public List<WaitingSession> waitingSessions() {
         return sessions.entrySet().stream()
                 .filter(entry -> entry.getValue().attentionState() == PtySession.AttentionState.WAITING)
-                .map(entry -> new WaitingSession(entry.getKey(), entry.getValue().waitingReason()))
+                .map(entry -> new WaitingSession(entry.getKey(), entry.getValue().waitingReason(),
+                        entry.getValue().waitingMessage()))
                 .toList();
     }
 
-    /** One live session's id and why it is waiting (#854) — see {@link #waitingSessions()}. */
-    public record WaitingSession(String sessionId, PtySession.WaitingReason reason) {
+    /** One live session's id, why it is waiting (#854), and the agent's own message when one was seen (#861). */
+    public record WaitingSession(String sessionId, PtySession.WaitingReason reason, String message) {
     }
 
     /**
-     * The {@code consoleAttention} event's fields (#854): {@code reason} is present
-     * only alongside {@code state: "waiting"}, matching {@link PtySession}'s own
-     * contract that a {@link PtySession.WaitingReason} never accompanies {@code
-     * ACTIVE} — an active event stays exactly the shape it always was.
+     * The {@code consoleAttention} event's fields (#854, #861): {@code reason} is
+     * present only alongside {@code state: "waiting"}, matching {@link PtySession}'s
+     * own contract that a {@link PtySession.WaitingReason} never accompanies {@code
+     * ACTIVE} — an active event stays exactly the shape it always was. {@code
+     * message} is present only alongside waiting with a notification seen since.
      */
     private static Map<String, Object> attentionFields(String sessionId, PtySession.AttentionState state,
-            PtySession.WaitingReason reason) {
+            PtySession.WaitingReason reason, String message) {
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("sessionId", sessionId);
         fields.put("state", state == PtySession.AttentionState.WAITING ? "waiting" : "active");
         if (reason != null) {
             fields.put("reason", reason.wireValue());
+        }
+        if (message != null) {
+            fields.put("message", message);
         }
         return fields;
     }
@@ -389,8 +394,8 @@ public class SessionRegistry {
 
     /**
      * Registers a listener invoked with a session's id on every attention transition
-     * of every session (#860) -- the same {@code (state, reason)} pair {@code
-     * consoleAttention} broadcasts, for a consumer that needs to act on it
+     * of every session (#860) -- the same {@code (state, reason, message)} triple
+     * {@code consoleAttention} broadcasts, for a consumer that needs to act on it
      * server-side. Called on the session's own output-drain thread: a listener hands
      * anything slow elsewhere.
      */
@@ -401,7 +406,8 @@ public class SessionRegistry {
     /** A session-scoped attention transition, with the session it belongs to -- see {@link #addAttentionListener}. */
     @FunctionalInterface
     public interface AttentionListener {
-        void onAttentionChange(String sessionId, PtySession.AttentionState state, PtySession.WaitingReason reason);
+        void onAttentionChange(String sessionId, PtySession.AttentionState state, PtySession.WaitingReason reason,
+                String message);
     }
 
     /**

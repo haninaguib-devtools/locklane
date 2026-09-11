@@ -95,7 +95,8 @@ public class PushNotifier {
         sessionRegistry.addAttentionListener(this::onAttentionChange);
     }
 
-    void onAttentionChange(String sessionId, PtySession.AttentionState state, PtySession.WaitingReason reason) {
+    void onAttentionChange(String sessionId, PtySession.AttentionState state, PtySession.WaitingReason reason,
+            String message) {
         if (state != PtySession.AttentionState.WAITING || reason != PtySession.WaitingReason.BELL) {
             return;
         }
@@ -103,16 +104,17 @@ public class PushNotifier {
         if (target.isEmpty()) {
             return;
         }
+        String body = message != null && !message.isBlank() ? message : null;
         executor.execute(() -> {
             try {
-                push(sessionId, target.get());
+                push(sessionId, target.get(), body);
             } catch (RuntimeException e) {
                 log.warn("Push for session {} failed", sessionId, e);
             }
         });
     }
 
-    private void push(String sessionId, Target target) {
+    private void push(String sessionId, Target target, String message) {
         Optional<ProjectRecord> project = projectRepository.findById(target.projectId());
         if (project.isEmpty()) {
             return;
@@ -121,7 +123,7 @@ public class PushNotifier {
         if (owned.isEmpty()) {
             return;
         }
-        byte[] payload = payloadFor(sessionId, target, project.get()).getBytes(StandardCharsets.UTF_8);
+        byte[] payload = payloadFor(sessionId, target, project.get(), message).getBytes(StandardCharsets.UTF_8);
         for (PushSubscriptionRecord subscription : owned) {
             deliver(subscription, payload);
         }
@@ -138,17 +140,17 @@ public class PushNotifier {
     }
 
     /** The JSON {@code ngsw-worker.js} shows as a notification; see the class comment. */
-    String payloadFor(String sessionId, Target target, ProjectRecord project) {
+    String payloadFor(String sessionId, Target target, ProjectRecord project, String message) {
         String title;
         String body;
         String url;
         if (target.issueNumber() != null) {
             title = "Agent on #" + target.issueNumber() + " is waiting";
-            body = issueTitles.titleOf(project.id(), target.issueNumber()).orElse(project.name());
+            body = message != null ? message : issueTitles.titleOf(project.id(), target.issueNumber()).orElse(project.name());
             url = "/projects/" + project.id() + "/issues/" + target.issueNumber();
         } else {
             title = "Agent is waiting";
-            body = project.name();
+            body = message != null ? message : project.name();
             // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
             url = "/projects/" + project.id() + "/console?session=" + sessionId;
         }

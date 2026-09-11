@@ -43,17 +43,18 @@ export interface NotificationContent {
 }
 
 /**
- * Builds the title/body a notification shows for one waiting agent session (#859):
- * "Agent on #<issue> is waiting" with the issue's own title as the body for an
+ * Builds the title/body a notification shows for one waiting agent session (#859,
+ * #861): "Agent on #<issue> is waiting" with the issue's own title as the body for an
  * issue's agent session, or the plain "Agent is waiting" with the project's name as
  * the body for a project agent session -- there is no issue number to name in the
- * title there. *Agent*, never *session* or *console*, in either line (ADR-112).
+ * title there. When the engine saw the agent's own notification sequence, its message
+ * is the body instead (#861). *Agent*, never *session* or *console*, in either line (ADR-112).
  * Exported for the spec; not otherwise used outside this file.
  */
-export function notificationContentFor(entry: AgentSessionEntry): NotificationContent {
-  return entry.issueNumber !== null
-    ? { title: `Agent on #${entry.issueNumber} is waiting`, body: entry.title }
-    : { title: 'Agent is waiting', body: entry.projectName };
+export function notificationContentFor(entry: AgentSessionEntry, message?: string | null): NotificationContent {
+  const body =
+    message !== undefined && message !== null && message.trim() !== '' ? message : entry.issueNumber !== null ? entry.title : entry.projectName;
+  return entry.issueNumber !== null ? { title: `Agent on #${entry.issueNumber} is waiting`, body } : { title: 'Agent is waiting', body };
 }
 
 /**
@@ -135,7 +136,7 @@ export class NotificationService {
         return;
       }
       if (change.reason === 'bell') {
-        this.maybeNotify(change.sessionId);
+        this.maybeNotify(change.sessionId, change.message ?? null);
       }
     });
     this.swPush?.messages.subscribe((message) => this.onPushMessage(message as PushPayload));
@@ -187,7 +188,7 @@ export class NotificationService {
     });
   }
 
-  private maybeNotify(sessionId: string): void {
+  private maybeNotify(sessionId: string, message: string | null): void {
     if (!this.notificationsStore.enabled()) {
       return;
     }
@@ -204,7 +205,7 @@ export class NotificationService {
         if (this.isCurrentlyViewedAndVisible(entry)) {
           return;
         }
-        const { title, body } = notificationContentFor(entry);
+        const { title, body } = notificationContentFor(entry, message);
         this.show(entry, title, body);
       });
     });
@@ -229,6 +230,11 @@ export class NotificationService {
   }
 
   private showViaConstructor(entry: AgentSessionEntry, title: string, options: NotificationOptions): void {
+    const previous = this.shown.get(entry.sessionId);
+    if (previous) {
+      previous.close();
+      this.shown.delete(entry.sessionId);
+    }
     const notification = new Notification(title, options);
     notification.onclick = () => {
       window.focus();

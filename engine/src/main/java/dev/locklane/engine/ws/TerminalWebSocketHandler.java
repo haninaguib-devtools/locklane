@@ -131,6 +131,14 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     private static final char RESIZE = '1';
     private static final char FOCUS = '2';
 
+    // #861: advertises a terminal that accepts the standard notification sequences
+    // (OSC 9, OSC 777) to agent launches — Claude Code picks its notification channel
+    // from the terminal program it detects, and with no TERM_PROGRAM at all (systemd,
+    // an IDE run configuration) it emits no sequence. iTerm2.app names OSC 9's own
+    // terminal; the engine parses both OSC 9 and OSC 777, so either channel lands.
+    // Shells keep the host environment untouched — this is agent launches only.
+    static final String OSC_NOTIFY_TERM_PROGRAM = "iTerm2.app";
+
     private final SessionRegistry sessionRegistry;
     private final ProjectAgentSessionService projectAgentSessionService;
     private final WorktreeSessionAuthorization authorization;
@@ -240,7 +248,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         Integer rows = parseIntParam(wsSession, "rows");
         // Empty for anything that isn't a project agent session's session id (#139) — a
         // no-op merge for every ordinary worktree/main-checkout session.
-        Map<String, String> extraEnvironment = projectAgentSessionService.environmentFor(sessionId);
+        Map<String, String> extraEnvironment = agentEnvironment(projectAgentSessionService.environmentFor(sessionId),
+                queryParam(wsSession, "cmd"));
         PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launch.command(), username, columns,
                 rows, extraEnvironment, launch.quiescenceFallbackEnabled());
         if (launch.seeded()) {
@@ -489,6 +498,24 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     private static boolean isAgent(String cmd) {
         return cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode") || cmd.equals("omp"));
+    }
+
+    /**
+     * The environment a brand-new session starts with (#861): whatever {@code
+     * ProjectAgentSessionService} resolved, plus {@code TERM_PROGRAM} naming a
+     * notification-capable terminal for agent launches only — left alone for shells
+     * and never overriding a host that already named one. Package-visible for tests.
+     */
+    static Map<String, String> agentEnvironment(Map<String, String> base, String cmd) {
+        if (!isAgent(cmd)) {
+            return base;
+        }
+        if (base.containsKey("TERM_PROGRAM")) {
+            return base;
+        }
+        java.util.Map<String, String> merged = new java.util.HashMap<>(base);
+        merged.put("TERM_PROGRAM", OSC_NOTIFY_TERM_PROGRAM);
+        return merged;
     }
 
     /**
