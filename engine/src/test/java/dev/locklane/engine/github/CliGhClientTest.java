@@ -140,6 +140,43 @@ class CliGhClientTest {
     }
 
     @Test
+    void staleReRunEntriesAndLegitimatelySkippedChecksDoNotCountAsFailing() throws Exception {
+        // PR #899's raw rollup (#900): 3 current SUCCESS checks, 1 legitimately-SKIPPED
+        // mac-lifecycle check, plus 3 stale CANCELLED/SKIPPED entries left over from an
+        // earlier superseded run of the same (workflowName, name) pairs. The old code
+        // counted every entry and treated SKIPPED as a failure, landing on 4 failing / 3
+        // passing; the true state (gh pr checks 899) is 3 pass, 1 skip, 0 fail.
+        String json = """
+                {
+                  "number": 899,
+                  "reviews": [],
+                  "statusCheckRollup": [
+                    {"name": "decide", "conclusion": "CANCELLED", "workflowName": "mac-lifecycle",
+                     "startedAt": "2026-09-11T20:43:00Z", "completedAt": "2026-09-11T20:43:05Z"},
+                    {"name": "t-workflow", "conclusion": "SKIPPED", "workflowName": "t-workflow",
+                     "startedAt": "2026-09-11T20:42:58Z", "completedAt": "2026-09-11T20:42:57Z"},
+                    {"name": "build", "conclusion": "SUCCESS", "workflowName": "build",
+                     "startedAt": "2026-09-11T20:43:01Z", "completedAt": "2026-09-11T20:44:10Z"},
+                    {"name": "decide", "conclusion": "SUCCESS", "workflowName": "mac-lifecycle",
+                     "startedAt": "2026-09-11T20:43:09Z", "completedAt": "2026-09-11T20:43:12Z"},
+                    {"name": "t-workflow", "conclusion": "SUCCESS", "workflowName": "t-workflow",
+                     "startedAt": "2026-09-11T20:43:08Z", "completedAt": "2026-09-11T20:43:13Z"},
+                    {"name": "mac-lifecycle", "conclusion": "CANCELLED", "workflowName": "mac-lifecycle",
+                     "startedAt": "2026-09-11T20:43:06Z", "completedAt": "2026-09-11T20:43:05Z"},
+                    {"name": "mac-lifecycle", "conclusion": "SKIPPED", "workflowName": "mac-lifecycle",
+                     "startedAt": "2026-09-11T20:43:13Z", "completedAt": "2026-09-11T20:43:12Z"}
+                  ]
+                }
+                """;
+
+        GhPullRequestDetail detail = CliGhClient.toPullRequestDetail(MAPPER.readTree(json));
+
+        assertThat(detail.checks().passing()).isEqualTo(3);
+        assertThat(detail.checks().failing()).isEqualTo(0);
+        assertThat(detail.checks().pending()).isEqualTo(0);
+    }
+
+    @Test
     void aPrWithNoCheckRunsHasNoRuns() throws Exception {
         String json = """
                 {"number": 7, "reviews": [], "statusCheckRollup": []}
