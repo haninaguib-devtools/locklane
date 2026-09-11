@@ -13,6 +13,11 @@ here.
 ### Fixes
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 
+## v0.2.31 — 2026-09-11
+
+### Other
+- Make the Claude Code and Codex bell hooks silent when there is no controlling terminal (#880, #881)
+
 ## v0.2.30 — 2026-09-11
 
 ### Other
