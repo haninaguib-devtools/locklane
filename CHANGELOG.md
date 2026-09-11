@@ -13,6 +13,11 @@ here.
 ### Fixes
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 
+## v0.2.34 — 2026-09-11
+
+### Other
+- Fix inflated failing-check count in PR checks summary (#900, #901)
+
 ## v0.2.33 — 2026-09-11
 
 ### Other
