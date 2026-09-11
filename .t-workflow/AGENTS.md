@@ -38,6 +38,21 @@ agent session. Scripts under `.t-workflow/scripts/` make the judgments; skills c
 | `/t-status` | Read-only overview of what is in flight. |
 | `/t-update` | Move `t-workflow` to a newer release, as an ordinary task. |
 
+## Attribution
+
+Each stage states the harness and exact model id it is actually running as — never a
+display name, `unknown` when it cannot tell. Only `/t-work` writes to the record, so
+`/t-plan` leaves a `Planned by: <harness> / <model>` line on the issue's `## Plan` and
+`/t-review` a `model: <harness> / <model>` line on its PR review; `/t-work` seeds both
+into the record's `## Agents` section (`- <stage>: <harness> / <model>`) before
+appending its own `work` or `work (fix)` entry. `/t-ship` never writes to the record:
+it reads it (`record.sh trailers <id>`) for `Implemented-By` and `Planned-By`, the
+current review directly for `Reviewed-By`, and its own session for `Shipped-By`,
+putting all three on the squash commit as trailers
+(`git log --format=%(trailers:key=...)` reads them back). A record from before this
+section existed has none, and `record.sh check` does not fail it for that alone — the
+first stage that runs on it again adds the section, and from then on it applies.
+
 ## Naming
 
 Task ID = issue number. Branch `wip/<id>-<slug>`. Record `docs/tasks/<id>-<slug>.md`.

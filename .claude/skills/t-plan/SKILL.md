@@ -28,7 +28,14 @@ Refuse a parent (`initiative`) issue: it has no diff to plan; name a child inste
 - `<command>` — <what it proves>
 ### Human checks
 - <a judgment no command settles, or "none">
+Planned by: <harness> / <model>
 ```
+
+`Planned by` names the harness you are running under (`claude-code`, `codex`,
+`gemini-cli`, ...; with its version when you can tell) and the exact model id you are
+actually running as, never a display name — write `unknown` for whichever you cannot
+determine, never a guess. `/t-work` reads it to seed the record's `## Agents` section;
+this skill never touches the working tree, so it goes on the issue, not the record.
 
 Allowed paths are binding on `/t-work`: work that needs a path outside them stops and
 comes back here. The record `docs/tasks/<id>-<slug>.md` is always allowed. Human checks

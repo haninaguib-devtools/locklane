@@ -15,3 +15,6 @@ Issue: #<id>
 
 ## Deviations / notes
 - none
+
+## Agents
+<appended by each stage that runs, one line: `- <stage>: <harness> / <model>`>

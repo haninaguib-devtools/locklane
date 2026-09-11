@@ -130,19 +130,23 @@ children_json() {
 integration_branch() { echo "wip/$1-integration"; }
 
 # review_verdict <reviews-json> <head-committed-at>: reads the latest review and prints
-#   verdict: ready|not-ready|none   isolation: <line or none>   fresh: yes|no
+#   verdict: ready|not-ready|none   isolation: <line or none>   agent: <harness>/<model> or none   fresh: yes|no
 # followed by the review's "## Pending human checks" section, then its medium and low
 # findings ("open-findings:"), which do not block but are restated at the merge gate so
 # confirming means the human saw them. A section the review lacks is reported as
-# "unknown", never as "none" — the gate blocks on unknown (review_blocks).
+# "unknown", never as "none" — the gate blocks on unknown (review_blocks). "agent:" is
+# the review's own `model:` line — read by /t-work (fix mode) to seed a `review` entry
+# and by /t-ship for the squash commit's Reviewed-By trailer; nothing in review_blocks
+# depends on it.
 review_verdict() {
   local reviews="$1" head_time="$2" latest body at
   latest=$(printf '%s' "$reviews" | jq -c 'map(select(.body | test("readiness: *(ready|not-ready)"))) | sort_by(.submittedAt) | last // empty')
-  if [ -z "$latest" ]; then echo "verdict: none"; echo "isolation: none"; echo "fresh: no"; echo "pending: none"; echo "open-findings: none"; return; fi
+  if [ -z "$latest" ]; then echo "verdict: none"; echo "isolation: none"; echo "agent: none"; echo "fresh: no"; echo "pending: none"; echo "open-findings: none"; return; fi
   body=$(printf '%s' "$latest" | jq -r .body | normalize)
   at=$(printf '%s' "$latest" | jq -r .submittedAt)
   echo "verdict: $(printf '%s' "$body" | grep -oE 'readiness: *(ready|not-ready)' | tail -1 | sed 's/readiness: *//')"
   echo "isolation: $(printf '%s' "$body" | grep -oE '^isolation:.*' | head -1 | sed 's/^isolation: *//' || true)"
+  echo "agent: $(printf '%s' "$body" | grep -oE '^model:.*' | head -1 | sed 's/^model: *//' || true)"
   if [ -n "$head_time" ] && [ "$at" \> "$head_time" ]; then echo "fresh: yes"; else echo "fresh: no"; fi
   local pending
   pending=$(printf '%s\n' "$body" | section "Pending human checks" | sed '/^readiness:/,$d' | grep -v '^[[:space:]]*$' || true)

@@ -32,9 +32,21 @@ the tree is dirty, and the mode (`normal` or `fix`).
 ## 3. Record
 
 Normal mode: `.t-workflow/scripts/record.sh create <id>` writes
-`docs/tasks/<id>-<slug>.md` from the issue and prints the path. Fix mode: read the
-existing one. Re-planned since the record was written → note the old and new scope in
-Deviations before touching anything else.
+`docs/tasks/<id>-<slug>.md` from the issue and prints the path. Then, when the issue's
+`## Plan` has a `Planned by: <harness> / <model>` line, seed the record with it:
+`.t-workflow/scripts/record.sh agent <id> plan <harness> <model>` — this is the only
+point that line ever reaches the record, so do it before anything else. Fix mode: read
+the existing record; the gate's `review-agent:` and `review-isolation:` lines are that
+review's own attribution — seed it the same way: `record.sh agent <id> review <harness>
+<model> "<isolation>"` (parse `<harness> / <model>` from `review-agent:`; skip this
+when it reads `none`). Re-planned since the record was written → note the old and new
+scope in Deviations before touching anything else.
+
+Either mode, last: `.t-workflow/scripts/record.sh agent <id> <stage> <harness> <model>`
+for this stage itself, `<stage>` `work` (normal mode) or `work (fix)` (fix mode). State
+the harness you are running under (`claude-code`, `codex`, `gemini-cli`, ...; with its
+version when you can tell) and the exact model id you are actually running as, never a
+display name — write `unknown` for whichever you cannot determine, never a guess.
 
 ## 4. Work
 
