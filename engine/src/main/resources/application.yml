@@ -130,6 +130,15 @@ locklane:
     # finally gets a `close` event to react to instead of sitting on a socket
     # nothing will ever answer on again.
     heartbeat-interval-ms: 20000
+  push:
+    # Web Push (#860, ADR-114): the "agent is waiting" notification delivered to a
+    # phone or desktop with the app closed. The engine's own VAPID key pair lives in
+    # <data-dir>/push-vapid.key, generated on first start. This is the VAPID `sub`
+    # claim (RFC 8292): a mailto: or https: URI a push service may use to reach
+    # whoever operates the application server -- for a plain install, this project.
+    # Override it in ~/.locklane/application-locklane.properties or with
+    # LOCKLANE_PUSH_CONTACT to name yourself instead.
+    contact: https://github.com/haninaguib-devtools/locklane
   release-check:
     # This repo's own owner/name (#287), for `gh release view --repo` to check for a
     # newer permanent release than the one running. Explicit rather than relying on

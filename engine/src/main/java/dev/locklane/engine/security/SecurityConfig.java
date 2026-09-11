@@ -123,6 +123,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/ides/**").authenticated()
                         .requestMatchers("/api/github/**").authenticated()
                         .requestMatchers("/api/templates").authenticated()
+                        // Web Push opt-in (#860): the VAPID public key and the caller's
+                        // own subscriptions -- account-scoped like /api/github/**.
+                        .requestMatchers("/api/push/**").authenticated()
                         .requestMatchers("/ws/sessions/**").authenticated()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll())

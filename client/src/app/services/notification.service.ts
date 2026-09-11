@@ -1,11 +1,40 @@
 import { Injectable, Injector, inject } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { SwPush } from '@angular/service-worker';
 import { take } from 'rxjs';
 import { AttentionStore } from './attention-store';
 import { NotificationsStore } from './notifications-store';
 import { AgentSessionEntriesService, AgentSessionEntry } from './agent-session-entries.service';
 import { ActiveAgentSessionStore } from './active-agent-session-store';
 import { CurrentProjectService } from './current-project.service';
+import { PushService } from './push.service';
+
+/** What identifies the agent a session id names, without fetching anything (#860). */
+export type AgentTarget = Pick<AgentSessionEntry, 'sessionId' | 'projectId' | 'issueNumber'>;
+
+/**
+ * The agent a session id names (#860), from the id's own shape -- "<projectId>-<issue>-…"
+ * for an issue's agent, "<projectId>-console[-…]" for a project agent ('console' is the
+ * persisted id shape, a compatibility surface kept under ADR-112) -- or `null` for a
+ * shell or anything else. Mirrors the engine's own PushNotifier.targetOf.
+ * Exported for the spec; not otherwise used outside this file.
+ */
+export function agentTargetOf(sessionId: string): AgentTarget | null {
+  const issue = /^(\d+)-(\d+)-/.exec(sessionId);
+  if (issue) {
+    return { sessionId, projectId: Number(issue[1]), issueNumber: Number(issue[2]) };
+  }
+  const projectAgent = /^(\d+)-console(-.+)?$/.exec(sessionId);
+  if (projectAgent) {
+    return { sessionId, projectId: Number(projectAgent[1]), issueNumber: null };
+  }
+  return null;
+}
+
+/** The payload the engine pushes (#860): the notification ngsw-worker.js showed, with the session in its data. */
+interface PushPayload {
+  notification?: { tag?: string; data?: { sessionId?: unknown; onActionClick?: { default?: { url?: unknown } } } };
+}
 
 /** The title/body pair a notification shows for one waiting entry (#859). */
 export interface NotificationContent {
@@ -57,6 +86,15 @@ export function notificationContentFor(entry: AgentSessionEntry): NotificationCo
  * regardless of client-side focus (#130), so a tab already being looked at would
  * otherwise still trigger a redundant system notification for something the user is
  * already seeing.
+ *
+ * <p>Once the app is closed, the same notification arrives by Web Push instead
+ * (#860): the engine pushes it, and the service worker shows it with no page
+ * involved. Two things are still the page's to do when one *is* open: a pushed
+ * notification for the very agent on screen is closed again (the engine cannot see
+ * focus; the worker shows it before this code hears of it), and a click on a
+ * pushed notification, which the worker answers by focusing this window, is routed
+ * to the agent the way the in-app one is. Constructing {@link PushService} here is
+ * also what keeps the browser's subscription in step with the preference.
  */
 @Injectable({ providedIn: 'root' })
 export class NotificationService {
@@ -65,7 +103,13 @@ export class NotificationService {
   private readonly agentSessionEntries = inject(AgentSessionEntriesService);
   private readonly activeAgentSessionStore = inject(ActiveAgentSessionStore);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly injector = inject(Injector);
+  // Absent without provideServiceWorker (a test, or a context with no worker at
+  // all): then nothing is ever pushed to this page and there is nothing to hear.
+  private readonly swPush = inject(SwPush, { optional: true });
+  // Constructed for its effect alone (#860) -- see the class comment.
+  private readonly pushService = inject(PushService);
 
   // Injected lazily, on first real need (a bell that passes the enabled/permission
   // checks below) rather than as an eager field -- the same reason AppComponent's
@@ -93,6 +137,53 @@ export class NotificationService {
       if (change.reason === 'bell') {
         this.maybeNotify(change.sessionId);
       }
+    });
+    this.swPush?.messages.subscribe((message) => this.onPushMessage(message as PushPayload));
+    this.swPush?.notificationClicks.subscribe(({ notification }) => this.onPushClick(notification as PushPayload['notification']));
+  }
+
+  /**
+   * A push the worker just showed (#860): if it is for the agent on screen right
+   * now, with the document visible, close it again -- the same silence rule
+   * `maybeNotify` applies before showing an in-app one, applied after the fact,
+   * since the engine cannot know what this window is looking at.
+   */
+  private onPushMessage(message: PushPayload): void {
+    const tag = message?.notification?.tag;
+    if (typeof tag !== 'string') {
+      return;
+    }
+    const target = agentTargetOf(tag);
+    if (target && this.isCurrentlyViewedAndVisible(target)) {
+      this.close(tag);
+    }
+  }
+
+  /**
+   * A click on a pushed notification, with this window open (#860): the worker has
+   * focused the window; landing on the agent is done here, through the same
+   * `jumpTo` the in-app click uses, so an issue's agent tab is selected exactly.
+   * A session gone since (the entry is not found) falls back to the URL the
+   * worker itself would have opened had no window been open.
+   */
+  private onPushClick(notification: PushPayload['notification']): void {
+    const sessionId = notification?.data?.sessionId;
+    if (typeof sessionId !== 'string') {
+      return;
+    }
+    window.focus();
+    this.currentProject.projects$.pipe(take(1)).subscribe((projects) => {
+      this.agentSessionEntries.fetchEntries(projects).subscribe((entries) => {
+        const entry = entries.find((candidate) => candidate.sessionId === sessionId);
+        if (entry) {
+          this.agentSessionEntries.jumpTo(entry);
+          return;
+        }
+        const url = notification?.data?.onActionClick?.default?.url;
+        if (typeof url === 'string') {
+          this.router.navigateByUrl(url);
+        }
+      });
     });
   }
 
@@ -172,7 +263,7 @@ export class NotificationService {
    * ({@link ActiveAgentSessionStore}); a project agent session, when the route is on
    * that exact project's agent-session page.
    */
-  private isCurrentlyViewedAndVisible(entry: AgentSessionEntry): boolean {
+  private isCurrentlyViewedAndVisible(entry: AgentTarget): boolean {
     if (document.visibilityState !== 'visible') {
       return false;
     }

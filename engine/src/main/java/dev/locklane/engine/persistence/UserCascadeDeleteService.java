@@ -1,5 +1,6 @@
 package dev.locklane.engine.persistence;
 
+import dev.locklane.engine.push.PushSubscriptionRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -33,10 +34,13 @@ public class UserCascadeDeleteService {
 
     private final ProjectRepository projectRepository;
     private final ProjectCheckoutService checkoutService;
+    private final PushSubscriptionRepository pushSubscriptions;
 
-    public UserCascadeDeleteService(ProjectRepository projectRepository, ProjectCheckoutService checkoutService) {
+    public UserCascadeDeleteService(ProjectRepository projectRepository, ProjectCheckoutService checkoutService,
+            PushSubscriptionRepository pushSubscriptions) {
         this.projectRepository = projectRepository;
         this.checkoutService = checkoutService;
+        this.pushSubscriptions = pushSubscriptions;
     }
 
     /** Deletes every project {@code ownerUserId} owns, and everything scoped to each one. */
@@ -45,5 +49,8 @@ public class UserCascadeDeleteService {
         for (ProjectRecord project : owned) {
             checkoutService.forceDelete(project.id());
         }
+        // The account's Web Push subscriptions (#860) go with it: SQLite enforces no
+        // foreign keys here, so the cascade is explicit, like the projects above.
+        pushSubscriptions.deleteAllOwnedBy(ownerUserId);
     }
 }

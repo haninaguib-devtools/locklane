@@ -80,6 +80,11 @@ public class SessionRegistry {
     // uploads, generalized so a future resource doesn't need its own field and wiring
     // here.
     private final List<Consumer<String>> closeListeners = new CopyOnWriteArrayList<>();
+    // Every session's attention transitions (#130, #854), for a consumer outside this
+    // class that acts on them (Web Push, #860) -- the same funnel shape as
+    // closeListeners: registered once, consulted live at event time, so a listener
+    // added after a session was created still hears that session.
+    private final List<AttentionListener> attentionListeners = new CopyOnWriteArrayList<>();
 
     @Autowired
     public SessionRegistry(WorktreeSessionRepository repository, AgentSessionResumeSessionRepository resumeRepository,
@@ -178,8 +183,18 @@ public class SessionRegistry {
             // Lives for the session's whole lifetime — never unsubscribed, unlike a
             // browser's own subscription in TerminalWebSocketHandler, which comes and
             // goes with that one connection.
-            created.subscribeAttention((state, reason) -> eventBroadcaster.broadcast("consoleAttention",
-                    attentionFields(id, state, reason)));
+            created.subscribeAttention((state, reason) -> {
+                eventBroadcaster.broadcast("consoleAttention", attentionFields(id, state, reason));
+                for (AttentionListener listener : attentionListeners) {
+                    try {
+                        listener.onAttentionChange(id, state, reason);
+                    } catch (RuntimeException e) {
+                        // Contained (#860): this runs on the session's drain thread, and
+                        // a listener's failure must not cost the broadcast or the thread.
+                        log.warn("Attention listener failed for session {}", id, e);
+                    }
+                }
+            });
             if (resumeRepository != null) {
                 // Same lifetime as the attention subscription above: watches the whole
                 // stream for a Claude/Codex resume id (#102) and persists each new one.
@@ -370,6 +385,23 @@ public class SessionRegistry {
      */
     public void addCloseListener(Consumer<String> listener) {
         closeListeners.add(listener);
+    }
+
+    /**
+     * Registers a listener invoked with a session's id on every attention transition
+     * of every session (#860) -- the same {@code (state, reason)} pair {@code
+     * consoleAttention} broadcasts, for a consumer that needs to act on it
+     * server-side. Called on the session's own output-drain thread: a listener hands
+     * anything slow elsewhere.
+     */
+    public void addAttentionListener(AttentionListener listener) {
+        attentionListeners.add(listener);
+    }
+
+    /** A session-scoped attention transition, with the session it belongs to -- see {@link #addAttentionListener}. */
+    @FunctionalInterface
+    public interface AttentionListener {
+        void onAttentionChange(String sessionId, PtySession.AttentionState state, PtySession.WaitingReason reason);
     }
 
     /**

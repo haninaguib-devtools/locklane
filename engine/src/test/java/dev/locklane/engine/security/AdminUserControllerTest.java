@@ -11,6 +11,7 @@ import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.UserRepository;
 import dev.locklane.engine.persistence.WorktreeSessionRepository;
 import dev.locklane.engine.ws.EventBroadcaster;
+import dev.locklane.engine.push.PushSubscriptionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
@@ -158,7 +159,8 @@ class AdminUserControllerTest {
                 tmp.resolve("workarea").toString(), Runnable::run,
                 new IssueWorktreeService(sessions, TestSqliteDatabases.newNoopAuthorization()), tokenCipher(tmp),
                 TestSqliteDatabases.newGhAccountRepository(tmp), new EventBroadcaster(new ObjectMapper()));
-        UserCascadeDeleteService cascadeDeleteService = new UserCascadeDeleteService(projectRepository, checkoutService);
+        UserCascadeDeleteService cascadeDeleteService = new UserCascadeDeleteService(projectRepository, checkoutService,
+                new PushSubscriptionRepository(TestSqliteDatabases.newDataSource(tmp), tokenCipher(tmp)));
         return new AdminUserController(userRepository, cascadeDeleteService, new BCryptPasswordEncoder());
     }
 
