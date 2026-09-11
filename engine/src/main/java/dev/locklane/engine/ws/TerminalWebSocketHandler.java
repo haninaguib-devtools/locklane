@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.agent.CodexBellHookScript;
 import dev.locklane.engine.agent.OmpBellHookExtension;
+import dev.locklane.engine.agent.OpenCodeBellPlugin;
 import dev.locklane.engine.persistence.ProjectAgentSessionService;
 import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
 import dev.locklane.engine.pty.PtySession;
@@ -107,6 +108,13 @@ import java.util.regex.Pattern;
  * OmpBellHookExtension}'s own file (#857): OMP loads it as an extension, which
  * subscribes to the OMP events that mean "stopped, waiting for the user" and rings
  * the same bell on each. See {@link #withOmpBellHook}.
+ *
+ * <p>OpenCode gets no argv treatment (#858): unlike the other three, it has no
+ * launch-time way to load a local plugin file, so nothing here changes for
+ * {@code opencode}. This class still depends on {@link OpenCodeBellPlugin} purely so
+ * its installation into OpenCode's own global plugin directory is part of the same
+ * startup sequence as the other three agents' bell wiring, documented in the same
+ * place a reader already looks for it.
  */
 @Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
@@ -134,7 +142,10 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
             WorktreeSessionAuthorization authorization, Clock clock,
             @Value("${locklane.terminal.heartbeat-interval-ms}") long heartbeatIntervalMs,
-            CodexBellHookScript codexBellHookScript, OmpBellHookExtension ompBellHookExtension) {
+            CodexBellHookScript codexBellHookScript, OmpBellHookExtension ompBellHookExtension,
+            // #858: not read here -- see the class-level note above on why this
+            // class depends on it anyway.
+            OpenCodeBellPlugin openCodeBellPlugin) {
         this(sessionRegistry, projectAgentSessionService, authorization, clock, heartbeatIntervalMs,
                 codexBellHookScript.scriptPath(), ompBellHookExtension.extensionPath());
     }

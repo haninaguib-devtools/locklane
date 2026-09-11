@@ -64,6 +64,9 @@ locklane:
   data-dir: ${user.home}/.locklane
   # Where added projects (#42) are cloned, one subfolder per project.
   workarea-root: ${locklane.data-dir}/workareas
+  # Where OpenCode reads local plugin files from (#858), matching OpenCode's own
+  # resolution rule: OPENCODE_CONFIG_DIR when set, else its default location.
+  opencode-config-dir: ${OPENCODE_CONFIG_DIR:${user.home}/.config/opencode}
   github:
     # The client id of the OAuth App behind the GitHub accounts page's "Sign in with
     # GitHub" button (#550). The shipped default is the registered "Locklane" OAuth

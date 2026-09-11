@@ -15,6 +15,9 @@ locklane:
   # Keep tests out of the real home directory.
   data-dir: ${java.io.tmpdir}/locklane-engine-test
   workarea-root: ${locklane.data-dir}/workareas
+  # As above (#858) -- OpenCodeBellPlugin would otherwise write into the real
+  # ~/.config/opencode/plugins/ on whatever machine runs the tests.
+  opencode-config-dir: ${locklane.data-dir}/opencode-config
   security:
     bootstrap-username: test-user
     bootstrap-password: test-password
