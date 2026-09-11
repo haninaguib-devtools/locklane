@@ -1,6 +1,6 @@
 import { Component, ElementRef, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { Observable, combineLatest, map, merge, of, switchMap } from 'rxjs';
+import { Observable, catchError, combineLatest, EMPTY, map, merge, of, switchMap } from 'rxjs';
 import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { CurrentProjectService } from '../../services/current-project.service';
 import { AttentionStore } from '../../services/attention-store';
@@ -68,12 +68,19 @@ export class AgentSessionIndicatorComponent {
   private readonly visibleProjects = toSignal(this.visibleProjects$, { initialValue: [] as Project[] });
 
   readonly entries = toSignal(
+    // A failed fetch must never reach toSignal's error channel (#885): it would
+    // store the error and rethrow it on every read, and this read happens in the
+    // topbar template, so every change-detection pass would throw and freeze the
+    // app shell until reload. The service already isolates one project's failure
+    // to that project; EMPTY here keeps the last good value and the stream alive
+    // for any residual whole-fetch failure, so the next trigger still refetches.
     this.visibleProjects$.pipe(
       switchMap((projects) =>
         merge(of(null), this.agentSessionsService.onOpened, this.agentSessionsService.onClosed, this.agentSessionsService.onRenamed).pipe(
-          switchMap(() => this.agentSessionEntries.fetchEntries(projects)),
+          switchMap(() => this.agentSessionEntries.fetchEntries(projects).pipe(catchError(() => EMPTY))),
         ),
       ),
+      catchError(() => EMPTY),
     ),
     { initialValue: [] as AgentSessionEntry[] },
   );

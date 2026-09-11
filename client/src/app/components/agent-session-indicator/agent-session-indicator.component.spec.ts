@@ -196,6 +196,32 @@ describe('AgentSessionIndicatorComponent', () => {
     expect(fixture.componentInstance.entries().length).toBe(0);
   });
 
+  it('a failed fetch keeps the last good entries and the next trigger still refreshes the badge (#885)', () => {
+    const fixture = init();
+    flushProjects([PROJECT_A, PROJECT_B]);
+    flushProjectEntries(1, ['1-7-rename-toggle'], [issue(7, 'Seven')]);
+    // Fail the last of the three requests so nothing is left outstanding: an
+    // earlier failure would cancel the later ones, which HttpTestingController
+    // still reports as open.
+    httpMock.expectOne('/api/projects/2/consoles').flush(['2-9-rename-toggle']);
+    httpMock.expectOne('/api/projects/2/issues').flush([issue(9, 'Nine')]);
+    httpMock.expectOne('/api/projects/2/console/sessions').flush('gone', { status: 404, statusText: 'Not Found' });
+
+    // Reading entries() must not throw, and the good project's entries survive.
+    expect(() => fixture.componentInstance.entries()).not.toThrow();
+    expect(fixture.componentInstance.entries().map((e) => e.sessionId)).toEqual(['1-7-rename-toggle']);
+
+    TestBed.inject(AgentSessionsService).notifyOpened();
+
+    flushProjectEntries(1, ['1-7-rename-toggle', '1-8-rename-toggle'], [issue(7, 'Seven'), issue(8, 'Eight')]);
+    flushProjectEntries(2, ['2-9-rename-toggle'], [issue(9, 'Nine')]);
+    expect(fixture.componentInstance.entries().map((e) => e.sessionId)).toEqual([
+      '1-7-rename-toggle',
+      '1-8-rename-toggle',
+      '2-9-rename-toggle',
+    ]);
+  });
+
   it('shows "agent" with no count when exactly one agent session is open (#215)', () => {
     const fixture = initWithEntries(['1-7-rename-toggle'], [issue(7, 'Seven')]);
     fixture.detectChanges();

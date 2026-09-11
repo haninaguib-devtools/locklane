@@ -4,6 +4,7 @@ import { ActivatedRoute, ActivatedRouteSnapshot, NavigationEnd, Router, UrlCreat
 import { Observable, ReplaySubject, combineLatest, distinctUntilChanged, filter, map, startWith } from 'rxjs';
 import { Project } from '../models/issue.model';
 import { ProjectsService } from './projects.service';
+import { EventsService, isProjectCreatedEvent, isProjectDeletedEvent } from './events.service';
 
 export interface CurrentProject {
   id: number;
@@ -74,6 +75,7 @@ export class CurrentProjectService {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly projectsService = inject(ProjectsService);
+  private readonly eventsService = inject(EventsService);
 
   private readonly projectsSubject = new ReplaySubject<Project[]>(1);
 
@@ -132,6 +134,14 @@ export class CurrentProjectService {
     // getter -- and AgentSessionIndicatorComponent only mounts once signed in), so
     // there is no unauthenticated fetch on the login screen to guard against.
     this.refresh();
+    // A deleted project must drop out of projects$ without a reload (#885):
+    // otherwise the badge keeps requesting its /issues (a 404) on every trigger.
+    // projectCreated keeps the list current the same way; a reconnect re-fetches
+    // in case anything was missed while the socket was down.
+    this.eventsService.events$
+      .pipe(filter((event) => isProjectCreatedEvent(event) || isProjectDeletedEvent(event)))
+      .subscribe(() => this.refresh());
+    this.eventsService.reconnected$.subscribe(() => this.refresh());
   }
 
   /**
@@ -141,7 +151,12 @@ export class CurrentProjectService {
    * navigation.
    */
   refresh(): void {
-    this.projectsService.list().subscribe((projects) => this.projectsSubject.next(projects));
+    // A failed list fetch keeps the last good value (#885) rather than surfacing
+    // an error no caller handles: projects$ simply re-emits on the next refresh.
+    this.projectsService.list().subscribe({
+      next: (projects) => this.projectsSubject.next(projects),
+      error: () => {},
+    });
   }
 
   private currentProjectId(): number | null {

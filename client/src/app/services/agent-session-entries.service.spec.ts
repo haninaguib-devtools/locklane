@@ -105,6 +105,19 @@ describe('AgentSessionEntriesService (#859)', () => {
     expect((await promise).map((e) => e.sessionId)).toEqual(['1-7-rename-toggle', '2-9-rename-toggle']);
   });
 
+  it('a failed fetch for one project keeps the other projects entries instead of erroring (#885)', async () => {
+    const promise = firstValueFrom(service.fetchEntries([PROJECT_A, PROJECT_B]));
+    flushOneProject(['1-7-rename-toggle'], [issue(7, 'Seven')]);
+    // Fail the last of the three requests so nothing is left outstanding: an
+    // earlier failure would cancel the later ones, which HttpTestingController
+    // still reports as open.
+    httpMock.expectOne('/api/projects/2/consoles').flush(['2-9-rename-toggle']);
+    httpMock.expectOne('/api/projects/2/issues').flush([issue(9, 'Nine')]);
+    httpMock.expectOne('/api/projects/2/console/sessions').flush('gone', { status: 404, statusText: 'Not Found' });
+
+    expect((await promise).map((e) => e.sessionId)).toEqual(['1-7-rename-toggle']);
+  });
+
   it("jumping to an issue's entry remembers it as the issue's active agent session and navigates there", () => {
     const router = TestBed.inject(Router);
     const navigateSpy = spyOn(router, 'navigate');

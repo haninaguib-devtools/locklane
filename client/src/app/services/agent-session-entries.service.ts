@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Observable, forkJoin, map, of } from 'rxjs';
+import { Observable, catchError, forkJoin, map, of } from 'rxjs';
 import { AgentSessionsService, issueNumberFromSessionId } from './agent-sessions.service';
 import { IssuesService } from './issues.service';
 import { OpenProjectAgentSession, ProjectAgentSessionService } from './project-agent-session.service';
@@ -48,11 +48,17 @@ export class AgentSessionEntriesService {
 
   // Fans the existing per-project agent sessions/issues calls out across every given
   // project, the same forkJoin pattern sidenav.component.ts's own
-  // refreshAgentSessionIndicators() already uses.
+  // refreshAgentSessionIndicators() already uses. One project's failed request
+  // resolves to no entries for that project (#885) instead of erroring the whole
+  // forkJoin: otherwise a single 404 (a just-deleted project) or transient 5xx
+  // kills the badge stream permanently, and toSignal rethrows the stored error on
+  // every read, freezing the app shell until reload.
   fetchEntries(projects: Project[]): Observable<AgentSessionEntry[]> {
     return projects.length === 0
       ? of([])
-      : forkJoin(projects.map((project) => this.fetchProjectEntries(project))).pipe(map((perProject) => perProject.flat()));
+      : forkJoin(
+          projects.map((project) => this.fetchProjectEntries(project).pipe(catchError(() => of([] as AgentSessionEntry[])))),
+        ).pipe(map((perProject) => perProject.flat()));
   }
 
   // Navigates to the entry's own project (#290) -- not necessarily whichever
