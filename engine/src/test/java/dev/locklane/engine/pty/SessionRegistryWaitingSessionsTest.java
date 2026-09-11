@@ -38,8 +38,8 @@ class SessionRegistryWaitingSessionsTest {
         alsoWaiting.checkQuiescence(wellPastTheThreshold);
 
         assertThat(registry.waitingSessions()).containsExactlyInAnyOrder(
-                new SessionRegistry.WaitingSession("42-7-waiting", PtySession.WaitingReason.QUIET),
-                new SessionRegistry.WaitingSession("42-8-also-waiting", PtySession.WaitingReason.QUIET));
+                new SessionRegistry.WaitingSession("42-7-waiting", PtySession.WaitingReason.QUIET, null),
+                new SessionRegistry.WaitingSession("42-8-also-waiting", PtySession.WaitingReason.QUIET, null));
     }
 
     @Test
@@ -48,7 +48,7 @@ class SessionRegistryWaitingSessionsTest {
         PtySession session = registry.attach("42-7-slug", workDir);
         session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
         assertThat(registry.waitingSessions())
-                .containsExactly(new SessionRegistry.WaitingSession("42-7-slug", PtySession.WaitingReason.QUIET));
+                .containsExactly(new SessionRegistry.WaitingSession("42-7-slug", PtySession.WaitingReason.QUIET, null));
 
         session.markFocused();
 

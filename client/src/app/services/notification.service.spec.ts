@@ -114,8 +114,19 @@ describe('NotificationService (#859)', () => {
    * microtask chain `show()`'s own `serviceWorker.getRegistration().then(...)`
    * needs before a notification actually appears.
    */
-  async function ringBell(sessionId: string, issues: GhIssue[] = [issue(7, 'Seven')], ids: string[] = ['1-7-rename-toggle']): Promise<void> {
-    TestBed.inject(AttentionStore).apply({ type: 'consoleAttention', sessionId, state: 'waiting', reason: 'bell' });
+  async function ringBell(
+    sessionId: string,
+    issues: GhIssue[] = [issue(7, 'Seven')],
+    ids: string[] = ['1-7-rename-toggle'],
+    message?: string,
+  ): Promise<void> {
+    TestBed.inject(AttentionStore).apply({
+      type: 'consoleAttention',
+      sessionId,
+      state: 'waiting',
+      reason: 'bell',
+      ...(message !== undefined ? { message } : {}),
+    });
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
     httpMock.expectOne('/api/projects/1/consoles').flush(ids);
     httpMock.expectOne('/api/projects/1/issues').flush(issues);
@@ -136,6 +147,15 @@ describe('NotificationService (#859)', () => {
     ).toEqual({ title: 'Agent is waiting', body: 'Alpha' });
   });
 
+  it('notificationContentFor: the agent message replaces the body when present (#861)', () => {
+    expect(
+      notificationContentFor(
+        { sessionId: '1-7-x', projectId: 1, projectName: 'Alpha', issueNumber: 7, title: 'Seven' },
+        'Merge PR #851 into main?',
+      ),
+    ).toEqual({ title: 'Agent on #7 is waiting', body: 'Merge PR #851 into main?' });
+  });
+
   it('a bell shows a notification', async () => {
     TestBed.inject(NotificationService);
 
@@ -145,6 +165,16 @@ describe('NotificationService (#859)', () => {
     expect(notifications[0].title).toBe('Agent on #7 is waiting');
     expect(notifications[0].options.body).toBe('Seven');
     expect(notifications[0].options.tag).toBe('1-7-rename-toggle');
+  });
+
+  it('a bell with the agent message shows it as the body (#861)', async () => {
+    TestBed.inject(NotificationService);
+
+    await ringBell('1-7-rename-toggle', [issue(7, 'Seven')], ['1-7-rename-toggle'], 'Merge PR #851 into main?');
+
+    expect(notifications.length).toBe(1);
+    expect(notifications[0].title).toBe('Agent on #7 is waiting');
+    expect(notifications[0].options.body).toBe('Merge PR #851 into main?');
   });
 
   it('quiet shows nothing, and fetches nothing at all', () => {

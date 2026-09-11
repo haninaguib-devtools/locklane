@@ -207,6 +207,10 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
             if (waitingSession.reason() != null) {
                 fields.put("reason", waitingSession.reason().wireValue());
             }
+            // #861: the agent's own message, when one was seen — absent otherwise.
+            if (waitingSession.message() != null) {
+                fields.put("message", waitingSession.message());
+            }
             broadcaster.sendTo(session, "consoleAttention", fields);
         }
     }

@@ -19,7 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class SessionRegistryAttentionListenerTest {
 
-    private record Heard(String sessionId, PtySession.AttentionState state, PtySession.WaitingReason reason) {
+    private record Heard(String sessionId, PtySession.AttentionState state, PtySession.WaitingReason reason,
+            String message) {
     }
 
     @Test
@@ -27,7 +28,7 @@ class SessionRegistryAttentionListenerTest {
         SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
         PtySession earlier = registry.attach("42-7-before-listener", workDir);
         List<Heard> heard = new CopyOnWriteArrayList<>();
-        registry.addAttentionListener((id, state, reason) -> heard.add(new Heard(id, state, reason)));
+        registry.addAttentionListener((id, state, reason, message) -> heard.add(new Heard(id, state, reason, message)));
         PtySession later = registry.attach("42-8-after-listener", workDir);
 
         long wellPastTheThreshold = System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000;
@@ -36,9 +37,9 @@ class SessionRegistryAttentionListenerTest {
         later.markFocused();
 
         assertThat(heard).containsExactly(
-                new Heard("42-7-before-listener", PtySession.AttentionState.WAITING, PtySession.WaitingReason.QUIET),
-                new Heard("42-8-after-listener", PtySession.AttentionState.WAITING, PtySession.WaitingReason.QUIET),
-                new Heard("42-8-after-listener", PtySession.AttentionState.ACTIVE, null));
+                new Heard("42-7-before-listener", PtySession.AttentionState.WAITING, PtySession.WaitingReason.QUIET, null),
+                new Heard("42-8-after-listener", PtySession.AttentionState.WAITING, PtySession.WaitingReason.QUIET, null),
+                new Heard("42-8-after-listener", PtySession.AttentionState.ACTIVE, null, null));
         registry.close("42-7-before-listener");
         registry.close("42-8-after-listener");
     }
@@ -46,16 +47,16 @@ class SessionRegistryAttentionListenerTest {
     @Test
     void aFailingListenerIsContainedAndTheRestStillHear(@TempDir Path dbDir, @TempDir Path workDir) {
         SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
-        registry.addAttentionListener((id, state, reason) -> {
+        registry.addAttentionListener((id, state, reason, message) -> {
             throw new IllegalStateException("boom");
         });
         List<Heard> heard = new CopyOnWriteArrayList<>();
-        registry.addAttentionListener((id, state, reason) -> heard.add(new Heard(id, state, reason)));
+        registry.addAttentionListener((id, state, reason, message) -> heard.add(new Heard(id, state, reason, message)));
         PtySession session = registry.attach("42-7-slug", workDir);
 
         session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
 
-        assertThat(heard).containsExactly(new Heard("42-7-slug", PtySession.AttentionState.WAITING, PtySession.WaitingReason.QUIET));
+        assertThat(heard).containsExactly(new Heard("42-7-slug", PtySession.AttentionState.WAITING, PtySession.WaitingReason.QUIET, null));
         assertThat(registry.waitingSessions()).hasSize(1);
         registry.close("42-7-slug");
     }

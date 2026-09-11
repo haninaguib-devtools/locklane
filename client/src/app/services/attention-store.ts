@@ -17,6 +17,7 @@ export interface AttentionChange {
   sessionId: string;
   waiting: boolean;
   reason: AttentionReason | null;
+  message: string | null;
 }
 
 /**
@@ -42,6 +43,7 @@ export class AttentionStore implements OnDestroy {
   private readonly eventsService = inject(EventsService);
   private readonly waitingSignal = signal<ReadonlySet<string>>(new Set());
   private readonly reasonsSignal = signal<ReadonlyMap<string, AttentionReason>>(new Map());
+  private readonly messagesSignal = signal<ReadonlyMap<string, string>>(new Map());
   private readonly changesSubject = new Subject<AttentionChange>();
   private readonly sub: Subscription;
 
@@ -76,24 +78,36 @@ export class AttentionStore implements OnDestroy {
   }
 
   /**
+   * The agent's own notification message (#861), or `null` when none was seen
+   * since the session started waiting. A signal read, like {@link reason}.
+   */
+  message(sessionId: string): string | null {
+    return this.messagesSignal().get(sessionId) ?? null;
+  }
+
+  /**
    * Applies one `consoleAttention` event by session id. A repeat of the current state
    * with the same reason (`waiting`/`bell` for a session already waiting for that
    * reason, `active` for one that is not waiting at all) changes nothing and does not
    * notify readers -- but a `waiting` event whose reason differs from what is already
    * recorded (the quiet-to-bell upgrade, #854) still updates {@link reason} even
-   * though {@link isWaiting} stays true throughout.
+   * though {@link isWaiting} stays true throughout. The same holds for a new
+   * {@link message} (#861): a second bell with a different body re-emits.
    */
   apply(event: AgentSessionAttentionEvent): void {
     const currentWaiting = this.waitingSignal();
     const currentReasons = this.reasonsSignal();
+    const currentMessages = this.messagesSignal();
     const wasWaiting = currentWaiting.has(event.sessionId);
     const previousReason = currentReasons.get(event.sessionId) ?? null;
+    const previousMessage = currentMessages.get(event.sessionId) ?? null;
     const nextReason = event.state === 'waiting' ? (event.reason ?? null) : null;
     const nextWaiting = event.state === 'waiting';
-    if (wasWaiting === nextWaiting && previousReason === nextReason) {
+    const nextMessage = event.state === 'waiting' ? (event.message ?? null) : null;
+    if (wasWaiting === nextWaiting && previousReason === nextReason && previousMessage === nextMessage) {
       return;
     }
-    this.changesSubject.next({ sessionId: event.sessionId, waiting: nextWaiting, reason: nextReason });
+    this.changesSubject.next({ sessionId: event.sessionId, waiting: nextWaiting, reason: nextReason, message: nextMessage });
     if (wasWaiting !== nextWaiting) {
       const next = new Set(currentWaiting);
       if (nextWaiting) {
@@ -111,6 +125,15 @@ export class AttentionStore implements OnDestroy {
         next.set(event.sessionId, nextReason);
       }
       this.reasonsSignal.set(next);
+    }
+    if (previousMessage !== nextMessage) {
+      const next = new Map(currentMessages);
+      if (nextMessage === null) {
+        next.delete(event.sessionId);
+      } else {
+        next.set(event.sessionId, nextMessage);
+      }
+      this.messagesSignal.set(next);
     }
   }
 }

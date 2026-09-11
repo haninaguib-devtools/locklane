@@ -6,6 +6,7 @@ import com.pty4j.WinSize;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -64,6 +65,13 @@ public final class PtySession {
         NORMAL, ESCAPE, OSC, OSC_ESCAPE
     }
 
+    // #861: the largest OSC payload kept for notification parsing — a notification
+    // is a short human message; anything larger (an image, a long title) is ignored
+    // rather than buffered without bound.
+    static final int OSC_PAYLOAD_MAX_BYTES = 4096;
+    // #861: the longest notification body kept — agent-controlled text, single line.
+    static final int NOTIFICATION_MESSAGE_MAX_CHARS = 200;
+
     // #130: the quiescence fallback's fixed delay — agents that never ring the bell
     // still go quiet once they finish, so output going silent this long with no input
     // since is itself treated as "waiting for attention". Package-visible so tests can
@@ -82,6 +90,10 @@ public final class PtySession {
     // #233: only ever touched from this session's own drain thread, so the scan can
     // carry its state across chunk boundaries with no synchronization.
     private BelScanState belScanState = BelScanState.NORMAL;
+    // #861: the current OSC sequence's payload bytes, reset on entering OSC — only
+    // ever touched from the drain thread, like belScanState above.
+    private final ByteArrayOutputStream oscPayload = new ByteArrayOutputStream();
+    private boolean oscTooLong = false;
     // #862: on for a plain shell or an agent whose bell hook is not (yet) wired --
     // exactly today's behaviour; off once the launch command carried an injected bell
     // hook (TerminalWebSocketHandler is the one place that knows), so quiescence adds
@@ -125,9 +137,7 @@ public final class PtySession {
             while ((n = in.read(chunk)) != -1) {
                 output.append(chunk, n);
                 lastOutputAt = System.currentTimeMillis();
-                if (scanForAttentionBel(chunk, n)) {
-                    markBell();
-                }
+                scanChunk(chunk, n);
                 if (!listeners.isEmpty()) {
                     // Defensive copy: `chunk` is reused on the next loop iteration, so a
                     // listener that hands this off asynchronously must not see it mutate.
@@ -147,13 +157,15 @@ public final class PtySession {
     }
 
     /**
-     * True if this chunk contains a BEL that is a real attention signal — i.e. not
-     * the terminator of an OSC escape sequence (#233). The scan is stateful across
-     * calls ({@link #belScanState}) because a sequence can straddle two {@code
-     * read()} chunks.
+     * Scans one chunk for attention signals (#130, #233, #861): a bare BEL marks
+     * waiting, an OSC 9 notification or OSC 777 notify marks waiting with its
+     * message, and any other OSC (a title, a color, a progress bar) is ignored. The
+     * scan is stateful across calls ({@link #belScanState}, {@link #oscPayload})
+     * because a sequence can straddle two {@code read()} chunks. Marks are applied
+     * in byte order, so a bell just before or after its OSC in the same chunk still
+     * pairs with it — see {@link #markBell} and {@link #markNotification}.
      */
-    private boolean scanForAttentionBel(byte[] chunk, int length) {
-        boolean attentionBel = false;
+    private void scanChunk(byte[] chunk, int length) {
         for (int i = 0; i < length; i++) {
             byte b = chunk[i];
             switch (belScanState) {
@@ -161,27 +173,140 @@ public final class PtySession {
                     if (b == ESC) {
                         belScanState = BelScanState.ESCAPE;
                     } else if (b == BEL) {
-                        attentionBel = true;
+                        markBell();
                     }
                     break;
                 case ESCAPE:
-                    belScanState = b == OSC_START ? BelScanState.OSC : BelScanState.NORMAL;
+                    if (b == OSC_START) {
+                        belScanState = BelScanState.OSC;
+                        oscPayload.reset();
+                        oscTooLong = false;
+                    } else {
+                        belScanState = BelScanState.NORMAL;
+                    }
                     break;
                 case OSC:
                     if (b == BEL) {
-                        // Terminates the sequence — punctuation, not attention.
+                        // Terminates the sequence — punctuation, not attention (#233).
+                        finishOsc();
                         belScanState = BelScanState.NORMAL;
                     } else if (b == ESC) {
                         belScanState = BelScanState.OSC_ESCAPE;
+                    } else {
+                        appendOscByte(b);
                     }
                     break;
                 case OSC_ESCAPE:
                     // ST (ESC \) also terminates an OSC sequence, with no BEL at all.
-                    belScanState = b == ST_TERMINATOR ? BelScanState.NORMAL : BelScanState.OSC;
+                    if (b == ST_TERMINATOR) {
+                        finishOsc();
+                        belScanState = BelScanState.NORMAL;
+                    } else {
+                        // Not a terminator after all: the ESC belonged to the payload.
+                        appendOscByte(ESC);
+                        appendOscByte(b);
+                        belScanState = BelScanState.OSC;
+                    }
                     break;
             }
         }
-        return attentionBel;
+    }
+
+    private void appendOscByte(byte b) {
+        if (oscTooLong) {
+            return;
+        }
+        if (oscPayload.size() >= OSC_PAYLOAD_MAX_BYTES) {
+            oscTooLong = true;
+            return;
+        }
+        oscPayload.write(b);
+    }
+
+    /** Processes one terminated OSC payload (#861) — ignored unless it is a notification. */
+    private void finishOsc() {
+        if (oscTooLong) {
+            oscPayload.reset();
+            oscTooLong = false;
+            return;
+        }
+        String payload = oscPayload.toString(StandardCharsets.UTF_8);
+        oscPayload.reset();
+        // null: not a notification OSC — a title, a color, progress, anything else.
+        // Empty: a notification with no usable message — still waiting, no new body.
+        String message = notificationMessageFromOscPayload(payload);
+        if (message == null) {
+            return;
+        }
+        if (message.isEmpty()) {
+            markBell();
+        } else {
+            markNotification(message);
+        }
+    }
+
+    /**
+     * The notification message an OSC payload carries (#861), or {@code null} when
+     * the payload is not a notification at all. Package-visible for tests.
+     *
+     * <p>Understood, generically — never per-agent: {@code 9;<message>} (iTerm2's
+     * notification, excluding the {@code 9;4...} progress form) and {@code
+     * 777;notify;<title>;<body>} (foot's notification, body preferred over title).
+     * The returned message is already sanitized, or empty when the notification
+     * carried nothing usable.
+     */
+    static String notificationMessageFromOscPayload(String payload) {
+        if (payload.startsWith("9;")) {
+            String content = payload.substring(2);
+            if (content.equals("4") || content.startsWith("4;")) {
+                return null;
+            }
+            String sanitized = sanitizeNotificationMessage(content);
+            return sanitized == null ? "" : sanitized;
+        }
+        if (payload.startsWith("777;")) {
+            String[] parts = payload.split(";", -1);
+            if (parts.length < 3 || !"notify".equals(parts[1])) {
+                return null;
+            }
+            String title = parts[2];
+            String body = parts.length > 3 ? String.join(";", java.util.Arrays.copyOfRange(parts, 3, parts.length)) : "";
+            String chosen = !body.isBlank() ? body : title;
+            String sanitized = sanitizeNotificationMessage(chosen);
+            return sanitized == null ? "" : sanitized;
+        }
+        return null;
+    }
+
+    /**
+     * Trims agent-controlled notification text to a single safe line (#861):
+     * control characters become spaces, whitespace collapses, capped at {@link
+     * #NOTIFICATION_MESSAGE_MAX_CHARS}. Null when nothing usable remains.
+     * Package-visible for tests.
+     */
+    static String sanitizeNotificationMessage(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        StringBuilder cleaned = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            // C0/C1 controls (including DEL) carry no message — a space keeps word
+            // boundaries where a newline was.
+            if (c < 0x20 || (c >= 0x7F && c <= 0x9F)) {
+                cleaned.append(' ');
+            } else {
+                cleaned.append(c);
+            }
+        }
+        String collapsed = cleaned.toString().replaceAll("\\s+", " ").trim();
+        if (collapsed.isEmpty()) {
+            return null;
+        }
+        if (collapsed.length() > NOTIFICATION_MESSAGE_MAX_CHARS) {
+            return collapsed.substring(0, NOTIFICATION_MESSAGE_MAX_CHARS).trim();
+        }
+        return collapsed;
     }
 
     public String sessionId() {
@@ -289,6 +414,15 @@ public final class PtySession {
     }
 
     /**
+     * The agent's own notification message (#861) — {@code null} whenever {@link
+     * #attentionState()} is {@link AttentionState#ACTIVE} or no OSC notification has
+     * been seen since. Read the same way {@link #waitingReason()} is.
+     */
+    public String waitingMessage() {
+        return attention.get().message();
+    }
+
+    /**
      * Re-evaluates the quiescence fallback (#130): output that has gone quiet for
      * {@link #QUIESCENCE_THRESHOLD_MS} with no input sent since marks the session as
      * waiting, for an agent that never rings the bell. Never called on a timer inside
@@ -311,7 +445,16 @@ public final class PtySession {
 
     /** A BEL was seen (#854): the strongest reason, so it always wins over quiet. */
     private void markBell() {
-        updateAttention(current -> new Attention(AttentionState.WAITING, WaitingReason.BELL));
+        updateAttention(current -> new Attention(AttentionState.WAITING, WaitingReason.BELL, current.message()));
+    }
+
+    /**
+     * An OSC notification was seen (#861): waiting with reason bell, carrying its
+     * message — the same strength as a bare bell, so it wins over quiet and
+     * re-emits when the message differs from one already recorded.
+     */
+    private void markNotification(String message) {
+        updateAttention(current -> new Attention(AttentionState.WAITING, WaitingReason.BELL, message));
     }
 
     /**
@@ -321,7 +464,7 @@ public final class PtySession {
     private void markQuiet() {
         updateAttention(current -> current.state() == AttentionState.WAITING && current.reason() == WaitingReason.BELL
                 ? current
-                : new Attention(AttentionState.WAITING, WaitingReason.QUIET));
+                : new Attention(AttentionState.WAITING, WaitingReason.QUIET, null));
     }
 
     private void markActive() {
@@ -332,7 +475,8 @@ public final class PtySession {
      * Applies {@code transition} atomically and notifies every {@link
      * AttentionListener} exactly when the result actually differs from before — so a
      * session already waiting for quiet that then rings the bell re-emits with the
-     * stronger reason even though {@link AttentionState} itself did not change (#854).
+     * stronger reason even though {@link AttentionState} itself did not change (#854),
+     * and a second notification with a different message re-emits too (#861).
      */
     private void updateAttention(UnaryOperator<Attention> transition) {
         Attention previous;
@@ -343,7 +487,7 @@ public final class PtySession {
         } while (!attention.compareAndSet(previous, updated));
         if (!previous.equals(updated)) {
             for (AttentionListener listener : attentionListeners) {
-                listener.onAttentionChange(updated.state(), updated.reason());
+                listener.onAttentionChange(updated.state(), updated.reason(), updated.message());
             }
         }
     }
@@ -376,12 +520,12 @@ public final class PtySession {
     }
 
     /** This session's state and, when waiting, why — see {@link #updateAttention}. */
-    private record Attention(AttentionState state, WaitingReason reason) {
-        static final Attention ACTIVE = new Attention(AttentionState.ACTIVE, null);
+    private record Attention(AttentionState state, WaitingReason reason, String message) {
+        static final Attention ACTIVE = new Attention(AttentionState.ACTIVE, null, null);
     }
 
     @FunctionalInterface
     public interface AttentionListener {
-        void onAttentionChange(AttentionState state, WaitingReason reason);
+        void onAttentionChange(AttentionState state, WaitingReason reason, String message);
     }
 }

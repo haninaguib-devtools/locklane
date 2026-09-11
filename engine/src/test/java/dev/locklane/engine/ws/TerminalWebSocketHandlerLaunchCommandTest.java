@@ -167,4 +167,19 @@ class TerminalWebSocketHandlerLaunchCommandTest {
         }
         throw new AssertionError("no " + event + " hook group matching " + matcher + " in " + hooks);
     }
+
+    @Test
+    void agentLaunchesAdvertiseANotificationCapableTerminalAndShellsDoNot() {
+        // #861: Claude Code picks its notification channel from the detected terminal
+        // program — an agent launch names one that accepts OSC 9/777, a shell keeps
+        // the host environment untouched, and an already-set value is never overridden.
+        assertThat(TerminalWebSocketHandler.agentEnvironment(java.util.Map.of(), "claude"))
+                .containsEntry("TERM_PROGRAM", TerminalWebSocketHandler.OSC_NOTIFY_TERM_PROGRAM);
+        assertThat(TerminalWebSocketHandler.agentEnvironment(java.util.Map.of(), "codex"))
+                .containsEntry("TERM_PROGRAM", TerminalWebSocketHandler.OSC_NOTIFY_TERM_PROGRAM);
+        assertThat(TerminalWebSocketHandler.agentEnvironment(java.util.Map.of(), null)).isEmpty();
+        assertThat(TerminalWebSocketHandler.agentEnvironment(java.util.Map.of(), "shell")).isEmpty();
+        assertThat(TerminalWebSocketHandler.agentEnvironment(java.util.Map.of("TERM_PROGRAM", "ghostty"), "claude"))
+                .containsEntry("TERM_PROGRAM", "ghostty");
+    }
 }

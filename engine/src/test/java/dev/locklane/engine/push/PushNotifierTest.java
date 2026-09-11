@@ -86,7 +86,7 @@ class PushNotifierTest {
     @Test
     void aBellOnAnIssuesAgentReachesEveryBrowserOfTheOwnerAndNoOneElse() {
         notifier.onAttentionChange(alicesProject.id() + "-7-rename-toggle", PtySession.AttentionState.WAITING,
-                PtySession.WaitingReason.BELL);
+                PtySession.WaitingReason.BELL, null);
 
         assertThat(client.endpoints).extracting(URI::toString).containsExactly(
                 "https://push.example.net/alice-phone", "https://push.example.net/alice-laptop");
@@ -97,11 +97,12 @@ class PushNotifierTest {
     @Test
     void quietActiveAndShellsPushNothing() {
         notifier.onAttentionChange(alicesProject.id() + "-7-rename-toggle", PtySession.AttentionState.WAITING,
-                PtySession.WaitingReason.QUIET);
-        notifier.onAttentionChange(alicesProject.id() + "-7-rename-toggle", PtySession.AttentionState.ACTIVE, null);
+                PtySession.WaitingReason.QUIET, null);
+        notifier.onAttentionChange(alicesProject.id() + "-7-rename-toggle", PtySession.AttentionState.ACTIVE, null, null);
         notifier.onAttentionChange(alicesProject.id() + "-shell-7-0123abcd", PtySession.AttentionState.WAITING,
-                PtySession.WaitingReason.BELL);
-        notifier.onAttentionChange("not-a-session-id", PtySession.AttentionState.WAITING, PtySession.WaitingReason.BELL);
+                PtySession.WaitingReason.BELL, null);
+        notifier.onAttentionChange("not-a-session-id", PtySession.AttentionState.WAITING, PtySession.WaitingReason.BELL,
+                null);
 
         assertThat(client.endpoints).isEmpty();
     }
@@ -111,9 +112,9 @@ class PushNotifierTest {
         ProjectRecord unsubscribed = projects.create("gamma", "url", tmp.resolve("gamma"), 3L, Instant.now());
 
         notifier.onAttentionChange(unsubscribed.id() + "-console-0123abcd", PtySession.AttentionState.WAITING,
-                PtySession.WaitingReason.BELL);
+                PtySession.WaitingReason.BELL, null);
         notifier.onAttentionChange("999-7-no-such-project", PtySession.AttentionState.WAITING,
-                PtySession.WaitingReason.BELL);
+                PtySession.WaitingReason.BELL, null);
 
         assertThat(client.endpoints).isEmpty();
     }
@@ -123,7 +124,7 @@ class PushNotifierTest {
         client.reply = WebPushClient.Delivery.GONE;
 
         notifier.onAttentionChange(alicesProject.id() + "-7-rename-toggle", PtySession.AttentionState.WAITING,
-                PtySession.WaitingReason.BELL);
+                PtySession.WaitingReason.BELL, null);
 
         assertThat(subscriptions.findAllOwnedBy(1L)).isEmpty();
         assertThat(subscriptions.findAllOwnedBy(2L)).hasSize(1);
@@ -134,7 +135,7 @@ class PushNotifierTest {
         client.failing = true;
 
         notifier.onAttentionChange(alicesProject.id() + "-7-rename-toggle", PtySession.AttentionState.WAITING,
-                PtySession.WaitingReason.BELL);
+                PtySession.WaitingReason.BELL, null);
 
         assertThat(subscriptions.findAllOwnedBy(1L)).hasSize(2);
     }
@@ -142,7 +143,7 @@ class PushNotifierTest {
     @Test
     void thePayloadIsTheNotificationNgswShowsForAnIssuesAgent() throws Exception {
         String json = notifier.payloadFor(alicesProject.id() + "-7-rename-toggle",
-                new PushNotifier.Target(alicesProject.id(), 7), alicesProject);
+                new PushNotifier.Target(alicesProject.id(), 7), alicesProject, null);
 
         JsonNode notification = new ObjectMapper().readTree(json).path("notification");
         assertThat(notification.path("title").asText()).isEqualTo("Agent on #7 is waiting");
@@ -159,7 +160,7 @@ class PushNotifierTest {
     void thePayloadForAProjectAgentNamesTheProjectAndItsAgentPage() throws Exception {
         // 'console' in the id and the URL is a compatibility surface kept under ADR-112.
         String sessionId = alicesProject.id() + "-console-0123abcd";
-        String json = notifier.payloadFor(sessionId, new PushNotifier.Target(alicesProject.id(), null), alicesProject);
+        String json = notifier.payloadFor(sessionId, new PushNotifier.Target(alicesProject.id(), null), alicesProject, null);
 
         JsonNode notification = new ObjectMapper().readTree(json).path("notification");
         assertThat(notification.path("title").asText()).isEqualTo("Agent is waiting");
@@ -170,9 +171,20 @@ class PushNotifierTest {
 
     @Test
     void anIssueWithNoKnownTitleFallsBackToTheProjectName() throws Exception {
-        String json = notifier.payloadFor(alicesProject.id() + "-8-x", new PushNotifier.Target(alicesProject.id(), 8), alicesProject);
+        String json = notifier.payloadFor(alicesProject.id() + "-8-x", new PushNotifier.Target(alicesProject.id(), 8), alicesProject,
+                null);
 
         assertThat(new ObjectMapper().readTree(json).path("notification").path("body").asText()).isEqualTo("alpha");
+    }
+
+    @Test
+    void theAgentMessageReplacesTheBodyWhenPresent() throws Exception {
+        String json = notifier.payloadFor(alicesProject.id() + "-7-rename-toggle",
+                new PushNotifier.Target(alicesProject.id(), 7), alicesProject, "Merge PR #851 into main?");
+
+        JsonNode notification = new ObjectMapper().readTree(json).path("notification");
+        assertThat(notification.path("title").asText()).isEqualTo("Agent on #7 is waiting");
+        assertThat(notification.path("body").asText()).isEqualTo("Merge PR #851 into main?");
     }
 
     @Test
