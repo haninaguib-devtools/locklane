@@ -12,18 +12,25 @@ export interface AppEvent {
  * for the user (a bell, or output going quiet with no input since -- see
  * dev.locklane.engine.pty.PtySession). Shared here since both the sidenav's per-issue
  * dot and the header agent session indicator react to it.
+ *
+ * `reason` (#854) says why a `waiting` event fired -- a deliberate `bell`, or the
+ * `quiet` fallback for an agent that never rings one -- and is absent for `active`.
+ * Optional so a client reading an older engine's event (with no `reason` at all)
+ * still passes this type's spec unchanged.
  */
 export interface AgentSessionAttentionEvent extends AppEvent {
   type: 'consoleAttention';
   sessionId: string;
   state: 'waiting' | 'active';
+  reason?: 'bell' | 'quiet';
 }
 
 export function isAgentSessionAttentionEvent(event: AppEvent): event is AgentSessionAttentionEvent {
   return (
     event.type === 'consoleAttention' &&
     typeof event['sessionId'] === 'string' &&
-    (event['state'] === 'waiting' || event['state'] === 'active')
+    (event['state'] === 'waiting' || event['state'] === 'active') &&
+    (event['reason'] === undefined || event['reason'] === 'bell' || event['reason'] === 'quiet')
   );
 }
 

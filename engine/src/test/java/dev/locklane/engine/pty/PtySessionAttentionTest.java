@@ -21,49 +21,89 @@ import static org.assertj.core.api.Assertions.assertThat;
  * on a schedule in production; these tests call the deterministic {@code (nowMs)}
  * overload directly so the threshold never needs a real sleep. Also covers #233: a
  * BEL that only terminates an OSC escape sequence is not a real attention signal.
+ * Also covers #854: the reason (bell vs. quiet) carried alongside {@code WAITING},
+ * including the quiet-to-bell upgrade and the bell-then-quiet non-downgrade.
  */
 class PtySessionAttentionTest {
 
+    /** One {@link PtySession.AttentionState}/{@link PtySession.WaitingReason} pair, as delivered to a listener. */
+    private record Attention(PtySession.AttentionState state, PtySession.WaitingReason reason) {
+    }
+
     @Test
-    void bellMarksWaitingAndSubsequentInputClearsIt(@TempDir Path workDir) {
+    void bellMarksWaitingWithReasonBellAndSubsequentInputClearsIt(@TempDir Path workDir) {
         PtySession session = new PtySession("attention-bell", workDir,
                 new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
-        List<PtySession.AttentionState> states = new CopyOnWriteArrayList<>();
-        session.subscribeAttention(states::add);
+        List<Attention> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention((state, reason) -> states.add(new Attention(state, reason)));
 
         session.write("printf '\\a'\n");
-        waitUntil(() -> states.contains(PtySession.AttentionState.WAITING), Duration.ofSeconds(5));
+        waitUntil(() -> states.contains(new Attention(PtySession.AttentionState.WAITING, PtySession.WaitingReason.BELL)),
+                Duration.ofSeconds(5));
 
         session.write("echo still-here\n");
-        waitUntil(() -> !states.isEmpty() && states.get(states.size() - 1) == PtySession.AttentionState.ACTIVE,
+        waitUntil(() -> !states.isEmpty()
+                && states.get(states.size() - 1).equals(new Attention(PtySession.AttentionState.ACTIVE, null)),
                 Duration.ofSeconds(5));
     }
 
     @Test
-    void quiescenceMarksWaitingOnceOutputHasBeenSilentPastTheThreshold(@TempDir Path workDir) {
+    void quiescenceMarksWaitingWithReasonQuietOnceOutputHasBeenSilentPastTheThreshold(@TempDir Path workDir) {
         PtySession session = new PtySession("attention-quiescent", workDir,
                 new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
-        List<PtySession.AttentionState> states = new CopyOnWriteArrayList<>();
-        session.subscribeAttention(states::add);
+        List<Attention> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention((state, reason) -> states.add(new Attention(state, reason)));
 
         // Comfortably past the threshold, so a little startup output from the shell
         // itself (which nudges lastOutputAt forward on its own drain thread) can never
         // flip this into a false negative.
         session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
 
-        assertThat(states).containsExactly(PtySession.AttentionState.WAITING);
+        assertThat(states).containsExactly(new Attention(PtySession.AttentionState.WAITING, PtySession.WaitingReason.QUIET));
     }
 
     @Test
     void quiescenceDoesNotFireBeforeTheThreshold(@TempDir Path workDir) {
         PtySession session = new PtySession("attention-not-yet", workDir,
                 new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
-        List<PtySession.AttentionState> states = new CopyOnWriteArrayList<>();
-        session.subscribeAttention(states::add);
+        List<Attention> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention((state, reason) -> states.add(new Attention(state, reason)));
 
         session.checkQuiescence(System.currentTimeMillis());
 
         assertThat(states).isEmpty();
+    }
+
+    @Test
+    void quietThenBellUpgradesTheReasonWithASecondEventStillWaiting(@TempDir Path workDir) {
+        PtySession session = new PtySession("attention-quiet-then-bell", workDir,
+                new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
+        session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
+        assertThat(session.waitingReason()).isEqualTo(PtySession.WaitingReason.QUIET);
+        List<Attention> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention((state, reason) -> states.add(new Attention(state, reason)));
+
+        session.write("printf '\\a'\n");
+
+        waitUntil(() -> states.contains(new Attention(PtySession.AttentionState.WAITING, PtySession.WaitingReason.BELL)),
+                Duration.ofSeconds(5));
+        assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.WAITING);
+        assertThat(session.waitingReason()).isEqualTo(PtySession.WaitingReason.BELL);
+    }
+
+    @Test
+    void bellThenQuietKeepsTheBellReasonWithNoFurtherEvent(@TempDir Path workDir) {
+        PtySession session = new PtySession("attention-bell-then-quiet", workDir,
+                new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
+        session.write("printf '\\a'\n");
+        waitUntil(() -> session.waitingReason() == PtySession.WaitingReason.BELL, Duration.ofSeconds(5));
+        List<Attention> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention((state, reason) -> states.add(new Attention(state, reason)));
+
+        session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
+
+        assertThat(states).isEmpty();
+        assertThat(session.waitingReason()).isEqualTo(PtySession.WaitingReason.BELL);
     }
 
     @Test
@@ -73,8 +113,8 @@ class PtySessionAttentionTest {
         // punctuation for the sequence, not a real attention signal.
         PtySession session = new PtySession("attention-osc-title", workDir,
                 new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
-        List<PtySession.AttentionState> states = new CopyOnWriteArrayList<>();
-        session.subscribeAttention(states::add);
+        List<Attention> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention((state, reason) -> states.add(new Attention(state, reason)));
 
         session.write("printf '\\033]0;title\\a'\n");
         session.write("echo marker-after-osc-title\n");
@@ -90,12 +130,13 @@ class PtySessionAttentionTest {
     void bareBellAfterAnOscTitleSequenceStillMarksWaiting(@TempDir Path workDir) {
         PtySession session = new PtySession("attention-osc-then-bell", workDir,
                 new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
-        List<PtySession.AttentionState> states = new CopyOnWriteArrayList<>();
-        session.subscribeAttention(states::add);
+        List<Attention> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention((state, reason) -> states.add(new Attention(state, reason)));
 
         session.write("printf '\\033]0;title\\a'\n");
         session.write("printf '\\a'\n");
-        waitUntil(() -> states.contains(PtySession.AttentionState.WAITING), Duration.ofSeconds(5));
+        waitUntil(() -> states.contains(new Attention(PtySession.AttentionState.WAITING, PtySession.WaitingReason.BELL)),
+                Duration.ofSeconds(5));
     }
 
     @Test
@@ -105,26 +146,29 @@ class PtySessionAttentionTest {
         PtySession session = new PtySession("attention-accessor", workDir,
                 new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
         assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.ACTIVE);
+        assertThat(session.waitingReason()).isNull();
 
         session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
         assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.WAITING);
+        assertThat(session.waitingReason()).isEqualTo(PtySession.WaitingReason.QUIET);
 
         session.markFocused();
         assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.ACTIVE);
+        assertThat(session.waitingReason()).isNull();
     }
 
     @Test
     void focusClearsAttentionWithoutWritingToTheProcess(@TempDir Path workDir) {
         PtySession session = new PtySession("attention-focus", workDir,
                 new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24);
-        List<PtySession.AttentionState> states = new CopyOnWriteArrayList<>();
+        List<Attention> states = new CopyOnWriteArrayList<>();
 
         session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
-        session.subscribeAttention(states::add);
+        session.subscribeAttention((state, reason) -> states.add(new Attention(state, reason)));
 
         session.markFocused();
 
-        assertThat(states).containsExactly(PtySession.AttentionState.ACTIVE);
+        assertThat(states).containsExactly(new Attention(PtySession.AttentionState.ACTIVE, null));
     }
 
     private static void waitUntil(Supplier<Boolean> condition, Duration timeout) {

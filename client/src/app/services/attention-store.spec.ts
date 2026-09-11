@@ -75,4 +75,42 @@ describe('AttentionStore (#791)', () => {
     store.apply({ type: 'consoleAttention', sessionId: '2-9-other-project', state: 'waiting' });
     expect(store.isWaiting('2-9-other-project')).toBeTrue();
   });
+
+  describe('reason (#854)', () => {
+    it('reports null until a waiting event with a reason arrives', () => {
+      expect(store.reason('1-7-rename-toggle')).toBeNull();
+    });
+
+    it('a waiting event records its reason, and an active event clears it', () => {
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'quiet' });
+      expect(store.reason('1-7-rename-toggle')).toBe('quiet');
+
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'active' });
+      expect(store.reason('1-7-rename-toggle')).toBeNull();
+    });
+
+    it('a quiet-to-bell upgrade updates the reason even though isWaiting stays true throughout', () => {
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'quiet' });
+      const waitingAfterQuiet = store.waiting();
+      expect(store.reason('1-7-rename-toggle')).toBe('quiet');
+
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+
+      expect(store.isWaiting('1-7-rename-toggle')).toBeTrue();
+      expect(store.reason('1-7-rename-toggle')).toBe('bell');
+      // isWaiting never changed, but the reason did -- readers of `waiting` alone see
+      // no update, which is correct; only a `reason()` reader is notified.
+      expect(store.waiting()).toBe(waitingAfterQuiet);
+    });
+
+    it('a repeat waiting event with the same reason changes nothing', () => {
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+      const waitingAfterFirst = store.waiting();
+
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+
+      expect(store.waiting()).toBe(waitingAfterFirst);
+      expect(store.reason('1-7-rename-toggle')).toBe('bell');
+    });
+  });
 });
