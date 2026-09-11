@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
 import { CurrentProjectService, FocusPreservingRouter } from './current-project.service';
+import { EventsService } from './events.service';
 import { Project } from '../models/issue.model';
 import { routes } from '../app.routes';
 
@@ -44,6 +45,20 @@ describe('CurrentProjectService', () => {
   function navigateTo(projectId: number): void {
     TestBed.inject(Router).navigateByUrl(`/projects/${projectId}/issues`);
     tick();
+  }
+
+  /** Reaches past EventsService's public API -- there is no other way to fake an incoming socket message. */
+  function emitAppEvent(event: unknown): void {
+    (TestBed.inject(EventsService) as unknown as { eventsSubject: { next: (e: unknown) => void } }).eventsSubject.next(
+      event,
+    );
+  }
+
+  /** Fires EventsService.reconnected$ the way a reconnect does -- it has no public emitter. */
+  function emitReconnect(): void {
+    (
+      TestBed.inject(EventsService) as unknown as { reconnectedSubject: { next: () => void } }
+    ).reconnectedSubject.next();
   }
 
   it('exposes the current project, including its accent color, once the fetch resolves', fakeAsync(() => {
@@ -106,6 +121,55 @@ describe('CurrentProjectService', () => {
     httpMock.expectOne('/api/projects').flush([PROJECT]);
 
     expect(service.focusedProjectId()).toBeNull();
+  }));
+
+  it('a projectDeleted event drops that project without a reload (#885)', fakeAsync(() => {
+    navigateTo(1);
+    const service = TestBed.inject(CurrentProjectService);
+    const other: Project = { ...PROJECT, id: 2, name: 'other', gitUrl: 'url-2', workareaPath: '/tmp/other' };
+    httpMock.expectOne('/api/projects').flush([PROJECT, other]);
+    expect(service.projects().map((p) => p.id)).toEqual([1, 2]);
+
+    emitAppEvent({ type: 'projectDeleted', projectId: 2 });
+
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    expect(service.projects().map((p) => p.id)).toEqual([1]);
+  }));
+
+  it('a projectCreated event re-fetches so the new project appears without a reload (#885)', fakeAsync(() => {
+    navigateTo(1);
+    const service = TestBed.inject(CurrentProjectService);
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    expect(service.projects().map((p) => p.id)).toEqual([1]);
+
+    emitAppEvent({ type: 'projectCreated', projectId: 2 });
+
+    const other: Project = { ...PROJECT, id: 2, name: 'other', gitUrl: 'url-2', workareaPath: '/tmp/other' };
+    httpMock.expectOne('/api/projects').flush([PROJECT, other]);
+    expect(service.projects().map((p) => p.id)).toEqual([1, 2]);
+  }));
+
+  it('a reconnect re-fetches the project list (#885)', fakeAsync(() => {
+    navigateTo(1);
+    const service = TestBed.inject(CurrentProjectService);
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+
+    emitReconnect();
+
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    expect(service.projects().map((p) => p.id)).toEqual([1]);
+  }));
+
+  it('a failed project list refresh keeps the last good value (#885)', fakeAsync(() => {
+    navigateTo(1);
+    const service = TestBed.inject(CurrentProjectService);
+    httpMock.expectOne('/api/projects').flush([PROJECT]);
+    expect(service.projects().map((p) => p.id)).toEqual([1]);
+
+    emitAppEvent({ type: 'projectDeleted', projectId: 2 });
+
+    httpMock.expectOne('/api/projects').flush('gone', { status: 500, statusText: 'Server Error' });
+    expect(service.projects().map((p) => p.id)).toEqual([1]);
   }));
 
   describe('FocusPreservingRouter (#803)', () => {
