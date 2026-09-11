@@ -35,10 +35,10 @@ class TerminalWebSocketHandlerTemplateSeedTest {
     // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
     // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
-    // #855: every claude argv carries this too, regardless of seed/resume state;
-    // captured once so assertions below don't restate its content.
-    private static final String CLAUDE_SETTINGS_JSON =
-            TerminalWebSocketHandler.resolveLaunchCommand("claude", null)[2];
+    // #856: every codex argv carries this too, regardless of seed/resume state -- the
+    // fixed path every test-only constructor uses, so this is deterministic.
+    private static final String CODEX_NOTIFY_ARG =
+            "notify=[\"" + TerminalWebSocketHandler.TEST_CODEX_BELL_NOTIFY_SCRIPT + "\"]";
 
     @TempDir
     Path dbDir;
@@ -49,6 +49,9 @@ class TerminalWebSocketHandlerTemplateSeedTest {
     private SessionRegistry registry;
     private ProjectAgentSessionService agentSessionService;
     private TerminalWebSocketHandler handler;
+    // #855: every claude argv carries this too, regardless of seed/resume state;
+    // captured once per test so assertions below don't restate its content.
+    private String claudeSettingsJson;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -61,6 +64,7 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         agentSessionService = new ProjectAgentSessionService(projects, new GhAccountRepository(dataSource),
                 new TokenCipher(new EncryptionKeyProvider(dbDir.toString())), registry, sessions, null, null, null);
         handler = new TerminalWebSocketHandler(registry, agentSessionService);
+        claudeSettingsJson = handler.resolveLaunchCommand("claude", null)[2];
     }
 
     @AfterEach
@@ -86,8 +90,9 @@ class TerminalWebSocketHandlerTemplateSeedTest {
 
         assertThat(claude.seeded()).isTrue();
         assertThat(claude.command())
-                .containsExactly("claude", ProjectAgentSessionService.PLAIN_SEED_PROMPT, "--settings", CLAUDE_SETTINGS_JSON);
-        assertThat(codex.command()).containsExactly("codex", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
+                .containsExactly("claude", ProjectAgentSessionService.PLAIN_SEED_PROMPT, "--settings", claudeSettingsJson);
+        assertThat(codex.command())
+                .containsExactly("codex", ProjectAgentSessionService.PLAIN_SEED_PROMPT, "-c", CODEX_NOTIFY_ARG);
         assertThat(opencode.command())
                 .containsExactly("opencode", "--prompt", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
         assertThat(omp.seeded()).isTrue();
@@ -106,7 +111,7 @@ class TerminalWebSocketHandlerTemplateSeedTest {
 
         assertThat(launch.seeded()).isTrue();
         assertThat(launch.command()).containsExactly("claude", ProjectAgentSessionService.T_WORKFLOW_SEED_PROMPT,
-                "--settings", CLAUDE_SETTINGS_JSON);
+                "--settings", claudeSettingsJson);
         assertThat(ProjectAgentSessionService.T_WORKFLOW_SEED_PROMPT).contains("PROJECT_TEMPLATE.md").contains("/t-open")
                 .contains("/t-drive");
     }
@@ -124,12 +129,12 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         assertThat(handler.resolveLaunch(templated + "-42-main-a1b2c3d4", "claude", null, "template", workDir))
                 .satisfies(l -> {
                     assertThat(l.seeded()).isFalse();
-                    assertThat(l.command()).containsExactly("claude", "--settings", CLAUDE_SETTINGS_JSON);
+                    assertThat(l.command()).containsExactly("claude", "--settings", claudeSettingsJson);
                 });
         assertThat(handler.resolveLaunch(plain + "-console-a1b2c3d4", "claude", null, "template", workDir))
                 .satisfies(l -> {
                     assertThat(l.seeded()).isFalse();
-                    assertThat(l.command()).containsExactly("claude", "--settings", CLAUDE_SETTINGS_JSON);
+                    assertThat(l.command()).containsExactly("claude", "--settings", claudeSettingsJson);
                 });
         assertThat(handler.resolveLaunch(templated + "-console-a1b2c3d4", "claude", null, null, workDir).seeded())
                 .isFalse();
@@ -146,7 +151,7 @@ class TerminalWebSocketHandlerTemplateSeedTest {
                 handler.resolveLaunch(id + "-console-a1b2c3d4", "claude", resumeId, "template", workDir);
 
         assertThat(launch.seeded()).isFalse();
-        assertThat(launch.command()).containsExactly("claude", "--resume", resumeId, "--settings", CLAUDE_SETTINGS_JSON);
+        assertThat(launch.command()).containsExactly("claude", "--resume", resumeId, "--settings", claudeSettingsJson);
     }
 
     @Test
@@ -179,7 +184,7 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         TerminalWebSocketHandler.Launch second =
                 handler.resolveLaunch(id + "-console-ffffffff", "codex", null, "template", workDir);
         assertThat(second.seeded()).isFalse();
-        assertThat(second.command()).containsExactly("codex");
+        assertThat(second.command()).containsExactly("codex", "-c", CODEX_NOTIFY_ARG);
         // A second mark is refused rather than moving the timestamp.
         assertThat(agentSessionService.markTemplateSeeded(agentSessionId, Instant.parse("2026-09-02T12:00:00Z"))).isFalse();
         assertThat(projects.findById(id).orElseThrow().templateSeededAt())

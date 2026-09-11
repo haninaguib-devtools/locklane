@@ -2,6 +2,7 @@ package dev.locklane.engine.ws;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.locklane.engine.agent.CodexBellHookScript;
 import dev.locklane.engine.persistence.ProjectAgentSessionService;
 import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
 import dev.locklane.engine.pty.PtySession;
@@ -94,6 +95,12 @@ import java.util.regex.Pattern;
  * engine's bell detection (#130) then fires the instant a turn ends or Claude Code is
  * waiting on the user, precisely, rather than only once output has gone quiet for
  * {@code PtySession.QUIESCENCE_THRESHOLD_MS}. See {@link #withClaudeBellHooks}.
+ *
+ * <p>Every {@code codex} launch — plain, seeded-prompt and resume alike — carries
+ * {@code -c notify=[...]} naming {@link CodexBellHookScript}'s own script as an
+ * override, the same way (#856): Codex runs that script, with a JSON payload as its
+ * argument, when an agent turn completes, and the script ignores the payload and
+ * rings the same bell. See {@link #withCodexBellNotify}.
  */
 @Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
@@ -110,23 +117,47 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     private final TerminalHeartbeat heartbeat;
     private final AttachmentSizeArbiter sizeArbiter = new AttachmentSizeArbiter();
     private final Map<String, AutoCloseable> subscriptions = new ConcurrentHashMap<>();
+    // #856: the path every codex launch's `-c notify=[...]` override names -- read
+    // once from the bean that materialises it at startup, since it never changes
+    // for the life of this process.
+    private final Path codexBellNotifyScript;
 
     @Autowired
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
             WorktreeSessionAuthorization authorization, Clock clock,
-            @Value("${locklane.terminal.heartbeat-interval-ms}") long heartbeatIntervalMs) {
-        this.sessionRegistry = sessionRegistry;
-        this.projectAgentSessionService = projectAgentSessionService;
-        this.authorization = authorization;
-        this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
+            @Value("${locklane.terminal.heartbeat-interval-ms}") long heartbeatIntervalMs,
+            CodexBellHookScript codexBellHookScript) {
+        this(sessionRegistry, projectAgentSessionService, authorization, clock, heartbeatIntervalMs,
+                codexBellHookScript.scriptPath());
     }
+
+    // A fixed, obviously-fake path -- never resolved against a real filesystem --
+    // for the test-only constructors below, none of which cares what this path is
+    // beyond composing it into a codex argv the same way the real one would be.
+    static final Path TEST_CODEX_BELL_NOTIFY_SCRIPT = Path.of("/test-data-dir/hooks/bell.sh");
 
     /**
      * Test-only: these tests never call {@link #afterConnectionEstablished}, so the
      * heartbeat and authorization (#242) are never exercised.
      */
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService) {
-        this(sessionRegistry, projectAgentSessionService, null, Clock.systemUTC(), 20_000L);
+        this(sessionRegistry, projectAgentSessionService, null, Clock.systemUTC(), 20_000L, TEST_CODEX_BELL_NOTIFY_SCRIPT);
+    }
+
+    /** Test-only: as the real constructor, with the fixed test codex notify path (#856) rather than a real {@link CodexBellHookScript}. */
+    public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
+            WorktreeSessionAuthorization authorization, Clock clock, long heartbeatIntervalMs) {
+        this(sessionRegistry, projectAgentSessionService, authorization, clock, heartbeatIntervalMs, TEST_CODEX_BELL_NOTIFY_SCRIPT);
+    }
+
+    /** Shared implementation: never called with a real {@link CodexBellHookScript} directly, only its already-resolved path. */
+    private TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
+            WorktreeSessionAuthorization authorization, Clock clock, long heartbeatIntervalMs, Path codexBellNotifyScript) {
+        this.sessionRegistry = sessionRegistry;
+        this.projectAgentSessionService = projectAgentSessionService;
+        this.authorization = authorization;
+        this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
+        this.codexBellNotifyScript = codexBellNotifyScript;
     }
 
     @Override
@@ -419,13 +450,13 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * engine text, so nothing the client sends reaches the process. {@code null} for
      * anything that is not one of the four agents. Package-visible for tests.
      */
-    static String[] seededLaunchCommand(String cmd, String prompt) {
+    String[] seededLaunchCommand(String cmd, String prompt) {
         if (cmd == null || prompt == null) {
             return null;
         }
         return switch (cmd) {
             case "claude" -> withClaudeBellHooks(new String[] {"claude", prompt});
-            case "codex" -> new String[] {"codex", prompt};
+            case "codex" -> withCodexBellNotify(new String[] {"codex", prompt});
             case "opencode" -> new String[] {"opencode", "--prompt", prompt};
             case "omp" -> new String[] {"omp", prompt};
             default -> null;
@@ -433,7 +464,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     }
 
     /** {@code null} (absent or "shell") defers to {@link SessionRegistry}'s default shell. Package-visible for tests. */
-    static String[] resolveLaunchCommand(String cmd, String resume) {
+    String[] resolveLaunchCommand(String cmd, String resume) {
         if (cmd == null || cmd.isBlank() || cmd.equals("shell")) {
             return null;
         }
@@ -442,7 +473,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
                 return withClaudeBellHooks(new String[] {"claude", "--resume", resume});
             }
             if (cmd.equals("codex")) {
-                return new String[] {"codex", "resume", resume};
+                return withCodexBellNotify(new String[] {"codex", "resume", resume});
             }
             if (cmd.equals("opencode")) {
                 return new String[] {"opencode", "--session", resume};
@@ -451,7 +482,13 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
                 return new String[] {"omp", "--resume", resume};
             }
         }
-        return cmd.equals("claude") ? withClaudeBellHooks(new String[] {cmd}) : new String[] {cmd};
+        if (cmd.equals("claude")) {
+            return withClaudeBellHooks(new String[] {cmd});
+        }
+        if (cmd.equals("codex")) {
+            return withCodexBellNotify(new String[] {cmd});
+        }
+        return new String[] {cmd};
     }
 
     // #855: rings the engine's own agent-agnostic bell signal (#130), never the
@@ -503,6 +540,32 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         withSettings[command.length] = "--settings";
         withSettings[command.length + 1] = CLAUDE_BELL_HOOKS_SETTINGS_JSON;
         return withSettings;
+    }
+
+    /**
+     * Appends {@code -c notify=[...]} naming {@link #codexBellNotifyScript} (#856) to
+     * a {@code codex} argv, overriding whatever (or nothing) the user's own {@code
+     * ~/.codex/config.toml} sets for {@code notify} — the same non-goal ADR-113 sets
+     * for Claude Code's {@code --settings}. Every caller here already knows {@code
+     * command[0]} is {@code "codex"}, the same precondition {@link
+     * #withClaudeBellHooks} keeps.
+     */
+    private String[] withCodexBellNotify(String[] command) {
+        String[] withNotify = Arrays.copyOf(command, command.length + 2);
+        withNotify[command.length] = "-c";
+        withNotify[command.length + 1] = "notify=" + codexNotifyTomlArray(codexBellNotifyScript);
+        return withNotify;
+    }
+
+    /**
+     * {@code notify}'s value is parsed as TOML (a one-element array of the script's
+     * path); escaped the same way a TOML basic string is, though the escaping is
+     * never expected to matter in practice — {@code locklane.data-dir} is never
+     * user-supplied free text.
+     */
+    private static String codexNotifyTomlArray(Path scriptPath) {
+        String escaped = scriptPath.toString().replace("\\", "\\\\").replace("\"", "\\\"");
+        return "[\"" + escaped + "\"]";
     }
 
     private static Integer parseIntParam(WebSocketSession wsSession, String name) {
