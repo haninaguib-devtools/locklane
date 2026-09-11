@@ -82,10 +82,22 @@ public final class PtySession {
     // #233: only ever touched from this session's own drain thread, so the scan can
     // carry its state across chunk boundaries with no synchronization.
     private BelScanState belScanState = BelScanState.NORMAL;
+    // #862: on for a plain shell or an agent whose bell hook is not (yet) wired --
+    // exactly today's behaviour; off once the launch command carried an injected bell
+    // hook (TerminalWebSocketHandler is the one place that knows), so quiescence adds
+    // no false positives for a session that already has a precise signal.
+    private final boolean quiescenceFallbackEnabled;
 
+    /** As the full constructor below, with the quiescence fallback on -- today's behaviour. */
     PtySession(String sessionId, Path workingDirectory, String[] command, Map<String, String> environment,
             int initialColumns, int initialRows) {
+        this(sessionId, workingDirectory, command, environment, initialColumns, initialRows, true);
+    }
+
+    PtySession(String sessionId, Path workingDirectory, String[] command, Map<String, String> environment,
+            int initialColumns, int initialRows, boolean quiescenceFallbackEnabled) {
         this.sessionId = sessionId;
+        this.quiescenceFallbackEnabled = quiescenceFallbackEnabled;
         try {
             this.process = new PtyProcessBuilder()
                     .setCommand(command)
@@ -289,6 +301,9 @@ public final class PtySession {
 
     /** As above, with an explicit "now" so a test can evaluate this with no real sleep. */
     void checkQuiescence(long nowMs) {
+        if (!quiescenceFallbackEnabled) {
+            return;
+        }
         if (nowMs - lastOutputAt >= QUIESCENCE_THRESHOLD_MS && lastInputAt <= lastOutputAt) {
             markQuiet();
         }

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Objects;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,6 +24,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Also covers #856: every {@code codex} launch carries {@code -c notify=[...]}
  * naming the bell script {@link CodexBellHookScript} installs. Every other tool's
  * argv is untouched by either.
+ *
+ * <p>Also covers #862: {@link TerminalWebSocketHandler#resolveLaunch} flags the
+ * quiescence fallback off for every command recognised as an agent with a landed
+ * bell hook, and on for a shell or anything else.
  */
 class TerminalWebSocketHandlerLaunchCommandTest {
 
@@ -119,6 +124,24 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     @Test
     void aResumeIdWithACmdThatIsNeitherToolIsIgnored() {
         assertThat(handler.resolveLaunchCommand("vim", UUID)).containsExactly("vim");
+    }
+
+    @Test
+    void quiescenceFallbackIsOffForEveryAgentWithALandedBellHookAndOnForAShellOrAnythingElse() {
+        Path workDir = Path.of("/tmp/does-not-matter");
+        // A resume id shaped like a real one short-circuits resolveLaunch's own
+        // sessionRegistry lookup before it's reached -- this test's handler carries a
+        // null registry, same as every other test in this file, since only the
+        // returned flag is asserted here, never the composed command.
+
+        assertThat(handler.resolveLaunch("s", "claude", UUID, null, workDir).quiescenceFallbackEnabled()).isFalse();
+        assertThat(handler.resolveLaunch("s", "codex", UUID, null, workDir).quiescenceFallbackEnabled()).isFalse();
+        assertThat(handler.resolveLaunch("s", "opencode", OPENCODE_ID, null, workDir).quiescenceFallbackEnabled()).isFalse();
+        assertThat(handler.resolveLaunch("s", "omp", UUID, null, workDir).quiescenceFallbackEnabled()).isFalse();
+
+        assertThat(handler.resolveLaunch("s", null, UUID, null, workDir).quiescenceFallbackEnabled()).isTrue();
+        assertThat(handler.resolveLaunch("s", "shell", UUID, null, workDir).quiescenceFallbackEnabled()).isTrue();
+        assertThat(handler.resolveLaunch("s", "vim", UUID, null, workDir).quiescenceFallbackEnabled()).isTrue();
     }
 
     @Test

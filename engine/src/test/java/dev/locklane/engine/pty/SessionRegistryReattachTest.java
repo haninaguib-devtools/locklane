@@ -68,6 +68,32 @@ class SessionRegistryReattachTest {
     }
 
     @Test
+    void attachThreadsTheQuiescenceFallbackFlagThroughToTheNewSession(@TempDir Path workDir) {
+        // #862: SessionRegistry doesn't decide this itself -- it only carries whatever
+        // TerminalWebSocketHandler passed at launch-command-composition time down to
+        // the PtySession it creates.
+        SessionRegistry registry = newRegistry(workDir);
+
+        PtySession session = registry.attach("no-fallback", workDir, new String[] {"/bin/sh", "-i"}, null, null, null,
+                Map.of(), false);
+        session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
+
+        assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.ACTIVE);
+    }
+
+    @Test
+    void attachWithNoExplicitFlagKeepsTheQuiescenceFallbackOn(@TempDir Path workDir) {
+        SessionRegistry registry = newRegistry(workDir);
+
+        PtySession session = registry.attach("default-fallback", workDir, new String[] {"/bin/sh", "-i"}, null, null, null,
+                Map.of());
+        session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
+
+        assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.WAITING);
+        assertThat(session.waitingReason()).isEqualTo(PtySession.WaitingReason.QUIET);
+    }
+
+    @Test
     void twoSessionsCanShareTheSameWorkingDirectory(@TempDir Path workDir) {
         SessionRegistry registry = newRegistry(workDir);
 

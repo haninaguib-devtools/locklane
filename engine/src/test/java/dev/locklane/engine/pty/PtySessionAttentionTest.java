@@ -22,7 +22,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * overload directly so the threshold never needs a real sleep. Also covers #233: a
  * BEL that only terminates an OSC escape sequence is not a real attention signal.
  * Also covers #854: the reason (bell vs. quiet) carried alongside {@code WAITING},
- * including the quiet-to-bell upgrade and the bell-then-quiet non-downgrade.
+ * including the quiet-to-bell upgrade and the bell-then-quiet non-downgrade. Also
+ * covers #862: with the quiescence fallback flag off, {@code checkQuiescence} never
+ * marks a session waiting, but a bell still does.
  */
 class PtySessionAttentionTest {
 
@@ -169,6 +171,35 @@ class PtySessionAttentionTest {
         session.markFocused();
 
         assertThat(states).containsExactly(new Attention(PtySession.AttentionState.ACTIVE, null));
+    }
+
+    @Test
+    void withTheQuiescenceFallbackOffCheckQuiescenceNeverMarksWaitingButABellStillDoes(@TempDir Path workDir) {
+        PtySession session = new PtySession("attention-fallback-off", workDir,
+                new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24, false);
+        List<Attention> states = new CopyOnWriteArrayList<>();
+        session.subscribeAttention((state, reason) -> states.add(new Attention(state, reason)));
+
+        session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
+        assertThat(states).isEmpty();
+        assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.ACTIVE);
+
+        session.write("printf '\\a'\n");
+        waitUntil(() -> states.contains(new Attention(PtySession.AttentionState.WAITING, PtySession.WaitingReason.BELL)),
+                Duration.ofSeconds(5));
+    }
+
+    @Test
+    void withTheQuiescenceFallbackOnBehaviourIsUnchanged(@TempDir Path workDir) {
+        // The 6-arg constructor -- every existing call in this file -- keeps the
+        // fallback on; this asserts the explicit `true` overload behaves identically.
+        PtySession session = new PtySession("attention-fallback-on", workDir,
+                new String[] {"/bin/sh", "-i"}, Map.of(), 80, 24, true);
+
+        session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
+
+        assertThat(session.attentionState()).isEqualTo(PtySession.AttentionState.WAITING);
+        assertThat(session.waitingReason()).isEqualTo(PtySession.WaitingReason.QUIET);
     }
 
     private static void waitUntil(Supplier<Boolean> condition, Duration timeout) {

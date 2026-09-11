@@ -23,6 +23,7 @@ import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -129,7 +130,7 @@ class TerminalWebSocketHandlerSerializedWritesTest {
             return (AutoCloseable) () -> { };
         }).when(pty).subscribe(any());
         SessionRegistry registry = mock(SessionRegistry.class);
-        when(registry.attach(eq("s1"), any(), any(), anyString(), any(), any(), any())).thenReturn(pty);
+        when(registry.attach(eq("s1"), any(), any(), anyString(), any(), any(), any(), anyBoolean())).thenReturn(pty);
         WorktreeSessionAuthorization authorization = mock(WorktreeSessionAuthorization.class);
         when(authorization.isVisibleTo(eq("s1"), anyString())).thenReturn(true);
         TerminalWebSocketHandler handler = new TerminalWebSocketHandler(registry, mock(ProjectAgentSessionService.class),
