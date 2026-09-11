@@ -13,6 +13,11 @@ here.
 ### Fixes
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 
+## v0.2.33 — 2026-09-11
+
+### Other
+- Resolve task records from the fetched trunk, not the stale holder checkout (#896, #897)
+
 ## v0.2.32 — 2026-09-11
 
 ### Other
