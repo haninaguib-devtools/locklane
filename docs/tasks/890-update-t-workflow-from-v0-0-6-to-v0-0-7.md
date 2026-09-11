@@ -18,3 +18,4 @@ Move t-workflow from v0.0.6 to v0.0.7 by replacing every t-workflow-owned file w
 - none
 
 ## Agents
+- work (fix): opencode / meta/muse-spark-1.3-contributor
