@@ -6,13 +6,17 @@ import { DefaultIdeStore, InstalledIde } from '../../services/default-ide-store'
 
 const DEFAULT_AGENT_STORAGE_KEY = 'locklane.defaultAgent';
 const DEFAULT_IDE_STORAGE_KEY = 'locklane.defaultIde';
+const NOTIFICATIONS_STORAGE_KEY = 'locklane.notificationsEnabled';
 
 describe('SettingsDialogComponent', () => {
   let httpMock: HttpTestingController;
+  let originalNotification: typeof Notification | undefined;
 
   beforeEach(async () => {
     localStorage.removeItem(DEFAULT_AGENT_STORAGE_KEY);
     localStorage.removeItem(DEFAULT_IDE_STORAGE_KEY);
+    localStorage.removeItem(NOTIFICATIONS_STORAGE_KEY);
+    originalNotification = (window as unknown as { Notification?: typeof Notification }).Notification;
     await TestBed.configureTestingModule({
       imports: [SettingsDialogComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -24,6 +28,8 @@ describe('SettingsDialogComponent', () => {
     httpMock.verify();
     localStorage.removeItem(DEFAULT_AGENT_STORAGE_KEY);
     localStorage.removeItem(DEFAULT_IDE_STORAGE_KEY);
+    localStorage.removeItem(NOTIFICATIONS_STORAGE_KEY);
+    (window as unknown as { Notification?: typeof Notification }).Notification = originalNotification;
   });
 
   function create(): ReturnType<typeof TestBed.createComponent<SettingsDialogComponent>> {
@@ -420,5 +426,63 @@ describe('SettingsDialogComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.error')?.textContent?.trim()).toBe('that password is not correct');
+  });
+
+  // #859: the notifications toggle -- requests permission only on turning on, and
+  // shows a denial rather than throwing.
+  describe('Notifications', () => {
+    function fakeNotification(requestPermission: () => Promise<NotificationPermission>): void {
+      (window as unknown as { Notification: unknown }).Notification = { requestPermission, permission: 'default' };
+    }
+
+    it('is unchecked with no stored preference', () => {
+      fakeNotification(() => Promise.resolve('granted'));
+      const fixture = create();
+      flushStatus(fixture, false);
+
+      const checkbox: HTMLInputElement = fixture.nativeElement.querySelector('.notification-toggle input');
+      expect(checkbox.checked).toBeFalse();
+    });
+
+    it('checking it requests permission and checks the box once granted', async () => {
+      fakeNotification(() => Promise.resolve('granted'));
+      const fixture = create();
+      flushStatus(fixture, false);
+
+      fixture.componentInstance.toggleNotifications(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      const checkbox: HTMLInputElement = fixture.nativeElement.querySelector('.notification-toggle input');
+      expect(checkbox.checked).toBeTrue();
+    });
+
+    it('checking it but being denied leaves it unchecked, with the denial shown', async () => {
+      fakeNotification(() => Promise.resolve('denied'));
+      const fixture = create();
+      flushStatus(fixture, false);
+
+      fixture.componentInstance.toggleNotifications(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const checkbox: HTMLInputElement = compiled.querySelector('.notification-toggle input')!;
+      expect(checkbox.checked).toBeFalse();
+      expect(compiled.querySelector('.notification-denied')?.textContent).toContain('blocked for this site');
+    });
+
+    it('unchecking it never requests permission', () => {
+      const requestPermission = jasmine.createSpy().and.resolveTo('granted' as NotificationPermission);
+      fakeNotification(requestPermission);
+      const fixture = create();
+      flushStatus(fixture, false);
+
+      fixture.componentInstance.toggleNotifications(false);
+
+      expect(requestPermission).not.toHaveBeenCalled();
+    });
   });
 });

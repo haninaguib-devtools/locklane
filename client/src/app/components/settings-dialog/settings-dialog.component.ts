@@ -4,6 +4,7 @@ import { AccountService, TwoFactorEnrollment } from '../../services/account.serv
 import { AccentThemeStore } from '../../services/accent-theme-store';
 import { DefaultAgent, DefaultAgentStore } from '../../services/default-agent-store';
 import { DefaultIdeStore } from '../../services/default-ide-store';
+import { NotificationsStore } from '../../services/notifications-store';
 
 type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enabled';
 
@@ -40,11 +41,15 @@ export class SettingsDialogComponent implements OnInit {
   private readonly defaultAgentStore = inject(DefaultAgentStore);
   private readonly defaultIdeStore = inject(DefaultIdeStore);
   private readonly accentThemeStore = inject(AccentThemeStore);
+  private readonly notificationsStore = inject(NotificationsStore);
 
   @Output() closed = new EventEmitter<void>();
 
   readonly defaultAgent = this.defaultAgentStore.agent;
   readonly installedAgents = this.defaultAgentStore.installed;
+
+  readonly notificationsEnabled = this.notificationsStore.enabled;
+  readonly notificationPermission = this.notificationsStore.permission;
 
   // #782: the IDEs this browser may pick, and the one "Open IDE" will actually use --
   // the effective choice rather than the raw stored id, so a stored desktop IDE seen from
@@ -97,6 +102,10 @@ export class SettingsDialogComponent implements OnInit {
 
   resetAccent(): void {
     this.accentThemeStore.reset();
+  }
+
+  toggleNotifications(enabled: boolean): void {
+    this.notificationsStore.setEnabled(enabled);
   }
 
   changePassword(): void {

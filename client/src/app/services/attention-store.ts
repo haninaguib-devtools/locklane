@@ -1,9 +1,23 @@
 import { Injectable, OnDestroy, inject, signal } from '@angular/core';
-import { Subscription, filter } from 'rxjs';
+import { Observable, Subject, Subscription, filter } from 'rxjs';
 import { AgentSessionAttentionEvent, EventsService, isAgentSessionAttentionEvent } from './events.service';
 
 /** Why a session is waiting (#854): a deliberate bell, or the quiet fallback. */
 export type AttentionReason = 'bell' | 'quiet';
+
+/**
+ * One genuine change to a session's attention state (#859) -- emitted from the same
+ * dedup {@link AttentionStore.apply} already does for {@link AttentionStore.waiting}/
+ * {@link AttentionStore.reason}, so a consumer that needs to react to a transition
+ * (rather than merely read the current level) never has to re-derive that dedup
+ * itself from the raw event stream. `reason` is `null` exactly when `waiting` is
+ * `false`, mirroring {@link AttentionStore.reason}'s own contract.
+ */
+export interface AttentionChange {
+  sessionId: string;
+  waiting: boolean;
+  reason: AttentionReason | null;
+}
 
 /**
  * Which agent sessions are currently waiting for the user (#130, #789): a bell, or
@@ -28,10 +42,14 @@ export class AttentionStore implements OnDestroy {
   private readonly eventsService = inject(EventsService);
   private readonly waitingSignal = signal<ReadonlySet<string>>(new Set());
   private readonly reasonsSignal = signal<ReadonlyMap<string, AttentionReason>>(new Map());
+  private readonly changesSubject = new Subject<AttentionChange>();
   private readonly sub: Subscription;
 
   /** Every session id currently waiting for attention, as a read-only signal. */
   readonly waiting = this.waitingSignal.asReadonly();
+
+  /** Fires once per genuine change {@link apply} makes -- see {@link AttentionChange}. */
+  readonly changes$: Observable<AttentionChange> = this.changesSubject.asObservable();
 
   constructor() {
     this.sub = this.eventsService.events$
@@ -75,6 +93,7 @@ export class AttentionStore implements OnDestroy {
     if (wasWaiting === nextWaiting && previousReason === nextReason) {
       return;
     }
+    this.changesSubject.next({ sessionId: event.sessionId, waiting: nextWaiting, reason: nextReason });
     if (wasWaiting !== nextWaiting) {
       const next = new Set(currentWaiting);
       if (nextWaiting) {
