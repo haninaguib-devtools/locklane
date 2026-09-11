@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -144,8 +145,14 @@ public class CliGhClient implements GhClient {
         int fail = 0;
         int pending = 0;
         List<CheckRun> runs = new ArrayList<>();
-        for (JsonNode check : pr.path("statusCheckRollup")) {
-            String state = switch (check.path("conclusion").asText("")) {
+        for (JsonNode check : latestPerCheck(pr.path("statusCheckRollup"))) {
+            String conclusion = check.path("conclusion").asText("");
+            if (conclusion.equals("SKIPPED") || conclusion.equals("NEUTRAL")) {
+                // Excluded from the counts rather than surfaced as its own category
+                // (a legitimately-skipped job, e.g. mac-lifecycle's decide/skip pattern).
+                continue;
+            }
+            String state = switch (conclusion) {
                 case "SUCCESS" -> CheckRun.PASSING;
                 case "" -> CheckRun.PENDING;
                 default -> CheckRun.FAILING;
@@ -159,6 +166,31 @@ public class CliGhClient implements GhClient {
         }
         return new GhPullRequestDetail(pr.path("number").asInt(), reviewCount,
                 new ChecksSummary(pass, fail, pending, List.copyOf(runs)));
+    }
+
+    /**
+     * The rollup carries every check-run ever posted to the PR, including stale
+     * entries from a superseded, cancelled, or re-run workflow run; {@code gh pr
+     * checks} and GitHub's own PR UI collapse these to the latest run per
+     * (workflowName, name). Insertion order is each key's first occurrence, so the
+     * result still reads in the order GitHub returned it.
+     */
+    private static List<JsonNode> latestPerCheck(JsonNode rollup) {
+        LinkedHashMap<String, JsonNode> latest = new LinkedHashMap<>();
+        for (JsonNode check : rollup) {
+            String key = check.path("workflowName").asText("") + "" + checkName(check);
+            JsonNode current = latest.get(key);
+            if (current == null || recency(check).compareTo(recency(current)) >= 0) {
+                latest.put(key, check);
+            }
+        }
+        return List.copyOf(latest.values());
+    }
+
+    /** {@code completedAt}, falling back to {@code startedAt}; both are ISO-8601 UTC, so string order is time order. */
+    private static String recency(JsonNode check) {
+        String completedAt = check.path("completedAt").asText("");
+        return completedAt.isBlank() ? check.path("startedAt").asText("") : completedAt;
     }
 
     /** A check run calls it "name"; a status context (an older-style check) calls it "context". */
