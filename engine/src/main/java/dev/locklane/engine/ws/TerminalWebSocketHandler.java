@@ -1,5 +1,7 @@
 package dev.locklane.engine.ws;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.persistence.ProjectAgentSessionService;
 import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
 import dev.locklane.engine.pty.PtySession;
@@ -26,6 +28,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -83,6 +87,13 @@ import java.util.regex.Pattern;
  * multi-byte UTF-8 character, so decoding each chunk on its own would turn the
  * partial bytes on either side into U+FFFD. The decoder carries an incomplete tail
  * over to the next chunk and emits every complete character immediately.
+ *
+ * <p>Every {@code claude} launch this handler composes — plain, seeded-prompt and
+ * resume alike — also carries {@code --settings} plus one JSON argv element wiring
+ * three of Claude Code's own hooks to ring the terminal bell (#855, ADR-113): the
+ * engine's bell detection (#130) then fires the instant a turn ends or Claude Code is
+ * waiting on the user, precisely, rather than only once output has gone quiet for
+ * {@code PtySession.QUIESCENCE_THRESHOLD_MS}. See {@link #withClaudeBellHooks}.
  */
 @Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
@@ -413,7 +424,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             return null;
         }
         return switch (cmd) {
-            case "claude" -> new String[] {"claude", prompt};
+            case "claude" -> withClaudeBellHooks(new String[] {"claude", prompt});
             case "codex" -> new String[] {"codex", prompt};
             case "opencode" -> new String[] {"opencode", "--prompt", prompt};
             case "omp" -> new String[] {"omp", prompt};
@@ -428,7 +439,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         }
         if (resume != null && RESUME_ID.matcher(resume).matches()) {
             if (cmd.equals("claude")) {
-                return new String[] {"claude", "--resume", resume};
+                return withClaudeBellHooks(new String[] {"claude", "--resume", resume});
             }
             if (cmd.equals("codex")) {
                 return new String[] {"codex", "resume", resume};
@@ -440,7 +451,58 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
                 return new String[] {"omp", "--resume", resume};
             }
         }
-        return new String[] {cmd};
+        return cmd.equals("claude") ? withClaudeBellHooks(new String[] {cmd}) : new String[] {cmd};
+    }
+
+    // #855: rings the engine's own agent-agnostic bell signal (#130), never the
+    // agent-specific escape sequences Claude Code's own notification channel would
+    // otherwise need Locklane-specific configuration to produce. Writes to the
+    // controlling terminal, not stdout -- a hook's stdout reaches Claude Code itself,
+    // never the screen, and inside a Locklane tab the controlling terminal is the
+    // engine's own PTY, which is exactly what PtySession's bell scanner watches.
+    private static final String BELL_HOOK_COMMAND = "printf '\\a' > /dev/tty";
+
+    // ADR-113: Locklane wires each agent CLI's own hook mechanism to ring the bell,
+    // rather than relying on any notification channel the CLI ships with -- the
+    // engine's contract stays the bare bell PtySession already scans for, and the
+    // user installs and configures nothing. One hook command answers all three
+    // points a turn can stop at: the Stop event when a turn ends in prose, a
+    // PreToolUse hook matched on AskUserQuestion for a structured question about to
+    // be shown, and a Notification hook matched on permission_prompt for an approval
+    // pending.
+    private static final String CLAUDE_BELL_HOOKS_SETTINGS_JSON = buildClaudeBellHooksSettingsJson();
+
+    private static String buildClaudeBellHooksSettingsJson() {
+        Map<String, Object> hook = Map.of("type", "command", "command", BELL_HOOK_COMMAND);
+        Map<String, Object> stopMatcher = Map.of("hooks", List.of(hook));
+        Map<String, Object> askQuestionMatcher = Map.of("matcher", "AskUserQuestion", "hooks", List.of(hook));
+        Map<String, Object> permissionPromptMatcher = Map.of("matcher", "permission_prompt", "hooks", List.of(hook));
+        Map<String, Object> hooks = Map.of(
+                "Stop", List.of(stopMatcher),
+                "PreToolUse", List.of(askQuestionMatcher),
+                "Notification", List.of(permissionPromptMatcher));
+        try {
+            return new ObjectMapper().writeValueAsString(Map.of("hooks", hooks));
+        } catch (JsonProcessingException e) {
+            // Unreachable: every value above is a plain String, Map or List -- Jackson
+            // never fails to serialize those. A RuntimeException here would otherwise
+            // be silently swallowed by this field's static initializer.
+            throw new IllegalStateException("Failed to build Claude Code's bell-hook settings JSON", e);
+        }
+    }
+
+    /**
+     * Appends {@code --settings} and the bell-hooks JSON (#855, ADR-113) to a
+     * {@code claude} argv. Every caller here already knows {@code command[0]} is
+     * {@code "claude"}; kept as a precondition rather than checked again, since a
+     * private, package-internal helper with exactly three call sites (all literal
+     * {@code claude} argvs) has no other caller to guard against.
+     */
+    private static String[] withClaudeBellHooks(String[] command) {
+        String[] withSettings = Arrays.copyOf(command, command.length + 2);
+        withSettings[command.length] = "--settings";
+        withSettings[command.length + 1] = CLAUDE_BELL_HOOKS_SETTINGS_JSON;
+        return withSettings;
     }
 
     private static Integer parseIntParam(WebSocketSession wsSession, String name) {
