@@ -74,10 +74,18 @@ public class IssueDetailService {
                 new FlowStep("ship", shipped));
     }
 
-    /** The task record's path relative to the project root, e.g. docs/tasks/000000/16-....md. */
+    /** The task record's path relative to the project root, e.g. docs/tasks/892-....md or docs/tasks/000000/16-....md. */
     private Optional<String> recordPath(int number) {
         Path tasks = projectRoot.resolve("docs/tasks");
         if (!Files.isDirectory(tasks)) {
+            return Optional.empty();
+        }
+        try (DirectoryStream<Path> flat = Files.newDirectoryStream(tasks, number + "-*.md")) {
+            for (Path record : flat) {
+                return Optional.of(projectRoot.relativize(record).toString());
+            }
+        } catch (IOException e) {
+            log.warn("Could not scan {} for issue {}'s flat task record", tasks, number, e);
             return Optional.empty();
         }
         try (DirectoryStream<Path> buckets = Files.newDirectoryStream(tasks, Files::isDirectory)) {

@@ -99,6 +99,17 @@ class IssueDetailServiceTest {
     }
 
     @Test
+    void recordPathIsFoundAtTheFlatLayoutLocation(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("docs/tasks"));
+        Files.writeString(root.resolve("docs/tasks/16-fetch-pr-checks-data.md"), "# 16");
+
+        IssueDetailService service = service(root, List.of(issue(16, "OPEN", "")), List.of(), Optional.empty());
+
+        assertThat(service.detail(16).orElseThrow().recordPath())
+                .isEqualTo("docs/tasks/16-fetch-pr-checks-data.md");
+    }
+
+    @Test
     void recordPathIsFoundUnderItsBucketDirectory(@TempDir Path root) throws IOException {
         Path bucket = root.resolve("docs/tasks/000000");
         Files.createDirectories(bucket);
