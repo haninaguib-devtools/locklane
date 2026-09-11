@@ -6,6 +6,7 @@ import { CODE_SERVER_IDE, DefaultIdeStore, InstalledIde } from '../../services/d
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { AgentSessionTab, OVERVIEW_TAB_ID, tabText } from './agent-session-labels';
+import { AgentShellPickerComponent } from '../agent-shell-picker/agent-shell-picker.component';
 
 export interface OpenAgentSessionRequest {
   agent: Agent;
@@ -20,7 +21,7 @@ export interface RenameAgentSessionRequest {
 @Component({
   selector: 'app-agent-session-tabs',
   standalone: true,
-  imports: [ConfirmDialogComponent],
+  imports: [ConfirmDialogComponent, AgentShellPickerComponent],
   templateUrl: './agent-session-tabs.component.html',
   styleUrl: './agent-session-tabs.component.css',
 })
@@ -201,19 +202,19 @@ export class AgentSessionTabsComponent implements OnInit {
   toggleMenu(id: string, event: Event): void {
     event.stopPropagation();
     this.openMenuId = this.openMenuId === id ? null : id;
-    // At most one dropdown at a time: opening a tab menu closes the agent picker
-    // (#757), just as opening the picker closes any tab menu.
-    this.pickerOpen = false;
+    // At most one dropdown at a time: opening a tab menu closes the agent/Shell
+    // picker (#757), just as opening the picker closes any tab menu (see
+    // onPickerOpenedChange below).
+    this.picker?.close();
   }
 
   // Closes any open menu on a click anywhere else in the document -- the same
   // outside-click convention the sidenav's kebab menu already uses. A click on the
   // trigger or a menu item stops propagation before this fires, so it never fights
-  // the toggle above.
+  // the toggle above. The picker (#886) closes itself on an outside click.
   @HostListener('document:click')
   closeMenu(): void {
     this.openMenuId = null;
-    this.pickerOpen = false;
   }
 
   closeTab(id: string, event: Event): void {
@@ -302,60 +303,29 @@ export class AgentSessionTabsComponent implements OnInit {
     this.pendingCloseId = null;
   }
 
-  // Whether the agent/Shell picker under the "+" button is showing (#757).
-  // Closed by a choice, an outside click (closeMenu above), or Escape (closePicker below).
-  pickerOpen = false;
-
-  // Whether the "+" button has anything to ask (#757, #876): two or more
-  // choices between the offered agents and Shell. A single choice -- Shell alone,
-  // once the issue page suppresses Agent beside its live session -- launches directly.
-  get offersPicker(): boolean {
-    return (this.offerAgent ? this.agentChoices.length : 0) + 1 >= 2;
-  }
-
-  /**
-   * The agent entries the picker offers (#757): the installed agents when any are
-   * known, else the Settings default as the single fallback -- or nothing when
-   * even that is unknown yet, leaving Shell the only choice.
-   */
-  get agentChoices(): InstalledAgent[] {
-    if (this.installedAgents.length > 0) {
-      return this.installedAgents;
-    }
-    return this.defaultAgent ? [{ id: this.defaultAgent, label: this.defaultAgent }] : [];
-  }
-
-  // The "+" button (#876): with a choice to make it opens the agent/Shell picker
-  // and starts nothing until one is chosen; with Shell the only choice it mints
-  // one directly.
-  plusClicked(event?: Event): void {
-    event?.stopPropagation();
-    if (this.offersPicker) {
-      this.openMenuId = null;
-      this.pickerOpen = !this.pickerOpen;
-      return;
-    }
-    this.openShell.emit();
-  }
+  // The shared agent/Shell picker under the "+" button (#757, #876, #886): its own
+  // markup, open/close state, outside-click and Escape handling live in
+  // AgentShellPickerComponent, shared with the sidenav's per-project "+" rather than
+  // duplicated here.
+  @ViewChild(AgentShellPickerComponent) picker?: AgentShellPickerComponent;
 
   // A picker entry (#757): starts the agent session with exactly that agent.
-  pickAgent(agent: Agent, event: Event): void {
-    event.stopPropagation();
-    this.pickerOpen = false;
+  onPickAgent(agent: Agent): void {
     this.open.emit({ agent });
   }
 
   // The picker's Shell entry (#876): the page mints a shell at its own directory.
-  pickShell(event: Event): void {
-    event.stopPropagation();
-    this.pickerOpen = false;
+  onPickShell(): void {
     this.openShell.emit();
   }
 
-  // Escape dismisses the picker without starting anything (#757).
-  @HostListener('document:keydown.escape')
-  closePicker(): void {
-    this.pickerOpen = false;
+  // Mutual exclusion with a tab's own overflow menu (#757): opening the picker
+  // closes whichever tab menu was open, the counterpart to toggleMenu closing the
+  // picker above.
+  onPickerOpenedChange(opened: boolean): void {
+    if (opened) {
+      this.openMenuId = null;
+    }
   }
 }
 

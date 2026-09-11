@@ -25,127 +25,38 @@ describe('AgentSessionTabsComponent', () => {
     expect(emitted).toBe('7-rename-toggle');
   });
 
-  it('with no installed agents known, the "+" offers the default agent and Shell in the picker (#757, #876)', () => {
-    const c = new AgentSessionTabsComponent();
-    c.defaultAgent = 'codex';
-    const opened: { agent: string }[] = [];
-    c.open.subscribe((request) => opened.push(request));
-    let shelled = 0;
-    c.openShell.subscribe(() => shelled++);
+  // The picker's own choice/open-close logic is AgentShellPickerComponent's now
+  // (#886), tested once there; these specs cover the tab strip's own wiring into it
+  // -- its inputs reach the picker, and its outputs drive `open`/`openShell` --
+  // plus the mutual exclusion with a tab's own overflow menu.
 
-    c.plusClicked();
+  it('the picker and a tab\'s overflow menu never show together: each opening closes the other (#757, #886)', () => {
+    TestBed.configureTestingModule({
+      imports: [AgentSessionTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const fixture = TestBed.createComponent(AgentSessionTabsComponent);
+    fixture.componentInstance.overview = false;
+    fixture.componentInstance.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
+    fixture.componentInstance.installedAgents = [{ id: 'claude', label: 'Claude' }];
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
 
-    expect(c.offersPicker).toBeTrue();
-    expect(c.pickerOpen).toBeTrue();
-    expect(opened).toEqual([]);
-    expect(shelled).toBe(0);
-    expect(c.agentChoices).toEqual([{ id: 'codex', label: 'codex' }]);
-  });
+    (root.querySelector('.tab-menu-trigger') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.isMenuOpen('7-rename-toggle')).toBeTrue();
 
-  it('with exactly one installed agent, the "+" offers that agent and Shell in the picker (#757, #876)', () => {
-    const c = new AgentSessionTabsComponent();
-    c.defaultAgent = 'codex';
-    c.installedAgents = [{ id: 'claude', label: 'Claude' }];
-    let opened = 0;
-    c.open.subscribe(() => opened++);
+    (root.querySelector('.plus') as HTMLButtonElement).click();
+    fixture.detectChanges();
 
-    c.plusClicked();
+    expect(fixture.componentInstance.openMenuId).toBeNull();
+    expect(root.querySelector('.agent-picker')).not.toBeNull();
 
-    expect(c.offersPicker).toBeTrue();
-    expect(c.pickerOpen).toBeTrue();
-    expect(opened).toBe(0);
-  });
+    (root.querySelector('.tab-menu-trigger') as HTMLButtonElement).click();
+    fixture.detectChanges();
 
-  it('with Shell the only choice, the "+" mints a shell directly, no picker (#876)', () => {
-    const c = new AgentSessionTabsComponent();
-    c.offerAgent = false;
-    c.installedAgents = [
-      { id: 'claude', label: 'Claude' },
-      { id: 'codex', label: 'Codex' },
-    ];
-    let shelled = 0;
-    c.openShell.subscribe(() => shelled++);
-    let opened = 0;
-    c.open.subscribe(() => opened++);
-
-    c.plusClicked();
-
-    expect(c.offersPicker).toBeFalse();
-    expect(c.pickerOpen).toBeFalse();
-    expect(shelled).toBe(1);
-    expect(opened).toBe(0);
-  });
-
-  it('with no agent choice at all, the "+" mints a shell directly (#876)', () => {
-    const c = new AgentSessionTabsComponent();
-    c.defaultAgent = '';
-    let shelled = 0;
-    c.openShell.subscribe(() => shelled++);
-
-    c.plusClicked();
-
-    expect(c.offersPicker).toBeFalse();
-    expect(shelled).toBe(1);
-  });
-
-  it('with two or more installed agents, the "+" opens the picker and emits only once an entry is chosen (#757)', () => {
-    const c = new AgentSessionTabsComponent();
-    c.defaultAgent = 'claude';
-    c.installedAgents = [
-      { id: 'claude', label: 'Claude' },
-      { id: 'codex', label: 'Codex' },
-    ];
-    const emitted: { agent: string }[] = [];
-    c.open.subscribe((request) => emitted.push(request));
-    const event = new Event('click');
-    const stopSpy = spyOn(event, 'stopPropagation');
-
-    c.plusClicked(event);
-
-    expect(stopSpy).toHaveBeenCalled();
-    expect(c.pickerOpen).toBeTrue();
-    expect(emitted).toEqual([]);
-
-    c.pickAgent('codex', new Event('click'));
-
-    expect(c.pickerOpen).toBeFalse();
-    expect(emitted).toEqual([{ agent: 'codex' }]);
-  });
-
-  it('dismissing the picker -- an outside click or Escape -- starts nothing (#757)', () => {
-    const c = new AgentSessionTabsComponent();
-    c.installedAgents = [
-      { id: 'claude', label: 'Claude' },
-      { id: 'codex', label: 'Codex' },
-    ];
-    let emitted = 0;
-    c.open.subscribe(() => emitted++);
-
-    c.plusClicked(new Event('click'));
-    expect(c.pickerOpen).toBeTrue();
-    c.closeMenu();
-    expect(c.pickerOpen).toBeFalse();
-
-    c.plusClicked(new Event('click'));
-    expect(c.pickerOpen).toBeTrue();
-    c.closePicker();
-    expect(c.pickerOpen).toBeFalse();
-
-    // A second click on the button itself closes an open picker rather than stacking.
-    c.plusClicked(new Event('click'));
-    c.plusClicked(new Event('click'));
-    expect(c.pickerOpen).toBeFalse();
-
-    // The picker and a tab's overflow menu never show together: each opening closes the other.
-    c.toggleMenu('7-rename-toggle', new Event('click'));
-    c.plusClicked(new Event('click'));
-    expect(c.openMenuId).toBeNull();
-    expect(c.pickerOpen).toBeTrue();
-    c.toggleMenu('7-rename-toggle', new Event('click'));
-    expect(c.pickerOpen).toBeFalse();
-    expect(c.isMenuOpen('7-rename-toggle')).toBeTrue();
-
-    expect(emitted).toBe(0);
+    expect(root.querySelector('.agent-picker')).toBeNull();
+    expect(fixture.componentInstance.isMenuOpen('7-rename-toggle')).toBeTrue();
   });
 
   it('renders one picker entry per installed agent plus Shell, labelled, and none until the "+" is clicked (#757, #876)', () => {
