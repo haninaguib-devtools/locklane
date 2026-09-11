@@ -13,6 +13,21 @@ here.
 ### Fixes
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 
+## v0.2.29 — 2026-09-10
+
+### Other
+- Update t-workflow from v0.0.5 to v0.0.6 (#872, #873)
+- Carry the agent's own message into the waiting notification via terminal notification sequences (#861, #871)
+- Push the agent-is-waiting notification when the app is closed, via Web Push (#860, #870)
+- Disable the quiet-output fallback for an agent launched with a bell hook (#862, #869)
+- Show a browser notification when an agent rings the bell and its tab is not in view (#859, #868)
+- Ring the bell from an OpenCode plugin Locklane places in the user's plugin directory (#858, #867)
+- Ring the bell from an OMP hook file when a turn ends or it needs input (#857, #866)
+- Ring the bell from Codex's notify command when a turn ends (#856, #865)
+- Ring the bell from Claude Code's own hooks when a turn ends or it needs input (#855, #864)
+- Carry why an agent is waiting on the attention event: bell or quiet (#854, #863)
+- Skip the local Maven check when the diff touches no build input (#847, #852)
+
 ## v0.2.28 — 2026-09-10
 
 ### Other
