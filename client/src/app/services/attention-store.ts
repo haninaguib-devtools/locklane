@@ -54,9 +54,18 @@ export class AttentionStore implements OnDestroy {
   readonly changes$: Observable<AttentionChange> = this.changesSubject.asObservable();
 
   constructor() {
-    this.sub = this.eventsService.events$
-      .pipe(filter(isAgentSessionAttentionEvent))
-      .subscribe((event) => this.apply(event));
+    this.sub = new Subscription();
+    this.sub.add(
+      this.eventsService.events$.pipe(filter(isAgentSessionAttentionEvent)).subscribe((event) => this.apply(event)),
+    );
+    // #884: the engine's connect-time snapshot after a reconnect names exactly the
+    // sessions still waiting -- not the union of that and whatever this store held
+    // from before, which could carry a waiting→active or waiting→closed transition
+    // missed while the socket was down. `reconnected$` fires synchronously from
+    // EventsService's `onopen` handler, strictly before any message the reopened
+    // socket goes on to deliver reaches `apply` above, so clearing here always beats
+    // the snapshot's own events to the punch.
+    this.sub.add(this.eventsService.reconnected$.subscribe(() => this.reset()));
   }
 
   ngOnDestroy(): void {
@@ -135,5 +144,27 @@ export class AttentionStore implements OnDestroy {
       }
       this.messagesSignal.set(next);
     }
+  }
+
+  /**
+   * Drops every session this store currently holds as waiting (#884), on an events
+   * socket reconnect -- see the constructor. Emits the same {@link changes$}
+   * transition {@link apply} would for each one going active, so a consumer with
+   * state keyed off that stream (e.g. {@code NotificationService} closing a stale
+   * notification) reconciles the same way it would for a real `active` event,
+   * rather than needing its own separate reconnect handling. A no-op, notifying no
+   * one, when nothing was waiting.
+   */
+  private reset(): void {
+    const currentWaiting = this.waitingSignal();
+    if (currentWaiting.size === 0) {
+      return;
+    }
+    for (const sessionId of currentWaiting) {
+      this.changesSubject.next({ sessionId, waiting: false, reason: null, message: null });
+    }
+    this.waitingSignal.set(new Set());
+    this.reasonsSignal.set(new Map());
+    this.messagesSignal.set(new Map());
   }
 }

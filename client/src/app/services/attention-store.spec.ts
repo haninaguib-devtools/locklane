@@ -194,4 +194,78 @@ describe('AttentionStore (#791)', () => {
       expect(store.message('1-7-rename-toggle')).toBeNull();
     });
   });
+
+  describe('reconnect reconciliation (#884)', () => {
+    /** Reaches past EventsService's public API, same as emitAppEvent above. */
+    function emitReconnect(): void {
+      (TestBed.inject(EventsService) as unknown as { reconnectedSubject: { next: () => void } }).reconnectedSubject.next();
+    }
+
+    it('a session waiting before a reconnect and absent from the snapshot afterwards reads as not waiting', () => {
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting' });
+      expect(store.isWaiting('1-7-rename-toggle')).toBeTrue();
+
+      emitReconnect();
+
+      expect(store.isWaiting('1-7-rename-toggle')).toBeFalse();
+      expect(store.waiting().size).toBe(0);
+    });
+
+    it('a session named again by the snapshot after the reconnect stays waiting', () => {
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+
+      emitReconnect();
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-rename-toggle', state: 'waiting', reason: 'bell' });
+
+      expect(store.isWaiting('1-7-rename-toggle')).toBeTrue();
+      expect(store.reason('1-7-rename-toggle')).toBe('bell');
+    });
+
+    it('clears the reason and message alongside the waiting set', () => {
+      emitAppEvent({
+        type: 'consoleAttention',
+        sessionId: '1-7-rename-toggle',
+        state: 'waiting',
+        reason: 'bell',
+        message: 'Merge PR #851 into main?',
+      });
+
+      emitReconnect();
+
+      expect(store.reason('1-7-rename-toggle')).toBeNull();
+      expect(store.message('1-7-rename-toggle')).toBeNull();
+    });
+
+    it('emits a changes$ transition to not-waiting for every session dropped on reconnect', () => {
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-7-a', state: 'waiting', reason: 'bell' });
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-8-b', state: 'waiting', reason: 'quiet' });
+      const seen: { sessionId: string; waiting: boolean; reason: string | null; message: string | null }[] = [];
+      store.changes$.subscribe((change) => seen.push(change));
+
+      emitReconnect();
+
+      expect(seen).toEqual([
+        { sessionId: '1-7-a', waiting: false, reason: null, message: null },
+        { sessionId: '1-8-b', waiting: false, reason: null, message: null },
+      ]);
+    });
+
+    it('a reconnect with nothing waiting changes nothing and notifies no one', () => {
+      const before = store.waiting();
+      const seen: unknown[] = [];
+      store.changes$.subscribe((change) => seen.push(change));
+
+      emitReconnect();
+
+      expect(store.waiting()).toBe(before);
+      expect(seen).toEqual([]);
+    });
+
+    it('does not clear a session that starts waiting only after the reconnect', () => {
+      emitReconnect();
+      emitAppEvent({ type: 'consoleAttention', sessionId: '1-9-c', state: 'waiting' });
+
+      expect(store.isWaiting('1-9-c')).toBeTrue();
+    });
+  });
 });
