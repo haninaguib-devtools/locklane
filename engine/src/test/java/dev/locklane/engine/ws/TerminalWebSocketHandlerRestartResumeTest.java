@@ -34,6 +34,8 @@ class TerminalWebSocketHandlerRestartResumeTest {
     // fixed path every test-only constructor uses, so this is deterministic.
     private static final String CODEX_NOTIFY_ARG =
             "notify=[\"" + TerminalWebSocketHandler.TEST_CODEX_BELL_NOTIFY_SCRIPT + "\"]";
+    // #857: as above, for every omp argv's --hook override.
+    private static final String OMP_HOOK_ARG = "--hook=" + TerminalWebSocketHandler.TEST_OMP_BELL_HOOK_EXTENSION;
 
     @TempDir
     Path dbDir;
@@ -90,7 +92,7 @@ class TerminalWebSocketHandlerRestartResumeTest {
         resumeRepository.record("42-worktree", "omp", NEWER_ID, Instant.parse("2026-08-27T10:00:00Z"));
 
         assertThat(handler.resolveLaunchCommand("42-worktree", "omp", null))
-                .containsExactly("omp", "--resume", NEWER_ID);
+                .containsExactly("omp", "--resume", NEWER_ID, OMP_HOOK_ARG);
     }
 
     @Test

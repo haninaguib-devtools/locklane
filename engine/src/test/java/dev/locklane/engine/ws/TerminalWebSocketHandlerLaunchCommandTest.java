@@ -44,6 +44,9 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     private static final String CODEX_NOTIFY_ARG =
             "notify=[\"" + TerminalWebSocketHandler.TEST_CODEX_BELL_NOTIFY_SCRIPT + "\"]";
 
+    // As above, for omp's --hook override (#857).
+    private static final String OMP_HOOK_ARG = "--hook=" + TerminalWebSocketHandler.TEST_OMP_BELL_HOOK_EXTENSION;
+
     @BeforeEach
     void setUp() {
         handler = new TerminalWebSocketHandler(null, null);
@@ -64,7 +67,7 @@ class TerminalWebSocketHandlerLaunchCommandTest {
         assertThat(handler.resolveLaunchCommand("codex", null))
                 .containsExactly("codex", "-c", CODEX_NOTIFY_ARG);
         assertThat(handler.resolveLaunchCommand("opencode", null)).containsExactly("opencode");
-        assertThat(handler.resolveLaunchCommand("omp", null)).containsExactly("omp");
+        assertThat(handler.resolveLaunchCommand("omp", null)).containsExactly("omp", OMP_HOOK_ARG);
     }
 
     @Test
@@ -76,7 +79,7 @@ class TerminalWebSocketHandlerLaunchCommandTest {
         assertThat(handler.resolveLaunchCommand("opencode", OPENCODE_ID))
                 .containsExactly("opencode", "--session", OPENCODE_ID);
         assertThat(handler.resolveLaunchCommand("omp", UUID))
-                .containsExactly("omp", "--resume", UUID);
+                .containsExactly("omp", "--resume", UUID, OMP_HOOK_ARG);
     }
 
     @Test
@@ -102,7 +105,7 @@ class TerminalWebSocketHandlerLaunchCommandTest {
         assertThat(handler.seededLaunchCommand("opencode", "do it"))
                 .containsExactly("opencode", "--prompt", "do it");
         assertThat(handler.seededLaunchCommand("omp", "do it"))
-                .containsExactly("omp", "do it");
+                .containsExactly("omp", "do it", OMP_HOOK_ARG);
     }
 
     @Test

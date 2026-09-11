@@ -39,6 +39,8 @@ class TerminalWebSocketHandlerTemplateSeedTest {
     // fixed path every test-only constructor uses, so this is deterministic.
     private static final String CODEX_NOTIFY_ARG =
             "notify=[\"" + TerminalWebSocketHandler.TEST_CODEX_BELL_NOTIFY_SCRIPT + "\"]";
+    // #857: as above, for every omp argv's --hook override.
+    private static final String OMP_HOOK_ARG = "--hook=" + TerminalWebSocketHandler.TEST_OMP_BELL_HOOK_EXTENSION;
 
     @TempDir
     Path dbDir;
@@ -96,7 +98,8 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         assertThat(opencode.command())
                 .containsExactly("opencode", "--prompt", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
         assertThat(omp.seeded()).isTrue();
-        assertThat(omp.command()).containsExactly("omp", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
+        assertThat(omp.command())
+                .containsExactly("omp", ProjectAgentSessionService.PLAIN_SEED_PROMPT, OMP_HOOK_ARG);
         assertThat(ProjectAgentSessionService.PLAIN_SEED_PROMPT).contains("PROJECT_TEMPLATE.md").contains("push")
                 .doesNotContain("/t-open");
     }

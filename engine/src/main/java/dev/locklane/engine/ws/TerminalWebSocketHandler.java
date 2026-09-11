@@ -3,6 +3,7 @@ package dev.locklane.engine.ws;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.agent.CodexBellHookScript;
+import dev.locklane.engine.agent.OmpBellHookExtension;
 import dev.locklane.engine.persistence.ProjectAgentSessionService;
 import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
 import dev.locklane.engine.pty.PtySession;
@@ -101,6 +102,11 @@ import java.util.regex.Pattern;
  * override, the same way (#856): Codex runs that script, with a JSON payload as its
  * argument, when an agent turn completes, and the script ignores the payload and
  * rings the same bell. See {@link #withCodexBellNotify}.
+ *
+ * <p>Every {@code omp} launch carries {@code --hook=<path>} naming {@link
+ * OmpBellHookExtension}'s own file (#857): OMP loads it as an extension, which
+ * subscribes to the OMP events that mean "stopped, waiting for the user" and rings
+ * the same bell on each. See {@link #withOmpBellHook}.
  */
 @Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
@@ -121,43 +127,57 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     // once from the bean that materialises it at startup, since it never changes
     // for the life of this process.
     private final Path codexBellNotifyScript;
+    // #857: as above, for every omp launch's `--hook=<path>`.
+    private final Path ompBellHookExtension;
 
     @Autowired
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
             WorktreeSessionAuthorization authorization, Clock clock,
             @Value("${locklane.terminal.heartbeat-interval-ms}") long heartbeatIntervalMs,
-            CodexBellHookScript codexBellHookScript) {
+            CodexBellHookScript codexBellHookScript, OmpBellHookExtension ompBellHookExtension) {
         this(sessionRegistry, projectAgentSessionService, authorization, clock, heartbeatIntervalMs,
-                codexBellHookScript.scriptPath());
+                codexBellHookScript.scriptPath(), ompBellHookExtension.extensionPath());
     }
 
-    // A fixed, obviously-fake path -- never resolved against a real filesystem --
-    // for the test-only constructors below, none of which cares what this path is
-    // beyond composing it into a codex argv the same way the real one would be.
+    // Fixed, obviously-fake paths -- never resolved against a real filesystem -- for
+    // the test-only constructors below, none of which cares what these paths are
+    // beyond composing them into an argv the same way the real ones would be.
     static final Path TEST_CODEX_BELL_NOTIFY_SCRIPT = Path.of("/test-data-dir/hooks/bell.sh");
+    static final Path TEST_OMP_BELL_HOOK_EXTENSION = Path.of("/test-data-dir/hooks/omp-bell.js");
 
     /**
      * Test-only: these tests never call {@link #afterConnectionEstablished}, so the
      * heartbeat and authorization (#242) are never exercised.
      */
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService) {
-        this(sessionRegistry, projectAgentSessionService, null, Clock.systemUTC(), 20_000L, TEST_CODEX_BELL_NOTIFY_SCRIPT);
+        this(sessionRegistry, projectAgentSessionService, null, Clock.systemUTC(), 20_000L, TEST_CODEX_BELL_NOTIFY_SCRIPT,
+                TEST_OMP_BELL_HOOK_EXTENSION);
     }
 
-    /** Test-only: as the real constructor, with the fixed test codex notify path (#856) rather than a real {@link CodexBellHookScript}. */
+    /**
+     * Test-only: as the real constructor, with the fixed test codex/omp paths
+     * (#856, #857) rather than real {@link CodexBellHookScript}/{@link
+     * OmpBellHookExtension} beans.
+     */
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
             WorktreeSessionAuthorization authorization, Clock clock, long heartbeatIntervalMs) {
-        this(sessionRegistry, projectAgentSessionService, authorization, clock, heartbeatIntervalMs, TEST_CODEX_BELL_NOTIFY_SCRIPT);
+        this(sessionRegistry, projectAgentSessionService, authorization, clock, heartbeatIntervalMs,
+                TEST_CODEX_BELL_NOTIFY_SCRIPT, TEST_OMP_BELL_HOOK_EXTENSION);
     }
 
-    /** Shared implementation: never called with a real {@link CodexBellHookScript} directly, only its already-resolved path. */
+    /**
+     * Shared implementation: never called with a real {@link CodexBellHookScript} or
+     * {@link OmpBellHookExtension} directly, only their already-resolved paths.
+     */
     private TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
-            WorktreeSessionAuthorization authorization, Clock clock, long heartbeatIntervalMs, Path codexBellNotifyScript) {
+            WorktreeSessionAuthorization authorization, Clock clock, long heartbeatIntervalMs, Path codexBellNotifyScript,
+            Path ompBellHookExtension) {
         this.sessionRegistry = sessionRegistry;
         this.projectAgentSessionService = projectAgentSessionService;
         this.authorization = authorization;
         this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
         this.codexBellNotifyScript = codexBellNotifyScript;
+        this.ompBellHookExtension = ompBellHookExtension;
     }
 
     @Override
@@ -458,7 +478,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             case "claude" -> withClaudeBellHooks(new String[] {"claude", prompt});
             case "codex" -> withCodexBellNotify(new String[] {"codex", prompt});
             case "opencode" -> new String[] {"opencode", "--prompt", prompt};
-            case "omp" -> new String[] {"omp", prompt};
+            case "omp" -> withOmpBellHook(new String[] {"omp", prompt});
             default -> null;
         };
     }
@@ -479,7 +499,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
                 return new String[] {"opencode", "--session", resume};
             }
             if (cmd.equals("omp")) {
-                return new String[] {"omp", "--resume", resume};
+                return withOmpBellHook(new String[] {"omp", "--resume", resume});
             }
         }
         if (cmd.equals("claude")) {
@@ -487,6 +507,9 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         }
         if (cmd.equals("codex")) {
             return withCodexBellNotify(new String[] {cmd});
+        }
+        if (cmd.equals("omp")) {
+            return withOmpBellHook(new String[] {cmd});
         }
         return new String[] {cmd};
     }
@@ -566,6 +589,19 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     private static String codexNotifyTomlArray(Path scriptPath) {
         String escaped = scriptPath.toString().replace("\\", "\\\\").replace("\"", "\\\"");
         return "[\"" + escaped + "\"]";
+    }
+
+    /**
+     * Appends {@code --hook=<path>} naming {@link #ompBellHookExtension} (#857) to
+     * an {@code omp} argv, as one argv element (matching how {@code --hook} is
+     * documented: {@code --hook=<value>}), never touching the user's own OMP
+     * configuration. Every caller here already knows {@code command[0]} is {@code
+     * "omp"}, the same precondition {@link #withClaudeBellHooks} keeps.
+     */
+    private String[] withOmpBellHook(String[] command) {
+        String[] withHook = Arrays.copyOf(command, command.length + 1);
+        withHook[command.length] = "--hook=" + ompBellHookExtension;
+        return withHook;
     }
 
     private static Integer parseIntParam(WebSocketSession wsSession, String name) {
