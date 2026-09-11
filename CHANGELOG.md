@@ -13,6 +13,15 @@ here.
 ### Fixes
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 
+## v0.2.32 — 2026-09-11
+
+### Other
+- Resolve flat-layout task records in issue detail lookup (#892, #893)
+- Update t-workflow from v0.0.6 to v0.0.7 (#890, #891)
+- Sidenav + offers the agent/shell picker instead of starting the default agent (#886, #889)
+- One failed fetch kills the agents badge stream and freezes the app shell until reload (#885, #888)
+- Agent waiting dots and badge stay stuck on a session that is no longer waiting (#884, #887)
+
 ## v0.2.31 — 2026-09-11
 
 ### Other
