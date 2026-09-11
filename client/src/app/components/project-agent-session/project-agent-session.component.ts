@@ -42,6 +42,23 @@ interface OpenAgentSession {
   seed: string | null;
 }
 
+/**
+ * What a `?new` handoff (the sidenav's "+" picker, #886) asked to start: the
+ * Settings default agent (the legacy bare `?new=1`, still produced by any stale
+ * bookmark or link), a specific installed agent by id, or a main-checkout shell.
+ */
+type PendingNewChoice = { kind: 'default' } | { kind: 'agent'; agent: Agent } | { kind: 'shell' };
+
+function parseNewChoice(raw: string): PendingNewChoice {
+  if (raw === 'shell') {
+    return { kind: 'shell' };
+  }
+  if (raw === '1' || raw === '') {
+    return { kind: 'default' };
+  }
+  return { kind: 'agent', agent: raw };
+}
+
 // The project-level agent session page (#140, part of #138): lets a user start a
 // Claude/Codex/shell conversation -- where the /t-open skill and `gh` are available
 // -- before any issue exists, so an agent can open one. Since #314 each agent session runs
@@ -134,8 +151,9 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
   private readonly eventsSub: Subscription;
   // Set when a `?new` request arrives while the open-agent-session list is still in
   // flight (#370): the start has to wait for that list, or the list's response
-  // would land on top of the agent session it just added.
-  private pendingNewAgentSession = false;
+  // would land on top of the agent session it just added. Carries what was asked
+  // for (#886) -- the Settings default, a specific agent, or a shell.
+  private pendingNewChoice: PendingNewChoice | null = null;
 
   constructor() {
     this.eventsSub = merge(
@@ -161,7 +179,8 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
     // way here too, the same as #695's fix to project-summary's "Open agent".
     this.defaultAgentStore.refreshInstalled();
     this.queryParamsSub = this.route.queryParamMap.subscribe((params) => {
-      if (params.get('new') === null) {
+      const raw = params.get('new');
+      if (raw === null) {
         return;
       }
       // Drop the flag before starting, so a reload -- or the next "+" click --
@@ -173,6 +192,7 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
         // start clears `starting` again, re-arming it.
         return;
       }
+      const choice = parseNewChoice(raw);
       // #439: a "+" click for a *different* project changes this navigation's query
       // param and its route projectId together, but the projectId input only catches
       // up once NavigationEnd fires -- later than this subscription, which sees the
@@ -184,10 +204,10 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
       // same as before this fix.
       const target = this.targetProjectId();
       if ((target !== null && target !== this.projectId) || this.loading) {
-        this.pendingNewAgentSession = true;
+        this.pendingNewChoice = choice;
         return;
       }
-      this.startDefault();
+      this.startFromChoice(choice);
     });
     this.shellsSub = merge(this.agentSessionsService.onOpened, this.agentSessionsService.onClosed).subscribe(() =>
       this.reloadShells(),
@@ -432,11 +452,12 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
       error: () => {
         this.loading = false;
         this.loadShells(projectId, () => {
-          if (this.takePendingNewAgentSession()) {
-            // The list failed, but the "+" click still asked for an agent session: mint it
+          const pending = this.takePendingNewChoice();
+          if (pending !== null) {
+            // The list failed, but the "+" click still asked for something: start it
             // anyway rather than dropping the click (#370). A failed start shows the
             // page's own start error, as it does anywhere else here.
-            this.startDefault();
+            this.startFromChoice(pending);
           }
         });
       },
@@ -494,10 +515,12 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
       this.start(this.defaultAgentStore.agent(), 'template');
       return;
     }
-    if (this.takePendingNewAgentSession()) {
-      // The sidenav's "+" (#370): the project's existing agent sessions stay in the
-      // strip, with the brand-new one added alongside them and selected.
-      this.startDefault();
+    const pending = this.takePendingNewChoice();
+    if (pending !== null) {
+      // The sidenav's "+" picker (#370, #886): the project's existing agent sessions
+      // and shells stay in the strip, with whatever was picked added alongside them
+      // and selected.
+      this.startFromChoice(pending);
       return;
     }
     if (this.agentSessions.length === 0 && this.shells.length === 0) {
@@ -541,10 +564,28 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
   }
 
   /** Consumes a queued `?new` request, if one is waiting on the open-agent-session list. */
-  private takePendingNewAgentSession(): boolean {
-    const pending = this.pendingNewAgentSession;
-    this.pendingNewAgentSession = false;
+  private takePendingNewChoice(): PendingNewChoice | null {
+    const pending = this.pendingNewChoice;
+    this.pendingNewChoice = null;
     return pending;
+  }
+
+  /**
+   * Starts what a `?new` handoff named (#886) -- the sidenav's "+" picker, or a
+   * bare legacy `?new=1`: the Settings default agent, a specific installed agent,
+   * or a main-checkout shell. The same three things the tab strip's own "+" can
+   * start (#757, #876), just asked for before this page was even showing (#370).
+   */
+  private startFromChoice(choice: PendingNewChoice): void {
+    if (choice.kind === 'shell') {
+      this.openShellFromTabs();
+      return;
+    }
+    if (choice.kind === 'agent') {
+      this.start(choice.agent);
+      return;
+    }
+    this.startDefault();
   }
 
   /** Retries the empty-state auto-start after a failure -- the only "start" affordance left. */

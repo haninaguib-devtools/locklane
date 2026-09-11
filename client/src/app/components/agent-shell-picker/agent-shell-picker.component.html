@@ -1,0 +1,29 @@
+<button
+  #trigger
+  type="button"
+  class="plus"
+  [disabled]="disabled"
+  [attr.aria-label]="ariaLabel"
+  [attr.title]="buttonTitle"
+  [attr.aria-haspopup]="offersPicker ? 'menu' : null"
+  [attr.aria-expanded]="offersPicker ? open : null"
+  (click)="toggle($event)"
+>
+  {{ label }}
+</button>
+@if (open) {
+  <!-- #757/#876/#886: one entry per agent choice the host offers, plus Shell. Shell
+       is a client-side kind, not a CLI the engine detected, so it is appended here
+       rather than coming from the installed list. Fixed-positioned from the
+       button's own rect (see positionMenu) so a scrolling ancestor never clips it. -->
+  <div class="agent-picker" role="menu" aria-label="what to open" [style.top.px]="menuTop" [style.left.px]="menuLeft">
+    @for (agent of agentChoices; track agent.id) {
+      <button type="button" role="menuitem" class="agent-option" (click)="choose(agent.id, $event)">
+        {{ agent.label }}
+      </button>
+    }
+    <button type="button" role="menuitem" class="agent-option shell-option" (click)="chooseShell($event)">
+      Shell
+    </button>
+  </div>
+}

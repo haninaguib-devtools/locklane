@@ -127,15 +127,16 @@
               </button>
             }
             @if (section.project.status === 'READY') {
-              <button
-                type="button"
+              <app-agent-shell-picker
                 class="new-agent-session"
-                (click)="openNewAgentSession(section.project.id, $event)"
-                aria-label="Open a new agent for this project"
-                title="Open a new agent for this project"
-              >
-                +
-              </button>
+                variant="sidenav"
+                ariaLabel="Open a new agent or shell for this project"
+                buttonTitle="Open a new agent or shell for this project"
+                [installedAgents]="defaultAgentStore.installed()"
+                [defaultAgent]="defaultAgentStore.agent()"
+                (pickAgent)="openAgentFromPicker(section.project.id, $event)"
+                (pickShell)="openShellFromPicker(section.project.id)"
+              />
             }
             <button
               type="button"

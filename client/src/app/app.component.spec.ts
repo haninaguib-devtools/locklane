@@ -56,9 +56,14 @@ describe('AppComponent', () => {
   // The usage widget (#137) keeps polling /api/usage on its own timer for as long as
   // it's mounted -- fakeAsync's tick() calls elsewhere in these tests can fast-forward
   // that timer, so a poll this test never asked about may still be outstanding. Drain
-  // it here rather than asserting on it in every unrelated test.
+  // it here rather than asserting on it in every unrelated test. The sidenav's own
+  // "+" picker (#886) fetches installed agents on its own `ngOnInit` the same way --
+  // DefaultAgentStore's own once-per-load guard means this and the agent session
+  // page's own fetch of the same thing never double up, but a test that never reaches
+  // that page still owes the sidenav's fetch a response.
   afterEach(() => {
     httpMock.match('/api/usage').forEach((request) => request.flush(EMPTY_USAGE));
+    httpMock.match('/api/agents/installed').forEach((request) => request.flush({ installed: [] }));
     httpMock.verify();
   });
 

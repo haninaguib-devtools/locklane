@@ -616,6 +616,109 @@ describe('ProjectAgentSessionComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('app-agent-picker')).toBeFalsy();
   }));
 
+  // #886: the sidenav's "+" now offers a picker naming an installed agent, or
+  // Shell, rather than always asking for the Settings default (#219) -- the choice
+  // rides in `new` itself (an agent id, or the literal 'shell') rather than a bare
+  // `?new=1`, which every test above keeps exercising unchanged.
+
+  it('a ?new=<agent id> starts exactly that agent, not the Settings default (#886)', fakeAsync(() => {
+    TestBed.inject(DefaultAgentStore).set('codex');
+    TestBed.inject(Router).navigateByUrl('/projects/1/console?new=claude');
+    tick();
+
+    const fixture = init();
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
+    fixture.detectChanges();
+    tick();
+    httpMock
+      .expectOne('/api/projects/1/console')
+      .flush({ sessionId: '1-console-e5f6a7b8', workingDirectory: '/repo' });
+    fixture.detectChanges();
+
+    expect(TestBed.inject(AgentStore).get('1-console-e5f6a7b8')).toBe('claude');
+  }));
+
+  it('a ?new=shell mints a main-checkout shell, not an agent (#886)', fakeAsync(() => {
+    TestBed.inject(Router).navigateByUrl('/projects/1/console?new=shell');
+    tick();
+
+    const fixture = init(1, [project({ id: 1 })]);
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
+    fixture.detectChanges();
+    tick();
+
+    const post = httpMock.expectOne('/api/projects/1/shells');
+    expect(post.request.method).toBe('POST');
+    expect(post.request.body).toEqual({ issueNumber: null, workingDirectory: '/repo' });
+    post.flush({ sessionId: '1-shell-main-aaaa0001', workingDirectory: '/repo' });
+    httpMock.expectOne('/api/shells').flush([
+      {
+        sessionId: '1-shell-main-aaaa0001',
+        projectId: 1,
+        issueNumber: null,
+        mainCheckout: true,
+        workingDirectory: '/repo',
+        createdAt: '2026-08-27T09:00:00Z',
+        lastAttachedAt: '2026-08-27T10:00:00Z',
+        displayName: null,
+      },
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.selected).toBe('1-shell-main-aaaa0001');
+    httpMock.expectNone('/api/projects/1/console');
+  }));
+
+  it('mints the shell under the newly-clicked project when ?new=shell arrives mid-navigation, not the one still rendered (#439, #886)', fakeAsync(() => {
+    const router = TestBed.inject(Router);
+    router.navigateByUrl('/projects/1/console');
+    tick();
+
+    const fixture = init(1, [project({ id: 1 })]);
+    httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
+    fixture.detectChanges();
+
+    // Same race as the agent-choice #439 spec above: the navigation's query param
+    // (and, in the real app, its route projectId) lands before this component's
+    // input catches up.
+    router.navigate(['/projects', 2, 'console'], { queryParams: { new: 'shell' } });
+    tick();
+    httpMock.expectNone('/api/projects/1/shells');
+
+    fixture.componentRef.setInput('projectId', 2);
+    fixture.detectChanges();
+    flushProjects([project({ id: 2, workareaPath: '/repo-2' })]);
+    httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
+    fixture.detectChanges();
+    tick();
+
+    const post = httpMock.expectOne('/api/projects/2/shells');
+    expect(post.request.body).toEqual({ issueNumber: null, workingDirectory: '/repo-2' });
+    post.flush({ sessionId: '2-shell-main-aaaa0001', workingDirectory: '/repo-2' });
+    httpMock.expectOne('/api/shells').flush([
+      {
+        sessionId: '2-shell-main-aaaa0001',
+        projectId: 2,
+        issueNumber: null,
+        mainCheckout: true,
+        workingDirectory: '/repo-2',
+        createdAt: '2026-08-27T09:00:00Z',
+        lastAttachedAt: '2026-08-27T10:00:00Z',
+        displayName: null,
+      },
+    ]);
+    fixture.detectChanges();
+    tick();
+
+    expect(fixture.componentInstance.selected).toBe('2-shell-main-aaaa0001');
+    expect(router.url).toContain('/projects/2/console');
+    expect(router.url).not.toContain('new=shell');
+  }));
+
   it('drops ?new once it has been acted on, so a reload does not mint another (#370)', fakeAsync(() => {
     const router = TestBed.inject(Router);
     router.navigateByUrl('/projects/1/console?new=1&focus=1');

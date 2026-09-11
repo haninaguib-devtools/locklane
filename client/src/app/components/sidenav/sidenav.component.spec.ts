@@ -11,6 +11,7 @@ import { EventsService } from '../../services/events.service';
 import { IssuesService } from '../../services/issues.service';
 import { Project, TreeNode } from '../../models/issue.model';
 import { UsageSnapshot } from '../../models/usage.model';
+import { InstalledAgent } from '../../services/default-agent-store';
 
 // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
 // /console and /consoles REST paths and the 'console' route segment below keep their persisted and
@@ -38,6 +39,10 @@ describe('SidenavComponent', () => {
     localStorage.removeItem('locklane.pinnedIssues');
     localStorage.removeItem('locklane.collapsedInitiatives');
     localStorage.removeItem('locklane.collapsedProjectSections');
+    // The header "+" picker (#886) reads DefaultAgentStore, which falls back to
+    // this on an empty installed list -- cleared so an earlier spec file's choice
+    // never leaks into what these tests see as "known".
+    localStorage.removeItem('locklane.defaultAgent');
     TestBed.configureTestingModule({
       imports: [SidenavComponent],
       providers: [
@@ -59,6 +64,7 @@ describe('SidenavComponent', () => {
     localStorage.removeItem('locklane.pinnedIssues');
     localStorage.removeItem('locklane.collapsedInitiatives');
     localStorage.removeItem('locklane.collapsedProjectSections');
+    localStorage.removeItem('locklane.defaultAgent');
   });
 
   function tree(): TreeNode[] {
@@ -85,16 +91,23 @@ describe('SidenavComponent', () => {
   };
 
   /**
-   * Creates the component and flushes its project list, plus the usage widget's own
+   * Creates the component and flushes its project list, the usage widget's own
    * fetch (#137) -- a child of the sidenav that fetches independently of the project
-   * list on its own `ngOnInit`, so every test that renders the sidenav owes it a
-   * response or `httpMock.verify()` fails on an unflushed request.
+   * list on its own `ngOnInit` -- and the "+" picker's own installed-agents fetch
+   * (#886, mirroring the agent session page's own #698 fix): every test that renders
+   * the sidenav owes each of these a response or `httpMock.verify()` fails on an
+   * unflushed request. `installedAgents` defaults empty, matching a browser where
+   * nothing has resolved yet -- the picker's own fallback to the Settings default.
    */
-  function init(projects: Project[] = [PROJECT_A]): ReturnType<typeof TestBed.createComponent<SidenavComponent>> {
+  function init(
+    projects: Project[] = [PROJECT_A],
+    installedAgents: InstalledAgent[] = [],
+  ): ReturnType<typeof TestBed.createComponent<SidenavComponent>> {
     const fixture = TestBed.createComponent(SidenavComponent);
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').flush(projects);
     httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+    httpMock.expectOne('/api/agents/installed').flush({ installed: installedAgents });
     return fixture;
   }
 
@@ -241,6 +254,7 @@ describe('SidenavComponent', () => {
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
     httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [] });
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -787,6 +801,7 @@ describe('SidenavComponent', () => {
     fixture.detectChanges();
     httpMock.expectOne('/api/projects').error(new ProgressEvent('network error'));
     httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [] });
     fixture.detectChanges();
 
     expect(fixture.componentInstance.error).toBeTrue();
@@ -1435,6 +1450,7 @@ describe('SidenavComponent', () => {
     httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
     flushTree(1, tree());
     httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [] });
 
     // A focused window lists exactly one project -- a reload could never carry
     // another, so these are not a reason to run one.
@@ -1683,7 +1699,15 @@ describe('SidenavComponent', () => {
     expect(pinnedName.textContent!.trim()).toBe('proj-a');
   });
 
-  it('the header "+" asks the agent session page for a new agent session, without selecting the project (#180, #370)', () => {
+  // #886: the header "+" now offers the same agent/Shell picker the agent session
+  // page's own tab strip "+" does (#757, #876), sharing AgentShellPickerComponent
+  // rather than always starting the Settings default straight off (#180's original
+  // behaviour). Whatever gets picked still only rides in `?new` -- the click mints
+  // nothing here (#370): a session the engine has never attached to is missing from
+  // the agent session page's open list, so handing one over by id would land the
+  // user in some other agent session and strand the new one's worktree.
+
+  it('with no installed agent known, the header "+" launches a shell directly, no picker (#886)', () => {
     const fixture = init();
     flushTree(1, tree());
     fixture.detectChanges();
@@ -1691,15 +1715,73 @@ describe('SidenavComponent', () => {
     const emitted: number[] = [];
     fixture.componentInstance.projectSelected.subscribe((id) => emitted.push(id));
 
-    (fixture.nativeElement.querySelector('.section-header .new-agent-session') as HTMLElement).click();
+    (fixture.nativeElement.querySelector('.section-header .new-agent-session .plus') as HTMLElement).click();
 
-    // #370: the click mints nothing here -- a session the engine has never attached
-    // to is missing from the agent session page's open list, so handing one over by id
-    // landed the user in some other agent session and stranded the new one's worktree.
-    // The request rides in `?new` and the page mints it.
-    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], { queryParams: { new: 'shell' } });
+    expect(fixture.nativeElement.querySelector('.agent-picker')).toBeNull();
     httpMock.expectNone({ method: 'POST', url: '/api/projects/1/console' });
     expect(emitted).toEqual([]);
+  });
+
+  it('with installed agents known, the header "+" opens a picker listing them plus Shell (#886)', () => {
+    const fixture = init([PROJECT_A], [
+      { id: 'claude', label: 'Claude' },
+      { id: 'codex', label: 'Codex' },
+    ]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector('.section-header .new-agent-session .plus') as HTMLElement).click();
+    fixture.detectChanges();
+
+    const options = Array.from(fixture.nativeElement.querySelectorAll('.agent-option')) as HTMLElement[];
+    expect(options.map((o) => o.textContent!.trim())).toEqual(['Claude', 'Codex', 'Shell']);
+  });
+
+  it('choosing an agent from the header "+" picker navigates with that agent named in `new` (#886)', () => {
+    const fixture = init([PROJECT_A], [
+      { id: 'claude', label: 'Claude' },
+      { id: 'codex', label: 'Codex' },
+    ]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    (fixture.nativeElement.querySelector('.section-header .new-agent-session .plus') as HTMLElement).click();
+    fixture.detectChanges();
+    (Array.from(fixture.nativeElement.querySelectorAll('.agent-option'))[1] as HTMLElement).click();
+    fixture.detectChanges();
+
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], { queryParams: { new: 'codex' } });
+    expect(fixture.nativeElement.querySelector('.agent-picker')).toBeNull();
+    httpMock.expectNone({ method: 'POST', url: '/api/projects/1/console' });
+  });
+
+  it('choosing Shell from the header "+" picker navigates with `new=shell` (#886)', () => {
+    const fixture = init([PROJECT_A], [{ id: 'claude', label: 'Claude' }]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    (fixture.nativeElement.querySelector('.section-header .new-agent-session .plus') as HTMLElement).click();
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.shell-option') as HTMLElement).click();
+    fixture.detectChanges();
+
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], { queryParams: { new: 'shell' } });
+  });
+
+  it('the header "+" picker is fixed to the viewport, not clipped by the sidebar\'s own scrolling container (#886)', () => {
+    const fixture = init([PROJECT_A], [{ id: 'claude', label: 'Claude' }]);
+    flushTree(1, tree());
+    fixture.detectChanges();
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    (fixture.nativeElement.querySelector('.section-header .new-agent-session .plus') as HTMLElement).click();
+    fixture.detectChanges();
+
+    const menu = fixture.nativeElement.querySelector('.agent-picker') as HTMLElement;
+    expect(getComputedStyle(menu).position).toBe('fixed');
   });
 
   it('the header "+" asks for a new agent session even when the project already has some open (#370)', () => {
@@ -1711,9 +1793,9 @@ describe('SidenavComponent', () => {
     fixture.detectChanges();
     const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
-    (fixture.nativeElement.querySelector('.section-header .new-agent-session') as HTMLElement).click();
+    (fixture.nativeElement.querySelector('.section-header .new-agent-session .plus') as HTMLElement).click();
 
-    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], { queryParams: { new: 'shell' } });
     httpMock.expectNone({ method: 'POST', url: '/api/projects/1/console' });
   });
 
@@ -1723,7 +1805,7 @@ describe('SidenavComponent', () => {
     fixture.detectChanges();
     spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
-    const plus = fixture.nativeElement.querySelector('.section-header .new-agent-session') as HTMLButtonElement;
+    const plus = fixture.nativeElement.querySelector('.section-header .new-agent-session .plus') as HTMLButtonElement;
     plus.click();
     fixture.detectChanges();
 
@@ -1881,6 +1963,7 @@ describe('SidenavComponent', () => {
     httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: tree(), github: GITHUB_OK });
     flushAgentSessions();
     httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [] });
 
     httpMock.expectNone('/api/projects/1/issues/tree');
     expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([2]);

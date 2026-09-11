@@ -100,44 +100,17 @@
       </div>
     </span>
   }
-  <div class="plus-wrap">
-    <button
-      type="button"
-      class="plus"
-      [disabled]="starting"
-      aria-label="open a new agent or shell"
-      [attr.aria-haspopup]="offersPicker ? 'menu' : null"
-      [attr.aria-expanded]="offersPicker ? pickerOpen : null"
-      (click)="plusClicked($event)"
-    >
-      {{ starting ? '…' : '+' }}
-    </button>
-    @if (pickerOpen) {
-      <!-- #757/#876: one entry per agent choice the page offers, plus Shell. Shell
-           is a client-side kind, not a CLI the engine detected, so it is appended
-           here rather than coming from the installed list. -->
-      <div class="agent-picker" role="menu" aria-label="what to open">
-        @for (agent of agentChoices; track agent.id) {
-          <button
-            type="button"
-            role="menuitem"
-            class="agent-option"
-            (click)="pickAgent(agent.id, $event)"
-          >
-            {{ agent.label }}
-          </button>
-        }
-        <button
-          type="button"
-          role="menuitem"
-          class="agent-option shell-option"
-          (click)="pickShell($event)"
-        >
-          Shell
-        </button>
-      </div>
-    }
-  </div>
+  <app-agent-shell-picker
+    ariaLabel="open a new agent or shell"
+    [label]="starting ? '…' : '+'"
+    [disabled]="starting"
+    [installedAgents]="installedAgents"
+    [defaultAgent]="defaultAgent"
+    [offerAgent]="offerAgent"
+    (pickAgent)="onPickAgent($event)"
+    (pickShell)="onPickShell()"
+    (openedChange)="onPickerOpenedChange($event)"
+  />
 </div>
 
 @if (ideOpenFailed) {

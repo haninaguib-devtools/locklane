@@ -33,6 +33,9 @@ import {
 } from '../../services/events.service';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { UsageWidgetComponent } from '../usage-widget/usage-widget.component';
+import { AgentShellPickerComponent } from '../agent-shell-picker/agent-shell-picker.component';
+import { Agent } from '../../services/agent-store';
+import { DefaultAgentStore } from '../../services/default-agent-store';
 import { cloneStageHint } from '../clone-progress';
 import { filterPinnedTree, filterTree } from './tree-filter';
 
@@ -99,7 +102,15 @@ interface PinnedGroup {
 @Component({
   selector: 'app-sidenav',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet, RouterLink, DragDropModule, ConfirmDialogComponent, UsageWidgetComponent],
+  imports: [
+    FormsModule,
+    NgTemplateOutlet,
+    RouterLink,
+    DragDropModule,
+    ConfirmDialogComponent,
+    UsageWidgetComponent,
+    AgentShellPickerComponent,
+  ],
   templateUrl: './sidenav.component.html',
   styleUrl: './sidenav.component.css',
 })
@@ -115,6 +126,9 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   // from it rather than this component keeping its own copy fed from `events$`.
   private readonly attentionStore = inject(AttentionStore);
   private readonly router = inject(Router);
+  // Backs the section header's "+" picker (#886): its own choices (installed agents,
+  // Settings default), the same store the agent session page's "+" already reads.
+  readonly defaultAgentStore = inject(DefaultAgentStore);
 
   // Highlight only -- navigation is each row's own routerLink (#170), so selection
   // flows in from the URL and never back out through an event. The setter also moves
@@ -267,6 +281,9 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   ngOnInit(): void {
     this.initialized = true;
     this.load(() => {});
+    // #886: known before the first "+" click, not fetched on demand -- a picker
+    // that has to wait on its own first click would show nothing to choose from yet.
+    this.defaultAgentStore.refreshInstalled();
   }
   // A focus change after the first load (#803) -- the URL gaining or losing `focus=1`
   // while this sidenav is already showing -- re-narrows the list right away, the same
@@ -316,19 +333,23 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  // The header's one-click "+" (#180): asks the project agent session page for a brand-new
-  // agent session (#177) and lands on it with that agent session's tab active. The request rides
-  // in the `new` query param rather than this button minting the session itself
-  // (#370) — a session the engine has never attached to is absent from the page's
-  // open-agent-session list, so the old `?session=<freshId>` handoff was discarded there
-  // and some existing agent session was shown instead, stranding the new agent session's
-  // worktree on disk. The page mints it, adds its tab, and drops the param again.
-  // One click still means no agent picker: the new agent session gets the Settings default
-  // agent (#219), which the page applies.
-  openNewAgentSession(projectId: number, event: Event): void {
-    event.stopPropagation();
+  // The header's "+" (#180, #886): offers the same agent/Shell picker the agent
+  // session page's own tab strip "+" does (#757, #876), sharing its component
+  // rather than minting a second copy. Whatever gets picked rides in the `new`
+  // query param rather than this button minting the session itself (#370) -- a
+  // session the engine has never attached to is absent from the page's
+  // open-agent-session list, so a `?session=<freshId>` handoff would discard it and
+  // show some existing agent session instead, stranding the new one's worktree on
+  // disk. The page reads `new`, mints exactly what was chosen, adds its tab, and
+  // drops the param again (see ProjectAgentSessionComponent).
+  openAgentFromPicker(projectId: number, agent: Agent): void {
     // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
-    this.router.navigate(['/projects', projectId, 'console'], { queryParams: { new: 1 } });
+    this.router.navigate(['/projects', projectId, 'console'], { queryParams: { new: agent } });
+  }
+
+  openShellFromPicker(projectId: number): void {
+    // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
+    this.router.navigate(['/projects', projectId, 'console'], { queryParams: { new: 'shell' } });
   }
 
   // Opens this project alone in a new browser window (#286): the focused state rides

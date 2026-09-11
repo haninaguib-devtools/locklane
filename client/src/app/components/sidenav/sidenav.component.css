@@ -232,29 +232,10 @@ app-usage-widget {
   background: var(--panel);
 }
 
-/* The header's one-click new-agent-session entry (#180). */
-.new-agent-session {
-  flex: none;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.new-agent-session:hover {
-  background: var(--panel);
-  color: var(--text);
-}
-
-.new-agent-session:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
+/* The header's "+" agent/Shell picker entry (#180, #886) is AgentShellPickerComponent
+   now, shared with the agent session tab strip -- see its own stylesheet for the
+   button and dropdown; `.new-agent-session` here is a bare marker class used by
+   this component's own specs to find it among the header's other buttons. */
 
 /* Pops this one project out into its own focused browser window (#286). */
 .pop-out {
@@ -595,7 +576,6 @@ ul.branch {
   }
 
   .project-agent-sessions,
-  .new-agent-session,
   .pop-out,
   .kebab {
     width: 32px;
