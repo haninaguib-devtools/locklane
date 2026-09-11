@@ -23,7 +23,7 @@
           class="tab-name"
           type="text"
           [attr.maxlength]="maxNameLength"
-          aria-label="agent tab name"
+          aria-label="tab name"
           [value]="draftName"
           (input)="onRenameInput($any($event.target).value)"
           (click)="$event.stopPropagation()"
@@ -53,7 +53,7 @@
       <button
         type="button"
         class="tab-close-quick"
-        aria-label="close agent tab"
+        [attr.aria-label]="'close ' + (tab.kind === 'shell' ? 'shell' : 'agent') + ' tab'"
         (click)="closeTab(tab.id, $event)"
       >
         ×
@@ -69,14 +69,6 @@
         </button>
         @if (isMenuOpen(tab.id)) {
           <div class="tab-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              class="tab-shell"
-              (click)="openShellAt(tab, $event)"
-            >
-              Shell
-            </button>
             @if (isLocalHost) {
               <button
                 type="button"
@@ -108,43 +100,45 @@
       </div>
     </span>
   }
-  @if (showOpenButton) {
-    <div class="plus-wrap">
-      <button
-        type="button"
-        class="plus"
-        [disabled]="starting"
-        aria-label="open a new agent"
-        [attr.aria-haspopup]="offersPicker ? 'menu' : null"
-        [attr.aria-expanded]="offersPicker ? pickerOpen : null"
-        (click)="plusClicked($event)"
-      >
-        {{ starting ? '…' : openLabel }}
-      </button>
-      @if (pickerOpen) {
-        <!-- #757: one entry per installed agent, the same list Settings shows. Never
-             `shell` -- the client adds that itself for plain shells, it is not a CLI
-             the engine detected. -->
-        <div class="agent-picker" role="menu" aria-label="agent CLI for the new agent">
-          @for (agent of installedAgents; track agent.id) {
-            <button
-              type="button"
-              role="menuitem"
-              class="agent-option"
-              (click)="pickAgent(agent.id, $event)"
-            >
-              {{ agent.label }}
-            </button>
-          }
-        </div>
-      }
-    </div>
-  }
+  <div class="plus-wrap">
+    <button
+      type="button"
+      class="plus"
+      [disabled]="starting"
+      aria-label="open a new agent or shell"
+      [attr.aria-haspopup]="offersPicker ? 'menu' : null"
+      [attr.aria-expanded]="offersPicker ? pickerOpen : null"
+      (click)="plusClicked($event)"
+    >
+      {{ starting ? '…' : '+' }}
+    </button>
+    @if (pickerOpen) {
+      <!-- #757/#876: one entry per agent choice the page offers, plus Shell. Shell
+           is a client-side kind, not a CLI the engine detected, so it is appended
+           here rather than coming from the installed list. -->
+      <div class="agent-picker" role="menu" aria-label="what to open">
+        @for (agent of agentChoices; track agent.id) {
+          <button
+            type="button"
+            role="menuitem"
+            class="agent-option"
+            (click)="pickAgent(agent.id, $event)"
+          >
+            {{ agent.label }}
+          </button>
+        }
+        <button
+          type="button"
+          role="menuitem"
+          class="agent-option shell-option"
+          (click)="pickShell($event)"
+        >
+          Shell
+        </button>
+      </div>
+    }
+  </div>
 </div>
-
-@if (shellOpenFailed) {
-  <div class="shell-error">could not open a shell at that agent's worktree — try again</div>
-}
 
 @if (ideOpenFailed) {
   <div class="ide-error">could not open the IDE for that agent — try again</div>
@@ -152,9 +146,9 @@
 
 @if (pendingCloseId !== null) {
   <app-confirm-dialog
-    title="Close agent?"
-    message="Close this agent? It will be terminated and cannot be reattached."
-    confirmLabel="Close"
+    [title]="closeTitle"
+    [message]="closeMessage"
+    [confirmLabel]="'Close'"
     [danger]="true"
     (confirmed)="confirmClose()"
     (cancelled)="cancelClose()"

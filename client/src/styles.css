@@ -91,16 +91,3 @@ button {
 .wco-active :is(button, a, input, select, textarea, [role='menu'], [role='tablist'], app-sidebar-resizer) {
   -webkit-app-region: no-drag;
 }
-
-/* The Shells window (shells-window.component.css) reserves its own titlebar-height
-   strip the same way the main window's topbar does -- so it has the same
-   second-strip-height problem when the release banner (a sibling of `<app-shells-window>`
-   in app.component.html, above both) is already covering that strip
-   (release-banner.component.css, #836). This lives here rather than in either
-   component's own stylesheet because it is the one place both `app-release-banner` and
-   `app-shells-window .titlebar` can be named without Angular's per-component style
-   scoping getting in the way -- app.component.css can see the former but not reach past
-   `<app-shells-window>`'s own view boundary into the latter. */
-app-release-banner:has(.release-banner) ~ app-shells-window .window.wco-active .titlebar {
-  height: 0;
-}

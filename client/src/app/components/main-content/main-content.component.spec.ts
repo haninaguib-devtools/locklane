@@ -6,6 +6,7 @@ import { AgentStore } from '../../services/agent-store';
 import { ActiveAgentSessionStore } from '../../services/active-agent-session-store';
 import { ActiveTabStore } from '../../services/active-tab-store';
 import { DefaultAgentStore } from '../../services/default-agent-store';
+import { OpenShell } from '../../services/shells.service';
 import { GhIssue, IssueDetail, Project, ResumeSession } from '../../models/issue.model';
 
 // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
@@ -46,7 +47,21 @@ describe('MainContentComponent', () => {
     return fixture;
   }
 
-  function respond(number: number, agentSessionIds: string[], resumeSessions: ResumeSession[] = []) {
+  function shell(overrides: Partial<OpenShell> = {}): OpenShell {
+    return {
+      sessionId: '1-shell-7-aaaa0001',
+      projectId: 1,
+      issueNumber: 7,
+      mainCheckout: false,
+      workingDirectory: '/tmp/repo-7',
+      createdAt: '2026-08-27T09:00:00Z',
+      lastAttachedAt: '2026-08-27T09:00:00Z',
+      displayName: null,
+      ...overrides,
+    };
+  }
+
+  function respond(number: number, agentSessionIds: string[], resumeSessions: ResumeSession[] = [], shells: OpenShell[] = []) {
     const issue: GhIssue = {
       number,
       title: 'T',
@@ -85,6 +100,9 @@ describe('MainContentComponent', () => {
     httpMock.expectOne(`/api/projects/1/issues/${number}/resume-sessions`).flush(resumeSessions);
     httpMock.expectOne('/api/projects').flush(projects);
     httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush(agentSessionIds);
+    // The agent list above cannot validate a remembered shell tab, so the shell
+    // list arriving here adopts it when it is open (#876).
+    httpMock.expectOne('/api/shells').flush(shells);
   }
 
   it('fetches the installed-agents list on init, so the "+" button does not launch with an empty agent (#698)', () => {
@@ -471,5 +489,231 @@ describe('MainContentComponent', () => {
     httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
 
     expect(TestBed.inject(ActiveTabStore).get(7)).toBe('1-7-rename-toggle');
+  });
+});
+
+describe('MainContentComponent shells (#876)', () => {
+  let httpMock: HttpTestingController;
+
+  function shell(overrides: Partial<OpenShell> = {}): OpenShell {
+    return {
+      sessionId: '1-shell-7-aaaa0001',
+      projectId: 1,
+      issueNumber: 7,
+      mainCheckout: false,
+      workingDirectory: '/tmp/repo-7',
+      createdAt: '2026-08-27T09:00:00Z',
+      lastAttachedAt: '2026-08-27T09:00:00Z',
+      displayName: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.activeConsoleByIssue');
+    localStorage.removeItem('locklane.activeTabByIssue');
+    localStorage.removeItem('locklane.defaultAgent');
+    TestBed.configureTestingModule({
+      imports: [MainContentComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.removeItem('locklane.sessionAgents');
+    localStorage.removeItem('locklane.activeConsoleByIssue');
+    localStorage.removeItem('locklane.activeTabByIssue');
+    localStorage.removeItem('locklane.defaultAgent');
+  });
+
+  function init(number: number): ReturnType<typeof TestBed.createComponent<MainContentComponent>> {
+    const fixture = TestBed.createComponent(MainContentComponent);
+    fixture.componentInstance.projectId = 1;
+    fixture.componentInstance.issueNumber = number;
+    fixture.componentInstance.ngOnChanges({
+      projectId: { currentValue: 1, previousValue: null, firstChange: true, isFirstChange: () => true },
+      issueNumber: { currentValue: number, previousValue: null, firstChange: true, isFirstChange: () => true },
+    });
+    // Like the real lifecycle, ngOnInit subscribes the live shell reload (#876),
+    // so open/close notifies re-read the shells below.
+    fixture.componentInstance.ngOnInit();
+    httpMock.expectOne('/api/agents/installed').flush({ installed: [] });
+    return fixture;
+  }
+
+  function respond(number: number, agentSessionIds: string[], shells: OpenShell[] = []) {
+    const issue: GhIssue = {
+      number,
+      title: 'T',
+      state: 'OPEN',
+      labels: [],
+      body: '',
+      createdAt: '',
+      updatedAt: '',
+    };
+    const detail: IssueDetail = {
+      number,
+      recordPath: null,
+      checks: { passing: 0, failing: 0, pending: 0, runs: [] },
+      branch: null,
+      prNumber: null,
+      prState: null,
+      prDraft: false,
+      flowSteps: [{ name: 'open', done: true }],
+    };
+    const projects: Project[] = [
+      {
+        id: 1,
+        name: 'repo',
+        gitUrl: 'https://github.com/org/repo.git',
+        workareaPath: '/tmp/repo',
+        defaultBranch: 'main',
+        accentColor: null,
+        template: null,
+        status: 'READY',
+        createdAt: '',
+      },
+    ];
+
+    httpMock.expectOne(`/api/projects/1/issues/${number}`).flush(issue);
+    httpMock.expectOne(`/api/projects/1/issues/${number}/detail`).flush(detail);
+    httpMock.expectOne(`/api/projects/1/issues/${number}/resume-sessions`).flush([]);
+    httpMock.expectOne('/api/projects').flush(projects);
+    httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush(agentSessionIds);
+    httpMock.expectOne('/api/shells').flush(shells);
+  }
+
+  it('lists this issue’s shells as shell tabs beside the agent tabs, filtering out other issues', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4'], [
+      shell({ sessionId: '1-shell-7-aaaa0001' }),
+      shell({ sessionId: '1-shell-7-bbbb0002' }),
+      shell({ sessionId: '1-shell-8-cccc0003', projectId: 1, issueNumber: 8 }),
+      shell({ sessionId: '1-shell-main-dddd0004', issueNumber: null, mainCheckout: true }),
+    ]);
+
+    expect(fixture.componentInstance.shells.map((s) => s.id)).toEqual([
+      '1-shell-7-aaaa0001',
+      '1-shell-7-bbbb0002',
+    ]);
+    expect(fixture.componentInstance.tabs.map((t) => t.label)).toEqual(['main', 'shell', 'shell 2']);
+  });
+
+  it('adopts the remembered tab when it is an open shell', () => {
+    TestBed.inject(ActiveTabStore).set(7, '1-shell-7-aaaa0001');
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4'], [shell({ sessionId: '1-shell-7-aaaa0001' })]);
+
+    expect(fixture.componentInstance.activeTab).toBe('1-shell-7-aaaa0001');
+  });
+
+  it('opening a shell mints one at the live agent session’s directory and selects it', () => {
+    const fixture = init(8);
+    respond(8, []);
+    fixture.componentInstance.openAgentSession({ agent: 'codex' });
+    httpMock
+      .expectOne((r) => r.url === '/api/projects/1/issues/8/worktrees' && r.method === 'POST')
+      .flush({ worktreeId: '1-8-slug', workingDirectory: '/tmp/repo-8' });
+    httpMock.expectOne('/api/shells').flush([]);
+
+    fixture.componentInstance.openShell();
+    const post = httpMock.expectOne('/api/projects/1/shells');
+    expect(post.request.method).toBe('POST');
+    expect(post.request.body).toEqual({ issueNumber: 8, workingDirectory: '/tmp/repo-8' });
+    post.flush({ sessionId: '1-shell-8-aaaa0001', workingDirectory: '/tmp/repo-8' });
+    // The mint notifies, and the page re-reads its shells on it -- the server
+    // persisted the shell at mint time, so it lists it straight away.
+    httpMock.expectOne('/api/shells').flush([
+      shell({ sessionId: '1-shell-8-aaaa0001', issueNumber: 8, workingDirectory: '/tmp/repo-8' }),
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.shells.map((s) => s.id)).toEqual(['1-shell-8-aaaa0001']);
+    expect(fixture.componentInstance.activeTab).toBe('1-shell-8-aaaa0001');
+    expect(fixture.componentInstance.tabs.map((t) => t.label)).toEqual(['wtree · codex', 'shell']);
+  });
+
+  it('opening a shell with no live agent session resolves the directory from the worktree list', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4']);
+
+    fixture.componentInstance.openShell();
+    httpMock.expectOne('/api/projects/1/worktrees').flush([
+      { worktreeId: '1-7-main-a1b2c3d4', issueNumber: 7, workingDirectory: '/tmp/repo-7', clean: true, sessionAttached: true },
+    ]);
+    const post = httpMock.expectOne('/api/projects/1/shells');
+    expect(post.request.body).toEqual({ issueNumber: 7, workingDirectory: '/tmp/repo-7' });
+    post.flush({ sessionId: '1-shell-7-aaaa0001', workingDirectory: '/tmp/repo-7' });
+    httpMock.expectOne('/api/shells').flush([]);
+  });
+
+  it('a failed mint reports a shell error and stops the spinner without touching the tabs', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4']);
+
+    fixture.componentInstance.openShell();
+    httpMock.expectOne('/api/projects/1/worktrees').flush([
+      { worktreeId: '1-7-main-a1b2c3d4', issueNumber: 7, workingDirectory: '/tmp/repo-7', clean: true, sessionAttached: true },
+    ]);
+    httpMock.expectOne('/api/projects/1/shells').flush(null, { status: 500, statusText: 'Server Error' });
+
+    expect(fixture.componentInstance.starting).toBeFalse();
+    expect(fixture.componentInstance.shellError).toBe('could not open a shell — try again');
+    expect(fixture.componentInstance.shells).toEqual([]);
+  });
+
+  it('closing a shell tab ends it and drops its tab', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4'], [shell({ sessionId: '1-shell-7-aaaa0001' })]);
+    fixture.componentInstance.onTabSelected('1-shell-7-aaaa0001');
+    expect(fixture.componentInstance.activeTab).toBe('1-shell-7-aaaa0001');
+
+    fixture.componentInstance.closeTab('1-shell-7-aaaa0001');
+    httpMock.expectOne('/api/projects/1/shells/1-shell-7-aaaa0001').flush(null);
+    httpMock.expectOne('/api/shells').flush([]);
+
+    expect(fixture.componentInstance.shells).toEqual([]);
+    expect(fixture.componentInstance.activeTab).toBe('1-7-main-a1b2c3d4');
+  });
+
+  it('closing the agent session ends its shells with it (#876: shells die with the worktree)', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4'], [shell({ sessionId: '1-shell-7-aaaa0001' }), shell({ sessionId: '1-shell-7-bbbb0002' })]);
+
+    fixture.componentInstance.closeAgentSession('1-7-main-a1b2c3d4');
+    httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
+    // The close notifies before the fan-out DELETEs answer, so its reload lands first.
+    httpMock.expectOne('/api/shells').flush([]);
+
+    const closes = httpMock.match('/api/projects/1/shells/1-shell-7-aaaa0001');
+    expect(closes.length).toBe(1);
+    const closes2 = httpMock.match('/api/projects/1/shells/1-shell-7-bbbb0002');
+    expect(closes2.length).toBe(1);
+    closes[0].flush(null);
+    closes2[0].flush(null);
+    // The fan-out completing notifies again -- one more reload.
+    httpMock.expectOne('/api/shells').flush([]);
+
+    expect(fixture.componentInstance.shells).toEqual([]);
+    expect(fixture.componentInstance.tabs).toEqual([]);
+    expect(fixture.componentInstance.activeTab).toBe('overview');
+  });
+
+  it('a shell that refuses to die with the worktree surfaces a shell error', () => {
+    const fixture = init(7);
+    respond(7, ['1-7-main-a1b2c3d4'], [shell({ sessionId: '1-shell-7-aaaa0001' })]);
+
+    fixture.componentInstance.closeAgentSession('1-7-main-a1b2c3d4');
+    httpMock.expectOne('/api/projects/1/issues/7/worktrees/1-7-main-a1b2c3d4').flush(null);
+    // The close notifies before the fan-out DELETE answers, so its reload lands first.
+    httpMock.expectOne('/api/shells').flush([]);
+    httpMock.expectOne('/api/projects/1/shells/1-shell-7-aaaa0001').flush(null, { status: 500, statusText: 'Server Error' });
+    // The fan-out completing notifies again -- one more reload.
+    httpMock.expectOne('/api/shells').flush([]);
+
+    expect(fixture.componentInstance.shellError).toBe('could not close a shell — try again');
   });
 });

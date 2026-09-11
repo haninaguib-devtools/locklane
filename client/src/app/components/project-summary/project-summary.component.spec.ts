@@ -139,9 +139,7 @@ describe('ProjectSummaryComponent', () => {
     fixture.detectChanges();
     if (ready) {
       httpMock.expectOne(`/api/projects/${projectId}/worktrees`).flush([]);
-      // Two independent fetchers hit this endpoint: this component's own shells
-      // button (#745) and the worktree list's shell listing (#733).
-      httpMock.match('/api/shells').forEach((req) => req.flush(shells));
+      httpMock.expectOne('/api/shells').flush(shells);
       fixture.detectChanges();
     }
     return fixture;
@@ -253,9 +251,6 @@ describe('ProjectSummaryComponent', () => {
     expect(req.request.method).toBe('POST');
     req.flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
     fixture.detectChanges();
-    // Starting an agent session notifies AgentSessionsService.onOpened (below), which the
-    // worktree list's shell listing also reacts to (#733) to stay live.
-    httpMock.expectOne('/api/shells').flush([]);
 
     // `dir` rides along (#795): the engine does not list a never-attached session,
     // so the agent session page adds the tab from the handoff itself rather than
@@ -276,7 +271,6 @@ describe('ProjectSummaryComponent', () => {
     httpMock
       .expectOne('/api/projects/1/console')
       .flush({ sessionId: 'proj-1-console-abc', workingDirectory: '/tmp/a' });
-    httpMock.expectOne('/api/shells').flush([]);
 
     expect(TestBed.inject(AgentStore).get('proj-1-console-abc')).toBe('codex');
   });
@@ -337,9 +331,9 @@ describe('ProjectSummaryComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('.shells-button')).toBeFalsy();
   });
 
-  it('reads "Open shells" and mints one at the main worktree, then focuses the Shells window, when none is open (#745)', () => {
+  it('reads "Open shells" and mints one at the main worktree, then lands on its tab, when none is open (#745, #876)', () => {
     const fixture = init();
-    const openSpy = spyOn(window, 'open');
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
     const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shells-button')!;
     expect(button.textContent?.trim()).toBe('Open shells');
@@ -355,7 +349,11 @@ describe('ProjectSummaryComponent', () => {
     httpMock.expectOne('/api/shells').flush([shell({ sessionId: '1-shell-main-new0001' })]);
     fixture.detectChanges();
 
-    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-main-new0001', 'locklane-shells');
+    // No `?dir=` handoff (#795's agent problem does not apply): shells persist
+    // at mint time, so the agent session page lists the fresh id straight away.
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+      queryParams: { session: '1-shell-main-new0001' },
+    });
     expect(button.disabled).toBeFalse();
   });
 
@@ -372,7 +370,7 @@ describe('ProjectSummaryComponent', () => {
     expect(button.disabled).toBeFalse();
   });
 
-  it('focuses the Shells window on the most recently used open shell, without minting one, when any are open (#745)', () => {
+  it('lands on the most recently used open shell tab, without minting one, when any are open (#745, #876)', () => {
     const fixture = init(
       [PROJECT],
       tree(),
@@ -382,13 +380,22 @@ describe('ProjectSummaryComponent', () => {
       [
         shell({ sessionId: '1-shell-main-older01', lastAttachedAt: '2026-08-27T09:00:00Z' }),
         shell({ sessionId: '1-shell-main-newer01', lastAttachedAt: '2026-08-27T10:00:00Z' }),
+        // An issue-worktree shell, even a newer one, is not this button's business (#876).
+        shell({
+          sessionId: '1-shell-42-issue01',
+          issueNumber: 42,
+          mainCheckout: false,
+          lastAttachedAt: '2026-08-27T11:00:00Z',
+        }),
       ],
     );
-    const openSpy = spyOn(window, 'open');
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
 
     (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shells-button')!.click();
 
-    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-main-newer01', 'locklane-shells');
+    expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'console'], {
+      queryParams: { session: '1-shell-main-newer01' },
+    });
     httpMock.expectNone('/api/projects/1/shells');
   });
 
@@ -711,9 +718,6 @@ describe('ProjectSummaryComponent', () => {
       );
       expect(reopen.request.method).toBe('POST');
       reopen.flush({ sessionId: '1-console-a1b2c3d4-resume-99887766', workingDirectory: '/tmp/a' });
-      // notifyOpened() (below) is also what the worktree list's own shell listing
-      // reacts to (#733), the same as starting an ordinary agent session (#221).
-      httpMock.expectOne('/api/shells').flush([]);
 
       // `dir` is the reopen response's working directory (#795): the agent session page
       // needs it to mount the never-attached session's terminal itself.

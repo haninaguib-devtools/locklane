@@ -9,15 +9,18 @@
     [starting]="starting"
     [defaultAgent]="defaultAgentStore.agent()"
     [installedAgents]="defaultAgentStore.installed()"
-    openLabel="Agent"
-    [hideOpenWhenActive]="true"
+    [offerAgent]="agentSessions.length === 0"
     (selectedChange)="onTabSelected($event)"
     (open)="openAgentSession($event)"
-    (close)="closeAgentSession($event)"
+    (openShell)="openShell()"
+    (close)="closeTab($event)"
     (reveal)="revealAgentSession($event)"
   />
   @if (startError) {
     <div class="action-error">could not open an agent — try again</div>
+  }
+  @if (shellError; as shellMessage) {
+    <div class="action-error">{{ shellMessage }}</div>
   }
   @if (closeError) {
     <div class="action-error">could not close that agent — try again</div>
@@ -47,6 +50,15 @@
         [cmd]="agentSession.agent"
         [resume]="agentSession.resume"
         [active]="agentSession.id === activeTab"
+      />
+    }
+    @for (shell of shells; track shell.id) {
+      <app-terminal
+        [class.tab-hidden]="shell.id !== activeTab"
+        [sessionId]="shell.id"
+        [dir]="shell.dir"
+        cmd="shell"
+        [active]="shell.id === activeTab"
       />
     }
   </div>

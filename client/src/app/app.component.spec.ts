@@ -186,8 +186,7 @@ describe('AppComponent', () => {
   }
 
   /**
-   * The project summary's worktree list (#320) fetches this project's worktrees, and
-   * its own open shells (#733) -- as does the summary's own shells button (#745) --
+   * The project summary's worktree list (#320) fetches this project's worktrees
    * once it learns the project is READY -- the same gate as
    * {@link flushProjectAgentSessions}, so every caller of that flushes this
    * immediately afterward too.
@@ -225,6 +224,8 @@ describe('AppComponent', () => {
     httpMock.match('/api/projects').forEach((request) => request.flush([PROJECT]));
     httpMock.expectOne(`/api/projects/1/issues/${number}/resume-sessions`).flush([]);
     httpMock.expectOne(`/api/projects/1/issues/${number}/worktrees`).flush([]);
+    // MainContentComponent's own shell tabs (#876) fetch alongside the worktrees.
+    httpMock.expectOne('/api/shells').flush([]);
   }
 
   it('should create the app', () => {
@@ -489,8 +490,12 @@ describe('AppComponent', () => {
     // ProjectAgentSessionComponent's own ngOnInit fetch (#698).
     httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
     flushAgentSessionIndicator();
+    // The sessions list above is empty, so the page reads its shells before auto-starting (#876).
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
+    // The start notifies, and the page re-reads its shells on it (#876).
+    httpMock.expectOne('/api/shells').flush([]);
     flushAgentSessionIndicator();
     fixture.detectChanges();
 
@@ -616,10 +621,14 @@ describe('AppComponent', () => {
     // ProjectAgentSessionComponent's own ngOnInit fetch (#698), ahead of the auto-start below.
     httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
     flushAgentSessionIndicator();
+    // The sessions list above is empty, so the page reads its shells before auto-starting (#876).
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     // #256: no open agent session auto-starts one with the default agent -- which the
     // header's agent session indicator and the sidenav both learn about in turn.
     httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
+    // The start notifies, and the page re-reads its shells on it (#876).
+    httpMock.expectOne('/api/shells').flush([]);
     flushAgentSessionIndicator();
     fixture.detectChanges();
 
@@ -651,10 +660,14 @@ describe('AppComponent', () => {
     // ProjectAgentSessionComponent's own ngOnInit fetch (#698).
     httpMock.expectOne('/api/agents/installed').flush({ installed: [{ id: 'claude', label: 'Claude' }] });
     flushAgentSessionIndicator();
+    // The sessions list above is empty, so the page reads its shells before auto-starting (#876).
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     httpMock
       .expectOne('/api/projects/1/console')
       .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/tmp/proj' });
+    // The start notifies, and the page re-reads its shells on it (#876).
+    httpMock.expectOne('/api/shells').flush([]);
     flushAgentSessionIndicator();
     fixture.detectChanges();
 
@@ -702,6 +715,8 @@ describe('AppComponent', () => {
         lastAttachedAt: '2026-08-27T09:00:00Z',
       },
     ]);
+    // The sessions list above is non-empty, so the page only reads its shells (#876).
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(TestBed.inject(Router).url).toBe('/projects/1/console?session=proj-1-console-abc');

@@ -11,7 +11,6 @@ import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-re
 import { LoginComponent } from './components/login/login.component';
 import { AgentSessionIndicatorComponent } from './components/agent-session-indicator/agent-session-indicator.component';
 import { ProjectAgentSessionComponent } from './components/project-agent-session/project-agent-session.component';
-import { ShellsWindowComponent } from './components/shells-window/shells-window.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
 import { AboutDialogComponent } from './components/about-dialog/about-dialog.component';
 import { AdminUsersComponent } from './components/admin-users/admin-users.component';
@@ -46,7 +45,6 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     AdminUsersComponent,
     GithubAccountsComponent,
     ProjectAgentSessionComponent,
-    ShellsWindowComponent,
     AddProjectPopupComponent,
     UpdateBannerComponent,
     ReleaseBannerComponent,
@@ -150,17 +148,6 @@ export class AppComponent {
       map(() => this.isProjectAgentSessionRoute()),
     ),
     { initialValue: this.isProjectAgentSessionRoute() },
-  );
-
-  // The Shells window routes (#446) render their own minimal shell -- no
-  // topbar/sidebar -- so the template branches on this before the authed layout,
-  // the same way the project-agent-session route is detected below.
-  readonly onShellsWindow = toSignal(
-    this.router.events.pipe(
-      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-      map(() => this.isShellsRoute()),
-    ),
-    { initialValue: this.isShellsRoute() },
   );
 
   // The sidenav shows every project at once (#44), so its selection carries a
@@ -334,11 +321,6 @@ export class AppComponent {
     const segments = this.route.snapshot.firstChild?.url ?? [];
     // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
     return segments.some((segment) => segment.path === 'console');
-  }
-
-  private isShellsRoute(): boolean {
-    const segments = this.route.snapshot.firstChild?.url ?? [];
-    return segments[0]?.path === 'shells';
   }
 }
 

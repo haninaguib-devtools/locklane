@@ -21,6 +21,12 @@ export interface AgentSessionTab extends AgentSessionInfo {
   /** The auto-generated label, from {@link labelAgentSessions} or the caller's own rule. */
   label: string;
   /**
+   * What runs in this tab (#876): an agent CLI or a plain shell. Absent means an
+   * agent -- every pre-#876 producer builds agent tabs only, and the strip treats
+   * a missing kind as one, so only shell producers set this.
+   */
+  kind?: 'agent' | 'shell';
+  /**
    * The name the user gave this tab (#393), or null/absent when they gave it none.
    * The strip shows this in place of `label` when it is set; clearing it brings the
    * auto label straight back, which is why both are carried rather than one
@@ -71,5 +77,26 @@ export function labelProjectAgentSessions(agentSessions: (AgentSessionInfo & { n
   return agentSessions.map((c, i) => {
     const index = i > 0 ? ` ${i + 1}` : '';
     return { ...c, label: `agent${index}` };
+  });
+}
+
+/** One shell tab's inputs: the engine's session id and the user's own name, if any. */
+export interface ShellTabInfo {
+  id: string;
+  dir: string;
+  name?: string | null;
+}
+
+/**
+ * Shell tab labels (#876): shells sharing a page are numbered on their own --
+ * "shell", "shell 2", ... -- independently of the agent tabs beside them, the
+ * same way {@link labelProjectAgentSessions} numbers agents on their own. The
+ * `dir` rides along for the tab body's first attach, the way the project page's
+ * agent tabs already carry theirs.
+ */
+export function labelShellTabs(shells: ShellTabInfo[]): AgentSessionTab[] {
+  return shells.map((s, i) => {
+    const index = i > 0 ? ` ${i + 1}` : '';
+    return { id: s.id, agent: null, dir: s.dir, kind: 'shell' as const, label: `shell${index}`, name: s.name ?? null };
   });
 }

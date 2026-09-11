@@ -1,9 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, Input, OnChanges, OnDestroy, OnInit, SimpleChanges, inject } from '@angular/core';
-import { Subscription, merge } from 'rxjs';
+import { Component, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
 import { ProjectWorktree, WorktreesService } from '../../services/worktrees.service';
-import { OpenShell, ShellsService } from '../../services/shells.service';
-import { AgentSessionsService } from '../../services/agent-sessions.service';
 
 /**
  * The project page's worktree list (#320): every worktree tied to the project's
@@ -14,11 +11,9 @@ import { AgentSessionsService } from '../../services/agent-sessions.service';
  * {@code ProjectWorktreesController}, which applies the exact same safety guard as
  * the periodic sweep rather than a separate, potentially-drifting copy of it.
  *
- * Also lists the project's open shells (#733) — the standalone terminals opened from a
- * agent session tab's hover-revealed terminal icon, which otherwise have no home on the
- * project page even though the delete-project guard blocks on them same as a
- * worktree/agent session. `ShellsService.list()` has no per-project endpoint, so it is
- * filtered client-side, same as `ShellsSidenavComponent`'s own per-project grouping.
+ * Open shells are not listed here (#876): main-checkout shells live as tabs on
+ * the project's agent session page and issue-worktree shells on their issue's
+ * page, so every shell already has a home.
  */
 @Component({
   selector: 'app-worktree-list',
@@ -26,10 +21,8 @@ import { AgentSessionsService } from '../../services/agent-sessions.service';
   templateUrl: './worktree-list.component.html',
   styleUrl: './worktree-list.component.css',
 })
-export class WorktreeListComponent implements OnChanges, OnInit, OnDestroy {
+export class WorktreeListComponent implements OnChanges {
   private readonly worktreesService = inject(WorktreesService);
-  private readonly shellsService = inject(ShellsService);
-  private readonly agentSessionsService = inject(AgentSessionsService);
 
   @Input({ required: true }) projectId!: number;
 
@@ -47,33 +40,9 @@ export class WorktreeListComponent implements OnChanges, OnInit, OnDestroy {
   cleanupMessage: string | null = null;
   cleanupError = false;
 
-  shells: OpenShell[] = [];
-  shellsLoading = true;
-  shellsLoadError = false;
-  closingShellId: string | null = null;
-  closeShellErrors = new Map<string, string>();
-
-  // A shell (or agent session) opened or closed anywhere reaches this page as `consolesChanged`
-  // (#195; the shell endpoints broadcast it too, #445/#460) -- AgentSessionsService already
-  // folds that, plus a reconnect, into `onOpened`/`onClosed` (the same signal
-  // AgentSessionIndicatorComponent reacts to), so this page's shell list stays live without
-  // talking to EventsService directly.
-  private readonly subscriptions = new Subscription();
-
-  ngOnInit(): void {
-    this.subscriptions.add(
-      merge(this.agentSessionsService.onOpened, this.agentSessionsService.onClosed).subscribe(() => this.loadShells()),
-    );
-  }
-
-  ngOnDestroy(): void {
-    this.subscriptions.unsubscribe();
-  }
-
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['projectId']) {
       this.load();
-      this.loadShells();
     }
   }
 
@@ -106,53 +75,6 @@ export class WorktreeListComponent implements OnChanges, OnInit, OnDestroy {
       error: (err: HttpErrorResponse) => {
         this.removingId = null;
         this.removeErrors.set(row.worktreeId, err.error?.error ?? 'could not remove this worktree');
-      },
-    });
-  }
-
-  private loadShells(): void {
-    this.shellsLoading = true;
-    this.shellsLoadError = false;
-    this.shellsService.list().subscribe({
-      next: (shells) => {
-        this.shells = shells.filter((shell) => shell.projectId === this.projectId);
-        this.shellsLoading = false;
-      },
-      error: () => {
-        this.shellsLoading = false;
-        this.shellsLoadError = true;
-      },
-    });
-  }
-
-  /** A shell's own name (#393) when it has one, otherwise its location. */
-  shellLabel(shell: OpenShell): string {
-    const name = shell.displayName?.trim();
-    if (name) {
-      return name;
-    }
-    return shell.mainCheckout ? 'main checkout' : `#${shell.issueNumber}`;
-  }
-
-  /** The singleton-window convention (#444): repeat calls with the same window name focus it. */
-  openShell(shell: OpenShell): void {
-    window.open(`/shells/${shell.sessionId}`, 'locklane-shells');
-  }
-
-  closeShell(shell: OpenShell): void {
-    if (this.closingShellId) {
-      return;
-    }
-    this.closingShellId = shell.sessionId;
-    this.closeShellErrors.delete(shell.sessionId);
-    this.shellsService.close(this.projectId, shell.sessionId).subscribe({
-      next: () => {
-        this.closingShellId = null;
-        this.shells = this.shells.filter((s) => s.sessionId !== shell.sessionId);
-      },
-      error: (err: HttpErrorResponse) => {
-        this.closingShellId = null;
-        this.closeShellErrors.set(shell.sessionId, err.error?.error ?? 'could not close this shell');
       },
     });
   }
