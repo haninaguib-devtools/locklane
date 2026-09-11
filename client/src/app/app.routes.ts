@@ -15,11 +15,6 @@ export const routes: Routes = [
   // existing one.
   // The path keeps its 'console' segment: a compatibility surface kept under ADR-112.
   { path: 'projects/:projectId/console', children: [] },
-  // The Shells window (#446): a singleton popup with its own minimal shell --
-  // AppComponent renders ShellsWindowComponent for these instead of the authed
-  // topbar/sidebar layout, still behind the login check.
-  { path: 'shells/:id', children: [] },
-  { path: 'shells', children: [] },
   // The workspace Overview (#197): no project id picked, so AppComponent renders
   // it directly -- no redirect into a project the way #43 used to. Not logged in
   // / no projects yet: OverviewComponent and AppComponent's own login check

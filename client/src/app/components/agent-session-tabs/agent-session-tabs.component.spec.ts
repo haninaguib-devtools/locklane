@@ -25,30 +25,67 @@ describe('AgentSessionTabsComponent', () => {
     expect(emitted).toBe('7-rename-toggle');
   });
 
-  it('with no installed agents known, the "+" starts an agent session with the default agent directly (#341, #757)', () => {
+  it('with no installed agents known, the "+" offers the default agent and Shell in the picker (#757, #876)', () => {
     const c = new AgentSessionTabsComponent();
     c.defaultAgent = 'codex';
-    let emitted: { agent: string } | undefined;
-    c.open.subscribe((request) => (emitted = request));
+    const opened: { agent: string }[] = [];
+    c.open.subscribe((request) => opened.push(request));
+    let shelled = 0;
+    c.openShell.subscribe(() => shelled++);
 
     c.plusClicked();
 
-    expect(emitted).toEqual({ agent: 'codex' });
-    expect(c.pickerOpen).toBeFalse();
+    expect(c.offersPicker).toBeTrue();
+    expect(c.pickerOpen).toBeTrue();
+    expect(opened).toEqual([]);
+    expect(shelled).toBe(0);
+    expect(c.agentChoices).toEqual([{ id: 'codex', label: 'codex' }]);
   });
 
-  it('with exactly one installed agent, the "+" starts an agent session with that agent immediately, no picker (#757)', () => {
+  it('with exactly one installed agent, the "+" offers that agent and Shell in the picker (#757, #876)', () => {
     const c = new AgentSessionTabsComponent();
     c.defaultAgent = 'codex';
     c.installedAgents = [{ id: 'claude', label: 'Claude' }];
-    let emitted: { agent: string } | undefined;
-    c.open.subscribe((request) => (emitted = request));
+    let opened = 0;
+    c.open.subscribe(() => opened++);
+
+    c.plusClicked();
+
+    expect(c.offersPicker).toBeTrue();
+    expect(c.pickerOpen).toBeTrue();
+    expect(opened).toBe(0);
+  });
+
+  it('with Shell the only choice, the "+" mints a shell directly, no picker (#876)', () => {
+    const c = new AgentSessionTabsComponent();
+    c.offerAgent = false;
+    c.installedAgents = [
+      { id: 'claude', label: 'Claude' },
+      { id: 'codex', label: 'Codex' },
+    ];
+    let shelled = 0;
+    c.openShell.subscribe(() => shelled++);
+    let opened = 0;
+    c.open.subscribe(() => opened++);
 
     c.plusClicked();
 
     expect(c.offersPicker).toBeFalse();
     expect(c.pickerOpen).toBeFalse();
-    expect(emitted).toEqual({ agent: 'claude' });
+    expect(shelled).toBe(1);
+    expect(opened).toBe(0);
+  });
+
+  it('with no agent choice at all, the "+" mints a shell directly (#876)', () => {
+    const c = new AgentSessionTabsComponent();
+    c.defaultAgent = '';
+    let shelled = 0;
+    c.openShell.subscribe(() => shelled++);
+
+    c.plusClicked();
+
+    expect(c.offersPicker).toBeFalse();
+    expect(shelled).toBe(1);
   });
 
   it('with two or more installed agents, the "+" opens the picker and emits only once an entry is chosen (#757)', () => {
@@ -111,7 +148,7 @@ describe('AgentSessionTabsComponent', () => {
     expect(emitted).toBe(0);
   });
 
-  it('renders one picker entry per installed agent, labelled, and none until the "+" is clicked (#757)', () => {
+  it('renders one picker entry per installed agent plus Shell, labelled, and none until the "+" is clicked (#757, #876)', () => {
     TestBed.configureTestingModule({
       imports: [AgentSessionTabsComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -133,7 +170,7 @@ describe('AgentSessionTabsComponent', () => {
     fixture.detectChanges();
 
     const options = Array.from(root.querySelectorAll('.agent-option')) as HTMLButtonElement[];
-    expect(options.map((option) => option.textContent!.trim())).toEqual(['Claude', 'Codex']);
+    expect(options.map((option) => option.textContent!.trim())).toEqual(['Claude', 'Codex', 'Shell']);
     expect(emitted).toEqual([]);
 
     options[1].click();
@@ -143,27 +180,44 @@ describe('AgentSessionTabsComponent', () => {
     expect(root.querySelector('.agent-picker')).toBeNull();
   });
 
-  it('shows the open button when there are no open tabs, even with hideOpenWhenActive set (#318)', () => {
-    const c = new AgentSessionTabsComponent();
-    c.hideOpenWhenActive = true;
-    c.tabs = [];
+  it('picking Shell emits openShell and closes the picker (#876)', () => {
+    TestBed.configureTestingModule({
+      imports: [AgentSessionTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const fixture = TestBed.createComponent(AgentSessionTabsComponent);
+    fixture.componentInstance.overview = false;
+    fixture.componentInstance.installedAgents = [{ id: 'claude', label: 'Claude' }];
+    let shelled = 0;
+    fixture.componentInstance.openShell.subscribe(() => shelled++);
+    let opened = 0;
+    fixture.componentInstance.open.subscribe(() => opened++);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
 
-    expect(c.showOpenButton).toBeTrue();
+    (root.querySelector('.plus') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const options = Array.from(root.querySelectorAll('.agent-option')) as HTMLButtonElement[];
+    expect(options.map((option) => option.textContent!.trim())).toEqual(['Claude', 'Shell']);
+    options[1].click();
+    fixture.detectChanges();
+
+    expect(shelled).toBe(1);
+    expect(opened).toBe(0);
+    expect(root.querySelector('.agent-picker')).toBeNull();
   });
 
-  it('hides the open button once a tab is open, when hideOpenWhenActive is set (#318)', () => {
-    const c = new AgentSessionTabsComponent();
-    c.hideOpenWhenActive = true;
-    c.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
+  it('the "+" button stays visible with tabs open -- shells need it even beside a live agent session (#876)', () => {
+    TestBed.configureTestingModule({
+      imports: [AgentSessionTabsComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const fixture = TestBed.createComponent(AgentSessionTabsComponent);
+    fixture.componentInstance.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
+    fixture.detectChanges();
 
-    expect(c.showOpenButton).toBeFalse();
-  });
-
-  it('keeps showing the open button with tabs open when hideOpenWhenActive is not set', () => {
-    const c = new AgentSessionTabsComponent();
-    c.tabs = [{ id: '7-rename-toggle', agent: 'claude', label: 'wtree · claude' }];
-
-    expect(c.showOpenButton).toBeTrue();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.plus')).not.toBeNull();
   });
 
   it('closeTab stops propagation, closes the menu, and awaits confirmation before emitting', () => {
@@ -292,7 +346,7 @@ describe('AgentSessionTabsComponent', () => {
     expect(fixture.componentInstance.pendingCloseId).toBe('7-rename-toggle');
   });
 
-  it('omits only the Folder menu item once the overflow menu opens away from localhost, keeping Shell, Open IDE and Close (#497, #655)', () => {
+  it('omits only the Folder menu item once the overflow menu opens away from localhost, keeping Open IDE and Close (#497, #655)', () => {
     TestBed.configureTestingModule({
       imports: [AgentSessionTabsComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -308,7 +362,8 @@ describe('AgentSessionTabsComponent', () => {
 
     expect(tabWrap.querySelector('.tab-reveal')).toBeNull();
     expect(tabWrap.querySelector('.tab-open-ide')).not.toBeNull();
-    expect(tabWrap.querySelector('.tab-shell')).not.toBeNull();
+    // Shells are tabs now (#876) -- no per-tab Shell item anymore.
+    expect(tabWrap.querySelector('.tab-shell')).toBeNull();
     expect(tabWrap.querySelector('.tab-close')).not.toBeNull();
   });
 
@@ -371,20 +426,16 @@ describe('AgentSessionTabsComponent', () => {
   });
 });
 
-// The open-a-shell control (#447) talks HTTP and the DOM, so unlike the pure unit
-// tests above these render the component under TestBed.
-describe('AgentSessionTabsComponent open-a-shell (#447)', () => {
-  let httpMock: HttpTestingController;
-
+// Shell tabs (#876) render in the same strip as agent tabs: no per-tab Shell
+// menu item (the tab *is* the shell), no rename, and a close dialog that names
+// what it is about to end.
+describe('AgentSessionTabsComponent shell tabs (#876)', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [AgentSessionTabsComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
-    httpMock = TestBed.inject(HttpTestingController);
   });
-
-  afterEach(() => httpMock.verify());
 
   function render(tabs: AgentSessionTab[], overview = true) {
     const fixture = TestBed.createComponent(AgentSessionTabsComponent);
@@ -394,109 +445,62 @@ describe('AgentSessionTabsComponent open-a-shell (#447)', () => {
     return fixture;
   }
 
-  // The Shell menu item only exists once its tab's overflow menu is open (#480).
   function openMenu(fixture: ReturnType<typeof render>, tabWrapIndex = 0): void {
     const wraps = fixture.nativeElement.querySelectorAll('.tab-wrap');
     (wraps[tabWrapIndex].querySelector('.tab-menu-trigger') as HTMLButtonElement).click();
     fixture.detectChanges();
   }
 
-  it('shows the Shell item once its tab menu is open, and never on the Overview pseudo-tab (#480)', () => {
-    const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+  it('renders a shell tab beside the agent tabs, with no Shell item in its overflow menu', () => {
+    const fixture = render(
+      [
+        { id: '1-console-aaaa0001', agent: 'claude', label: 'agent' },
+        { id: '1-shell-main-cccc0001', agent: null, label: 'shell', kind: 'shell' },
+      ],
+      false,
+    );
 
-    // The Overview tab renders first with no overflow trigger at all.
-    const overviewWrap = fixture.nativeElement.querySelector('.tab-wrap');
-    expect(overviewWrap.querySelector('.tab-menu-trigger')).toBeNull();
+    const wraps = fixture.nativeElement.querySelectorAll('.tab-wrap');
+    expect(wraps.length).toBe(2);
+    expect(wraps[1].textContent).toContain('shell');
 
     openMenu(fixture, 1);
 
-    const icons = fixture.nativeElement.querySelectorAll('.tab-shell');
-    expect(icons.length).toBe(1);
+    expect(fixture.nativeElement.querySelectorAll('.tab-shell').length).toBe(0);
   });
 
-  it('clicking Shell mints a shell at the tab-carried directory and opens the singleton window', () => {
-    // The project-agent-session page's tabs carry their directory (#447).
-    const openSpy = spyOn(window, 'open');
-    const fixture = render(
-      [{ id: '1-console-aaaa0001', agent: 'shell', label: 'agent', dir: '/repo-console-aaaa0001' }],
-      false,
-    );
-    openMenu(fixture);
+  it('never starts a rename on a shell tab, even where renaming is on', () => {
+    const c = new AgentSessionTabsComponent();
+    c.renamable = true;
+    c.tabs = [{ id: '1-shell-main-cccc0001', agent: null, label: 'shell', kind: 'shell' }];
 
-    (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
+    c.startRename({ id: '1-shell-main-cccc0001', agent: null, label: 'shell', kind: 'shell' }, new Event('dblclick'));
 
-    const post = httpMock.expectOne('/api/projects/1/shells');
-    expect(post.request.method).toBe('POST');
-    expect(post.request.body).toEqual({ issueNumber: null, workingDirectory: '/repo-console-aaaa0001' });
-    post.flush({ sessionId: '1-shell-main-cccc0001', workingDirectory: '/repo-console-aaaa0001' });
-    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-main-cccc0001', 'locklane-shells');
+    expect(c.renamingId).toBeNull();
+    expect(c.tabTitle('1-shell-main-cccc0001')).toBeNull();
   });
 
-  it('an issue tab with no carried directory resolves it from the project worktree list', () => {
-    const openSpy = spyOn(window, 'open');
-    const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
-    openMenu(fixture, 1);
+  it('the pending close dialog names a shell tab as a shell', () => {
+    const c = new AgentSessionTabsComponent();
+    c.tabs = [
+      { id: '1-console-aaaa0001', agent: 'claude', label: 'agent' },
+      { id: '1-shell-main-cccc0001', agent: null, label: 'shell', kind: 'shell' },
+    ];
 
-    (fixture.nativeElement.querySelectorAll('.tab-shell')[0] as HTMLButtonElement).click();
+    c.closeTab('1-console-aaaa0001', new Event('click'));
+    expect(c.pendingCloseIsShell).toBeFalse();
+    expect(c.closeTitle).toBe('Close agent?');
+    c.cancelClose();
 
-    httpMock.expectOne('/api/projects/1/worktrees').flush([
-      {
-        worktreeId: '1-7-do-the-thing',
-        issueNumber: 7,
-        workingDirectory: '/repo-7',
-        clean: true,
-        sessionAttached: true,
-      },
-    ]);
-    const post = httpMock.expectOne('/api/projects/1/shells');
-    expect(post.request.body).toEqual({ issueNumber: 7, workingDirectory: '/repo-7' });
-    post.flush({ sessionId: '1-shell-7-dddd0001', workingDirectory: '/repo-7' });
-    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-7-dddd0001', 'locklane-shells');
-  });
-
-  it('clicking again mints another shell — no reuse', () => {
-    const openSpy = spyOn(window, 'open');
-    const fixture = render(
-      [{ id: '1-console-aaaa0001', agent: 'shell', label: 'agent', dir: '/repo-console-aaaa0001' }],
-      false,
-    );
-
-    openMenu(fixture);
-    (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
-    httpMock
-      .expectOne('/api/projects/1/shells')
-      .flush({ sessionId: '1-shell-main-cccc0001', workingDirectory: '/repo-console-aaaa0001' });
-
-    // Selecting the item closed the menu (#480); reopen it for the second click.
-    openMenu(fixture);
-    (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
-    httpMock
-      .expectOne('/api/projects/1/shells')
-      .flush({ sessionId: '1-shell-main-cccc0002', workingDirectory: '/repo-console-aaaa0001' });
-
-    expect(openSpy).toHaveBeenCalledTimes(2);
-    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-main-cccc0002', 'locklane-shells');
-  });
-
-  it('a failed mint shows the error note instead of opening a window', () => {
-    const openSpy = spyOn(window, 'open');
-    const fixture = render(
-      [{ id: '1-console-aaaa0001', agent: 'shell', label: 'agent', dir: '/repo-console-aaaa0001' }],
-      false,
-    );
-    openMenu(fixture);
-
-    (fixture.nativeElement.querySelector('.tab-shell') as HTMLButtonElement).click();
-    httpMock.expectOne('/api/projects/1/shells').flush(null, { status: 404, statusText: 'Not Found' });
-    fixture.detectChanges();
-
-    expect(openSpy).not.toHaveBeenCalled();
-    expect(fixture.nativeElement.querySelector('.shell-error')).not.toBeNull();
+    c.closeTab('1-shell-main-cccc0001', new Event('click'));
+    expect(c.pendingCloseIsShell).toBeTrue();
+    expect(c.closeTitle).toBe('Close shell?');
+    expect(c.closeMessage).toContain('shell session');
   });
 });
 
-// The Open IDE control (#627/#628, #782) talks HTTP and the DOM, the same shape as
-// open-a-shell above.
+// The Open IDE control (#627/#628, #782) talks HTTP and the DOM, so like the
+// shell-tabs suite above it renders under TestBed.
 describe('AgentSessionTabsComponent open-the-ide (#628, #782)', () => {
   const IDE_STORAGE_KEY = 'locklane.defaultIde';
   let httpMock: HttpTestingController;

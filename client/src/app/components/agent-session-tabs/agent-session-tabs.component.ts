@@ -1,13 +1,10 @@
 import { Component, ElementRef, EventEmitter, HostListener, Input, OnInit, Optional, Output, ViewChild } from '@angular/core';
-import { Observable, map, of, switchMap } from 'rxjs';
 import { Agent } from '../../services/agent-store';
 import { AttentionStore } from '../../services/attention-store';
 import { InstalledAgent } from '../../services/default-agent-store';
 import { CODE_SERVER_IDE, DefaultIdeStore, InstalledIde } from '../../services/default-ide-store';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
-import { AgentSessionsService, issueNumberFromSessionId } from '../../services/agent-sessions.service';
-import { ShellsService } from '../../services/shells.service';
-import { WorktreesService } from '../../services/worktrees.service';
+import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { AgentSessionTab, OVERVIEW_TAB_ID, tabText } from './agent-session-labels';
 
 export interface OpenAgentSessionRequest {
@@ -32,13 +29,10 @@ export class AgentSessionTabsComponent implements OnInit {
   // the existing unit tests instantiate this component with bare
   // `new AgentSessionTabsComponent()` (the defaults cover that), and other component
   // suites render this strip under TestBeds with no HttpClient provider —
-  // @Optional() lets DI hand in null there instead of erroring, and the
-  // open-shell control simply no-ops without its services.
+  // @Optional() lets DI hand in null there instead of erroring.
   // The attention store (#791) follows the same rule: a null store means no tab is
   // ever waiting, so the strip renders its dots plain blue.
   constructor(
-    @Optional() private readonly shellsService: ShellsService | null = null,
-    @Optional() private readonly worktreesService: WorktreesService | null = null,
     @Optional() private readonly agentSessionsService: AgentSessionsService | null = null,
     @Optional() private readonly defaultIdeStore: DefaultIdeStore | null = null,
     @Optional() private readonly attentionStore: AttentionStore | null = null,
@@ -73,24 +67,24 @@ export class AgentSessionTabsComponent implements OnInit {
   // #757: the agents the engine detected on its host PATH, as the Settings dialog's
   // "Default agent" section lists them (`DefaultAgentStore.installed()`), bound by the
   // host rather than injected here so the strip still constructs bare in its own
-  // specs. Two or more turn the open button into a picker; one is launched directly;
-  // none (the fetch not resolved yet, or nothing installed) falls back to
-  // `defaultAgent`, exactly the pre-#757 behaviour.
+  // specs. Together with the Shell entry (#876) they decide whether "+" asks or
+  // launches directly; with no installed agent known the default agent (#219)
+  // stands in as the single agent choice.
   @Input() installedAgents: InstalledAgent[] = [];
-  // The label on the open button — "+" everywhere except the issue page (#318),
-  // which spells it out as "Agent" now that it launches one specific thing.
-  @Input() openLabel = '+';
-  // The issue page (#318): a live agent session already ties the button's job (open
-  // *the* worktree agent session for this issue) to state that's visible in the tab
-  // strip itself, so the button hides rather than sitting there doing nothing
-  // useful. The project-agent-session strip keeps "+" visible to start more agent sessions.
-  @Input() hideOpenWhenActive = false;
+  // Whether the Agent choice is offered at all (#876): the project page always
+  // offers it, while the issue page suppresses it once its worktree session is
+  // live -- picking it would only reselect what the strip already shows, so Shell
+  // is the only choice left and "+" launches one directly.
+  @Input() offerAgent = true;
   // #393: only the project agent session page lets a user name its tabs; the issue page
   // keeps the auto labels, so renaming is opt-in per call site rather than on
-  // everywhere the shared strip is used.
+  // everywhere the shared strip is used. Shell tabs never rename -- the engine
+  // exposes no shell rename -- even where renaming is on.
   @Input() renamable = false;
   @Output() selectedChange = new EventEmitter<string>();
   @Output() open = new EventEmitter<OpenAgentSessionRequest>();
+  /** A shell tab asked for (#876): the page mints it at its own directory. */
+  @Output() openShell = new EventEmitter<void>();
   @Output() close = new EventEmitter<string>();
   @Output() rename = new EventEmitter<RenameAgentSessionRequest>();
   // #441: reveals a tab's worktree in the OS's file manager. No confirmation needed
@@ -137,21 +131,25 @@ export class AgentSessionTabsComponent implements OnInit {
     return this.attentionStore?.isWaiting(id) ?? false;
   }
 
-  /** The tab button's tooltip: the waiting state first, else the rename hint where renaming is on (#393). */
+  /** The tab button's tooltip: the waiting state first, else the rename hint where renaming is on (#393, never on a shell tab). */
   tabTitle(id: string): string | null {
     if (this.isWaiting(id)) {
       return 'Waiting for you';
     }
-    return this.renamable ? 'double-click to rename' : null;
+    if (!this.renamable || this.tabs.some((tab) => tab.id === id && tab.kind === 'shell')) {
+      return null;
+    }
+    return 'double-click to rename';
   }
 
   /**
    * Double-clicking a tab turns its label into a field (#393), seeded with the name
    * the user already gave it -- never with the auto-generated label, so committing
    * an untouched field on a never-named tab is not a rename to the label's text.
+   * Shell tabs never rename (#876), so double-clicking one does nothing.
    */
   startRename(tab: AgentSessionTab, event: Event): void {
-    if (!this.renamable) {
+    if (!this.renamable || tab.kind === 'shell') {
       return;
     }
     event.stopPropagation();
@@ -230,44 +228,22 @@ export class AgentSessionTabsComponent implements OnInit {
     this.reveal.emit(id);
   }
 
-  // Whether the last open-shell attempt failed (#447) — cleared on the next one.
-  shellOpenFailed = false;
-
-  /**
-   * The hover-revealed shell icon (#447): mints a brand-new shell session at this
-   * tab's worktree — never a reuse, every click another shell — then opens/focuses
-   * the singleton Shells window on it. The owning project id is parsed from the
-   * tab's own session id (`<projectId>-…`, the same convention the engine keys
-   * authorization and broadcasts on).
-   */
-  openShellAt(tab: AgentSessionTab, event: Event): void {
-    event.stopPropagation();
-    this.openMenuId = null;
-    const shells = this.shellsService;
-    const projectId = projectIdOf(tab.id);
-    if (shells === null || this.worktreesService === null || projectId === null) {
-      return;
-    }
-    this.shellOpenFailed = false;
-    this.directoryOf(projectId, tab)
-      .pipe(switchMap((dir) => shells.open(projectId, issueNumberFromSessionId(tab.id), dir)))
-      .subscribe({
-        next: (created) => {
-          // The initiative's singleton convention (#444): a repeated open with the
-          // same window name navigates and focuses the existing window.
-          window.open(`/shells/${created.sessionId}`, 'locklane-shells');
-        },
-        error: () => (this.shellOpenFailed = true),
-      });
+  // Whether the tab awaiting close confirmation is a shell (#876): the dialog
+  // names what it is about to end.
+  get pendingCloseIsShell(): boolean {
+    return this.tabs.some((tab) => tab.id === this.pendingCloseId && tab.kind === 'shell');
   }
 
-  /**
-   * Where this tab's agent session actually runs: its own `dir` when the caller carried
-   * it (the project-agent-session page does), otherwise the project worktree list — a
-   * read-only lookup — first by the tab's exact session id, then by its issue
-   * number, since an issue has one worktree. Errors when neither matches, which
-   * the open-shell subscriber surfaces as {@link #shellOpenFailed}.
-   */
+  get closeTitle(): string {
+    return this.pendingCloseIsShell ? 'Close shell?' : 'Close agent?';
+  }
+
+  get closeMessage(): string {
+    return this.pendingCloseIsShell
+      ? 'This ends the shell session for good — the process is killed and its scrollback is gone.'
+      : 'Close this agent? It will be terminated and cannot be reattached.';
+  }
+
   // Whether the last "Open IDE" attempt failed (#628) -- cleared on the next one.
   ideOpenFailed = false;
 
@@ -288,13 +264,12 @@ export class AgentSessionTabsComponent implements OnInit {
   /**
    * The "Open IDE" menu item (#627/#628, #782): asks the engine to open this tab's
    * worktree in {@link effectiveIde}. For code-server that starts (or reuses) its
-   * process and the returned URL opens in a singleton browser tab -- the same shape
-   * as {@link openShellAt}: mint/reuse the session server-side, then `window.open`
-   * it, never a path sent from here. For a desktop IDE the engine launches the editor
-   * on its own host and returns no URL, so nothing opens here. Offered on every host,
-   * unlike Folder (#655): away from localhost the effective choice is always
-   * code-server, whose URL is the engine's own proxied path, so it works wherever this
-   * page itself was reached from.
+   * process and the returned URL opens in a singleton browser tab -- mint/reuse the
+   * session server-side, then `window.open` it, never a path sent from here. For a
+   * desktop IDE the engine launches the editor on its own host and returns no URL,
+   * so nothing opens here. Offered on every host, unlike Folder (#655): away from
+   * localhost the effective choice is always code-server, whose URL is the engine's
+   * own proxied path, so it works wherever this page itself was reached from.
    */
   openIdeAt(tab: AgentSessionTab, event: Event): void {
     event.stopPropagation();
@@ -315,26 +290,6 @@ export class AgentSessionTabsComponent implements OnInit {
     });
   }
 
-  private directoryOf(projectId: number, tab: AgentSessionTab): Observable<string> {
-    if (tab.dir) {
-      return of(tab.dir);
-    }
-    return this.worktreesService!.list(projectId).pipe(
-      map((rows) => {
-        const own = rows.find((row) => row.worktreeId === tab.id);
-        if (own) {
-          return own.workingDirectory;
-        }
-        const issue = issueNumberFromSessionId(tab.id);
-        const byIssue = issue !== null ? rows.find((row) => row.issueNumber === issue) : undefined;
-        if (byIssue) {
-          return byIssue.workingDirectory;
-        }
-        throw new Error(`no worktree directory known for agent '${tab.id}'`);
-      }),
-    );
-  }
-
   confirmClose(): void {
     const id = this.pendingCloseId;
     this.pendingCloseId = null;
@@ -347,29 +302,32 @@ export class AgentSessionTabsComponent implements OnInit {
     this.pendingCloseId = null;
   }
 
-  // Whether the open button renders at all — hidden once the issue page (#318)
-  // already has a live agent session for this issue, since the button's whole job is
-  // opening/reusing that one agent session and the tab strip already shows it is open.
-  get showOpenButton(): boolean {
-    return !this.hideOpenWhenActive || this.tabs.length === 0;
-  }
-
-  // Whether the agent picker under the open button is showing (#757). Closed by a
-  // choice, an outside click (closeMenu above), or Escape (closePicker below).
+  // Whether the agent/Shell picker under the "+" button is showing (#757).
+  // Closed by a choice, an outside click (closeMenu above), or Escape (closePicker below).
   pickerOpen = false;
 
-  // Whether the open button has anything to ask (#757): two or more installed
-  // agents. With one or none there is no choice to offer, so it launches directly.
+  // Whether the "+" button has anything to ask (#757, #876): two or more
+  // choices between the offered agents and Shell. A single choice -- Shell alone,
+  // once the issue page suppresses Agent beside its live session -- launches directly.
   get offersPicker(): boolean {
-    return this.installedAgents.length >= 2;
+    return (this.offerAgent ? this.agentChoices.length : 0) + 1 >= 2;
   }
 
-  // The "+" / "Agent" button — the issue page's Agent button (#318), or the
-  // project-agent-session strip's own scratch worktree (#256/#314). Where an agent session runs is
-  // settled (#341 retired the only other place, the project's main checkout); which
-  // agent runs in it is the one question left (#757): with two or more installed
-  // agents the button opens a picker and starts nothing until one is chosen; exactly
-  // one installed agent is launched as is; none known falls back to the default.
+  /**
+   * The agent entries the picker offers (#757): the installed agents when any are
+   * known, else the Settings default as the single fallback -- or nothing when
+   * even that is unknown yet, leaving Shell the only choice.
+   */
+  get agentChoices(): InstalledAgent[] {
+    if (this.installedAgents.length > 0) {
+      return this.installedAgents;
+    }
+    return this.defaultAgent ? [{ id: this.defaultAgent, label: this.defaultAgent }] : [];
+  }
+
+  // The "+" button (#876): with a choice to make it opens the agent/Shell picker
+  // and starts nothing until one is chosen; with Shell the only choice it mints
+  // one directly.
   plusClicked(event?: Event): void {
     event?.stopPropagation();
     if (this.offersPicker) {
@@ -377,8 +335,7 @@ export class AgentSessionTabsComponent implements OnInit {
       this.pickerOpen = !this.pickerOpen;
       return;
     }
-    const only = this.installedAgents[0];
-    this.open.emit({ agent: only ? only.id : this.defaultAgent });
+    this.openShell.emit();
   }
 
   // A picker entry (#757): starts the agent session with exactly that agent.
@@ -386,6 +343,13 @@ export class AgentSessionTabsComponent implements OnInit {
     event.stopPropagation();
     this.pickerOpen = false;
     this.open.emit({ agent });
+  }
+
+  // The picker's Shell entry (#876): the page mints a shell at its own directory.
+  pickShell(event: Event): void {
+    event.stopPropagation();
+    this.pickerOpen = false;
+    this.openShell.emit();
   }
 
   // Escape dismisses the picker without starting anything (#757).

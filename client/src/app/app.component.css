@@ -30,8 +30,7 @@
   min-height: 0;
 }
 
-app-login,
-app-shells-window {
+app-login {
   flex: 1;
   min-height: 0;
 }

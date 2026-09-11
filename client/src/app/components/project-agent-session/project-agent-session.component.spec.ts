@@ -139,6 +139,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('attaches straight to an existing session, skipping the agent picker', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
@@ -153,6 +154,7 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
@@ -172,6 +174,7 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
@@ -186,6 +189,7 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
@@ -199,6 +203,7 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
@@ -212,6 +217,7 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.selected).toBe('1-console-e5f6a7b8');
@@ -227,14 +233,16 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
   }));
 
-  it('shows no Overview tab, and its "+" offers the installed agents before starting anything (#256, #757)', () => {
+  it('shows no Overview tab, and its "+" offers the installed agents and Shell before starting anything (#256, #757, #876)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -244,10 +252,11 @@ describe('ProjectAgentSessionComponent', () => {
 
     // #256 had the "+" start an agent session with the default agent directly; since #757,
     // with the two agents `init()` seeds, it opens a picker first and starts nothing
-    // until one is chosen -- no location to pick, still (#341), only the agent.
+    // until one is chosen -- no location to pick, still (#341), only the agent (#876
+    // adds Shell beside them).
     httpMock.expectNone('/api/projects/1/console');
     const options = Array.from(compiled.querySelectorAll<HTMLButtonElement>('.agent-option'));
-    expect(options.map((option) => option.textContent!.trim())).toEqual(['Claude', 'Codex']);
+    expect(options.map((option) => option.textContent!.trim())).toEqual(['Claude', 'Codex', 'Shell']);
 
     options[1].click();
     fixture.detectChanges();
@@ -267,6 +276,7 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T11:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T10:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -287,6 +297,7 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T11:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T10:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     // Loading itself selects one -- via ?session or lastAttachedAt -- so that
     // counts as an interaction too.
@@ -303,6 +314,7 @@ describe('ProjectAgentSessionComponent', () => {
     TestBed.inject(AgentStore).set('1-console-a1b2c3d4', 'codex');
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const tab = (fixture.nativeElement as HTMLElement).querySelector('.tab')!;
@@ -312,6 +324,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('starts an agent session with no picker of any kind when the project has no open agent session (#256)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -326,6 +339,7 @@ describe('ProjectAgentSessionComponent', () => {
     TestBed.inject(DefaultAgentStore).set('codex');
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     const opened = jasmine.createSpy('onOpened');
     TestBed.inject(AgentSessionsService).onOpened.subscribe(opened);
@@ -350,6 +364,7 @@ describe('ProjectAgentSessionComponent', () => {
     // empty stored preference to a real CLI before the auto-start below fires.
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const req = httpMock.expectOne('/api/projects/1/console');
@@ -364,6 +379,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('opens another agent session from the tab strip\'s "+" and selects it', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     fixture.componentInstance.openFromTabs({ agent: 'claude' });
@@ -384,6 +400,7 @@ describe('ProjectAgentSessionComponent', () => {
     httpMock
       .expectOne('/api/projects/1/console/sessions')
       .flush([{ ...row('1-console-a1b2c3d4'), workingDirectory: '/repo-console-a1b2c3d4' }]);
+      httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     fixture.componentInstance.openFromTabs({ agent: 'claude' });
@@ -405,6 +422,7 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     const closed = jasmine.createSpy('onClosed');
     TestBed.inject(AgentSessionsService).onClosed.subscribe(closed);
@@ -429,6 +447,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('navigates to the project page once the last agent session is closed, without auto-starting one (#265)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     const router = TestBed.inject(Router);
     spyOn(router, 'navigate');
@@ -448,6 +467,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('shows an error and keeps the tab when closing fails', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -468,6 +488,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('reveals an agent session\'s worktree in the file manager from its tab (#441)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -485,6 +506,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('shows an error when revealing an agent session fails (#441)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     fixture.componentInstance.revealAgentSession('1-console-a1b2c3d4');
@@ -499,6 +521,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('shows an error and lets the user retry when the auto-start fails', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     httpMock.expectOne('/api/projects/1/console').flush(null, { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
@@ -516,6 +539,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('navigates back to the project\'s issues page', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     const router = TestBed.inject(Router);
     spyOn(router, 'navigate');
@@ -528,6 +552,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('notifies the issue list to bust its cache when the agent session is left', fakeAsync(() => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     let notified: number | undefined;
@@ -553,6 +578,7 @@ describe('ProjectAgentSessionComponent', () => {
       row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z'),
       row('1-console-e5f6a7b8', '2026-08-27T11:00:00Z'),
     ]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     tick();
 
@@ -578,6 +604,7 @@ describe('ProjectAgentSessionComponent', () => {
 
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     tick();
     httpMock
@@ -596,6 +623,7 @@ describe('ProjectAgentSessionComponent', () => {
 
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     tick();
     httpMock
@@ -616,6 +644,7 @@ describe('ProjectAgentSessionComponent', () => {
 
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     // The project id never changes, so nothing but the query param tells the page
@@ -639,6 +668,7 @@ describe('ProjectAgentSessionComponent', () => {
 
     const fixture = init(1);
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     // The click's navigation lands its query param -- and, in the real app, its route
@@ -653,6 +683,7 @@ describe('ProjectAgentSessionComponent', () => {
     fixture.detectChanges();
     flushProjects([]);
     httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     httpMock
       .expectOne('/api/projects/2/console')
@@ -672,6 +703,7 @@ describe('ProjectAgentSessionComponent', () => {
 
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
@@ -694,6 +726,7 @@ describe('ProjectAgentSessionComponent', () => {
 
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
@@ -742,10 +775,13 @@ describe('ProjectAgentSessionComponent', () => {
       // READY now (#721): the projectStatus event reads the open-agent-session list, then mints the seeded agent session.
       emitAppEvent({ type: 'projectStatus', projectId: 1, status: 'READY', defaultBranch: 'main' });
       httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
       const start = httpMock.expectOne('/api/projects/1/console');
       expect(start.request.method).toBe('POST');
       start.flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo-console-a1b2c3d4' });
+      // The start notifies, and the page re-reads its shells on it (#876).
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       expect(fixture.componentInstance.cloning).toBeFalse();
@@ -775,8 +811,10 @@ describe('ProjectAgentSessionComponent', () => {
       // READY (#721) settles into the ordinary auto-start, with no timers left behind.
       emitAppEvent({ type: 'projectStatus', projectId: 1, status: 'READY', defaultBranch: 'main' });
       httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
       httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
       expect(compiled.querySelector('.cloning')).toBeFalsy();
     }));
@@ -784,11 +822,13 @@ describe('ProjectAgentSessionComponent', () => {
     it('opens the seeded agent session on a later visit while the project still owes it, alongside agent sessions already open', () => {
       const fixture = init(1, [project(TEMPLATED)]);
       httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-11111111')]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       httpMock
         .expectOne('/api/projects/1/console')
         .flush({ sessionId: '1-console-22222222', workingDirectory: '/repo-console-22222222' });
+        httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       expect(fixture.componentInstance.agentSessions.map((c) => [c.id, c.seed])).toEqual([
@@ -801,10 +841,12 @@ describe('ProjectAgentSessionComponent', () => {
     it('opens it at most once per page instance, even if the project is re-read before the engine recorded the launch', () => {
       const fixture = init(1, [project(TEMPLATED)]);
       httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
       httpMock
         .expectOne('/api/projects/1/console')
         .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+        httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       // A second load of the same project (e.g. the input re-set) sees the project
@@ -813,11 +855,13 @@ describe('ProjectAgentSessionComponent', () => {
       fixture.detectChanges();
       flushProjects([]);
       httpMock.expectOne('/api/projects/2/console/sessions').flush([row('2-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
       fixture.componentRef.setInput('projectId', 1);
       fixture.detectChanges();
       flushProjects([project(TEMPLATED)]);
       httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       httpMock.expectNone('/api/projects/1/console');
@@ -827,6 +871,7 @@ describe('ProjectAgentSessionComponent', () => {
     it('does not open another seeded agent session once the engine has recorded the launch', () => {
       const fixture = init(1, [project({ ...TEMPLATED, templateSeededAt: '2026-09-01T12:00:00Z' })]);
       httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       httpMock.expectNone('/api/projects/1/console');
@@ -837,9 +882,11 @@ describe('ProjectAgentSessionComponent', () => {
     it('a READY project without a template is never seeded -- the ordinary auto-start runs instead', () => {
       const fixture = init(1, [project({ id: 1 })]);
       httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       const terminal = fixture.debugElement.query(By.directive(TerminalComponent));
@@ -864,16 +911,19 @@ describe('ProjectAgentSessionComponent', () => {
       fixture.detectChanges();
       flushProjects([]);
       httpMock.expectOne('/api/projects/2/console/sessions').flush([row('2-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
       fixture.componentRef.setInput('projectId', 1);
       fixture.detectChanges();
       flushProjects([project(TEMPLATED)]);
       httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       httpMock
         .expectOne('/api/projects/1/console')
         .flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+        httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
       expect(fixture.debugElement.query(By.directive(TerminalComponent)).componentInstance.seed).toBe('template');
     }));
@@ -885,6 +935,7 @@ describe('ProjectAgentSessionComponent', () => {
       httpMock.expectOne('/api/agents/installed').flush({ installed: INSTALLED_AGENTS });
       httpMock.expectOne('/api/projects').flush({ error: 'boom' }, { status: 500, statusText: 'Error' });
       httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([]);
       fixture.detectChanges();
 
       expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
@@ -894,12 +945,14 @@ describe('ProjectAgentSessionComponent', () => {
   it('reloads when the project id changes', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     fixture.componentRef.setInput('projectId', 2);
     fixture.detectChanges();
     flushProjects([]);
     httpMock.expectOne('/api/projects/2/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     // The new project has no open agent session either, so it auto-starts one there too.
@@ -912,6 +965,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('shows no page title and no past-sessions disclosure -- that list now lives on the project page (#752)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
@@ -937,6 +991,7 @@ describe('ProjectAgentSessionComponent', () => {
     // The list carries only the project's already-attached agent sessions -- never the
     // one just minted.
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-e5f6a7b8')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     tick();
 
@@ -974,6 +1029,7 @@ describe('ProjectAgentSessionComponent', () => {
 
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     tick();
 
@@ -998,6 +1054,7 @@ describe('ProjectAgentSessionComponent', () => {
 
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     tick();
 
@@ -1021,6 +1078,7 @@ describe('ProjectAgentSessionComponent', () => {
 
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4-resume-99887766')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     tick();
 
@@ -1031,6 +1089,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('renames a tab in place and saves the name against the session (#393)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.tab')!.textContent!.trim()).toBe('agent');
@@ -1051,6 +1110,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('puts the cursor straight in the rename field (#393)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const field = renameField(fixture);
@@ -1065,6 +1125,7 @@ describe('ProjectAgentSessionComponent', () => {
     httpMock
       .expectOne('/api/projects/1/console/sessions')
       .flush([row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z', 'release notes')]);
+      httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     expect((fixture.nativeElement as HTMLElement).querySelector('.tab')!.textContent!.trim()).toBe('release notes');
@@ -1075,6 +1136,7 @@ describe('ProjectAgentSessionComponent', () => {
     httpMock
       .expectOne('/api/projects/1/console/sessions')
       .flush([row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z', 'release notes')]);
+      httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     typeAndCommit(fixture, renameField(fixture), '   ');
@@ -1091,6 +1153,7 @@ describe('ProjectAgentSessionComponent', () => {
     httpMock
       .expectOne('/api/projects/1/console/sessions')
       .flush([row('1-console-a1b2c3d4', '2026-08-27T10:00:00Z', 'release notes')]);
+      httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
     const renamedSpy = spyOn(TestBed.inject(AgentSessionsService), 'notifyRenamed');
 
@@ -1111,6 +1174,7 @@ describe('ProjectAgentSessionComponent', () => {
   it('abandoning the field with Escape changes nothing (#393)', () => {
     const fixture = init();
     httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+    httpMock.expectOne('/api/shells').flush([]);
     fixture.detectChanges();
 
     const field = renameField(fixture);
@@ -1123,4 +1187,183 @@ describe('ProjectAgentSessionComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('.tab')!.textContent!.trim()).toBe('agent');
   });
 
+  describe('shells as tabs (#876)', () => {
+    function shellRow(sessionId: string, mainCheckout = true, displayName: string | null = null) {
+      return {
+        sessionId,
+        projectId: 1,
+        issueNumber: mainCheckout ? null : 7,
+        mainCheckout,
+        workingDirectory: '/repo',
+        createdAt: '2026-08-27T09:00:00Z',
+        lastAttachedAt: '2026-08-27T10:00:00Z',
+        displayName,
+      };
+    }
+
+    function tabLabels(fixture: ReturnType<typeof init>): string[] {
+      return Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.tab'),
+      ).map((b) => b.textContent!.trim());
+    }
+
+    it('lists main-checkout shells as shell tabs after the agent tabs, filtering out issue shells', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock
+        .expectOne('/api/shells')
+        .flush([shellRow('1-shell-main-aaaa0001'), shellRow('1-shell-main-bbbb0002'), shellRow('1-shell-7-cccc0003', false)]);
+      fixture.detectChanges();
+
+      expect(tabLabels(fixture)).toEqual(['agent', 'shell', 'shell 2']);
+      expect(fixture.componentInstance.shells.map((s: { id: string }) => s.id)).toEqual([
+        '1-shell-main-aaaa0001',
+        '1-shell-main-bbbb0002',
+      ]);
+      // No auto-start: open tabs of either kind count as open.
+      httpMock.expectNone('/api/projects/1/console');
+    });
+
+    it('auto-starts an agent when shells are open but no agent session is', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      httpMock.expectOne('/api/shells').flush([]);
+      fixture.detectChanges();
+
+      httpMock.expectOne('/api/projects/1/console').flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+      // The start notifies, and the page re-reads its shells on it.
+      httpMock.expectOne('/api/shells').flush([]);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
+    });
+
+    it('does not auto-start when shells alone are open', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      httpMock.expectOne('/api/shells').flush([shellRow('1-shell-main-aaaa0001')]);
+      fixture.detectChanges();
+
+      httpMock.expectNone('/api/projects/1/console');
+      expect(fixture.componentInstance.selected).toBe('1-shell-main-aaaa0001');
+      expect(tabLabels(fixture)).toEqual(['shell']);
+    });
+
+    it('selects the shell the ?session= handoff names', fakeAsync(() => {
+      // The project page's "Open shells" button lands here naming the shell.
+      TestBed.inject(Router).navigateByUrl('/projects/1/console?session=1-shell-main-aaaa0001');
+      tick();
+
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([shellRow('1-shell-main-aaaa0001')]);
+      fixture.detectChanges();
+      tick();
+
+      expect(fixture.componentInstance.selected).toBe('1-shell-main-aaaa0001');
+    }));
+
+    it('selecting a shell tab never overwrites the remembered agent session', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([shellRow('1-shell-main-aaaa0001')]);
+      fixture.detectChanges();
+      TestBed.inject(LastAgentSessionStore).set(1, '1-console-a1b2c3d4');
+
+      fixture.componentInstance.selectTab('1-shell-main-aaaa0001');
+
+      expect(fixture.componentInstance.selected).toBe('1-shell-main-aaaa0001');
+      // A shell tab is selected plainly, never remembered as the agent to jump back into.
+      expect(TestBed.inject(LastAgentSessionStore).get(1)).toBe('1-console-a1b2c3d4');
+    });
+
+    it('mints a shell at the main checkout from the "+" Shell entry and selects it', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([]);
+      fixture.detectChanges();
+
+      fixture.componentInstance.openShellFromTabs();
+      const post = httpMock.expectOne('/api/projects/1/shells');
+      expect(post.request.method).toBe('POST');
+      expect(post.request.body).toEqual({ issueNumber: null, workingDirectory: '/repo' });
+      post.flush({ sessionId: '1-shell-main-aaaa0001', workingDirectory: '/repo' });
+      // The mint notifies, and the page re-reads its shells on it.
+      httpMock.expectOne('/api/shells').flush([shellRow('1-shell-main-aaaa0001')]);
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.selected).toBe('1-shell-main-aaaa0001');
+      expect(tabLabels(fixture)).toEqual(['agent', 'shell']);
+      const terminals = fixture.debugElement.queryAll(By.directive(TerminalComponent));
+      const shellTerminal = terminals.find((t) => t.componentInstance.sessionId === '1-shell-main-aaaa0001')!;
+      expect(shellTerminal.componentInstance.cmd).toBe('shell');
+      expect(shellTerminal.componentInstance.dir).toBe('/repo');
+    });
+
+    it('shows a shell error when minting fails', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([]);
+      fixture.detectChanges();
+
+      fixture.componentInstance.openShellFromTabs();
+      httpMock.expectOne('/api/projects/1/shells').flush(null, { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.shellError).toBe('could not open a shell — try again');
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not open a shell');
+      expect(tabLabels(fixture)).toEqual(['agent']);
+    });
+
+    it('closing a shell tab drops it and moves to the next tab', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock
+        .expectOne('/api/shells')
+        .flush([shellRow('1-shell-main-aaaa0001'), shellRow('1-shell-main-bbbb0002')]);
+      fixture.detectChanges();
+      fixture.componentInstance.selectTab('1-shell-main-aaaa0001');
+
+      fixture.componentInstance.closeTab('1-shell-main-aaaa0001');
+      httpMock.expectOne('/api/projects/1/shells/1-shell-main-aaaa0001').flush(null);
+      // The close notifies, and the page re-reads its shells on it.
+      httpMock.expectOne('/api/shells').flush([shellRow('1-shell-main-bbbb0002')]);
+      fixture.detectChanges();
+
+      expect(tabLabels(fixture)).toEqual(['agent', 'shell']);
+      expect(fixture.componentInstance.selected).toBe('1-console-a1b2c3d4');
+    });
+
+    it('closing the last tab leaves the page rather than auto-starting', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      httpMock.expectOne('/api/shells').flush([shellRow('1-shell-main-aaaa0001')]);
+      fixture.detectChanges();
+      const navigate = spyOn(TestBed.inject(Router), 'navigate');
+
+      fixture.componentInstance.closeTab('1-shell-main-aaaa0001');
+      httpMock.expectOne('/api/projects/1/shells/1-shell-main-aaaa0001').flush(null);
+      httpMock.expectOne('/api/shells').flush([]);
+
+      expect(navigate).toHaveBeenCalledWith(['/projects', 1, 'issues']);
+    });
+
+    it('re-reads the shells when a consolesChanged event arrives remotely', () => {
+      const fixture = init(1, [project({ id: 1 })]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([row('1-console-a1b2c3d4')]);
+      httpMock.expectOne('/api/shells').flush([]);
+      fixture.detectChanges();
+
+      emitAppEvent({ type: 'consolesChanged', projectId: 1 });
+      fixture.detectChanges();
+
+      // AgentSessionsService folds one remote event into both onOpened and onClosed.
+      const reloads = httpMock.match('/api/shells');
+      expect(reloads.length).toBe(2);
+      reloads.forEach((req) => req.flush([shellRow('1-shell-main-aaaa0001')]));
+      fixture.detectChanges();
+
+      expect(tabLabels(fixture)).toEqual(['agent', 'shell']);
+    });
+  });
 });

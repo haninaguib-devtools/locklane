@@ -13,12 +13,20 @@ import {
   OpenAgentSessionRequest,
   RenameAgentSessionRequest,
 } from '../agent-session-tabs/agent-session-tabs.component';
-import { AgentSessionTab, labelProjectAgentSessions } from '../agent-session-tabs/agent-session-labels';
+import { AgentSessionTab, labelProjectAgentSessions, labelShellTabs } from '../agent-session-tabs/agent-session-labels';
 import { TerminalComponent } from '../terminal/terminal.component';
 import { Project } from '../../models/issue.model';
 import { ProjectsService } from '../../services/projects.service';
+import { ShellsService } from '../../services/shells.service';
 import { cloneStageHint } from '../clone-progress';
 
+// One open shell's client-side state (#876). `dir` is the main checkout the shell
+// runs in; `name` is the name the user gave the tab, or null for the auto label.
+interface OpenShellTab {
+  id: string;
+  dir: string;
+  name: string | null;
+}
 // One open agent session's client-side state. `dir` comes from the engine either way;
 // `agent` is only known when this browser launched the session (AgentStore).
 // `resume` is the past conversation this agent session was opened to resume (#372),
@@ -78,6 +86,7 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
   private readonly agentStore = inject(AgentStore);
   readonly defaultAgentStore = inject(DefaultAgentStore);
   private readonly lastAgentSessionStore = inject(LastAgentSessionStore);
+  private readonly shellsService = inject(ShellsService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
@@ -85,6 +94,8 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
 
   loading = true;
   agentSessions: OpenAgentSession[] = [];
+  /** This project's open main-checkout shells (#876), alongside the agent sessions above. */
+  shells: OpenShellTab[] = [];
   tabs: AgentSessionTab[] = [];
   selected: string | null = null;
   starting = false;
@@ -92,6 +103,8 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
   closeError = false;
   renameError = false;
   revealError = false;
+  /** A shell mint or close failure message (#876), null when quiet. */
+  shellError: string | null = null;
 
   /** The project as last read (#537); null until the first read, or when it is not in the caller's list. */
   project: Project | null = null;
@@ -108,6 +121,12 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
   // the guard against opening a second one before the engine's own record lands.
   private seededFor: number | null = null;
   private queryParamsSub: Subscription | null = null;
+  // A shell opened or closed anywhere reaches this page as a local notify (this
+  // page's own open/close) or as `consolesChanged` over the events channel (#876,
+  // folded into onOpened/onClosed the same way the worktree list's shell list
+  // follows it) -- either way the shell tabs re-read rather than trusting the
+  // local add/remove alone.
+  private shellsSub: Subscription | null = null;
   // Updates the CLONING wait off the engine's `projectStatus` broadcast (#721) instead
   // of re-polling; a reconnect does one full reload, since an event missed while the
   // socket was down is gone for good -- the same pattern the sidenav's own eventsSub
@@ -170,6 +189,9 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
       }
       this.startDefault();
     });
+    this.shellsSub = merge(this.agentSessionsService.onOpened, this.agentSessionsService.onClosed).subscribe(() =>
+      this.reloadShells(),
+    );
   }
 
   // The project id the route names right now (#439), read straight off the root
@@ -219,6 +241,7 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
   // opened one via `gh` before the engine's own 30s poll would notice (#140).
   ngOnDestroy(): void {
     this.queryParamsSub?.unsubscribe();
+    this.shellsSub?.unsubscribe();
     this.eventsSub.unsubscribe();
     this.stopCloneTick();
     this.issuesService.notifyProjectStale(this.projectId);
@@ -332,6 +355,7 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
   private loadAgentSessions(projectId: number): void {
     this.loading = true;
     this.agentSessions = [];
+    this.shells = [];
     this.tabs = [];
     this.selected = null;
     this.starting = false;
@@ -339,6 +363,7 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
     this.closeError = false;
     this.renameError = false;
     this.revealError = false;
+    this.shellError = null;
     // `pendingNewAgentSession` deliberately survives this reset: a "+" click for
     // another project changes the projectId input and the query params in the
     // same navigation, in no guaranteed order (#370).
@@ -402,63 +427,117 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
           this.dropQueryParams('dir', 'resume', 'tool');
         }
         this.relabel();
-        if (this.owesSeededAgentSession(projectId)) {
-          // #537: the template's one seeded agent session, alongside whatever is already
-          // open. Marked before the request so a slow answer cannot open two.
-          this.seededFor = projectId;
-          this.start(this.defaultAgentStore.agent(), 'template');
-          return;
-        }
-        if (this.takePendingNewAgentSession()) {
-          // The sidenav's "+" (#370): the project's existing agent sessions stay in the
-          // strip, with the brand-new one added alongside them and selected.
-          this.startDefault();
-          return;
-        }
-        if (this.agentSessions.length === 0) {
-          // #256: landing here with nothing open starts one immediately, using
-          // the same default-agent source the sidenav "+" uses -- no picker, no
-          // separate start button. (A handed-off session counts as open here --
-          // #795 -- or "Open agent" on a project with none would start a second
-          // one and strand the first's worktree.)
-          this.startDefault();
-          return;
-        }
-        // The agent sessions page (#179) hands off with ?session=<id> naming the tab
-        // to activate; otherwise reattach where the user left off. That is the
-        // tab this browser last selected on this project (LastAgentSessionStore, #221)
-        // when it is still open -- not the engine's most recently attached
-        // agent session: unselected tabs stay attached, merely hidden, so a tab switch
-        // never moves lastAttachedAt, and on re-entry every agent session reattaches at
-        // once, making the engine's winner whichever socket connected last (#810).
-        // The most recently attached agent session -- what this page showed before it
-        // had tabs -- is the fallback when nothing usable is remembered. (Routing
-        // is component-less, so the query param is read off the root route.)
-        const isOpen = (id: string | null): id is string =>
-          id !== null && this.agentSessions.some((c) => c.id === id);
-        const remembered = this.lastAgentSessionStore.get(projectId);
-        this.selectAgentSession(
-          isOpen(requestedSession)
-            ? requestedSession
-            : isOpen(remembered)
-              ? remembered
-              : sessions.reduce(
-                  (latest: OpenProjectAgentSession | null, s) =>
-                    !latest || Date.parse(s.lastAttachedAt) > Date.parse(latest.lastAttachedAt) ? s : latest,
-                  null,
-                )?.sessionId ?? null,
-        );
+        this.loadShells(projectId, () => this.decideInitialTab(projectId, sessions));
       },
       error: () => {
         this.loading = false;
-        if (this.takePendingNewAgentSession()) {
-          // The list failed, but the "+" click still asked for an agent session: mint it
-          // anyway rather than dropping the click (#370). A failed start shows the
-          // page's own start error, as it does anywhere else here.
-          this.startDefault();
-        }
+        this.loadShells(projectId, () => {
+          if (this.takePendingNewAgentSession()) {
+            // The list failed, but the "+" click still asked for an agent session: mint it
+            // anyway rather than dropping the click (#370). A failed start shows the
+            // page's own start error, as it does anywhere else here.
+            this.startDefault();
+          }
+        });
       },
     });
+  }
+
+  /**
+   * This project's open main-checkout shells (#876): the only shells this page
+   * owns -- issue-worktree shells live on their issue's page. Only main-checkout
+   * shells are kept; anything else the listing carries belongs elsewhere. Runs
+   * `done` once the tabs are rebuilt, so the initial load can decide on the full
+   * strip and live updates can just re-render.
+   */
+  private loadShells(projectId: number, done: () => void): void {
+    this.shellsService.list().subscribe({
+      next: (shells) => {
+        this.shells = shells
+          .filter((shell) => shell.projectId === projectId && shell.mainCheckout)
+          .map((shell) => ({ id: shell.sessionId, dir: shell.workingDirectory, name: shell.displayName ?? null }));
+        this.relabel();
+        done();
+      },
+      error: () => {
+        this.shells = [];
+        this.relabel();
+        done();
+      },
+    });
+  }
+
+  /** A shell opened or closed elsewhere (#876): re-read this page's shells and repair the selection. */
+  private reloadShells(): void {
+    if (this.loading || this.cloning || this.failed || this.project === null) {
+      return;
+    }
+    const projectId = this.projectId;
+    this.loadShells(projectId, () => {
+      if (this.selected !== null && !this.tabs.some((tab) => tab.id === this.selected)) {
+        this.selectAgentSession(this.tabs[0]?.id ?? null);
+      }
+    });
+  }
+
+  /**
+   * Which tab a fresh load lands on: the seeded agent session, a queued `?new`
+   * start, the empty-state auto-start, or the remembered/most-recent agent
+   * session -- decided only once the shells are in, so a `?session=` handoff
+   * naming a shell (#876) resolves instead of falling through to an agent.
+   */
+  private decideInitialTab(projectId: number, sessions: OpenProjectAgentSession[]): void {
+    if (this.owesSeededAgentSession(projectId)) {
+      // #537: the template's one seeded agent session, alongside whatever is already
+      // open. Marked before the request so a slow answer cannot open two.
+      this.seededFor = projectId;
+      this.start(this.defaultAgentStore.agent(), 'template');
+      return;
+    }
+    if (this.takePendingNewAgentSession()) {
+      // The sidenav's "+" (#370): the project's existing agent sessions stay in the
+      // strip, with the brand-new one added alongside them and selected.
+      this.startDefault();
+      return;
+    }
+    if (this.agentSessions.length === 0 && this.shells.length === 0) {
+      // #256: landing here with nothing open starts one immediately, using
+      // the same default-agent source the sidenav "+" uses -- no picker, no
+      // separate start button. (A handed-off session counts as open here --
+      // #795 -- or "Open agent" on a project with none would start a second
+      // one and strand the first's worktree.) Open shells count as open too
+      // (#876): landing on shells alone shows them rather than minting an
+      // agent nobody asked for.
+      this.startDefault();
+      return;
+    }
+    // The agent sessions page (#179) hands off with ?session=<id> naming the tab
+    // to activate -- an agent or, since #876, one of this page's shells (e.g. the
+    // project page's "Open shells" button); otherwise reattach where the user left
+    // off. That is the tab this browser last selected on this project
+    // (LastAgentSessionStore, #221) when it is still open -- not the engine's most
+    // recently attached agent session: unselected tabs stay attached, merely hidden,
+    // so a tab switch never moves lastAttachedAt, and on re-entry every agent
+    // session reattaches at once, making the engine's winner whichever socket
+    // connected last (#810). The most recently attached agent session -- what this
+    // page showed before it had tabs -- is the fallback when nothing usable is
+    // remembered. (Routing is component-less, so the query param is read off the
+    // root route.)
+    const requestedSession = this.route.snapshot.queryParamMap.get('session');
+    const isOpen = (id: string | null): id is string =>
+      id !== null && (this.agentSessions.some((c) => c.id === id) || this.shells.some((s) => s.id === id));
+    const remembered = this.lastAgentSessionStore.get(projectId);
+    this.selectAgentSession(
+      isOpen(requestedSession)
+        ? requestedSession
+        : isOpen(remembered)
+          ? remembered
+          : sessions.reduce(
+              (latest: OpenProjectAgentSession | null, s) =>
+                !latest || Date.parse(s.lastAttachedAt) > Date.parse(latest.lastAttachedAt) ? s : latest,
+              null,
+            )?.sessionId ?? this.shells[0]?.id ?? null,
+    );
   }
 
   /** Consumes a queued `?new` request, if one is waiting on the open-agent-session list. */
@@ -477,9 +556,31 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
     this.start(this.defaultAgentStore.agent());
   }
 
-  /** The tab strip's "+" (the location choice is hidden -- only the agent matters). */
+  /** The tab strip's "+" agent entries (the location choice is hidden -- only the agent matters). */
   openFromTabs(request: OpenAgentSessionRequest): void {
     this.start(request.agent);
+  }
+
+  /** The tab strip's "+" Shell entry (#876): mints a shell at the main checkout. */
+  openShellFromTabs(): void {
+    if (!this.project || this.starting) {
+      return;
+    }
+    this.starting = true;
+    this.shellError = null;
+    this.shellsService.open(this.projectId, null, this.project.workareaPath).subscribe({
+      next: (created) => {
+        this.shells = [...this.shells, { id: created.sessionId, dir: created.workingDirectory, name: null }];
+        this.relabel();
+        this.selectAgentSession(created.sessionId);
+        this.starting = false;
+        this.agentSessionsService.notifyOpened();
+      },
+      error: () => {
+        this.starting = false;
+        this.shellError = 'could not open a shell — try again';
+      },
+    });
   }
 
   /** The tab strip's own selection change -- also the entry points' recency signal (#221). */
@@ -490,10 +591,11 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
   // Recorded in {@link LastAgentSessionStore} so the sidenav "+" and the project
   // summary's agent session button can jump back into the agent session the user was last
   // looking at, rather than always landing on the server's most-recently-attached
-  // one (#221).
+  // one (#221). Agent sessions only (#876): a shell tab is selected plainly, never
+  // remembered as the agent to jump back into.
   private selectAgentSession(id: string | null): void {
     this.selected = id;
-    if (id) {
+    if (id && this.agentSessions.some((c) => c.id === id)) {
       this.lastAgentSessionStore.set(this.projectId, id);
     }
   }
@@ -551,6 +653,15 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
     });
   }
 
+  /** The tab strip's close, for either kind of tab (#876). */
+  closeTab(id: string): void {
+    if (this.shells.some((s) => s.id === id)) {
+      this.closeShell(id);
+    } else {
+      this.closeAgentSession(id);
+    }
+  }
+
   closeAgentSession(id: string): void {
     this.closeError = false;
     this.service.close(this.projectId, id).subscribe({
@@ -558,19 +669,41 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
         this.agentSessions = this.agentSessions.filter((c) => c.id !== id);
         this.relabel();
         if (this.selected === id) {
-          this.selectAgentSession(this.agentSessions[0]?.id ?? null);
+          this.selectAgentSession(this.tabs[0]?.id ?? null);
         }
         this.agentSessionsService.notifyClosed();
-        if (this.agentSessions.length === 0) {
-          // #265: closing the last agent session leaves the agent session view rather than
+        if (this.tabs.length === 0) {
+          // #265: closing the last tab leaves the agent session view rather than
           // auto-starting a new one -- back to the project page, where the "+"
           // affordance lives if they want another later. Landing here directly
           // with zero sessions is unaffected (#256's load()-time auto-start).
+          // Since #876 open shells count too: shells alone keep the page alive.
           this.back();
         }
       },
       error: () => {
         this.closeError = true;
+      },
+    });
+  }
+
+  /** Ends one shell tab for good (#876): kills the process, drops the tab, stays put while tabs remain. */
+  closeShell(id: string): void {
+    this.shellError = null;
+    this.shellsService.close(this.projectId, id).subscribe({
+      next: () => {
+        this.shells = this.shells.filter((s) => s.id !== id);
+        this.relabel();
+        if (this.selected === id) {
+          this.selectAgentSession(this.tabs[0]?.id ?? null);
+        }
+        this.agentSessionsService.notifyClosed();
+        if (this.tabs.length === 0) {
+          this.back();
+        }
+      },
+      error: () => {
+        this.shellError = 'could not close that shell — try again';
       },
     });
   }
@@ -592,7 +725,10 @@ export class ProjectAgentSessionComponent implements OnInit, OnChanges, OnDestro
   // main/wtree labelling (agent-session-labels.ts) carries no information -- tabs are
   // just "agent", "agent 2", ..., plus the agent when known, via the shared
   // labelProjectAgentSessions() (#449) the header agent sessions widget also calls.
+  // Shell tabs follow with their own numbering -- "shell", "shell 2", ... -- via
+  // labelShellTabs(), agents first so the agent numbering never shifts as shells
+  // come and go (#876).
   private relabel(): void {
-    this.tabs = labelProjectAgentSessions(this.agentSessions);
+    this.tabs = [...labelProjectAgentSessions(this.agentSessions), ...labelShellTabs(this.shells)];
   }
 }

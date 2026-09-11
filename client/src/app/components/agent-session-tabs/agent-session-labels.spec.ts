@@ -1,4 +1,4 @@
-import { labelAgentSessions, labelProjectAgentSessions, tabText } from './agent-session-labels';
+import { labelAgentSessions, labelProjectAgentSessions, labelShellTabs, tabText } from './agent-session-labels';
 
 // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
 // /console and /consoles REST paths and the 'console' route segment below keep their persisted and
@@ -71,5 +71,27 @@ describe('tabText (#393)', () => {
     expect(tabText({ id: '7-console-a', agent: 'claude', label: 'agent' })).toBe('agent');
     expect(tabText({ id: '7-console-a', agent: 'claude', label: 'agent', name: null })).toBe('agent');
     expect(tabText({ id: '7-console-a', agent: 'claude', label: 'agent', name: '   ' })).toBe('agent');
+  });
+});
+
+describe('labelShellTabs (#876)', () => {
+  it('numbers shells on their own, independently of the agent tabs beside them', () => {
+    const tabs = labelShellTabs([
+      { id: '1-shell-main-aaaa0001', dir: '/work/main' },
+      { id: '1-shell-main-bbbb0002', dir: '/work/main' },
+    ]);
+
+    expect(tabs.map((t) => t.label)).toEqual(['shell', 'shell 2']);
+    expect(tabs.map((t) => t.kind)).toEqual(['shell', 'shell']);
+    expect(tabs.map((t) => tabText(t))).toEqual(['shell', 'shell 2']);
+  });
+
+  it('carries the directory for the first attach, and the name when the shell has one', () => {
+    const tabs = labelShellTabs([
+      { id: '1-shell-main-aaaa0001', dir: '/work/main', name: 'tailing logs' },
+    ]);
+
+    expect(tabs[0].dir).toBe('/work/main');
+    expect(tabText(tabs[0])).toBe('tailing logs');
   });
 });

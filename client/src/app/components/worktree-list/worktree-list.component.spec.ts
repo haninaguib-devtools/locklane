@@ -3,8 +3,6 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { WorktreeListComponent } from './worktree-list.component';
 import { ProjectWorktree } from '../../services/worktrees.service';
-import { OpenShell } from '../../services/shells.service';
-import { AppEvent, EventsService } from '../../services/events.service';
 
 // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
 // /console and /consoles REST paths and the 'console' route segment below keep their persisted and
@@ -24,27 +22,6 @@ describe('WorktreeListComponent', () => {
     };
   }
 
-  function shell(overrides: Partial<OpenShell> = {}): OpenShell {
-    return {
-      sessionId: '1-shell-42-aaaa0001',
-      projectId: 1,
-      issueNumber: 42,
-      mainCheckout: false,
-      workingDirectory: '/work/1-42-add-widget',
-      createdAt: '2026-01-01T00:00:00Z',
-      lastAttachedAt: '2026-01-01T00:00:00Z',
-      displayName: null,
-      ...overrides,
-    };
-  }
-
-  /** Reaches past EventsService's public API (#129) -- there is no other way to fake an incoming socket message. */
-  function emitAppEvent(event: unknown): void {
-    (TestBed.inject(EventsService) as unknown as { eventsSubject: { next: (e: unknown) => void } }).eventsSubject.next(
-      event,
-    );
-  }
-
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [WorktreeListComponent],
@@ -57,14 +34,12 @@ describe('WorktreeListComponent', () => {
 
   function init(
     rows: ProjectWorktree[],
-    shells: OpenShell[] = [],
     projectId = 1,
   ): ReturnType<typeof TestBed.createComponent<WorktreeListComponent>> {
     const fixture = TestBed.createComponent(WorktreeListComponent);
     fixture.componentRef.setInput('projectId', projectId);
     fixture.detectChanges();
     httpMock.expectOne(`/api/projects/${projectId}/worktrees`).flush(rows);
-    httpMock.expectOne('/api/shells').flush(shells);
     fixture.detectChanges();
     return fixture;
   }
@@ -179,86 +154,14 @@ describe('WorktreeListComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not run cleanup');
   });
 
-  it('shows a row per open shell for this project, filtering out other projects (#733)', () => {
-    const fixture = init(
-      [],
-      [
-        shell({ sessionId: '1-shell-42-aaaa0001', issueNumber: 42, workingDirectory: '/work/1-42-add-widget' }),
-        shell({ sessionId: '1-shell-main-bbbb0001', mainCheckout: true, issueNumber: null, workingDirectory: '/work/main' }),
-        shell({ sessionId: '2-shell-9-cccc0001', projectId: 2, issueNumber: 9 }),
-      ],
-    );
+  // Shells are not listed here anymore (#876): main-checkout shells live as tabs
+  // on the project's agent session page and issue-worktree shells on their
+  // issue's page.
+  it('lists no shells section', () => {
+    const fixture = init([row()]);
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
 
-    expect(text).toContain('#42');
-    expect(text).toContain('/work/1-42-add-widget');
-    expect(text).toContain('main checkout');
-    expect(text).toContain('/work/main');
-    expect(text).not.toContain('#9');
-    expect(fixture.componentInstance.shells.length).toBe(2);
-  });
-
-  it("shows a shell's own name instead of its location when it has one (#393)", () => {
-    const fixture = init([], [shell({ displayName: 'debugging the flaky test' })]);
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('debugging the flaky test');
-  });
-
-  it('shows a placeholder state when the project has no open shells', () => {
-    const fixture = init([]);
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('no open shells for this project');
-  });
-
-  it('opens a shell in the singleton Shells window on click', () => {
-    const fixture = init([], [shell()]);
-    const openSpy = spyOn(window, 'open');
-
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.shell-link')!.click();
-
-    expect(openSpy).toHaveBeenCalledWith('/shells/1-shell-42-aaaa0001', 'locklane-shells');
-  });
-
-  it('closes a shell on a successful DELETE and removes its row', () => {
-    const fixture = init([], [shell()]);
-
-    const closeButtons = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.remove-button');
-    closeButtons[closeButtons.length - 1].click();
-    fixture.detectChanges();
-
-    httpMock.expectOne('/api/projects/1/shells/1-shell-42-aaaa0001').flush(null);
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.shells).toEqual([]);
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('no open shells for this project');
-  });
-
-  it('shows the refusal verbatim when closing a shell fails', () => {
-    const fixture = init([], [shell()]);
-
-    const closeButtons = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.remove-button');
-    closeButtons[closeButtons.length - 1].click();
-    httpMock
-      .expectOne('/api/projects/1/shells/1-shell-42-aaaa0001')
-      .flush({ error: 'could not close this shell' }, { status: 500, statusText: 'Server Error' });
-    fixture.detectChanges();
-
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('could not close this shell');
-    expect(fixture.componentInstance.shells.length).toBe(1);
-  });
-
-  it('reloads the shell list when a consolesChanged event arrives remotely (#195)', () => {
-    const fixture = init([], []);
-
-    emitAppEvent({ type: 'consolesChanged', projectId: 1 } satisfies AppEvent);
-    fixture.detectChanges();
-
-    // AgentSessionsService folds a remote consolesChanged into both onOpened and onClosed
-    // (agent-sessions.service.spec.ts), and this component reloads on either -- one remote
-    // event is therefore two identical reload requests here.
-    for (const req of httpMock.match('/api/shells')) {
-      req.flush([shell()]);
-    }
-    fixture.detectChanges();
-
-    expect(fixture.componentInstance.shells.length).toBe(1);
+    expect(text).not.toContain('no open shells');
+    expect(fixture.nativeElement.querySelector('.shells')).toBeNull();
   });
 });

@@ -96,9 +96,10 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   startingAgentSession = false;
   agentSessionError = false;
 
-  // The project's open shells (#745, reusing #733's ShellsService), fetched
-  // alongside the agent sessions above -- drives the "Open shells" button's choice
-  // between focusing an existing shell and minting one at the main worktree first.
+  // The project's open main-checkout shells (#745, reusing #733's ShellsService;
+  // since #876 only main-checkout shells, which live as tabs on the project's
+  // agent session page) -- drives the "Open shells" button's choice between
+  // jumping to the most recent shell and minting one at the main worktree first.
   openShells: OpenShell[] = [];
   startingShell = false;
   shellError = false;
@@ -262,9 +263,12 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
 
   private loadShells(projectId: number): void {
     // ShellsService.list() has no per-project endpoint (#733's own worktree list
-    // filters the same way), so every open shell is fetched and narrowed here.
+    // filters the same way), so every open shell is fetched and narrowed here to
+    // this project's main-checkout shells -- the ones the agent session page owns
+    // as tabs (#876); issue-worktree shells live on their issue's page.
     this.shellsService.list().subscribe({
-      next: (shells) => (this.openShells = shells.filter((s) => s.projectId === projectId)),
+      next: (shells) =>
+        (this.openShells = shells.filter((s) => s.projectId === projectId && s.mainCheckout)),
       error: () => (this.openShells = []),
     });
   }
@@ -399,10 +403,11 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   }
 
   // No open shell yet (#745): mint one at the project's own main worktree -- never
-  // an issue's, since this button carries no issue context -- then focus the
-  // singleton Shells window on it, the same convention `openShellAt`/`openMainShell`
-  // already follow. Re-fetches afterwards so a second click reuses it instead of
-  // minting again.
+  // an issue's, since this button carries no issue context -- then land on the
+  // project's agent session page with that shell's tab selected (#876: shells are
+  // persisted at mint time, so the page lists the fresh id straight away, no
+  // `?dir=` handoff needed). Re-fetches afterwards so a second click reuses it
+  // instead of minting again.
   private startShell(): void {
     if (!this.project) {
       return;
@@ -413,7 +418,7 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
       next: (created) => {
         this.startingShell = false;
         this.loadShells(this.projectId);
-        window.open(`/shells/${created.sessionId}`, 'locklane-shells');
+        this.navigateToShell(created.sessionId);
       },
       error: () => {
         this.startingShell = false;
@@ -429,7 +434,13 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     const target = this.openShells.reduce((latest, shell) =>
       new Date(shell.lastAttachedAt).getTime() > new Date(latest.lastAttachedAt).getTime() ? shell : latest,
     );
-    window.open(`/shells/${target.sessionId}`, 'locklane-shells');
+    this.navigateToShell(target.sessionId);
+  }
+
+  /** Lands on the project's agent session page with a shell tab selected (#876). */
+  private navigateToShell(sessionId: string): void {
+    // 'console' is the route path segment -- a compatibility surface kept under ADR-112.
+    this.router.navigate(['/projects', this.projectId, 'console'], { queryParams: { session: sessionId } });
   }
 
   // The IDE "Open IDE" acts on (#831, mirroring #782): the Settings choice when this

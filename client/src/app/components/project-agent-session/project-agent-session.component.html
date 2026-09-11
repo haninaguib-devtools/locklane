@@ -20,7 +20,7 @@
       once the retry succeeds.
     </p>
   </div>
-} @else if (agentSessions.length) {
+} @else if (tabs.length) {
   <app-agent-session-tabs
     [tabs]="tabs"
     [selected]="selected"
@@ -31,12 +31,16 @@
     [installedAgents]="defaultAgentStore.installed()"
     (selectedChange)="selectTab($event)"
     (open)="openFromTabs($event)"
-    (close)="closeAgentSession($event)"
+    (openShell)="openShellFromTabs()"
+    (close)="closeTab($event)"
     (rename)="renameAgentSession($event)"
     (reveal)="revealAgentSession($event)"
   />
   @if (startError) {
     <div class="action-error strip-error">could not start an agent — try again</div>
+  }
+  @if (shellError; as shellMessage) {
+    <div class="action-error strip-error">{{ shellMessage }}</div>
   }
   @if (closeError) {
     <div class="action-error strip-error">could not close that agent — try again</div>
@@ -59,6 +63,15 @@
         [resume]="agentSession.resume"
         [seed]="agentSession.seed"
         [active]="agentSession.id === selected"
+      />
+    }
+    @for (shell of shells; track shell.id) {
+      <app-terminal
+        [class.tab-hidden]="shell.id !== selected"
+        [sessionId]="shell.id"
+        [dir]="shell.dir"
+        cmd="shell"
+        [active]="shell.id === selected"
       />
     }
   </div>
