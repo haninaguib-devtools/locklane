@@ -48,10 +48,19 @@ case "$cmd" in
     rc=0
     head -1 "$f" | grep -qE "^# $id — ." || { echo "FAIL: first line must be '# $id — <title>'"; rc=1; }
     grep -qE "^Issue: #$id( ·|\$)" "$f" || { echo "FAIL: missing 'Issue: #$id' line"; rc=1; }
+    # Every section exactly once, in order, with content beyond a template placeholder.
+    body=$(normalize < "$f")
+    prev=0
     for h in "Asked" "Done when" "Explicitly not" "Decisions made along the way" "Deviations / notes"; do
-      grep -q "^## $h\$" "$f" || { echo "FAIL: missing '## $h' section"; rc=1; }
+      n=$(printf '%s\n' "$body" | count_sections "$h")
+      if [ "$n" -eq 0 ]; then echo "FAIL: missing '## $h' section"; rc=1; continue; fi
+      [ "$n" -gt 1 ] && { echo "FAIL: duplicated '## $h' section"; rc=1; }
+      at=$(printf '%s\n' "$body" | grep -n "^## $h\$" | head -1 | cut -d: -f1)
+      if [ "$at" -le "$prev" ]; then echo "FAIL: '## $h' section out of order"; rc=1; else prev="$at"; fi
+      content=$(printf '%s\n' "$body" | section "$h" | grep -v '^[[:space:]]*$' || true)
+      if [ -z "$content" ]; then echo "FAIL: '## $h' section is empty"; rc=1;
+      elif ! printf '%s\n' "$content" | grep -qv '^<'; then echo "FAIL: '## $h' section is a template placeholder"; rc=1; fi
     done
-    grep -qE '^<(the goal|observable|exclusions|from the issue)' "$f" && { echo "FAIL: template placeholder left unfilled"; rc=1; }
     [ "$rc" -eq 0 ] && echo "OK: record $f"
     exit "$rc" ;;
   *) die "unknown command '$cmd'" ;;

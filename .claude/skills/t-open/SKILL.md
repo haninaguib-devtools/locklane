@@ -13,7 +13,9 @@ Do not wait until everything is settled — decisions left in chat are lost.
 **Shape.**
 - Fits one PR → one task issue.
 - Several PRs → a parent issue labelled `initiative` (`issue.sh ensure-label initiative`)
-  plus every child that is already clear. Never guess a decomposition: when it is
+  plus every child that is already clear. Children land on `wip/<parent>-integration`
+  one PR each, merged mechanically; the human confirms once, on the parent's PR to
+  the trunk (`/t-ship <parent>`). Never guess a decomposition: when it is
   unknown, the parent gets exactly one child, a design task whose merged document
   decides the rest.
 - Two levels only. A child that needs children means the parent should be split.

@@ -1,18 +1,36 @@
-# t-workflow's mechanical enforcement: .t-workflow/scripts/ci.sh on every pull request.
+# t-workflow's mechanical enforcement. The trigger that judges is pull_request_target:
+# GitHub reads this workflow file from the base branch, so a pull request cannot edit
+# its own way past the gate here. pull_request is listed too, filtered to pull requests
+# that touch this file: those are the only ones whose base copy is missing (adoption) or
+# listens for the wrong event (an update from before this trigger), and without that
+# second run the required check would never report on them. On any other pull request
+# no pull_request run exists at all. When both run, GitHub requires every run under the
+# check's name to pass, so the PR's own run can add a red result but never replace the
+# base's (verified against a live repository; docs/decisions.md in t-workflow).
+# The checkout is the base branch under pull_request_target and the merge commit under
+# pull_request; the step below never relies on it. The PR's commit is fetched as a ref
+# (PR_REF) and read with git show/diff, never checked out or executed, and the gate
+# scripts come from the base by ref — actions/checkout itself now refuses to check out
+# a fork PR's commit under pull_request_target, and a plain read has no reason to.
 # Drafts skip it (the work/review window costs nothing); marking a PR ready starts it.
-# One run per commit: a protected diff's run is red until its cold review exists, and
-# /t-review re-runs that same run after posting (rerun-ci.sh) rather than triggering a
-# second one, which branch protection would count alongside the red one.
+# One run per commit and event: a protected diff's run is red until its cold review
+# exists, and /t-review re-runs those same runs after posting (rerun-ci.sh) rather than
+# triggering new ones, which branch protection would count alongside the red ones.
 name: t-workflow
 on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    paths: ['.github/workflows/t-workflow.yml']
 permissions:
   contents: read
   issues: read
   pull-requests: read
 concurrency:
-  group: t-workflow-${{ github.event.pull_request.number }}
+  # The event is part of the key: on a PR that touches this file both events run, and
+  # one must not cancel the other (a cancelled run counts as failed).
+  group: t-workflow-${{ github.event_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
   t-workflow:
@@ -21,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - env:
@@ -30,4 +48,20 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: .t-workflow/scripts/ci.sh
+          PR_REF: refs/heads/_pr_head
+        run: |
+          git fetch -q origin "$BASE_REF"
+          git fetch -q origin "refs/pull/$PR_NUMBER/head:$PR_REF"
+          # Whichever of base or the PR has .t-workflow/scripts is what actually runs —
+          # the base's copy normally, so a PR can't rewrite ci.sh itself; the PR's own
+          # copy only the one time a repo is adopting t-workflow and the base has none
+          # yet. Either way it addresses the base as origin/$BASE_REF and the PR as
+          # PR_REF, whatever the checkout is, and never executes anything from the PR.
+          if git cat-file -e "origin/$BASE_REF:.t-workflow/scripts/ci.sh" 2>/dev/null; then
+            scripts_ref="origin/$BASE_REF"
+          else
+            scripts_ref="$PR_REF"
+          fi
+          gate_scripts="$(mktemp -d)"
+          git archive "$scripts_ref" .t-workflow/scripts | tar -x -C "$gate_scripts"
+          "$gate_scripts/.t-workflow/scripts/ci.sh"

@@ -1,5 +1,6 @@
 # t-workflow configuration. Owned by this repository; never touched by an update.
-# Shell syntax: key="value". Read by .t-workflow/scripts/*.
+# Parsed by .t-workflow/scripts/*, never executed: key="value" lines only, no quotes
+# inside the value, no variables. Any other assignment is ignored and said on stderr.
 
 # Build/test command the agent runs locally before opening a PR (empty = none yet).
 # CI does not run it; the project's own CI does.
