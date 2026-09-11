@@ -34,6 +34,10 @@ locklane:
   events:
     # Same reasoning as terminal above, for /ws/events (#665); see src/main/resources/application.yml.
     heartbeat-interval-ms: 1000
+  push:
+    # See src/main/resources/application.yml (#860) -- only present so the property
+    # placeholder resolves; no test ever contacts a real push service.
+    contact: https://locklane.example/test
   release-check:
     # Never actually queried in tests (ReleaseUpdateChecker's tests call check()
     # directly rather than through gh) -- only present so the property placeholder

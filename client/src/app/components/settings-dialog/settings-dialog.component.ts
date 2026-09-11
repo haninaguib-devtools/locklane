@@ -5,6 +5,7 @@ import { AccentThemeStore } from '../../services/accent-theme-store';
 import { DefaultAgent, DefaultAgentStore } from '../../services/default-agent-store';
 import { DefaultIdeStore } from '../../services/default-ide-store';
 import { NotificationsStore } from '../../services/notifications-store';
+import { PushService } from '../../services/push.service';
 
 type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enabled';
 
@@ -42,6 +43,7 @@ export class SettingsDialogComponent implements OnInit {
   private readonly defaultIdeStore = inject(DefaultIdeStore);
   private readonly accentThemeStore = inject(AccentThemeStore);
   private readonly notificationsStore = inject(NotificationsStore);
+  private readonly pushService = inject(PushService);
 
   @Output() closed = new EventEmitter<void>();
 
@@ -50,6 +52,9 @@ export class SettingsDialogComponent implements OnInit {
 
   readonly notificationsEnabled = this.notificationsStore.enabled;
   readonly notificationPermission = this.notificationsStore.permission;
+  // #860: whether this browser will also be notified with Locklane closed, for the
+  // hint under the toggle when it will not.
+  readonly pushStatus = this.pushService.status;
 
   // #782: the IDEs this browser may pick, and the one "Open IDE" will actually use --
   // the effective choice rather than the raw stored id, so a stored desktop IDE seen from

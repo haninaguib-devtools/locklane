@@ -2,6 +2,7 @@ package dev.locklane.engine.persistence;
 
 import dev.locklane.engine.security.EncryptionKeyProvider;
 import dev.locklane.engine.security.TokenCipher;
+import dev.locklane.engine.push.PushSubscriptionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -33,18 +34,25 @@ class UserCascadeDeleteServiceTest {
                 projectRepository, tmp.resolve("workarea").toString(), Runnable::run, issueWorktreeService,
                 tokenCipher(tmp), TestSqliteDatabases.newGhAccountRepository(tmp));
         UserCascadeDeleteService cascadeDeleteService =
-                new UserCascadeDeleteService(projectRepository, checkoutService);
+                new UserCascadeDeleteService(projectRepository, checkoutService, pushSubscriptions(tmp));
 
         Path workarea = tmp.resolve("workarea").resolve("1").resolve("mine");
         Files.createDirectories(workarea);
         ProjectRecord owned = projectRepository.create("mine", "url", workarea, 1L, Instant.now());
         sessions.recordAttach(owned.id() + "-174-rename-toggle", tmp.resolve("wt"), Instant.now(), "alice");
 
+        PushSubscriptionRepository pushSubscriptions = pushSubscriptions(tmp);
+        pushSubscriptions.save(1L, "https://push.example.net/alice", "key", "auth", Instant.now());
+        pushSubscriptions.save(2L, "https://push.example.net/bob", "key", "auth", Instant.now());
+
         cascadeDeleteService.deleteEverythingOwnedBy(1L);
 
         assertThat(projectRepository.findById(owned.id())).isEmpty();
         assertThat(workarea).doesNotExist();
         assertThat(issueWorktreeService.hasAnySessions(owned.id())).isFalse();
+        // The account's Web Push subscriptions (#860) go with it; another account's stay.
+        assertThat(pushSubscriptions.findAllOwnedBy(1L)).isEmpty();
+        assertThat(pushSubscriptions.findAllOwnedBy(2L)).hasSize(1);
     }
 
     @Test
@@ -55,7 +63,7 @@ class UserCascadeDeleteServiceTest {
                 new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()),
                 tokenCipher(tmp), TestSqliteDatabases.newGhAccountRepository(tmp));
         UserCascadeDeleteService cascadeDeleteService =
-                new UserCascadeDeleteService(projectRepository, checkoutService);
+                new UserCascadeDeleteService(projectRepository, checkoutService, pushSubscriptions(tmp));
 
         ProjectRecord bobsProject = projectRepository.create("bobs", "url", tmp.resolve("bobs"), 2L, Instant.now());
 
@@ -72,11 +80,16 @@ class UserCascadeDeleteServiceTest {
                 new IssueWorktreeService(TestSqliteDatabases.newRepository(tmp), TestSqliteDatabases.newNoopAuthorization()),
                 tokenCipher(tmp), TestSqliteDatabases.newGhAccountRepository(tmp));
         UserCascadeDeleteService cascadeDeleteService =
-                new UserCascadeDeleteService(projectRepository, checkoutService);
+                new UserCascadeDeleteService(projectRepository, checkoutService, pushSubscriptions(tmp));
 
         cascadeDeleteService.deleteEverythingOwnedBy(999L);
 
         assertThat(projectRepository.findAll()).isEmpty();
+    }
+
+    /** The account's Web Push subscriptions (#860), over the same on-disk database as the repositories above. */
+    private static PushSubscriptionRepository pushSubscriptions(Path tmp) {
+        return new PushSubscriptionRepository(TestSqliteDatabases.newDataSource(tmp), tokenCipher(tmp));
     }
 
     private static TokenCipher tokenCipher(Path dataDir) {

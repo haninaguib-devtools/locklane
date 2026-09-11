@@ -2,7 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
-import { NotificationService, notificationContentFor } from './notification.service';
+import { SwPush } from '@angular/service-worker';
+import { Subject } from 'rxjs';
+import { NotificationService, agentTargetOf, notificationContentFor } from './notification.service';
 import { AttentionStore } from './attention-store';
 import { NotificationsStore } from './notifications-store';
 import { ActiveAgentSessionStore } from './active-agent-session-store';
@@ -16,6 +18,10 @@ import { routes } from '../app.routes';
 describe('NotificationService (#859)', () => {
   let httpMock: HttpTestingController;
   let notifications: FakeNotification[];
+  // #860: what the service worker relays to the page -- a pushed notification's
+  // payload, and a click on one. Not enabled, so PushService never subscribes here.
+  let pushMessages: Subject<object>;
+  let pushClicks: Subject<{ action: string; notification: NotificationOptions & { title: string } }>;
 
   const PROJECT_A: Project = {
     id: 1,
@@ -61,8 +67,15 @@ describe('NotificationService (#859)', () => {
     FakeNotification.permission = 'granted';
     (window as unknown as { Notification: unknown }).Notification = FakeNotification;
 
+    pushMessages = new Subject<object>();
+    pushClicks = new Subject<{ action: string; notification: NotificationOptions & { title: string } }>();
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter(routes)],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter(routes),
+        { provide: SwPush, useValue: { isEnabled: false, messages: pushMessages, notificationClicks: pushClicks } },
+      ],
     });
     httpMock = TestBed.inject(HttpTestingController);
 
@@ -251,5 +264,110 @@ describe('NotificationService (#859)', () => {
 
     expect(notifications.length).toBe(0);
     httpMock.expectNone('/api/projects');
+  });
+  // #860: the same notification, pushed by the engine once the app is closed.
+  describe('pushed notifications', () => {
+    /** A fake service worker registration holding one notification for `tag`. */
+    function registrationHolding(tag: string) {
+      const held = { tag, close: jasmine.createSpy('close') };
+      const getNotifications = jasmine.createSpy('getNotifications').and.callFake((filter?: { tag?: string }) =>
+        Promise.resolve(filter?.tag === tag ? [held] : []),
+      );
+      (navigator.serviceWorker.getRegistration as jasmine.Spy).and.resolveTo({ getNotifications } as unknown as ServiceWorkerRegistration);
+      return { held, getNotifications };
+    }
+
+    it('agentTargetOf reads the agent out of a session id, and nothing out of a shell', () => {
+      expect(agentTargetOf('12-345-fix-the-thing')).toEqual({ sessionId: '12-345-fix-the-thing', projectId: 12, issueNumber: 345 });
+      expect(agentTargetOf('12-console')).toEqual({ sessionId: '12-console', projectId: 12, issueNumber: null });
+      expect(agentTargetOf('12-console-a1b2c3d4')).toEqual({ sessionId: '12-console-a1b2c3d4', projectId: 12, issueNumber: null });
+      expect(agentTargetOf('12-shell-345-a1b2c3d4')).toBeNull();
+      expect(agentTargetOf('nonsense')).toBeNull();
+    });
+
+    it('a push for the agent on screen, with the document visible, is closed again', async () => {
+      setVisibility('visible');
+      TestBed.inject(ActiveAgentSessionStore).set(7, '1-7-rename-toggle');
+      await TestBed.inject(Router).navigateByUrl('/projects/1/issues/7');
+      TestBed.inject(NotificationService);
+      const { held } = registrationHolding('1-7-rename-toggle');
+
+      pushMessages.next({ notification: { tag: '1-7-rename-toggle', title: 'Agent on #7 is waiting' } });
+      await flushMicrotasks();
+
+      expect(held.close).toHaveBeenCalled();
+    });
+
+    it('a push for a different agent, or with the document hidden, is left showing', async () => {
+      setVisibility('hidden');
+      TestBed.inject(ActiveAgentSessionStore).set(7, '1-7-rename-toggle');
+      await TestBed.inject(Router).navigateByUrl('/projects/1/issues/7');
+      TestBed.inject(NotificationService);
+      const { held, getNotifications } = registrationHolding('1-7-rename-toggle');
+
+      pushMessages.next({ notification: { tag: '1-7-rename-toggle', title: 'Agent on #7 is waiting' } });
+      pushMessages.next({ notification: { tag: '1-9-other', title: 'Agent on #9 is waiting' } });
+      pushMessages.next({ notification: { tag: '1-shell-7-a1b2c3d4', title: 'nonsense' } });
+      await flushMicrotasks();
+
+      expect(getNotifications).not.toHaveBeenCalled();
+      expect(held.close).not.toHaveBeenCalled();
+    });
+
+    it('a click on a pushed notification lands on the agent the way the in-app click does', async () => {
+      const router = TestBed.inject(Router);
+      const navigateSpy = spyOn(router, 'navigate');
+      const focusSpy = spyOn(window, 'focus');
+      TestBed.inject(NotificationService);
+
+      pushClicks.next({
+        action: '',
+        notification: {
+          title: 'Agent on #7 is waiting',
+          data: { sessionId: '1-7-rename-toggle', onActionClick: { default: { operation: 'focusLastFocusedOrOpen', url: '/projects/1/issues/7' } } },
+        },
+      });
+      httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+      httpMock.expectOne('/api/projects/1/consoles').flush(['1-7-rename-toggle']);
+      httpMock.expectOne('/api/projects/1/issues').flush([issue(7, 'Seven')]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      await flushMicrotasks();
+
+      expect(focusSpy).toHaveBeenCalled();
+      expect(navigateSpy).toHaveBeenCalledWith(['/projects', 1, 'issues', 7]);
+      expect(TestBed.inject(ActiveAgentSessionStore).get(7)).toBe('1-7-rename-toggle');
+    });
+
+    it('a click for an agent that has since gone falls back to the URL the worker carried', async () => {
+      const router = TestBed.inject(Router);
+      const navigateByUrlSpy = spyOn(router, 'navigateByUrl');
+      spyOn(window, 'focus');
+      TestBed.inject(NotificationService);
+
+      pushClicks.next({
+        action: '',
+        notification: {
+          title: 'Agent on #7 is waiting',
+          data: { sessionId: '1-7-rename-toggle', onActionClick: { default: { operation: 'focusLastFocusedOrOpen', url: '/projects/1/issues/7' } } },
+        },
+      });
+      httpMock.expectOne('/api/projects').flush([PROJECT_A]);
+      httpMock.expectOne('/api/projects/1/consoles').flush([]);
+      httpMock.expectOne('/api/projects/1/issues').flush([]);
+      httpMock.expectOne('/api/projects/1/console/sessions').flush([]);
+      await flushMicrotasks();
+
+      expect(navigateByUrlSpy).toHaveBeenCalledWith('/projects/1/issues/7');
+    });
+
+    it('a click carrying no session does nothing', () => {
+      TestBed.inject(NotificationService);
+      const focusSpy = spyOn(window, 'focus');
+
+      pushClicks.next({ action: '', notification: { title: 'something else' } });
+
+      expect(focusSpy).not.toHaveBeenCalled();
+      httpMock.expectNone('/api/projects');
+    });
   });
 });

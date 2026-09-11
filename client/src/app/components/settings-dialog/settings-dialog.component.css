@@ -216,7 +216,8 @@ input {
   width: auto;
 }
 
-.notification-denied {
+.notification-denied,
+.notification-push {
   margin-top: 6px;
   margin-bottom: 0;
 }

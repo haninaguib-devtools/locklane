@@ -458,6 +458,22 @@ describe('SettingsDialogComponent', () => {
       expect(checkbox.checked).toBeTrue();
     });
 
+    // #860: no service worker is provided here, so push to a closed app is
+    // unavailable -- and only worth saying once the preference is actually on.
+    it('with the preference on and no service worker, says a closed app cannot be notified here', async () => {
+      fakeNotification(() => Promise.resolve('granted'));
+      const fixture = create();
+      flushStatus(fixture, false);
+      expect((fixture.nativeElement as HTMLElement).querySelector('.notification-push')).toBeNull();
+
+      fixture.componentInstance.toggleNotifications(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect((fixture.nativeElement as HTMLElement).querySelector('.notification-push')?.textContent).toContain('not available here');
+    });
+
     it('checking it but being denied leaves it unchecked, with the denial shown', async () => {
       fakeNotification(() => Promise.resolve('denied'));
       const fixture = create();

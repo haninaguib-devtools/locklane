@@ -61,7 +61,10 @@
 
       <section class="section">
         <h2>Notifications</h2>
-        <p class="muted">Show a browser notification when an agent rings the bell and its tab is not in view.</p>
+        <p class="muted">
+          Show a browser notification when an agent rings the bell and its tab is not in view, and on this
+          device also when Locklane is closed.
+        </p>
         <label class="notification-toggle">
           <input
             type="checkbox"
@@ -73,6 +76,18 @@
         @if (notificationPermission() === 'denied') {
           <p class="muted notification-denied">
             Notifications are blocked for this site in your browser settings.
+          </p>
+        }
+        @if (notificationsEnabled() && pushStatus() === 'unavailable') {
+          <p class="muted notification-push">
+            Notifying you while Locklane is closed is not available here: it needs Locklane served over
+            HTTPS in a browser with push support.
+          </p>
+        }
+        @if (notificationsEnabled() && pushStatus() === 'failed') {
+          <p class="muted notification-push">
+            This browser would not set up notifications for when Locklane is closed. On an iPhone or iPad,
+            add Locklane to the Home Screen first, then turn this off and on again.
           </p>
         }
       </section>
