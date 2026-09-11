@@ -576,7 +576,15 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     // controlling terminal, not stdout -- a hook's stdout reaches Claude Code itself,
     // never the screen, and inside a Locklane tab the controlling terminal is the
     // engine's own PTY, which is exactly what PtySession's bell scanner watches.
-    private static final String BELL_HOOK_COMMAND = "printf '\\a' > /dev/tty";
+    //
+    // #880: best-effort -- a session launched with no controlling terminal has no
+    // /dev/tty to open, and the plain one-liner's failed redirection turned into a
+    // "Stop hook error" fed back to the model on every turn. The braces wrap the
+    // redirection itself, not just the command that follows it, so the shell's own
+    // "cannot create /dev/tty" complaint about the failed open lands on the group's
+    // suppressed stderr rather than escaping to Claude Code; `|| true` then keeps the
+    // command's exit status zero regardless.
+    private static final String BELL_HOOK_COMMAND = "{ printf '\\a' > /dev/tty; } 2>/dev/null || true";
 
     // ADR-113: Locklane wires each agent CLI's own hook mechanism to ring the bell,
     // rather than relying on any notification channel the CLI ships with -- the

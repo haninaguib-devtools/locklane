@@ -42,6 +42,12 @@ notification format, or asking the user to configure anything:
   place, appends `--settings` and one JSON argv element to every `claude` launch —
   plain, resumed, or seeded with a first prompt alike — declaring the three hooks
   above, each running `printf '\a' > /dev/tty`.
+- The hook command, and Codex's equivalent `bell.sh` (#856), are best-effort
+  (#880): a session with no controlling terminal has no `/dev/tty` to open, and both
+  wrap the redirection so a failed open exits 0 and prints nothing, rather than
+  surfacing as a `Stop hook error` fed back to the model on every turn. This is the
+  same failure shape the OMP extension (#857) already handles with a try/catch around
+  its own `/dev/tty` open.
 - The engine's own contract stays exactly what `PtySession` already scans for: a bare
   BEL on the controlling terminal. Claude Code's hooks are a producer of that signal,
   not a new signal the engine has to learn.

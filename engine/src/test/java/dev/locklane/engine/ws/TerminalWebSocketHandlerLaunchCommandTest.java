@@ -6,8 +6,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -150,11 +152,31 @@ class TerminalWebSocketHandlerLaunchCommandTest {
         // at -- parsed here (not string-matched) since Claude Code's settings schema
         // is what actually has to accept this, not any particular JSON formatting.
         JsonNode hooks = new ObjectMapper().readTree(claudeSettingsJson).path("hooks");
-        String bellCommand = "printf '\\a' > /dev/tty";
+        String bellCommand = "{ printf '\\a' > /dev/tty; } 2>/dev/null || true";
 
         assertThat(hookCommand(hooks, "Stop", null)).isEqualTo(bellCommand);
         assertThat(hookCommand(hooks, "PreToolUse", "AskUserQuestion")).isEqualTo(bellCommand);
         assertThat(hookCommand(hooks, "Notification", "permission_prompt")).isEqualTo(bellCommand);
+    }
+
+    @Test
+    void theBellHookCommandExitsCleanlyAndPrintsNothingWithNoControllingTerminal() throws Exception {
+        // #880: a plain ProcessBuilder child (pipes, not a pty) is exactly the shape
+        // the bug report hit -- a claude process Locklane launched with no
+        // controlling terminal at all, where the old one-liner's failed `> /dev/tty`
+        // redirection turned into a `Stop hook error` fed back to the model.
+        String bellCommand = "{ printf '\\a' > /dev/tty; } 2>/dev/null || true";
+
+        Process process = new ProcessBuilder("/bin/sh", "-c", bellCommand).start();
+        process.getOutputStream().close();
+        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+        boolean exited = process.waitFor(5, TimeUnit.SECONDS);
+
+        assertThat(exited).as("hook command exited within timeout").isTrue();
+        assertThat(process.exitValue()).isZero();
+        assertThat(stdout).isEmpty();
+        assertThat(stderr).isEmpty();
     }
 
     /** The {@code command} of the first hook in {@code event}'s group matching {@code matcher} (null = no matcher key expected). */
