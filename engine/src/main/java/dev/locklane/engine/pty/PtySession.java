@@ -13,12 +13,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.UnaryOperator;
 
 /**
  * One long-lived pseudo-terminal process for a single session, independent of any
@@ -74,7 +76,7 @@ public final class PtySession {
     private final Set<OutputListener> listeners = ConcurrentHashMap.newKeySet();
     private final Set<AttentionListener> attentionListeners = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final AtomicReference<AttentionState> attention = new AtomicReference<>(AttentionState.ACTIVE);
+    private final AtomicReference<Attention> attention = new AtomicReference<>(Attention.ACTIVE);
     private volatile long lastOutputAt;
     private volatile long lastInputAt;
     // #233: only ever touched from this session's own drain thread, so the scan can
@@ -112,7 +114,7 @@ public final class PtySession {
                 output.append(chunk, n);
                 lastOutputAt = System.currentTimeMillis();
                 if (scanForAttentionBel(chunk, n)) {
-                    setAttention(AttentionState.WAITING);
+                    markBell();
                 }
                 if (!listeners.isEmpty()) {
                     // Defensive copy: `chunk` is reused on the next loop iteration, so a
@@ -185,7 +187,7 @@ public final class PtySession {
             stdin.write(input.getBytes(StandardCharsets.UTF_8));
             stdin.flush();
             lastInputAt = System.currentTimeMillis();
-            setAttention(AttentionState.ACTIVE);
+            markActive();
         } catch (IOException e) {
             throw new PtySessionIoException(sessionId, e);
         }
@@ -198,7 +200,7 @@ public final class PtySession {
      */
     public void markFocused() {
         lastInputAt = System.currentTimeMillis();
-        setAttention(AttentionState.ACTIVE);
+        markActive();
     }
 
     /**
@@ -261,7 +263,17 @@ public final class PtySession {
      * reads it to build the snapshot a new connection is sent.
      */
     public AttentionState attentionState() {
-        return attention.get();
+        return attention.get().state();
+    }
+
+    /**
+     * Why this session is waiting (#854) — {@code null} whenever {@link
+     * #attentionState()} is {@link AttentionState#ACTIVE}. Read the same way {@link
+     * #attentionState()} is: {@code SessionRegistry} uses it to build the connect-time
+     * snapshot too.
+     */
+    public WaitingReason waitingReason() {
+        return attention.get().reason();
     }
 
     /**
@@ -278,14 +290,45 @@ public final class PtySession {
     /** As above, with an explicit "now" so a test can evaluate this with no real sleep. */
     void checkQuiescence(long nowMs) {
         if (nowMs - lastOutputAt >= QUIESCENCE_THRESHOLD_MS && lastInputAt <= lastOutputAt) {
-            setAttention(AttentionState.WAITING);
+            markQuiet();
         }
     }
 
-    private void setAttention(AttentionState state) {
-        if (attention.getAndSet(state) != state) {
+    /** A BEL was seen (#854): the strongest reason, so it always wins over quiet. */
+    private void markBell() {
+        updateAttention(current -> new Attention(AttentionState.WAITING, WaitingReason.BELL));
+    }
+
+    /**
+     * Output has gone quiet (#854): marks waiting, unless a bell already did — a bell
+     * followed by quiet must keep reporting {@code bell}, never downgrade it.
+     */
+    private void markQuiet() {
+        updateAttention(current -> current.state() == AttentionState.WAITING && current.reason() == WaitingReason.BELL
+                ? current
+                : new Attention(AttentionState.WAITING, WaitingReason.QUIET));
+    }
+
+    private void markActive() {
+        updateAttention(current -> Attention.ACTIVE);
+    }
+
+    /**
+     * Applies {@code transition} atomically and notifies every {@link
+     * AttentionListener} exactly when the result actually differs from before — so a
+     * session already waiting for quiet that then rings the bell re-emits with the
+     * stronger reason even though {@link AttentionState} itself did not change (#854).
+     */
+    private void updateAttention(UnaryOperator<Attention> transition) {
+        Attention previous;
+        Attention updated;
+        do {
+            previous = attention.get();
+            updated = transition.apply(previous);
+        } while (!attention.compareAndSet(previous, updated));
+        if (!previous.equals(updated)) {
             for (AttentionListener listener : attentionListeners) {
-                listener.onAttentionChange(state);
+                listener.onAttentionChange(updated.state(), updated.reason());
             }
         }
     }
@@ -301,8 +344,29 @@ public final class PtySession {
         ACTIVE
     }
 
+    /**
+     * Why a session is {@link AttentionState#WAITING} (#854): a deliberate {@code
+     * bell}, the agent-agnostic completion signal, or the {@code quiet} fallback for
+     * an agent that never rings it. Never present alongside {@link
+     * AttentionState#ACTIVE}.
+     */
+    public enum WaitingReason {
+        BELL,
+        QUIET;
+
+        /** This reason's wire value, e.g. in the {@code consoleAttention} event. */
+        public String wireValue() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+    }
+
+    /** This session's state and, when waiting, why — see {@link #updateAttention}. */
+    private record Attention(AttentionState state, WaitingReason reason) {
+        static final Attention ACTIVE = new Attention(AttentionState.ACTIVE, null);
+    }
+
     @FunctionalInterface
     public interface AttentionListener {
-        void onAttentionChange(AttentionState state);
+        void onAttentionChange(AttentionState state, WaitingReason reason);
     }
 }

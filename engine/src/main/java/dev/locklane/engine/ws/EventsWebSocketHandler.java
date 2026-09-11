@@ -114,10 +114,10 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
     private final String runningVersion;
     private final Optional<String> releaseUrl;
     private final Supplier<Optional<NewerRelease>> newerRelease;
-    // #790: the ids of the live sessions waiting for attention, read fresh on every
-    // connect — a supplier for the same reason newerRelease is: the set changes
+    // #790: the live sessions waiting for attention, and why (#854), read fresh on
+    // every connect — a supplier for the same reason newerRelease is: the set changes
     // throughout the engine's lifetime.
-    private final Supplier<Collection<String>> waitingSessions;
+    private final Supplier<Collection<SessionRegistry.WaitingSession>> waitingSessions;
     private final TerminalHeartbeat heartbeat;
     private final long heartbeatIntervalMs;
 
@@ -127,7 +127,7 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
             ReleaseUpdateChecker releaseUpdateChecker, SessionRegistry sessionRegistry, Clock clock,
             @Value("${locklane.events.heartbeat-interval-ms}") long heartbeatIntervalMs) {
         this(broadcaster, buildProperties.getTime().toString(), buildProperties.getVersion(), repository,
-                releaseUpdateChecker::newerReleaseAvailable, sessionRegistry::waitingSessionIds, clock,
+                releaseUpdateChecker::newerReleaseAvailable, sessionRegistry::waitingSessions, clock,
                 heartbeatIntervalMs);
     }
 
@@ -143,9 +143,9 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
                 20_000L);
     }
 
-    /** Test-only: as above, with a fake supplier of the waiting session ids (#790). */
+    /** Test-only: as above, with a fake supplier of the waiting sessions (#790, #854). */
     EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
-            Supplier<Optional<NewerRelease>> newerRelease, Supplier<Collection<String>> waitingSessions) {
+            Supplier<Optional<NewerRelease>> newerRelease, Supplier<Collection<SessionRegistry.WaitingSession>> waitingSessions) {
         this(broadcaster, versionStamp, runningVersion, "o/r", newerRelease, waitingSessions, Clock.systemUTC(),
                 20_000L);
     }
@@ -159,7 +159,7 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
 
     /** Test-only: as the five-arg waiting-sessions constructor above, with a controllable {@link Clock}. */
     EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
-            Supplier<Optional<NewerRelease>> newerRelease, Supplier<Collection<String>> waitingSessions,
+            Supplier<Optional<NewerRelease>> newerRelease, Supplier<Collection<SessionRegistry.WaitingSession>> waitingSessions,
             Clock clock, long heartbeatIntervalMs) {
         this(broadcaster, versionStamp, runningVersion, "o/r", newerRelease, waitingSessions, clock,
                 heartbeatIntervalMs);
@@ -168,7 +168,7 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
     /** Package-visible so a heartbeat test can drive this with a controllable {@link Clock}. */
     EventsWebSocketHandler(EventBroadcaster broadcaster, String versionStamp, String runningVersion,
             String repository, Supplier<Optional<NewerRelease>> newerRelease,
-            Supplier<Collection<String>> waitingSessions, Clock clock, long heartbeatIntervalMs) {
+            Supplier<Collection<SessionRegistry.WaitingSession>> waitingSessions, Clock clock, long heartbeatIntervalMs) {
         this.broadcaster = broadcaster;
         this.versionStamp = versionStamp;
         this.runningVersion = runningVersion;
@@ -197,8 +197,17 @@ public class EventsWebSocketHandler extends TextWebSocketHandler {
         // #790: read only now that the connection is registered, so a change that
         // races this connect reaches it as a broadcast even when the read below
         // misses it; the same change arriving twice is harmless.
-        for (String sessionId : waitingSessions.get()) {
-            broadcaster.sendTo(session, "consoleAttention", Map.of("sessionId", sessionId, "state", "waiting"));
+        for (SessionRegistry.WaitingSession waitingSession : waitingSessions.get()) {
+            Map<String, Object> fields = new LinkedHashMap<>();
+            fields.put("sessionId", waitingSession.sessionId());
+            fields.put("state", "waiting");
+            // #854: absent only for an engine old enough to have no reason to report —
+            // never the case for this handler's own registry-backed supplier, but a
+            // test's fake may still hand back one with no reason.
+            if (waitingSession.reason() != null) {
+                fields.put("reason", waitingSession.reason().wireValue());
+            }
+            broadcaster.sendTo(session, "consoleAttention", fields);
         }
     }
 

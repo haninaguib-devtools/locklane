@@ -128,7 +128,9 @@ class EventsWebSocketHandlerIntegrationTest {
         // whatever sessions earlier test classes left running and now quiescent. Wait
         // for every one of those lines to land too, so the count below is the whole
         // connect sequence and not a point part-way through it.
-        waitUntil(() -> sessionRegistry.waitingSessionIds().stream().allMatch(client::hasWaitingSnapshotFor),
+        waitUntil(() -> sessionRegistry.waitingSessions().stream()
+                        .map(SessionRegistry.WaitingSession::sessionId)
+                        .allMatch(client::hasWaitingSnapshotFor),
                 Duration.ofSeconds(5));
         long messagesBeforeClose = client.eventMessageCount();
 

@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -161,8 +162,8 @@ public class SessionRegistry {
             // Lives for the session's whole lifetime — never unsubscribed, unlike a
             // browser's own subscription in TerminalWebSocketHandler, which comes and
             // goes with that one connection.
-            created.subscribeAttention(state -> eventBroadcaster.broadcast("consoleAttention",
-                    Map.of("sessionId", id, "state", state == PtySession.AttentionState.WAITING ? "waiting" : "active")));
+            created.subscribeAttention((state, reason) -> eventBroadcaster.broadcast("consoleAttention",
+                    attentionFields(id, state, reason)));
             if (resumeRepository != null) {
                 // Same lifetime as the attention subscription above: watches the whole
                 // stream for a Claude/Codex resume id (#102) and persists each new one.
@@ -222,19 +223,41 @@ public class SessionRegistry {
     }
 
     /**
-     * The ids of every live session currently waiting for attention (#790) — what
-     * {@code EventsWebSocketHandler} sends a newly connected client as its
+     * Every live session currently waiting for attention, with why (#790, #854) —
+     * what {@code EventsWebSocketHandler} sends a newly connected client as its
      * {@code consoleAttention} snapshot, so a page opened or reconnected after a
-     * session rang the bell shows it as waiting without the live broadcast having to
-     * fire again. Live sessions only: a session with a persisted record but no process
-     * in this engine (the case right after a restart) has no attention state to
-     * report. The order is whatever the registry's map yields; nothing depends on it.
+     * session rang the bell shows it as waiting, with the same reason, without the
+     * live broadcast having to fire again. Live sessions only: a session with a
+     * persisted record but no process in this engine (the case right after a restart)
+     * has no attention state to report. The order is whatever the registry's map
+     * yields; nothing depends on it.
      */
-    public List<String> waitingSessionIds() {
+    public List<WaitingSession> waitingSessions() {
         return sessions.entrySet().stream()
                 .filter(entry -> entry.getValue().attentionState() == PtySession.AttentionState.WAITING)
-                .map(Map.Entry::getKey)
+                .map(entry -> new WaitingSession(entry.getKey(), entry.getValue().waitingReason()))
                 .toList();
+    }
+
+    /** One live session's id and why it is waiting (#854) — see {@link #waitingSessions()}. */
+    public record WaitingSession(String sessionId, PtySession.WaitingReason reason) {
+    }
+
+    /**
+     * The {@code consoleAttention} event's fields (#854): {@code reason} is present
+     * only alongside {@code state: "waiting"}, matching {@link PtySession}'s own
+     * contract that a {@link PtySession.WaitingReason} never accompanies {@code
+     * ACTIVE} — an active event stays exactly the shape it always was.
+     */
+    private static Map<String, Object> attentionFields(String sessionId, PtySession.AttentionState state,
+            PtySession.WaitingReason reason) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("sessionId", sessionId);
+        fields.put("state", state == PtySession.AttentionState.WAITING ? "waiting" : "active");
+        if (reason != null) {
+            fields.put("reason", reason.wireValue());
+        }
+        return fields;
     }
 
     /**

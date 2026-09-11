@@ -9,12 +9,13 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Covers #790's registry half: {@link SessionRegistry#waitingSessionIds()} names exactly
- * the live sessions currently in {@link PtySession.AttentionState#WAITING} — what the
- * events channel sends a newly connected client as its catch-up snapshot — and nothing
- * for a session that is active, or that has a persisted record but no live process.
- * Attention is driven through the deterministic {@code checkQuiescence(nowMs)} overload,
- * the same way {@link PtySessionAttentionTest} does, so no test here sleeps.
+ * Covers #790's registry half: {@link SessionRegistry#waitingSessions()} names exactly
+ * the live sessions currently in {@link PtySession.AttentionState#WAITING}, each with
+ * its current {@link PtySession.WaitingReason} (#854) — what the events channel sends
+ * a newly connected client as its catch-up snapshot — and nothing for a session that
+ * is active, or that has a persisted record but no live process. Attention is driven
+ * through the deterministic {@code checkQuiescence(nowMs)} overload, the same way
+ * {@link PtySessionAttentionTest} does, so no test here sleeps.
  */
 class SessionRegistryWaitingSessionsTest {
 
@@ -22,11 +23,11 @@ class SessionRegistryWaitingSessionsTest {
     void noSessionIsWaitingWhenNothingIsLive(@TempDir Path dbDir) {
         SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
 
-        assertThat(registry.waitingSessionIds()).isEmpty();
+        assertThat(registry.waitingSessions()).isEmpty();
     }
 
     @Test
-    void onlyTheSessionsCurrentlyWaitingAreListed(@TempDir Path dbDir, @TempDir Path workDir) {
+    void onlyTheSessionsCurrentlyWaitingAreListedWithTheirReason(@TempDir Path dbDir, @TempDir Path workDir) {
         SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
         PtySession waiting = registry.attach("42-7-waiting", workDir);
         PtySession alsoWaiting = registry.attach("42-8-also-waiting", workDir);
@@ -36,7 +37,9 @@ class SessionRegistryWaitingSessionsTest {
         waiting.checkQuiescence(wellPastTheThreshold);
         alsoWaiting.checkQuiescence(wellPastTheThreshold);
 
-        assertThat(registry.waitingSessionIds()).containsExactlyInAnyOrder("42-7-waiting", "42-8-also-waiting");
+        assertThat(registry.waitingSessions()).containsExactlyInAnyOrder(
+                new SessionRegistry.WaitingSession("42-7-waiting", PtySession.WaitingReason.QUIET),
+                new SessionRegistry.WaitingSession("42-8-also-waiting", PtySession.WaitingReason.QUIET));
     }
 
     @Test
@@ -44,11 +47,12 @@ class SessionRegistryWaitingSessionsTest {
         SessionRegistry registry = new SessionRegistry(TestSqliteDatabases.newRepository(dbDir));
         PtySession session = registry.attach("42-7-slug", workDir);
         session.checkQuiescence(System.currentTimeMillis() + PtySession.QUIESCENCE_THRESHOLD_MS + 10_000);
-        assertThat(registry.waitingSessionIds()).containsExactly("42-7-slug");
+        assertThat(registry.waitingSessions())
+                .containsExactly(new SessionRegistry.WaitingSession("42-7-slug", PtySession.WaitingReason.QUIET));
 
         session.markFocused();
 
-        assertThat(registry.waitingSessionIds()).isEmpty();
+        assertThat(registry.waitingSessions()).isEmpty();
     }
 
     @Test
@@ -59,6 +63,6 @@ class SessionRegistryWaitingSessionsTest {
 
         registry.close("42-7-slug");
 
-        assertThat(registry.waitingSessionIds()).isEmpty();
+        assertThat(registry.waitingSessions()).isEmpty();
     }
 }

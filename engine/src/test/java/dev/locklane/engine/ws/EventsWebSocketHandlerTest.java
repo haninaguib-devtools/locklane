@@ -57,7 +57,8 @@ import static org.mockito.Mockito.when;
  * <p>Also covers #790's connect-time catch-up: a new connection is sent exactly one
  * {@code consoleAttention} {@code waiting} message per live session currently waiting,
  * none for an active one, in the live broadcast's own shape, after the greeting and
- * only once the connection is registered for broadcasts.
+ * only once the connection is registered for broadcasts. #854's {@code reason} field
+ * rides along on the same snapshot line.
  */
 class EventsWebSocketHandlerTest {
 
@@ -77,16 +78,16 @@ class EventsWebSocketHandlerTest {
         assertThat(active.attentionState()).isEqualTo(PtySession.AttentionState.ACTIVE);
         EventBroadcaster broadcaster = mock(EventBroadcaster.class);
         EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
-                Optional::empty, registry::waitingSessionIds);
+                Optional::empty, registry::waitingSessions);
         WebSocketSession session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("s");
 
         handler.afterConnectionEstablished(session);
 
         verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("consoleAttention"),
-                eq(Map.of("sessionId", "42-7-waiting", "state", "waiting")));
+                eq(Map.of("sessionId", "42-7-waiting", "state", "waiting", "reason", "bell")));
         verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("consoleAttention"),
-                eq(Map.of("sessionId", "42-8-also-waiting", "state", "waiting")));
+                eq(Map.of("sessionId", "42-8-also-waiting", "state", "waiting", "reason", "bell")));
         // Exactly one per waiting session: nothing for the active one, no duplicates,
         // and never a "state: active" line -- the snapshot only ever says "waiting".
         verify(broadcaster, times(2)).sendTo(any(), eq("consoleAttention"), anyMap());
@@ -108,9 +109,9 @@ class EventsWebSocketHandlerTest {
             registered.set(true);
             return null;
         }).when(broadcaster).register(any());
-        Supplier<Collection<String>> waitingSessions = () -> {
+        Supplier<Collection<SessionRegistry.WaitingSession>> waitingSessions = () -> {
             snapshotReadAfterRegister.add(registered.get() ? "after" : "before");
-            return List.of("42-7-slug");
+            return List.of(new SessionRegistry.WaitingSession("42-7-slug", PtySession.WaitingReason.QUIET));
         };
         EventsWebSocketHandler handler = new EventsWebSocketHandler(broadcaster, "stamp", "0.1.0",
                 Optional::empty, waitingSessions);
@@ -124,7 +125,7 @@ class EventsWebSocketHandlerTest {
         inOrder.verify(broadcaster).sendTo(any(), eq("engineVersion"), anyMap());
         inOrder.verify(broadcaster).register(argThat(serializedWrapperAround(session)));
         inOrder.verify(broadcaster).sendTo(argThat(serializedWrapperAround(session)), eq("consoleAttention"),
-                eq(Map.of("sessionId", "42-7-slug", "state", "waiting")));
+                eq(Map.of("sessionId", "42-7-slug", "state", "waiting", "reason", "quiet")));
     }
 
     @Test
