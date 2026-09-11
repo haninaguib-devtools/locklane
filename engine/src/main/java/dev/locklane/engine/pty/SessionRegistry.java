@@ -365,6 +365,16 @@ public class SessionRegistry {
         boolean wasOpen = sessions.containsKey(sessionId) || repository.find(sessionId).isPresent();
         PtySession session = sessions.remove(sessionId);
         if (session != null) {
+            // #884: destroying the process below never emits its own attention
+            // transition, so a session closed while WAITING would otherwise stay
+            // marked waiting for every client forever — read before close() (which
+            // does not touch attention either way, but the read belongs with the
+            // state being closed) and broadcast the same `active` shape a real
+            // transition would, so every open browser drops this id immediately.
+            if (session.attentionState() == PtySession.AttentionState.WAITING) {
+                eventBroadcaster.broadcast("consoleAttention",
+                        attentionFields(sessionId, PtySession.AttentionState.ACTIVE, null, null));
+            }
             session.close();
         }
         repository.delete(sessionId);

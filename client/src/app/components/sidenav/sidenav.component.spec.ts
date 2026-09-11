@@ -1586,6 +1586,42 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.hasAttentionWaitingForProject(1)).toBeTrue();
   });
 
+  it('a project row is marked waiting only by a project agent session that is still open (#884)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-a', state: 'waiting' });
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-b', state: 'waiting' });
+    // SessionRegistry#close's own final `active` transition (#884) for a project
+    // agent closed while waiting -- not a user-driven active event.
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-a', state: 'active' });
+    expect(fixture.componentInstance.hasAttentionWaitingForProject(1)).toBeTrue();
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-console-b', state: 'active' });
+    expect(fixture.componentInstance.hasAttentionWaitingForProject(1)).toBeFalse();
+  });
+
+  it('starting a new agent on an issue whose previous agent was closed while waiting shows not-waiting until the new session itself signals (#884)', () => {
+    const fixture = init();
+    flushTree(1, tree());
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-4-main-slug', state: 'waiting' });
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 4)).toBeTrue();
+
+    // SessionRegistry#close's own final `active` transition (#884), fired when the
+    // agent is closed while still waiting.
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-4-main-slug', state: 'active' });
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 4)).toBeFalse();
+
+    // A brand-new session reusing the same deterministic id
+    // (WorktreeCreationService#startSession) starts ACTIVE and emits nothing on its
+    // own -- the dot must not flip back to waiting by itself.
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 4)).toBeFalse();
+
+    emitAppEvent({ type: 'consoleAttention', sessionId: '1-4-main-slug', state: 'waiting', reason: 'quiet' });
+    expect(fixture.componentInstance.hasAttentionWaiting(1, 4)).toBeTrue();
+  });
+
   /** The header's rendered text with whitespace collapsed, e.g. "proj-a (3)". */
   function headerText(fixture: { nativeElement: HTMLElement }): string {
     const label = fixture.nativeElement.querySelector('.section-header .project-label') as HTMLElement;
