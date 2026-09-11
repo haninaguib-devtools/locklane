@@ -11,13 +11,19 @@ Read-only: findings are posted, nothing is fixed, nothing on the tracker changes
 ## Isolation, before reading anything
 
 A reviewer that inherits the implementer's reasoning re-derives it instead of testing
-it. Decide the isolation line first:
-- This session did not implement the task → `isolation: fresh session`.
+it. Decide the isolation line first, and alongside it the harness and the exact model
+id that will actually do the reviewing (never a display name; `unknown` when it cannot
+be told) — this is the `model:` line posted below, the only place a review's own
+attribution goes; this skill never touches the working tree:
+- This session did not implement the task → `isolation: fresh session`, `model:` this
+  session's own harness and model.
 - It did → spawn a read-only subagent to do the whole review, under `reviewer_model`
   from `.t-workflow/config` when set, else this session's model; a model named on the
-  invocation (`/t-review 12 use opus`) wins → `isolation: subagent`.
+  invocation (`/t-review 12 use opus`) wins → `isolation: subagent`, `model:` the
+  harness and model the subagent actually ran as.
 - No subagent available → on a protected diff, stop and ask for a fresh session;
-  otherwise `isolation: same session (<why the change is small enough>)`.
+  otherwise `isolation: same session (<why the change is small enough>)`, `model:`
+  this session's own harness and model.
 
 ## Procedure
 
@@ -54,6 +60,7 @@ it. Decide the isolation line first:
 
 ```markdown
 isolation: <line from above>
+model: <harness> / <model>
 ## Checks
 - reused — `<command>` PASS at `<sha>` (from /t-work)   |   - ran: `<command>` — PASS|FAIL
 ## Findings

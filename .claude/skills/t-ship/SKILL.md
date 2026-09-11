@@ -23,7 +23,15 @@ Read `.t-workflow/AGENTS.md`.
    `gh pr checks <pr> --watch`.
    No CI configured → say so and continue. Red → `gh pr ready <pr> --undo`, report
    which check failed, name `/t-work <id>`. Stop.
-3. Do not edit anything. A defect noticed here is a finding for the report, not a fix.
+3. Do not edit anything. A defect noticed here is a finding for the report, not a fix —
+   this includes the record: `/t-ship` never writes to it. Gather the commit trailers
+   instead, from three read-only sources: `.t-workflow/scripts/record.sh trailers <id>`
+   (a task) or that command run once per child (a parent, one call per
+   `Task: #<child>` line below) for `Planned-By`/`Implemented-By`; step 1's gate output
+   `review-agent:` line for `Reviewed-By` (skip it when that line reads `none` or is
+   empty — no review ran, or it named no model); and this session's own harness and
+   exact model id — never a display name, `unknown` when it cannot be told — for
+   `Shipped-By`, always present since a ship stage always runs.
 4. `merge: automatic` → skip to step 5 as if answered yes; report what merged and
    into which branch. Otherwise **ask the human to confirm**, last thing in the message, with the PR URL, one plain
    paragraph of what merges and why, and the evidence: review verdict (or "no review
@@ -49,10 +57,17 @@ Non-goals: <from Explicitly not>
 Outcome: <what shipped; notable decisions and deviations>
 
 Task: #<id> — docs/tasks/<id>-<slug>.md
+Implemented-By: <from record.sh trailers>
+Reviewed-By: <from review-agent, when there is one>
+Shipped-By: <harness> / <model>
 ```
 
 For a parent, the body's last lines are one `Task: #<child> — docs/tasks/<child>-<slug>.md`
-per child instead. `Closes #<id>` in the PR body closes the issue only when the base
+per child instead, and the trailers below them are the union of every child's
+`record.sh trailers` output plus the one `Reviewed-By` and `Shipped-By` from the
+parent's own PR and this session — the trailer block stays one contiguous run of
+`Key: value` lines, no blank line inside it, so `git log --format=%(trailers)` reads
+all of it. `Closes #<id>` in the PR body closes the issue only when the base
 is the default branch; a child's merge into the integration branch does not, so
 after it always `gh issue close <id> --reason completed` — the next child's blocker
 gate reads "closed as completed".
