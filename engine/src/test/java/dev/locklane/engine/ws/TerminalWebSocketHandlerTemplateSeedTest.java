@@ -35,6 +35,11 @@ class TerminalWebSocketHandlerTemplateSeedTest {
     // /console and /consoles REST paths below keep their persisted and on-the-wire shape: compatibility
     // surfaces kept under ADR-112 (#766 renamed only the identifiers).
 
+    // #855: every claude argv carries this too, regardless of seed/resume state;
+    // captured once so assertions below don't restate its content.
+    private static final String CLAUDE_SETTINGS_JSON =
+            TerminalWebSocketHandler.resolveLaunchCommand("claude", null)[2];
+
     @TempDir
     Path dbDir;
     @TempDir
@@ -80,7 +85,8 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         TerminalWebSocketHandler.Launch omp = handler.resolveLaunch(agentSessionId, "omp", null, "template", workDir);
 
         assertThat(claude.seeded()).isTrue();
-        assertThat(claude.command()).containsExactly("claude", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
+        assertThat(claude.command())
+                .containsExactly("claude", ProjectAgentSessionService.PLAIN_SEED_PROMPT, "--settings", CLAUDE_SETTINGS_JSON);
         assertThat(codex.command()).containsExactly("codex", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
         assertThat(opencode.command())
                 .containsExactly("opencode", "--prompt", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
@@ -99,7 +105,8 @@ class TerminalWebSocketHandlerTemplateSeedTest {
                 handler.resolveLaunch(id + "-console-a1b2c3d4", "claude", null, "template", workDir);
 
         assertThat(launch.seeded()).isTrue();
-        assertThat(launch.command()).containsExactly("claude", ProjectAgentSessionService.T_WORKFLOW_SEED_PROMPT);
+        assertThat(launch.command()).containsExactly("claude", ProjectAgentSessionService.T_WORKFLOW_SEED_PROMPT,
+                "--settings", CLAUDE_SETTINGS_JSON);
         assertThat(ProjectAgentSessionService.T_WORKFLOW_SEED_PROMPT).contains("PROJECT_TEMPLATE.md").contains("/t-open")
                 .contains("/t-drive");
     }
@@ -117,12 +124,12 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         assertThat(handler.resolveLaunch(templated + "-42-main-a1b2c3d4", "claude", null, "template", workDir))
                 .satisfies(l -> {
                     assertThat(l.seeded()).isFalse();
-                    assertThat(l.command()).containsExactly("claude");
+                    assertThat(l.command()).containsExactly("claude", "--settings", CLAUDE_SETTINGS_JSON);
                 });
         assertThat(handler.resolveLaunch(plain + "-console-a1b2c3d4", "claude", null, "template", workDir))
                 .satisfies(l -> {
                     assertThat(l.seeded()).isFalse();
-                    assertThat(l.command()).containsExactly("claude");
+                    assertThat(l.command()).containsExactly("claude", "--settings", CLAUDE_SETTINGS_JSON);
                 });
         assertThat(handler.resolveLaunch(templated + "-console-a1b2c3d4", "claude", null, null, workDir).seeded())
                 .isFalse();
@@ -139,7 +146,7 @@ class TerminalWebSocketHandlerTemplateSeedTest {
                 handler.resolveLaunch(id + "-console-a1b2c3d4", "claude", resumeId, "template", workDir);
 
         assertThat(launch.seeded()).isFalse();
-        assertThat(launch.command()).containsExactly("claude", "--resume", resumeId);
+        assertThat(launch.command()).containsExactly("claude", "--resume", resumeId, "--settings", CLAUDE_SETTINGS_JSON);
     }
 
     @Test
