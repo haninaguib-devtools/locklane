@@ -115,6 +115,12 @@ import java.util.regex.Pattern;
  * its installation into OpenCode's own global plugin directory is part of the same
  * startup sequence as the other three agents' bell wiring, documented in the same
  * place a reader already looks for it.
+ *
+ * <p>{@link #resolveLaunch} also decides a brand-new session's quiescence fallback
+ * (#130, #862): off for {@code claude}/{@code codex}/{@code opencode}/{@code omp},
+ * every command this class recognises as an agent with a landed bell hook, since the
+ * fallback would only add false positives alongside an already-precise signal; on for
+ * a shell or anything else, unchanged from before. See {@link Launch#quiescenceFallbackEnabled}.
  */
 @Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
@@ -236,7 +242,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         // no-op merge for every ordinary worktree/main-checkout session.
         Map<String, String> extraEnvironment = projectAgentSessionService.environmentFor(sessionId);
         PtySession session = sessionRegistry.attach(sessionId, workingDirectory, launch.command(), username, columns,
-                rows, extraEnvironment);
+                rows, extraEnvironment, launch.quiescenceFallbackEnabled());
         if (launch.seeded()) {
             // The launch just happened (resolveLaunch only seeds when no live process
             // existed), so this is the one write that turns the seed rule off (#537).
@@ -452,21 +458,33 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * {@link ProjectAgentSessionService#templateSeedPrompt} says this project still owes its
      * seeded agent session, the command carries the engine-composed prompt and the result is
      * flagged {@code seeded} so the caller records the launch. Anything else resolves
-     * exactly as before, with {@code seeded} false. Package-visible for tests.
+     * exactly as before, with {@code seeded} false. {@code quiescenceFallbackEnabled}
+     * (#862) is {@code isAgent(cmd)}'s negation regardless of which branch runs below:
+     * every {@code claude}/{@code codex}/{@code opencode}/{@code omp} launch this
+     * class composes already carries (or, for {@code opencode}, is guaranteed by
+     * {@link OpenCodeBellPlugin} having installed at startup) a landed bell hook
+     * (#855-#858), a precise "waiting" signal the quiescence fallback would only add
+     * noise alongside; a shell or any other/unrecognised command keeps the fallback on,
+     * exactly as before. Package-visible for tests.
      */
     Launch resolveLaunch(String sessionId, String cmd, String resume, String seed, Path workingDirectory) {
+        boolean quiescenceFallbackEnabled = !isAgent(cmd);
         if (SEED_TEMPLATE.equals(seed) && resume == null && isAgent(cmd)
                 && sessionRegistry.find(sessionId).isEmpty() && projectAgentSessionService != null) {
             Optional<String> prompt = projectAgentSessionService.templateSeedPrompt(sessionId, workingDirectory);
             if (prompt.isPresent()) {
-                return new Launch(seededLaunchCommand(cmd, prompt.get()), true);
+                return new Launch(seededLaunchCommand(cmd, prompt.get()), true, quiescenceFallbackEnabled);
             }
         }
-        return new Launch(resolveLaunchCommand(sessionId, cmd, resume), false);
+        return new Launch(resolveLaunchCommand(sessionId, cmd, resume), false, quiescenceFallbackEnabled);
     }
 
-    /** A resolved launch: the command (or {@code null} for the default shell) and whether it was seeded (#537). */
-    record Launch(String[] command, boolean seeded) {
+    /**
+     * A resolved launch: the command (or {@code null} for the default shell), whether
+     * it was seeded (#537), and whether a brand-new session's quiescence fallback
+     * should stay on (#862) — see {@link #resolveLaunch}.
+     */
+    record Launch(String[] command, boolean seeded, boolean quiescenceFallbackEnabled) {
     }
 
     private static boolean isAgent(String cmd) {

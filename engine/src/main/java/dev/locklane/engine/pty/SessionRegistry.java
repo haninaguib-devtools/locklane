@@ -147,6 +147,21 @@ public class SessionRegistry {
      */
     public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand, String ownerUsername,
             Integer columns, Integer rows, Map<String, String> extraEnvironment) {
+        return attach(sessionId, workingDirectory, launchCommand, ownerUsername, columns, rows, extraEnvironment, true);
+    }
+
+    /**
+     * As above, but a brand-new session's quiescence fallback (#130, #862) is left off
+     * when {@code quiescenceFallbackEnabled} is false — for a launch command that
+     * already carries an injected bell hook, which is a precise "waiting" signal on its
+     * own and makes the fallback pure noise. {@code TerminalWebSocketHandler} is the
+     * one caller that knows this at launch-command-composition time; consulted only
+     * the first time a session is seen, same as {@code launchCommand} itself — a
+     * reattach reaches the process already running, with whatever the flag was set to
+     * then.
+     */
+    public PtySession attach(String sessionId, Path workingDirectory, String[] launchCommand, String ownerUsername,
+            Integer columns, Integer rows, Map<String, String> extraEnvironment, boolean quiescenceFallbackEnabled) {
         String[] command = launchCommand != null ? launchCommand : shellCommand;
         int initialColumns = columns != null ? columns : DEFAULT_COLUMNS;
         int initialRows = rows != null ? rows : DEFAULT_ROWS;
@@ -158,7 +173,8 @@ public class SessionRegistry {
         boolean isNewAgentSession = repository.find(sessionId).isEmpty();
         PtySession session = sessions.computeIfAbsent(sessionId, id -> {
             Map<String, String> environment = mergedEnvironment(extraEnvironment);
-            PtySession created = new PtySession(id, workingDirectory, command, environment, initialColumns, initialRows);
+            PtySession created = new PtySession(id, workingDirectory, command, environment, initialColumns, initialRows,
+                    quiescenceFallbackEnabled);
             // Lives for the session's whole lifetime — never unsubscribed, unlike a
             // browser's own subscription in TerminalWebSocketHandler, which comes and
             // goes with that one connection.
