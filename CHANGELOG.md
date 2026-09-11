@@ -13,6 +13,11 @@ here.
 ### Fixes
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 
+## v0.2.30 — 2026-09-11
+
+### Other
+- Open shells as tabs on the project and issue pages (#876, #877)
+
 ## v0.2.29 — 2026-09-10
 
 ### Other
