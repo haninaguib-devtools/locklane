@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One call for what a cold reader needs.
-#   snapshot.sh review <id>   JSON: {issue, plan, pr:{number,url,title,headRefOid,headRefName,files,reviews,head_time,checks_run}, diff, local:{head,clean}}
+#   snapshot.sh review <id>   JSON: {issue, plan, children, pr:{number,url,title,headRefOid,headRefName,baseRefName,files,reviews,head_time,checks_run}, diff, local:{head,clean}}
+#                             children: for an initiative, [{number,title,state,stateReason,plan,record}] — its plans and records are theirs
 #   snapshot.sh status        text: parents and their children, open tasks with blockers, branch, PR, checks, review; warnings
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -15,10 +16,20 @@ review)
   prv=$(gh pr view "$pr" --json number,url,title,body,isDraft,headRefOid,headRefName,baseRefName,files,reviews,commits \
         --jq '{number,url,title,isDraft,headRefOid,headRefName,baseRefName,files: [.files[].path],reviews, head_time: .commits[-1].committedDate, checks_run: (.body | capture("## Checks run\n(?<c>(.|\n)*?)(\n## |$)").c? // "")}')
   diff=$(gh pr diff "$pr")
+  children='[]'
+  if printf '%s' "$issue" | jq -e '.labels | index("initiative")' >/dev/null; then
+    children=$(children_json "$id" | jq -c --argjson files "$(printf '%s' "$prv" | jq -c .files)" \
+      '[.[] | . + {record: (. as $c | $files | map(select(test("^docs/tasks/\($c.number)-[^/]+\\.md$"))) | first)}]')
+    while IFS= read -r c; do
+      [ -n "$c" ] || continue
+      cplan=$(gh issue view "$c" --json body -q .body | normalize | section Plan)
+      children=$(printf '%s' "$children" | jq -c --argjson n "$c" --arg p "$cplan" 'map(if .number == $n then . + {plan: $p} else . end)')
+    done < <(printf '%s' "$children" | jq -r '.[].number')
+  fi
   clean=true; [ -z "$(git status --porcelain | grep -v '^??')" ] || clean=false
-  jq -n --argjson issue "$issue" --arg plan "$plan" --argjson pr "$prv" --arg diff "$diff" \
+  jq -n --argjson issue "$issue" --arg plan "$plan" --argjson children "$children" --argjson pr "$prv" --arg diff "$diff" \
         --arg head "$(git rev-parse HEAD)" --arg branch "$(git branch --show-current)" --argjson clean "$clean" \
-        '{issue: $issue, plan: $plan, pr: $pr, diff: $diff, local: {head: $head, branch: $branch, clean: $clean}}' ;;
+        '{issue: $issue, plan: $plan, children: $children, pr: $pr, diff: $diff, local: {head: $head, branch: $branch, clean: $clean}}' ;;
 
 status)
   issues=$(gh issue list --state open --limit 200 --json number,title,labels,blockedBy,parent \
@@ -30,7 +41,14 @@ status)
   git fetch -q --prune origin 2>/dev/null || true
   branches=$(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/wip/*' | sed 's#^origin/##')
   echo "## Parents"
-  printf '%s' "$issues" | jq -r '.[] | select(.labels | index("initiative")) | "- #\(.number) \(.title)"' | grep . || echo "- none"
+  printf '%s' "$issues" | jq -r --argjson prs "$prs" --arg br "$branches" '
+    ($br | split("\n")) as $branches |
+    .[] | select(.labels | index("initiative")) |
+    ("wip/\(.number)-integration") as $ib |
+    ($prs | map(select(.headRefName == $ib)) | first) as $pr |
+    "- #\(.number) \(.title)" +
+    (if ($branches | index($ib)) then " · integration branch" else "" end) +
+    (if $pr then " · PR #\($pr.number) \(if $pr.isDraft then "draft" else "ready" end), checks \($pr.checks), review \($pr.review)" else "" end)' | grep . || echo "- none"
   echo; echo "## Open tasks"
   printf '%s' "$issues" | jq -r --argjson prs "$prs" --arg br "$branches" '
     ($br | split("\n")) as $branches |

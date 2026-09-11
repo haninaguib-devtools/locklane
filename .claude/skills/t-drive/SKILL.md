@@ -1,6 +1,6 @@
 ---
 name: t-drive
-description: Chain the stages for one task — plan if protected, work, review if protected, into the ship gate — or for a parent's children in dependency order, one PR each, stopping at every merge gate. Use to drive or autonomously run a task or initiative.
+description: Chain the stages for one task — plan if protected, work, review if protected, into the ship gate — or for a parent's children in dependency order, one PR each into the integration branch, stopping at the parent's merge gate. Use to drive or autonomously run a task or initiative.
 ---
 
 # Drive a task, or a parent's children
@@ -20,8 +20,16 @@ it again, but a spawned reviewer always does.
 
 **A parent (`initiative`):** `.t-workflow/scripts/issue.sh children <id>`; for each
 open child whose blockers are closed as completed, in that order, run the task
-sequence above. Each child is its own PR and its own merge gate; after the human's
-answer, continue with the next child whose blockers are now satisfied. A child that
-fails its bounded retry is reported and skipped, never cancelled.
+sequence above. Each child is its own PR into the integration branch
+`wip/<id>-integration`, and its `/t-ship` merges on the mechanical gate with no
+question (`merge: automatic`), so the run continues straight to the next child whose
+blockers are now satisfied. A child that fails its bounded retry stops the run with a
+report — it is never skipped, and the parent cannot ship while it is open; fixing it
+(`/t-drive <child>`) or cancelling it (`/t-cancel <child>`) resumes. When no child is
+open: `gate.sh ship <id>` — when it names the `gh pr create` that opens the
+integration PR, run it — then `/t-review <id>` in a subagent when the combined diff
+is protected, then `/t-ship <id>`; the parent's confirmation question is the run's
+stop.
 
-Report at every stop: what was done, what is waiting, what the human is being asked.
+Report at every stop: what was done, what is waiting, and ask per the Communication
+rule in `.t-workflow/AGENTS.md`.

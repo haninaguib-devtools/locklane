@@ -23,7 +23,10 @@ it. Decide the isolation line first:
 
 1. Read `.t-workflow/AGENTS.md`, then `.t-workflow/scripts/snapshot.sh review <id>`:
    the issue, its plan, the PR (files, reviews, head sha, its `## Checks run`), the
-   full diff, and local state. `local.clean == false`, or `local.head` differing from
+   full diff, and local state. For an initiative (`children` non-empty, the PR from
+   `wip/<id>-integration` to the trunk) the plans and records to check against are
+   the children's, from `children[].plan` and `children[].record`; the parent has none
+   of its own, and its Human checks are the union of theirs. `local.clean == false`, or `local.head` differing from
    `pr.headRefOid` while on the task branch, is itself a finding: the PR carries only
    what was pushed.
 2. Check **scope** (every path within Allowed paths or Scope), **record honesty** (does
@@ -38,10 +41,15 @@ it. Decide the isolation line first:
    ran that same command at that sha (read its workflow to be sure — t-workflow's own
    job runs the gates, never the build); anything less → run it yourself. A claimed
    documentation-only skip is verified by running `docs-only.sh` on `pr.files`, never
-   reused.
-4. Severity. Blocker or high, never lower: a failed check, an unauthorized removal, a
-   path outside scope, a protected path with no `## Plan`. Only blocker and high hold
-   the verdict; medium and low are posted for the human to decide.
+   reused. A claim about what an external service accepts — an API's request shape, a
+   permission, a branch rule — is settled by a read-only call when one can settle it,
+   never by the tests' stubs.
+4. Severity is what a finding does in the pipeline: a task or initiative that can no
+   longer reach the trunk, a merge that should not happen, or a gate silently skipped
+   is high wherever it lives, a skill sentence included. So, never lower than high: a
+   failed check, an unauthorized removal, a path outside scope, a protected path with
+   no `## Plan`. Only blocker and high hold the verdict; medium and low are posted for
+   the human to decide.
 5. Post with `gh pr review <pr> --comment --body-file <file>`:
 
 ```markdown
@@ -60,7 +68,8 @@ readiness: ready | not-ready
 outcome: say `ready` plainly. Anything that deserves its own issue is a recommendation
 in the body, never an issue you open.
 
-6. `.t-workflow/scripts/rerun-ci.sh <pr>` — the CI run for this commit was red only
-   because no review existed; re-running it is what turns it green. Say what it did.
+6. `.t-workflow/scripts/rerun-ci.sh <pr>` — the CI runs for this commit were red only
+   because no review existed; re-running the red runs is what turns them green. Say
+   what it did.
 7. Stop. Do not fix, mark ready, or merge. A pass after a fix pass is scoped: verify the
    named findings, inspect what the fixes touched, re-run only the checks they falsify.

@@ -9,6 +9,8 @@ set -uo pipefail
 
 BUILTIN=".t-workflow/AGENTS.md .t-workflow/scripts .claude .agents .github/workflows AGENTS.md CLAUDE.md GEMINI.md"
 
+# `protected` arrives via lib.sh's config source, unseen in a single-file analysis.
+# shellcheck disable=SC2154
 if [ "${1:-}" = "--list" ]; then printf '%s\n' $BUILTIN $protected; exit 0; fi
 
 paths=$(if [ $# -gt 0 ]; then printf '%s\n' "$@"; else cat; fi | grep . || true)

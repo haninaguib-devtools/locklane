@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Shared helpers, sourced by the other scripts. Never run directly. bash 3.2 compatible.
+# Config defaults below are read by the sourcing scripts; invisible single-file.
+# shellcheck disable=SC2034
 
 # Patterns from config and the built-in sets are matched by glob_match, never expanded
 # by the shell against the working directory.
@@ -11,10 +13,31 @@ TW_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() { echo "ERROR: $*" >&2; exit 2; }
 
-# Config, with defaults. Consumer-owned file; keys are documented there.
+# Config, with defaults. Consumer-owned file; keys are documented there. The file is
+# parsed as plain key="value" lines and never executed; anything else on a line is
+# ignored, and a line shaped like an assignment that the parser does not accept (a
+# single-quoted value, a quote inside the value, a $VAR) is said once on stderr, so an
+# empty value is never silent. TW_CONFIG_FILE points the parse at another file (ci.sh
+# exports a merged base-policy copy so the gate's children judge by the same values).
 check=""; protected=""; docs=""; exempt=""; reviewer_model=""
-# shellcheck disable=SC1091
-[ -f "$TW_DIR/config" ] && . "$TW_DIR/config"
+load_config() {
+  check=""; protected=""; docs=""; exempt=""; reviewer_model=""
+  local cfg="${1:-}" line kv n=0
+  [ -n "$cfg" ] && [ -f "$cfg" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1)); line="${line%$'\r'}"
+    kv=$(printf '%s' "$line" | sed -n -E 's/^[[:space:]]*(check|protected|docs|exempt|reviewer_model)="([^"$]*)"[[:space:]]*$/\1=\2/p')
+    case "$kv" in
+      check=*) check="${kv#check=}" ;;
+      protected=*) protected="${kv#protected=}" ;;
+      docs=*) docs="${kv#docs=}" ;;
+      exempt=*) exempt="${kv#exempt=}" ;;
+      reviewer_model=*) reviewer_model="${kv#reviewer_model=}" ;;
+      "") [[ "$line" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*= ]] && echo "config: line $n ignored: $line" >&2 ;;
+    esac
+  done < "$cfg"
+}
+load_config "${TW_CONFIG_FILE:-$TW_DIR/config}"
 
 trunk() { "$TW_SCRIPTS/trunk.sh"; }
 
@@ -93,6 +116,18 @@ open_blockers() {
     | "#\(.number) \(.title) (\(.state)/\(.stateReason // "open"))"' | grep . && return 1
   return 0
 }
+
+# children_json <id>: [{number,title,state,stateReason}] — the issue's sub-issues, with
+# stateReason so a child closed as completed is told from one cancelled.
+children_json() {
+  local nwo; nwo=$(repo_nwo)
+  gh api graphql -f query='query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){issue(number:$num){subIssues(first:100){nodes{number state stateReason title}}}}}' \
+    -F o="${nwo%/*}" -F n="${nwo#*/}" -F num="$1" --jq '.data.repository.issue.subIssues.nodes'
+}
+
+# integration_branch <parent-id>: where an initiative's children land. The parent
+# relation is read from the child's own issue (its parent field), never from a label.
+integration_branch() { echo "wip/$1-integration"; }
 
 # review_verdict <reviews-json> <head-committed-at>: reads the latest review and prints
 #   verdict: ready|not-ready|none   isolation: <line or none>   fresh: yes|no

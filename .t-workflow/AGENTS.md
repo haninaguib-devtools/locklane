@@ -10,7 +10,8 @@ agent session. Scripts under `.t-workflow/scripts/` make the judgments; skills c
    own `/t-work` session, however small the ask. The one exception is a repository's
    genesis commit.
 2. **Every task carries a record**, `docs/tasks/<id>-<slug>.md`, in its PR.
-3. **The trunk moves only by a pull request a human confirmed.** Never commit or push
+3. **The trunk moves only by a pull request a human confirmed.** That confirmation is a
+   rule the skills follow, not an approval GitHub enforces. Never commit or push
    to it directly.
 4. **A protected diff needs a `## Plan` on its issue before implementation and a cold
    review before shipping.** Protection comes from the paths a diff touches, never from
@@ -31,9 +32,9 @@ agent session. Scripts under `.t-workflow/scripts/` make the judgments; skills c
 | `/t-plan` | Pins allowed paths, risks, and checks onto the issue. Required before a protected diff. |
 | `/t-work` | Branch, record, implement, checks, draft PR. Run it again on the same task to address review findings. |
 | `/t-review` | Cold, read-only review; findings and a readiness verdict posted on the PR. Required before shipping a protected diff. |
-| `/t-ship` | Human-confirmed squash merge. The only path to the trunk. |
+| `/t-ship` | Human-confirmed squash merge. The only path to the trunk. A child of an initiative merges into the integration branch on the mechanical gate alone. |
 | `/t-cancel` | Abandon a task: reason on the issue, dependents decided, PR closed, branch deleted. |
-| `/t-drive` | Chains plan, work, review, and ship for one task, or for a parent's children in order, stopping at each merge gate. |
+| `/t-drive` | Chains plan, work, review, and ship for one task, or for a parent's children in order into the integration branch, stopping at the parent's merge gate. |
 | `/t-status` | Read-only overview of what is in flight. |
 | `/t-update` | Move `t-workflow` to a newer release, as an ordinary task. |
 
@@ -41,6 +42,12 @@ agent session. Scripts under `.t-workflow/scripts/` make the judgments; skills c
 
 Task ID = issue number. Branch `wip/<id>-<slug>`. Record `docs/tasks/<id>-<slug>.md`.
 PR title and squash subject `[<id>] <title>`. Commit messages imperative.
+
+An initiative's children branch from and merge into `wip/<parent>-integration`, created
+from the trunk by the first child's `/t-work`; nothing of an initiative reaches the
+trunk until the parent's own PR, from that branch, does. The parent's PR carries the
+children's records and one `Task:` line per child; the parent relation is the issue's
+own, never a label on the child.
 
 ## Protected paths
 
@@ -55,11 +62,23 @@ globs in `.t-workflow/config`. `.t-workflow/scripts/protected.sh` is the executa
    No command configured → say so.
 2. `git diff <trunk>...HEAD`, read against the task's scope.
 
-CI runs `.t-workflow/scripts/ci.sh` on every PR: the record, title, plan, review, and
-blocker rules only. The project's build runs in the project's own CI; the ship gate
-watches every check on the PR.
+CI runs the gate scripts (record, title, plan, review, blockers) from the pull
+request's base branch, never its own copy; for a child of an initiative, from the
+integration branch. A pull request that changes the workflow file also runs its own
+copy, which can add a red result but never replace the base's. The gate checks
+process, not whether a diff is honest or correct; the cold review and the
+human-confirmed merge cover that. The project's build runs in its own CI; the ship
+gate watches every check.
 
 ## Communication
 
 Lead with what a change means in ordinary language before any internal term. Reports
 say what actually happened; a failed check is reported as failed, never softened.
+
+A stop that needs the human's decision is asked as a question with fixed options: the
+evidence goes in the message first, then the question, through the structured question
+the agent CLI offers when it has one, and as the last sentence of the message
+otherwise. Nothing continues on silence. A stop that asks nothing — a `BLOCKED:` line,
+red CI, a dirty tree, a rebase conflict, or a skill's own handoff to the next command —
+is unchanged by this: it ends the turn with a report, and notifying on it is the
+harness's job, not the workflow's.
