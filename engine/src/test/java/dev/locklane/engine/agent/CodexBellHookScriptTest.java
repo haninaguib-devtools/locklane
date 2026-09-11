@@ -57,6 +57,28 @@ class CodexBellHookScriptTest {
     }
 
     @Test
+    void runningTheScriptWithNoControllingTerminalExitsCleanlyAndPrintsNothing(@TempDir Path dataDir) throws Exception {
+        // #880: a plain ProcessBuilder child (pipes, not a pty) is exactly the shape
+        // the bug report hit -- a Locklane session's own agent process launched with
+        // no controlling terminal at all, where the old one-liner's failed `> /dev/tty`
+        // redirection surfaced as output the calling process would have to handle.
+        CodexBellHookScript installed = new CodexBellHookScript(dataDir.toString());
+
+        Process process = new ProcessBuilder("/bin/sh", installed.scriptPath().toString(), "ignored-json-payload")
+                .redirectErrorStream(false)
+                .start();
+        process.getOutputStream().close();
+        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+        boolean exited = process.waitFor(5, TimeUnit.SECONDS);
+
+        assertThat(exited).as("script exited within timeout").isTrue();
+        assertThat(process.exitValue()).isZero();
+        assertThat(stdout).isEmpty();
+        assertThat(stderr).isEmpty();
+    }
+
+    @Test
     void constructingItAgainAgainstTheSameDataDirIsSafeAndLeavesTheScriptInPlace(@TempDir Path dataDir) throws Exception {
         new CodexBellHookScript(dataDir.toString());
         Path scriptPath = dataDir.resolve("hooks").resolve("bell.sh");

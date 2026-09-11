@@ -35,7 +35,11 @@ public class CodexBellHookScript {
             # Locklane (#856): rings the engine's own bell (dev.locklane.engine.pty.PtySession,
             # #130) on the controlling terminal -- the JSON payload Codex passes as $1 when an
             # agent turn completes is ignored; this script's only job is the bell itself.
-            printf '\\a' > /dev/tty
+            # #880: best-effort -- a session with no controlling terminal has no /dev/tty to
+            # open; the braces keep the failed redirection's own error off this script's
+            # stderr (Codex's notify mechanism does not surface it, but nothing should print
+            # here regardless), and `|| true` keeps this script's exit status zero either way.
+            { printf '\\a' > /dev/tty; } 2>/dev/null || true
             """;
 
     private static final Set<PosixFilePermission> EXECUTABLE = PosixFilePermissions.fromString("rwxr-xr-x");
