@@ -17,10 +17,14 @@ import java.util.Set;
  * Locklane owns, wired into Codex's own {@code notify} config
  * ({@code TerminalWebSocketHandler}) as the command Codex runs when an agent turn
  * completes. The script ignores the JSON payload Codex passes as its argument and
- * writes a bare bell to the controlling terminal — inside a Locklane tab, the
- * engine's own PTY, exactly what {@code dev.locklane.engine.pty.PtySession}'s bell
- * scanner watches (#130) — the same contract ADR-113 establishes for Claude Code's
- * own hooks.
+ * writes a bare bell to the device path named by {@code LOCKLANE_TTY} — inside a
+ * Locklane tab, the engine's own PTY, exactly what
+ * {@code dev.locklane.engine.pty.PtySession}'s bell scanner watches (#130) — the
+ * same contract ADR-113 establishes for Claude Code's own hooks. Codex runs this
+ * script in a detached child with no controlling terminal of its own (#904), the
+ * same shape Claude Code's hooks run in, so {@code TerminalWebSocketHandler} captures
+ * that path into {@code LOCKLANE_TTY} before exec'ing {@code codex} itself, rather
+ * than this script opening {@code /dev/tty} directly.
  *
  * <p>Written unconditionally on every construction (once per engine start, as a
  * singleton bean), not only when absent: idempotent because the content and
@@ -33,13 +37,17 @@ public class CodexBellHookScript {
     static final String CONTENT = """
             #!/bin/sh
             # Locklane (#856): rings the engine's own bell (dev.locklane.engine.pty.PtySession,
-            # #130) on the controlling terminal -- the JSON payload Codex passes as $1 when an
-            # agent turn completes is ignored; this script's only job is the bell itself.
-            # #880: best-effort -- a session with no controlling terminal has no /dev/tty to
-            # open; the braces keep the failed redirection's own error off this script's
-            # stderr (Codex's notify mechanism does not surface it, but nothing should print
-            # here regardless), and `|| true` keeps this script's exit status zero either way.
-            { printf '\\a' > /dev/tty; } 2>/dev/null || true
+            # #130) on the terminal device path TerminalWebSocketHandler captured into
+            # LOCKLANE_TTY before this session's codex process was exec'd (#904) -- Codex runs
+            # this script in a detached child with no controlling terminal of its own, so
+            # /dev/tty is unreachable; the captured path still names the engine's own PTY. The
+            # JSON payload Codex passes as $1 when an agent turn completes is ignored; this
+            # script's only job is the bell itself.
+            # #880: best-effort -- an unset or unwritable path leaves nothing to open; the
+            # braces keep the failed redirection's own error off this script's stderr (Codex's
+            # notify mechanism does not surface it, but nothing should print here regardless),
+            # and `|| true` keeps this script's exit status zero either way.
+            { printf '\\a' > "$LOCKLANE_TTY"; } 2>/dev/null || true
             """;
 
     private static final Set<PosixFilePermission> EXECUTABLE = PosixFilePermissions.fromString("rwxr-xr-x");

@@ -41,11 +41,15 @@ class CodexBellHookScriptTest {
         CodexBellHookScript installed = new CodexBellHookScript(dataDir.toString());
 
         // A real pty (pty4j, the same mechanism PtySession itself uses), not a plain
-        // subprocess: `/dev/tty` inside the script resolves to whatever the calling
-        // process's controlling terminal is, and only a real pty gives it one to
-        // write a bell onto and for this test to then read back.
+        // subprocess -- and, per #904, LOCKLANE_TTY captured from `tty` the same way
+        // TerminalWebSocketHandler's own wrapper does, since the script now writes
+        // there by name rather than opening /dev/tty directly. Only a real pty gives
+        // this process a controlling terminal for `tty` to name and for this test to
+        // then read the bell back from.
         PtyProcess process = new PtyProcessBuilder()
-                .setCommand(new String[] {"/bin/sh", installed.scriptPath().toString(), "ignored-json-payload"})
+                .setCommand(new String[] {"/bin/sh", "-c",
+                        "if TTY=$(tty 2>/dev/null); then export LOCKLANE_TTY=\"$TTY\"; fi; exec \"$@\"",
+                        "sh", "/bin/sh", installed.scriptPath().toString(), "ignored-json-payload"})
                 .start();
         try {
             assertThat(readUntilBellOrTimeout(process.getInputStream(), Duration.ofSeconds(5)))

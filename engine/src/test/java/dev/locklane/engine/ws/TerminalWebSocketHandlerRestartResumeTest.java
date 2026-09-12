@@ -48,6 +48,9 @@ class TerminalWebSocketHandlerRestartResumeTest {
     // #855: every claude argv carries this too, regardless of resume state; captured
     // once per test so assertions below don't restate its content.
     private String claudeSettingsJson;
+    // #904: the tty-capturing wrapper's own script -- byte-for-byte the same for
+    // claude and codex -- captured once so wrapped(...) below doesn't restate it.
+    private String captureTtyScript;
 
     @BeforeEach
     void setUp() {
@@ -55,7 +58,20 @@ class TerminalWebSocketHandlerRestartResumeTest {
         resumeRepository = new AgentSessionResumeSessionRepository(dataSource);
         registry = new SessionRegistry(new WorktreeSessionRepository(dataSource), resumeRepository);
         handler = new TerminalWebSocketHandler(registry, null);
-        claudeSettingsJson = handler.resolveLaunchCommand("claude", null)[2];
+        String[] plainestClaudeLaunch = handler.resolveLaunchCommand("claude", null);
+        captureTtyScript = plainestClaudeLaunch[2];
+        claudeSettingsJson = plainestClaudeLaunch[6];
+    }
+
+    /** As {@code TerminalWebSocketHandlerLaunchCommandTest}'s own helper of the same name. */
+    private String[] wrapped(String... innerCommand) {
+        String[] result = new String[innerCommand.length + 4];
+        result[0] = "sh";
+        result[1] = "-c";
+        result[2] = captureTtyScript;
+        result[3] = "sh";
+        System.arraycopy(innerCommand, 0, result, 4, innerCommand.length);
+        return result;
     }
 
     @AfterEach
@@ -68,7 +84,7 @@ class TerminalWebSocketHandlerRestartResumeTest {
         resumeRepository.record("42-worktree", "claude", NEWER_ID, Instant.parse("2026-08-27T10:00:00Z"));
 
         assertThat(handler.resolveLaunchCommand("42-worktree", "claude", null))
-                .containsExactly("claude", "--resume", NEWER_ID, "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--resume", NEWER_ID, "--settings", claudeSettingsJson));
     }
 
     @Test
@@ -76,7 +92,7 @@ class TerminalWebSocketHandlerRestartResumeTest {
         resumeRepository.record("42-worktree", "codex", CODEX_ID, Instant.parse("2026-08-27T10:00:00Z"));
 
         assertThat(handler.resolveLaunchCommand("42-worktree", "codex", null))
-                .containsExactly("codex", "resume", CODEX_ID, "-c", CODEX_NOTIFY_ARG);
+                .containsExactly(wrapped("codex", "resume", CODEX_ID, "-c", CODEX_NOTIFY_ARG));
     }
 
     @Test
@@ -103,13 +119,13 @@ class TerminalWebSocketHandlerRestartResumeTest {
         resumeRepository.record("42-worktree", "codex", CODEX_ID, Instant.parse("2026-08-27T11:00:00Z"));
 
         assertThat(handler.resolveLaunchCommand("42-worktree", "claude", null))
-                .containsExactly("claude", "--resume", NEWER_ID, "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--resume", NEWER_ID, "--settings", claudeSettingsJson));
     }
 
     @Test
     void nothingCapturedFallsBackToAPlainLaunch() {
         assertThat(handler.resolveLaunchCommand("42-worktree", "claude", null))
-                .containsExactly("claude", "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--settings", claudeSettingsJson));
     }
 
     @Test
@@ -117,7 +133,7 @@ class TerminalWebSocketHandlerRestartResumeTest {
         resumeRepository.record("7-other", "claude", OLDER_ID, Instant.parse("2026-08-27T10:00:00Z"));
 
         assertThat(handler.resolveLaunchCommand("42-worktree", "claude", null))
-                .containsExactly("claude", "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--settings", claudeSettingsJson));
     }
 
     @Test
@@ -125,7 +141,7 @@ class TerminalWebSocketHandlerRestartResumeTest {
         resumeRepository.record("42-worktree", "claude", NEWER_ID, Instant.parse("2026-08-27T10:00:00Z"));
 
         assertThat(handler.resolveLaunchCommand("42-worktree", "claude", OLDER_ID))
-                .containsExactly("claude", "--resume", OLDER_ID, "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--resume", OLDER_ID, "--settings", claudeSettingsJson));
     }
 
     @Test
@@ -144,6 +160,6 @@ class TerminalWebSocketHandlerRestartResumeTest {
         // The command is ignored by a reattach anyway; resolving it plain proves the
         // repository was never consulted while the original process is still alive.
         assertThat(handler.resolveLaunchCommand("42-worktree", "claude", null))
-                .containsExactly("claude", "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--settings", claudeSettingsJson));
     }
 }

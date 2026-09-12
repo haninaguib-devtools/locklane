@@ -96,13 +96,20 @@ import java.util.regex.Pattern;
  * three of Claude Code's own hooks to ring the terminal bell (#855, ADR-113): the
  * engine's bell detection (#130) then fires the instant a turn ends or Claude Code is
  * waiting on the user, precisely, rather than only once output has gone quiet for
- * {@code PtySession.QUIESCENCE_THRESHOLD_MS}. See {@link #withClaudeBellHooks}.
+ * {@code PtySession.QUIESCENCE_THRESHOLD_MS}. Claude Code runs that hook in a
+ * detached child with no controlling terminal of its own (#904), so the whole
+ * command is also wrapped to capture this launch's own controlling terminal's
+ * device path into {@code LOCKLANE_TTY} before exec — see {@link #withCapturedTty}
+ * — and the hook writes there by path instead of {@code /dev/tty}. See
+ * {@link #withClaudeBellHooks}.
  *
  * <p>Every {@code codex} launch — plain, seeded-prompt and resume alike — carries
  * {@code -c notify=[...]} naming {@link CodexBellHookScript}'s own script as an
  * override, the same way (#856): Codex runs that script, with a JSON payload as its
  * argument, when an agent turn completes, and the script ignores the payload and
- * rings the same bell. See {@link #withCodexBellNotify}.
+ * rings the same bell. Codex runs its {@code notify} command the same detached way
+ * Claude Code runs its hooks, so its launch is wrapped with {@link #withCapturedTty}
+ * too (#904). See {@link #withCodexBellNotify}.
  *
  * <p>Every {@code omp} launch carries {@code --hook=<path>} naming {@link
  * OmpBellHookExtension}'s own file (#857): OMP loads it as an extension, which
@@ -573,18 +580,26 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     // #855: rings the engine's own agent-agnostic bell signal (#130), never the
     // agent-specific escape sequences Claude Code's own notification channel would
     // otherwise need Locklane-specific configuration to produce. Writes to the
-    // controlling terminal, not stdout -- a hook's stdout reaches Claude Code itself,
-    // never the screen, and inside a Locklane tab the controlling terminal is the
-    // engine's own PTY, which is exactly what PtySession's bell scanner watches.
+    // engine's own PTY -- inside a Locklane tab, exactly what PtySession's bell
+    // scanner watches -- never stdout, since a hook's stdout reaches Claude Code
+    // itself, never the screen.
     //
-    // #880: best-effort -- a session launched with no controlling terminal has no
-    // /dev/tty to open, and the plain one-liner's failed redirection turned into a
-    // "Stop hook error" fed back to the model on every turn. The braces wrap the
-    // redirection itself, not just the command that follows it, so the shell's own
-    // "cannot create /dev/tty" complaint about the failed open lands on the group's
-    // suppressed stderr rather than escaping to Claude Code; `|| true` then keeps the
-    // command's exit status zero regardless.
-    private static final String BELL_HOOK_COMMAND = "{ printf '\\a' > /dev/tty; } 2>/dev/null || true";
+    // #904: Claude Code runs this hook in a detached child with no controlling
+    // terminal of its own -- verified on 2.1.267, 2.1.268 and 2.1.269: the hook's
+    // own session id equals its pid, `tty` reports "not a tty", and `/dev/tty`
+    // cannot be opened. LOCKLANE_TTY is captured before exec (see withCapturedTty
+    // below) into the device path of the terminal the agent process itself
+    // launched with, and the hook writes there by name instead -- inherited
+    // through the environment regardless of the hook's own detachment.
+    //
+    // #880: best-effort -- an unset or unwritable path leaves nothing to open, and
+    // the plain one-liner's failed redirection turned into a "Stop hook error" fed
+    // back to the model on every turn. The braces wrap the redirection itself, not
+    // just the command that follows it, so the shell's own "cannot create" complaint
+    // about the failed open lands on the group's suppressed stderr rather than
+    // escaping to Claude Code; `|| true` then keeps the command's exit status zero
+    // regardless.
+    private static final String BELL_HOOK_COMMAND = "{ printf '\\a' > \"$LOCKLANE_TTY\"; } 2>/dev/null || true";
 
     // ADR-113: Locklane wires each agent CLI's own hook mechanism to ring the bell,
     // rather than relying on any notification channel the CLI ships with -- the
@@ -626,7 +641,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         String[] withSettings = Arrays.copyOf(command, command.length + 2);
         withSettings[command.length] = "--settings";
         withSettings[command.length + 1] = CLAUDE_BELL_HOOKS_SETTINGS_JSON;
-        return withSettings;
+        return withCapturedTty(withSettings);
     }
 
     /**
@@ -641,7 +656,36 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         String[] withNotify = Arrays.copyOf(command, command.length + 2);
         withNotify[command.length] = "-c";
         withNotify[command.length + 1] = "notify=" + codexNotifyTomlArray(codexBellNotifyScript);
-        return withNotify;
+        return withCapturedTty(withNotify);
+    }
+
+    // #904: `tty`'s own stdout, not `$0`, is what matters here -- the placeholder
+    // "sh" in the exec'd argv's $0 position is never read, since "$@" already starts
+    // at $1. Skipped entirely (leaving LOCKLANE_TTY unset in the exec'd process's own
+    // environment) when this launch has no controlling terminal of its own to name --
+    // never expected in practice, since PtySession always launches this inside a real
+    // pty, but left as a graceful no-op rather than a hard failure regardless.
+    private static final String CAPTURE_TTY_SCRIPT =
+            "if TTY=$(tty 2>/dev/null); then export LOCKLANE_TTY=\"$TTY\"; fi; exec \"$@\"";
+
+    /**
+     * Wraps {@code command} in a shell that captures this launch's own controlling
+     * terminal's device path into {@code LOCKLANE_TTY} before exec'ing {@code
+     * command} in its place (#904) — inside a Locklane tab, that terminal is the
+     * session's own PTY (see {@code PtySession}). The exec'd process, and any child
+     * it later spawns even once fully detached from a controlling terminal of its
+     * own (the shape Claude Code's own hooks and Codex's {@code notify} command each
+     * run in), inherits the variable through the environment regardless, and can
+     * write the bell to that path by name instead of needing {@code /dev/tty}.
+     */
+    private static String[] withCapturedTty(String[] command) {
+        String[] wrapped = new String[command.length + 4];
+        wrapped[0] = "sh";
+        wrapped[1] = "-c";
+        wrapped[2] = CAPTURE_TTY_SCRIPT;
+        wrapped[3] = "sh";
+        System.arraycopy(command, 0, wrapped, 4, command.length);
+        return wrapped;
     }
 
     /**

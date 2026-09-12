@@ -27,6 +27,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * naming the bell script {@link CodexBellHookScript} installs. Every other tool's
  * argv is untouched by either.
  *
+ * <p>Also covers #904: every {@code claude} and {@code codex} launch is additionally
+ * wrapped to capture this process's own controlling terminal's device path into
+ * {@code LOCKLANE_TTY} before exec, so the bell hook -- run in a detached child with
+ * no controlling terminal of its own -- can still write the bell by path.
+ *
  * <p>Also covers #862: {@link TerminalWebSocketHandler#resolveLaunch} flags the
  * quiescence fallback off for every command recognised as an agent with a landed
  * bell hook, and on for a shell or anything else.
@@ -45,6 +50,11 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     // without depending on its internal shape.
     private String claudeSettingsJson;
 
+    // The #904 tty-capturing wrapper's own script, likewise captured once -- byte-
+    // for-byte the same for claude and codex (asserted below), so every wrapped(...)
+    // expectation below can use it without depending on its internal shape either.
+    private String captureTtyScript;
+
     // The codex notify override, likewise captured from the plainest codex launch --
     // TerminalWebSocketHandler.TEST_CODEX_BELL_NOTIFY_SCRIPT is the fixed path every
     // test-only constructor uses, so this is deterministic across runs.
@@ -57,7 +67,24 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     @BeforeEach
     void setUp() {
         handler = new TerminalWebSocketHandler(null, null);
-        claudeSettingsJson = handler.resolveLaunchCommand("claude", null)[2];
+        String[] plainestClaudeLaunch = handler.resolveLaunchCommand("claude", null);
+        captureTtyScript = plainestClaudeLaunch[2];
+        claudeSettingsJson = plainestClaudeLaunch[6];
+    }
+
+    /**
+     * The #904 tty-capturing wrapper (only claude and codex carry it) around {@code
+     * innerCommand} -- {@code sh -c <script> sh <innerCommand...>}, exactly what
+     * {@code TerminalWebSocketHandler}'s own {@code withCapturedTty} composes.
+     */
+    private String[] wrapped(String... innerCommand) {
+        String[] result = new String[innerCommand.length + 4];
+        result[0] = "sh";
+        result[1] = "-c";
+        result[2] = captureTtyScript;
+        result[3] = "sh";
+        System.arraycopy(innerCommand, 0, result, 4, innerCommand.length);
+        return result;
     }
 
     @Test
@@ -70,9 +97,9 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     @Test
     void aPlainCmdLaunchesAsItself() {
         assertThat(handler.resolveLaunchCommand("claude", null))
-                .containsExactly("claude", "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--settings", claudeSettingsJson));
         assertThat(handler.resolveLaunchCommand("codex", null))
-                .containsExactly("codex", "-c", CODEX_NOTIFY_ARG);
+                .containsExactly(wrapped("codex", "-c", CODEX_NOTIFY_ARG));
         assertThat(handler.resolveLaunchCommand("opencode", null)).containsExactly("opencode");
         assertThat(handler.resolveLaunchCommand("omp", null)).containsExactly("omp", OMP_HOOK_ARG);
     }
@@ -80,9 +107,9 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     @Test
     void aResumeIdComposesTheToolsOwnResumeCommand() {
         assertThat(handler.resolveLaunchCommand("claude", UUID))
-                .containsExactly("claude", "--resume", UUID, "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--resume", UUID, "--settings", claudeSettingsJson));
         assertThat(handler.resolveLaunchCommand("codex", UUID))
-                .containsExactly("codex", "resume", UUID, "-c", CODEX_NOTIFY_ARG);
+                .containsExactly(wrapped("codex", "resume", UUID, "-c", CODEX_NOTIFY_ARG));
         assertThat(handler.resolveLaunchCommand("opencode", OPENCODE_ID))
                 .containsExactly("opencode", "--session", OPENCODE_ID);
         assertThat(handler.resolveLaunchCommand("omp", UUID))
@@ -92,11 +119,11 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     @Test
     void aResumeIdNotShapedLikeACapturedIdIsIgnored() {
         assertThat(handler.resolveLaunchCommand("claude", "--dangerously-skip-permissions"))
-                .containsExactly("claude", "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--settings", claudeSettingsJson));
         assertThat(handler.resolveLaunchCommand("claude", "not-a-uuid"))
-                .containsExactly("claude", "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "--settings", claudeSettingsJson));
         assertThat(handler.resolveLaunchCommand("codex", "not-a-uuid"))
-                .containsExactly("codex", "-c", CODEX_NOTIFY_ARG);
+                .containsExactly(wrapped("codex", "-c", CODEX_NOTIFY_ARG));
     }
 
     // #537: the seeded first prompt rides as one argv element in each agent's own
@@ -106,9 +133,9 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     @Test
     void aSeededLaunchUsesEachAgentsOwnInitialPromptShape() {
         assertThat(handler.seededLaunchCommand("claude", "do it"))
-                .containsExactly("claude", "do it", "--settings", claudeSettingsJson);
+                .containsExactly(wrapped("claude", "do it", "--settings", claudeSettingsJson));
         assertThat(handler.seededLaunchCommand("codex", "do it"))
-                .containsExactly("codex", "do it", "-c", CODEX_NOTIFY_ARG);
+                .containsExactly(wrapped("codex", "do it", "-c", CODEX_NOTIFY_ARG));
         assertThat(handler.seededLaunchCommand("opencode", "do it"))
                 .containsExactly("opencode", "--prompt", "do it");
         assertThat(handler.seededLaunchCommand("omp", "do it"))
@@ -151,8 +178,11 @@ class TerminalWebSocketHandlerLaunchCommandTest {
         // #855, ADR-113: one hook command answers all three points a turn can stop
         // at -- parsed here (not string-matched) since Claude Code's settings schema
         // is what actually has to accept this, not any particular JSON formatting.
+        // #904: the command writes to LOCKLANE_TTY by path, not /dev/tty -- Claude
+        // Code runs this hook in a detached child with no controlling terminal of
+        // its own to open /dev/tty on.
         JsonNode hooks = new ObjectMapper().readTree(claudeSettingsJson).path("hooks");
-        String bellCommand = "{ printf '\\a' > /dev/tty; } 2>/dev/null || true";
+        String bellCommand = "{ printf '\\a' > \"$LOCKLANE_TTY\"; } 2>/dev/null || true";
 
         assertThat(hookCommand(hooks, "Stop", null)).isEqualTo(bellCommand);
         assertThat(hookCommand(hooks, "PreToolUse", "AskUserQuestion")).isEqualTo(bellCommand);
@@ -160,12 +190,33 @@ class TerminalWebSocketHandlerLaunchCommandTest {
     }
 
     @Test
+    void theClaudeAndCodexLaunchCommandsCaptureTheControllingTerminalBeforeExec() {
+        // #904: both wrapped the same way -- captured here as one shared script, not
+        // re-derived per agent -- since the hook each carries needs the same path
+        // regardless of which agent CLI runs it.
+        assertThat(captureTtyScript).contains("tty").contains("LOCKLANE_TTY").contains("exec \"$@\"");
+
+        String[] claudeCommand = handler.resolveLaunchCommand("claude", null);
+        assertThat(claudeCommand[0]).isEqualTo("sh");
+        assertThat(claudeCommand[1]).isEqualTo("-c");
+        assertThat(claudeCommand[2]).isEqualTo(captureTtyScript);
+        assertThat(claudeCommand).endsWith("claude", "--settings", claudeSettingsJson);
+
+        String[] codexCommand = handler.resolveLaunchCommand("codex", null);
+        assertThat(codexCommand[0]).isEqualTo("sh");
+        assertThat(codexCommand[1]).isEqualTo("-c");
+        assertThat(codexCommand[2]).isEqualTo(captureTtyScript);
+        assertThat(codexCommand).endsWith("codex", "-c", CODEX_NOTIFY_ARG);
+    }
+
+    @Test
     void theBellHookCommandExitsCleanlyAndPrintsNothingWithNoControllingTerminal() throws Exception {
-        // #880: a plain ProcessBuilder child (pipes, not a pty) is exactly the shape
-        // the bug report hit -- a claude process Locklane launched with no
-        // controlling terminal at all, where the old one-liner's failed `> /dev/tty`
-        // redirection turned into a `Stop hook error` fed back to the model.
-        String bellCommand = "{ printf '\\a' > /dev/tty; } 2>/dev/null || true";
+        // #880/#904: a plain ProcessBuilder child (pipes, not a pty, and no
+        // LOCKLANE_TTY in its environment) is exactly the shape a hook with no
+        // controlling terminal and no captured path runs in -- the old one-liner's
+        // failed `> /dev/tty` redirection turned into a `Stop hook error` fed back to
+        // the model; the same must hold for a failed write to an unset path.
+        String bellCommand = "{ printf '\\a' > \"$LOCKLANE_TTY\"; } 2>/dev/null || true";
 
         Process process = new ProcessBuilder("/bin/sh", "-c", bellCommand).start();
         process.getOutputStream().close();
