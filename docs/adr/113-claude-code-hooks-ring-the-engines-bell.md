@@ -41,13 +41,14 @@ notification format, or asking the user to configure anything:
 - `TerminalWebSocketHandler`, which composes every agent's launch command in one
   place, appends `--settings` and one JSON argv element to every `claude` launch —
   plain, resumed, or seeded with a first prompt alike — declaring the three hooks
-  above, each running `printf '\a' > /dev/tty`.
+  above, each running `printf '\a' > "$LOCKLANE_TTY"` (see the #904 note below for
+  why this targets a captured device path rather than `/dev/tty` directly).
 - The hook command, and Codex's equivalent `bell.sh` (#856), are best-effort
-  (#880): a session with no controlling terminal has no `/dev/tty` to open, and both
-  wrap the redirection so a failed open exits 0 and prints nothing, rather than
-  surfacing as a `Stop hook error` fed back to the model on every turn. This is the
-  same failure shape the OMP extension (#857) already handles with a try/catch around
-  its own `/dev/tty` open.
+  (#880): an unset or unwritable path leaves nothing to open, and both wrap the
+  redirection so a failed open exits 0 and prints nothing, rather than surfacing as a
+  `Stop hook error` fed back to the model on every turn. This is the same failure
+  shape the OMP extension (#857) already handles with a try/catch around its own
+  `/dev/tty` open.
 - The engine's own contract stays exactly what `PtySession` already scans for: a bare
   BEL on the controlling terminal. Claude Code's hooks are a producer of that signal,
   not a new signal the engine has to learn.
@@ -83,6 +84,22 @@ notification format, or asking the user to configure anything:
 - **Write the hooks to the user's own `~/.claude/settings.json`** — rejected: it
   persists past the session, could collide with a user's own hooks, and needs cleanup
   logic this task's `--settings` argv approach makes unnecessary.
+
+## Addendum (#904): a Claude Code hook has no controlling terminal at all
+
+Verified against Claude Code 2.1.267, 2.1.268 and 2.1.269 under a real pty: Claude
+Code runs a hook command in a detached child with no controlling terminal of its own
+— the hook's own session id equals its pid, `tty` reports "not a tty", and
+`printf '\a' > /dev/tty` fails with "No such device or address". `/dev/tty` was
+therefore always unreachable from the hook, and #880 only silenced that failure
+rather than fixing the bell. Codex's `notify` command runs the same detached way.
+
+The bell now targets a captured device path instead: `TerminalWebSocketHandler`
+wraps every `claude`/`codex` launch's whole command in a shell that captures this
+launch's own controlling terminal (inside a Locklane tab, the session's own PTY) into
+`LOCKLANE_TTY` before exec'ing the agent, which the hook — however detached — still
+inherits through the environment. Both hook commands write to `"$LOCKLANE_TTY"` by
+name rather than opening `/dev/tty`.
 
 ## Consequences / revisit triggers
 
