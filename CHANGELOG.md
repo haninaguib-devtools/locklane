@@ -14,6 +14,11 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.35 — 2026-09-11
+
+### Other
+- Ring the bell from Claude Code and Codex hooks by terminal path, not /dev/tty (#904, #905)
+
 ## v0.2.34 — 2026-09-11
 
 ### Other
