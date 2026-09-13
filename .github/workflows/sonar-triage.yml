@@ -1,0 +1,83 @@
+# Nightly Sonar triage report (#909). Fetches the open SonarQube backlog, has an
+# agent recommend fix, accept, or false positive for each issue, and publishes the
+# table to the run's job summary plus a `sonar-triage-table` artifact. It reports;
+# it does not gate: nothing here touches branch protection or required checks, and
+# an empty backlog is a "no open issues" note, not a failure. A missing table with
+# a non-empty backlog fails loudly instead of reporting all-clear.
+name: Sonar triage
+
+on:
+  schedule:
+    # Nightly, before the morning routine in docs/notes/sonar-triage.md (UTC).
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  triage:
+    name: triage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+
+      - name: Fetch open Sonar issues
+        env:
+          # SONAR_HOST is a repository variable, not a secret: secret values are
+          # masked everywhere they appear in displayed output, which breaks links
+          # (#909). SONAR_TOKEN stays a secret.
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          .github/scripts/sonar-triage-fetch.sh sonar-issues.json
+          count="$(jq '.issues | length' sonar-issues.json)"
+          echo "OPEN_COUNT=$count" >> "$GITHUB_ENV"
+          echo "Open Sonar issues (excluding tracked): $count"
+
+      - name: Triage with Claude
+        if: env.OPEN_COUNT != '0'
+        uses: anthropics/claude-code-action@12310e4417c3473095c957cb311b3cf59a38d659 # v1.0.99
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Read sonar-issues.json in the workspace root: `{sonarHost, projectKey, issues}`
+            from the SonarQube `api/issues/search` endpoint (untracked open issues only).
+
+            For each issue, recommend exactly one of: fix, accept, or false positive,
+            with a one-line reason. Write a Markdown table to sonar-triage-table.md
+            with one row per issue and these columns:
+
+              | key | severity | file | line | message | recommendation | reason | link |
+
+            Build each link as `{sonarHost}/project/issues?id={projectKey}&issues={key}&open={key}`.
+            Keep the table sorted by severity, then file, then line. Do not commit
+            anything; just write sonar-triage-table.md in the workspace root.
+
+      - name: Publish triage report
+        run: |
+          if [ "${OPEN_COUNT:-}" = "" ]; then
+            echo "::error::OPEN_COUNT is unset — the fetch step did not run or did not record it"
+            exit 1
+          fi
+          if [ "$OPEN_COUNT" = "0" ]; then
+            echo "No open Sonar issues." >> "$GITHUB_STEP_SUMMARY"
+            echo "No open Sonar issues."
+            exit 0
+          fi
+          if [ ! -f sonar-triage-table.md ]; then
+            echo "::error::$OPEN_COUNT open Sonar issue(s) but sonar-triage-table.md is missing — the triage step produced no table"
+            exit 1
+          fi
+          cat sonar-triage-table.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload triage table
+        if: env.OPEN_COUNT != '0'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sonar-triage-table
+          path: sonar-triage-table.md
+          if-no-files-found: error
