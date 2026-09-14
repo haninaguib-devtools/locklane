@@ -55,10 +55,40 @@ Changing the merge strategy `/t-ship` uses (squash merge stays). Not touching
 worktree *directory* removal — that already works correctly and is out of scope.
 
 ## Decisions made along the way
-- none
+- `removeWorktree` now reuses the existing `isBranchLanded` helper (already built for
+  the project-agent-session guard under #554/ADR-107) instead of duplicating a second
+  content-equivalence check: same ancestry-first, patch-id-equivalence-fallback logic,
+  called against the worktree's own HEAD while the worktree still exists to read it
+  from (before `git worktree remove` runs).
+- Once `isBranchLanded` confirms landed, the branch delete now uses `git branch -D`
+  instead of `-d` — `-d`'s own ancestry check would just refuse the squash-merged case
+  again even after independent confirmation, so it can never be the actual delete
+  command for that case. A branch not confirmed landed is left alone unconditionally,
+  same as before; nothing is ever force-deleted on an ancestry-check failure alone.
 
 ## Deviations / notes
-- none
+- Scope for this task is the one file, `WorktreeCleanupSweeper.java`. The issue's
+  third done-when bullet (a one-off cleanup of the existing stale `wip/*` branch
+  backlog in `locklane`, `thyme-clinic`, and any other project under
+  `.locklane/workareas/`) is an operational action against those repos' actual
+  branches, not a code change within this file's scope — left undone here and
+  proposed as a follow-up (either a manual pass now that the underlying bug is fixed,
+  or a separate task if a scripted one-off is wanted).
+- `scripts/check.sh` (`./mvnw -B test`) fails on this branch: 13 failures + 3 errors
+  in the `engine` module. All 16 reproduce identically, verbatim, on an unmodified
+  `origin/main` checkout (verified with a throwaway `git worktree add ... origin/main`
+  run alongside this one) — a `gh` active-account/token leaking into
+  `ProjectCheckoutServiceTest`, `/private/var` vs `/var` `TempDir` symlink
+  canonicalization in `ProjectWorktreesServiceTest`, a missing `setsid`/`/bin/true` on
+  this macOS host in two other tests, and timing/live-session flakiness — none of it
+  touches `WorktreeCleanupSweeper` or this diff. The `WorktreeCleanupSweeperTest`
+  failures among them (`leavesAWorktreeAloneWhileItsOwnSessionIsLive`,
+  `leavesAWorktreeAloneWhileADifferentlyIdedResumeSessionSharesItsDirectory`,
+  `sweepLeavesAProjectAgentSessionWorktreeAloneWhileItsSessionIsLive`) are the same
+  pre-existing "live session" ones, unrelated to the branch-cleanup logic this task
+  changed; the new squash-merge test added here
+  (`deletesAnIssueWorktreesBranchOnceItsWorkHasLandedViaSquashMerge`) and the two
+  existing branch-cleanup tests it sits beside all pass.
 
 ## Agents
 - work: claude-code / claude-sonnet-5
