@@ -4,6 +4,16 @@ Read `.t-workflow/AGENTS.md` first — the delivery workflow for this repository
 
 *(this repository's own session-start instructions)*
 
+### Checks
+
+`scan` (`.github/workflows/sonar.yml`, Sonar) is a project addition, not a
+t-workflow check, and is informational only: it reports code quality and coverage
+but never gates the build — no `sonar.qualitygate.wait`, and its job name is not
+among the required status-check contexts `.t-workflow/scripts/github-bootstrap.sh`
+sets. `/t-ship` step 2's `gh pr checks <pr> --watch` waits for every other check to
+finish before merging, excluding `scan` by name; a future CI check this repo adds is
+still waited on by default.
+
 ## Constraints
 
 1. Spring Boot engine + Angular PWA client + SQLite for durable non-binding state, with
