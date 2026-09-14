@@ -14,6 +14,15 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.36 — 2026-09-14
+
+### Other
+- Document that Sonar's scan check is informational and never gates /t-ship (#917, #918)
+- Fix wip/<id>-<slug> branch cleanup to survive squash merges (#915, #916)
+- Grant the Sonar triage agent its file tools (#913, #914)
+- Fix Sonar triage OIDC failure with own GitHub token (#911, #912)
+- Run Sonar scan on PRs and main, add nightly triage report (#909, #910)
+
 ## v0.2.35 — 2026-09-11
 
 ### Other
