@@ -33,8 +33,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * called.
  *
  * <p>Also covers #342's done-when: once a worktree is actually removed, its local
- * branch goes with it if and only if `git branch -d` (never `-D`) considers it safe to
- * delete — a fully-merged branch disappears, an unmerged one survives untouched.
+ * branch goes with it if and only if its work has actually landed on the trunk — a
+ * fully-merged branch disappears, an unmerged one survives untouched. #915 replaced the
+ * original plain {@code git branch -d} (ancestry-only, so it always refused a
+ * squash-merged branch — {@code /t-ship}'s only merge style) with the same
+ * content-equivalence check #554/ADR-107 already proved out below for the
+ * project-agent-session guard.
  *
  * <p>Also covers #583/ADR-108's done-when: the project-agent-session guard judges "landed"
  * against the project's own recorded default branch on origin, not a hardcoded
@@ -62,8 +66,8 @@ class WorktreeCleanupSweeperTest {
         assertThat(worktree.path()).doesNotExist();
         assertThat(fx.repository.find(worktree.worktreeId())).isEmpty();
         // #342: the branch was never ahead of main (nothing was ever committed on it),
-        // so it is trivially merged -- `git branch -d` deletes it once the worktree
-        // that held it is gone.
+        // so it is trivially an ancestor of main -- landed, and deleted once the
+        // worktree that held it is gone.
         assertThat(branchExists(fx.projectRoot(), branch)).isFalse();
     }
 
@@ -74,7 +78,7 @@ class WorktreeCleanupSweeperTest {
         WorktreeAndId worktree = createWorktree(fx, 49, "Shipped nothing yet");
         String branch = currentBranch(worktree.path());
         // A real commit on the branch, never merged into main -- exactly the case
-        // `git branch -d` (never `-D`) must refuse, per #342's done-when.
+        // #915's landed check must refuse to confirm, per #342's done-when.
         Files.writeString(worktree.path().resolve("wip.txt"), "unshipped work");
         run(worktree.path(), "git", "add", "wip.txt");
         run(worktree.path(), "git", "commit", "-m", "unshipped work");
@@ -87,9 +91,35 @@ class WorktreeCleanupSweeperTest {
         // to leave the (clean, unattached, closed-issue) worktree in place.
         assertThat(removed).containsExactly(worktree.worktreeId());
         assertThat(worktree.path()).doesNotExist();
-        // git's own merge check refused the branch delete; nothing retried or forced
-        // it, so the branch -- and its one unshipped commit -- survives.
+        // Not confirmed landed; nothing retried or forced it, so the branch -- and its
+        // one unshipped commit -- survives.
         assertThat(branchExists(fx.projectRoot(), branch)).isTrue();
+    }
+
+    @Test
+    void deletesAnIssueWorktreesBranchOnceItsWorkHasLandedViaSquashMerge(@TempDir Path tmp) throws Exception {
+        // #915: /t-ship always squash-merges, so the squashed commit's SHA never lands
+        // anywhere for plain ancestry (what `git branch -d` alone can see) to find --
+        // this needs the same content-equivalence check (#554/ADR-107) the
+        // project-agent-session guard already established below.
+        Fixture fx = fixture(tmp);
+        GhIssue closed = new GhIssue(529, "Bump revision", "CLOSED", List.of(), "", "", "");
+        WorktreeAndId worktree = createWorktree(fx, 529, "Bump revision");
+        String branch = currentBranch(worktree.path());
+        Files.writeString(worktree.path().resolve("revision.txt"), "0.1.9-SNAPSHOT");
+        run(worktree.path(), "git", "add", "revision.txt");
+        run(worktree.path(), "git", "commit", "-m", "add revision.txt");
+        run(fx.projectRoot(), "git", "merge", "--squash", branch);
+        run(fx.projectRoot(), "git", "commit", "-m", "Bump revision (#530)");
+        run(fx.projectRoot(), "git", "push", "origin", "main");
+        fx.repository.recordAttach(worktree.worktreeId(), worktree.path(), Instant.now(), null);
+        WorktreeCleanupSweeper sweeper = sweeper(fx, List.of(closed));
+
+        List<String> removed = sweeper.sweep();
+
+        assertThat(removed).containsExactly(worktree.worktreeId());
+        assertThat(worktree.path()).doesNotExist();
+        assertThat(branchExists(fx.projectRoot(), branch)).isFalse();
     }
 
     @Test
