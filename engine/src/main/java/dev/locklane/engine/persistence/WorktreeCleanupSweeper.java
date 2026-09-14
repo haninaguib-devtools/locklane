@@ -61,10 +61,16 @@ import java.util.regex.Pattern;
  * <p>#342 widens ADR-102's carve-out one step further: once a worktree is actually
  * removed, its local {@code wip/<id>-<slug>} branch would otherwise survive forever
  * (ADR-005) with nobody ever prompted to clean it up (the same "nobody is ever
- * prompted" reasoning ADR-102 applied to the worktree itself) — see ADR-103. {@link
- * #removeWorktree} attempts {@code git branch -d} (never {@code -D}, never retried)
- * on that branch immediately after the worktree is gone: git's own merge check is the
- * only judgment made, so a shipped branch goes and an unmerged one silently survives.
+ * prompted" reasoning ADR-102 applied to the worktree itself) — see ADR-103. #915
+ * replaced this carve-out's original plain {@code git branch -d} (ancestry-only, so a
+ * squash-merged branch — {@code /t-ship}'s only merge style — always looked unmerged
+ * and silently survived forever) with the same content-aware {@link #isBranchLanded}
+ * check #554/ADR-107 already established for the project-agent-session guard below:
+ * {@link #removeWorktree} asks it, against the worktree's own HEAD, while the worktree
+ * still exists to read it from, then deletes with {@code -D} — never plain {@code -d},
+ * whose ancestry check would just refuse the squash-merged case again — only once that
+ * positive confirmation came back true; a branch {@link #isBranchLanded} does not
+ * confirm landed is left alone unconditionally, exactly as ADR-103 always required.
  *
  * <p>#339/ADR-104 adds a second, distinct carve-out alongside this one, for a
  * worktree-creation path this class's original guard was never written for: a
@@ -247,6 +253,12 @@ public class WorktreeCleanupSweeper {
         // a failed read) means there is no branch to delete, not an error (#342: a
         // per-issue worktree may start detached once #340 lands).
         Optional<String> branch = currentBranch(worktree.workingDirectory());
+        // #915: confirm landedness now, against the worktree's own HEAD, while it still
+        // exists to read -- isBranchLanded is the same content-aware check (ancestry,
+        // then squash-merge-safe patch-id equivalence) #554/ADR-107 already established
+        // below for the project-agent-session guard, reused here rather than duplicated.
+        boolean landed = branch.isPresent()
+                && isBranchLanded(worktree.projectId(), trunkRef(worktree.projectId()), worktree.workingDirectory());
         // No --force: git itself refuses on any uncommitted/untracked state, a second,
         // independent guard alongside the git-status check above in case of a race.
         Optional<String> output = run(project.get().workareaPath(), "git", "worktree", "remove",
@@ -258,11 +270,14 @@ public class WorktreeCleanupSweeper {
         // SessionRegistry#close, broadcast the same consolesChanged event a human
         // explicitly closing it would) so nothing lists a path that no longer exists.
         sessionRegistry.close(worktree.worktreeId());
-        // ADR-103: the branch goes the same way the worktree just did, but only when
-        // git itself considers it safe -- "-d", never "-D", and no retry on refusal.
-        // Branches live in the shared repo, not per-worktree, so this runs against
-        // the project's own checkout, which the worktree removal above never touches.
-        branch.ifPresent(name -> run(project.get().workareaPath(), "git", "branch", "-d", name));
+        // ADR-103/#915: the branch goes the same way the worktree just did, but only on
+        // the positive "this landed" confirmation above -- "-D", since plain "-d"'s own
+        // ancestry check would just refuse the squash-merged case again, and no retry.
+        // Branches live in the shared repo, not per-worktree, so this runs against the
+        // project's own checkout, which the worktree removal above never touches.
+        if (landed) {
+            branch.ifPresent(name -> run(project.get().workareaPath(), "git", "branch", "-D", name));
+        }
         return true;
     }
 
