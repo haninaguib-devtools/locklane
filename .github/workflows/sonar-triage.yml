@@ -64,6 +64,14 @@ jobs:
             Build each link as `{sonarHost}/project/issues?id={projectKey}&issues={key}&open={key}`.
             Keep the table sorted by severity, then file, then line. Do not commit
             anything; just write sonar-triage-table.md in the workspace root.
+          # Agent mode (this step, because we pass a `prompt`) grants no tools by
+          # default - unlike tag mode's built-in Glob/Grep/LS/Read plus
+          # acceptEdits, agent mode only allows what --allowedTools names here.
+          # Without this, every tool call - including Read and Write - is denied
+          # and the step spins until the job timeout instead of producing a table.
+          claude_args: |
+            --allowedTools "Read,Write,Grep,Glob,LS"
+            --max-turns 60
 
       - name: Publish triage report
         run: |
