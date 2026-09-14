@@ -38,3 +38,4 @@ The nightly `Sonar triage` workflow fails at its triage step with "Could not fet
 ## Agents
 - plan: opencode / meta/muse-spark-1.3-contributor
 - work: opencode / meta/muse-spark-1.3-contributor
+- work (fix): opencode / meta/muse-spark-1.3-contributor
