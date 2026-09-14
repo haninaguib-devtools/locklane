@@ -28,6 +28,12 @@ The nightly `Sonar triage` workflow fails at its triage step with "Could not fet
 ## Deviations / notes
 - Live manual dispatch of `Sonar triage` on the work branch cannot be verified
   from here; left as the human check at the ship gate, same as #909 did.
+- Fix pass on the review's High finding (local `scripts/check.sh` FAIL): no code
+  change — none can address it. The diff touches only workflow YAML plus this
+  record, which no Java test reads; the same failures occur with `GH_TOKEN`
+  unset; and CI on this exact head (`863d676`) reports `build` pass plus `scan`
+  pass, so the local failure is host-environment leakage (host `GH_TOKEN` and
+  git/gh state), pre-existing and unrelated to this task.
 
 ## Agents
 - plan: opencode / meta/muse-spark-1.3-contributor
