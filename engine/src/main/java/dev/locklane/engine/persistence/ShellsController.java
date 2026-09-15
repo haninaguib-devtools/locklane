@@ -1,5 +1,7 @@
 package dev.locklane.engine.persistence;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +26,8 @@ import java.util.Map;
 @RestController
 public class ShellsController {
 
+    private static final Logger log = LoggerFactory.getLogger(ShellsController.class);
+
     private final ShellSessionService service;
 
     public ShellsController(ShellSessionService service) {
@@ -43,13 +47,19 @@ public class ShellsController {
             @RequestBody OpenShellRequest request, Principal principal) {
         String username = principal.getName();
         if (request == null || request.workingDirectory() == null || request.workingDirectory().isBlank()) {
+            log.warn("shell open refused: no working directory given for project {} issue {}", projectId,
+                    request == null ? null : request.issueNumber());
             return ResponseEntity.badRequest().build();
         }
         return service.open(projectId, request.issueNumber(), Path.of(request.workingDirectory()), username)
                 .map(session -> Map.of("sessionId", session.sessionId(),
                         "workingDirectory", session.workingDirectory()))
                 .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+                .orElseGet(() -> {
+                    log.warn("shell open refused: project {} is unknown, not ready, or not owned by {} (issue {}, {})",
+                            projectId, username, request.issueNumber(), request.workingDirectory());
+                    return ResponseEntity.notFound().build();
+                });
     }
 
     /**

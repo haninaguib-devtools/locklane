@@ -86,6 +86,14 @@ public class SecurityConfig {
                 // header) outside engine/**'s scope, and #49's client work landed
                 // without adding one either.
                 .csrf(csrf -> csrf.disable())
+                // SAMEORIGIN, not the default DENY: the proxied IDE (#655) loads VS Code's
+                // web-worker extension host and every webview in a same-origin iframe,
+                // and DENY makes the browser refuse those frames -- the editor then waits
+                // forever on an extension host that never started, which is how starting
+                // a debug session hung on "Activating Extensions..." (#922). The header is
+                // written unconditionally at response commit, so the proxy cannot narrow
+                // it per path; same-origin still refuses framing by any other site.
+                .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/me").authenticated()
                         .requestMatchers("/api/account/2fa/**").authenticated()

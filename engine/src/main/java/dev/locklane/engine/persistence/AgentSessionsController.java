@@ -6,6 +6,8 @@ import dev.locklane.engine.ide.InstalledIde;
 import dev.locklane.engine.ide.InstalledIdesStore;
 import dev.locklane.engine.security.LoopbackRequests;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,6 +35,8 @@ import java.util.Optional;
 // The /consoles REST path is a compatibility surface kept under ADR-112.
 @RequestMapping("/api/projects/{projectId}/consoles")
 public class AgentSessionsController {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentSessionsController.class);
 
     private final IssueWorktreeService service;
     private final FileManagerLauncher fileManagerLauncher;
@@ -142,6 +146,7 @@ public class AgentSessionsController {
         boolean visible = service.allWorktreeIds(projectId, principal.getName()).contains(id)
                 || projectIdeSessionService.isOpenAndVisibleTo(projectId, id, principal.getName());
         if (!visible) {
+            log.warn("open-ide refused: session {} is not visible to {} under project {}", id, principal.getName(), projectId);
             return ResponseEntity.notFound().build();
         }
         String ideId = body == null || body.ide() == null ? InstalledIdesStore.CODE_SERVER_ID : body.ide();
@@ -150,6 +155,7 @@ public class AgentSessionsController {
         }
         Optional<URI> upstream = codeServerService.start(id);
         if (upstream.isEmpty()) {
+            log.warn("open-ide refused: session {} has no known working directory to start code-server in", id);
             return ResponseEntity.notFound().build();
         }
         Path workingDirectory = codeServerService.workingDirectory(id)
@@ -160,14 +166,18 @@ public class AgentSessionsController {
     private ResponseEntity<OpenIdeResponse> openDesktopIde(String id, String ideId, HttpServletRequest request) {
         Optional<InstalledIde> ide = installedIdesStore.find(ideId).filter(installed -> installed.info().desktop());
         if (ide.isEmpty()) {
+            log.warn("open-ide refused: '{}' is not an installed desktop IDE (session {})", ideId, id);
             return ResponseEntity.badRequest().build();
         }
         if (!LoopbackRequests.isDirectLoopback(request)) {
+            log.warn("open-ide refused: desktop IDE '{}' for session {} requested from a non-loopback client", ideId, id);
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        return desktopIdeLauncher.launch(id, ide.get())
-                ? ResponseEntity.ok(new OpenIdeResponse(null))
-                : ResponseEntity.notFound().build();
+        if (!desktopIdeLauncher.launch(id, ide.get())) {
+            log.warn("open-ide failed: desktop IDE '{}' did not launch for session {}", ideId, id);
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(new OpenIdeResponse(null));
     }
 
     /**
