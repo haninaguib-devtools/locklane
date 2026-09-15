@@ -14,6 +14,12 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.37 — 2026-09-15
+
+### Other
+- Fix Java debug start hanging on Activating Extensions through the IDE proxy and log open-ide and shell-open failures (#922, #924)
+- Let the IDE proxy admit a project's main-checkout ide-main session (#921, #923)
+
 ## v0.2.36 — 2026-09-14
 
 ### Other
