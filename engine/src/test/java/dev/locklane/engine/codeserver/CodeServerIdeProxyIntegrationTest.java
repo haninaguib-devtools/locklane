@@ -165,6 +165,10 @@ class CodeServerIdeProxyIntegrationTest {
         // only the type and charset are pinned, not the exact spelling.
         assertThat(root.headers().firstValue("Content-Type").orElseThrow().replace(" ", ""))
                 .isEqualTo("text/plain;charset=utf-8");
+        // The editor frames its own pages (web-worker extension host, webviews), so no
+        // response may carry Spring's default DENY (#922); cross-site framing stays refused.
+        assertThat(root.headers().firstValue("X-Frame-Options")).contains("SAMEORIGIN");
+        assertThat(send(get(url("/api/auth/me"), aliceCookie)).headers().firstValue("X-Frame-Options")).contains("SAMEORIGIN");
     }
 
     @Test
