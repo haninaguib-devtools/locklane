@@ -1,6 +1,7 @@
 package dev.locklane.engine.codeserver;
 
 import dev.locklane.engine.persistence.IssueWorktreeService;
+import dev.locklane.engine.persistence.ProjectIdeSessionService;
 import dev.locklane.engine.persistence.TestSqliteDatabases;
 import dev.locklane.engine.persistence.UserRecord;
 import dev.locklane.engine.persistence.WorktreeSessionAuthorization;
@@ -39,8 +40,7 @@ class CodeServerProxyAuthorizationTest {
         WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
         repository.recordAttach("1-174-rename-toggle", dbDir.resolve("wt1"), Instant.now(), "alice");
         CodeServerService codeServer = codeServerService(repository);
-        CodeServerProxyAuthorization authorization =
-                new CodeServerProxyAuthorization(worktreeService(dbDir, repository), codeServer);
+        CodeServerProxyAuthorization authorization = authorization(dbDir, repository, codeServer);
         IdeProxyPath path = new IdeProxyPath(1, "1-174-rename-toggle", "/");
 
         // Nothing running yet: even the owner resolves nothing, and nothing was started.
@@ -56,16 +56,49 @@ class CodeServerProxyAuthorizationTest {
         assertThat(authorization.upstreamFor(new IdeProxyPath(2, "1-174-rename-toggle", "/"), "bob")).isEmpty();
     }
 
+    /**
+     * The project's own main-checkout IDE session (#831) is kept out of
+     * {@code allWorktreeIds}, so the proxy admits it by the same second rule
+     * {@code openIde} does — and only once its row exists, only under its own project,
+     * only to the owner.
+     */
+    @Test
+    void resolvesTheProjectsMainCheckoutIdeSessionForItsOwnerOnly(@TempDir Path dbDir) {
+        createProject(dbDir, "alice"); // project 1
+        createProject(dbDir, "bob"); // project 2
+        WorktreeSessionRepository repository = TestSqliteDatabases.newRepository(dbDir);
+        CodeServerService codeServer = codeServerService(repository);
+        CodeServerProxyAuthorization authorization = authorization(dbDir, repository, codeServer);
+        IdeProxyPath path = new IdeProxyPath(1, "1-ide-main", "/");
+
+        // No session row yet: nothing to admit, even for the owner.
+        assertThat(authorization.upstreamFor(path, "alice")).isEmpty();
+
+        repository.recordAttach("1-ide-main", dbDir.resolve("work-alice"), Instant.now(), "alice");
+        assertThat(authorization.upstreamFor(path, "alice")).isEmpty(); // row, but no IDE running
+
+        var started = codeServer.start("1-ide-main");
+
+        assertThat(authorization.upstreamFor(path, "alice")).isEqualTo(started);
+        assertThat(authorization.upstreamFor(path, "bob")).isEmpty();
+        assertThat(authorization.upstreamFor(path, null)).isEmpty();
+        assertThat(authorization.upstreamFor(new IdeProxyPath(2, "1-ide-main", "/"), "bob")).isEmpty();
+    }
+
+    private static CodeServerProxyAuthorization authorization(Path dbDir, WorktreeSessionRepository repository,
+            CodeServerService codeServer) {
+        WorktreeSessionAuthorization sessionAuthorization = new WorktreeSessionAuthorization(
+                TestSqliteDatabases.newProjectRepository(dbDir), TestSqliteDatabases.newUserRepository(dbDir));
+        return new CodeServerProxyAuthorization(
+                new IssueWorktreeService(repository, sessionAuthorization),
+                new ProjectIdeSessionService(TestSqliteDatabases.newProjectRepository(dbDir), repository, sessionAuthorization),
+                codeServer);
+    }
+
     private static void createProject(Path dbDir, String ownerUsername) {
         UserRecord owner = TestSqliteDatabases.newUserRepository(dbDir).create(ownerUsername, "bcrypt-hash", Instant.now());
         TestSqliteDatabases.newProjectRepository(dbDir).createReady("proj-" + ownerUsername, "url",
                 dbDir.resolve("work-" + ownerUsername), "main", owner.id(), Instant.now());
-    }
-
-    private static IssueWorktreeService worktreeService(Path dbDir, WorktreeSessionRepository repository) {
-        WorktreeSessionAuthorization authorization = new WorktreeSessionAuthorization(
-                TestSqliteDatabases.newProjectRepository(dbDir), TestSqliteDatabases.newUserRepository(dbDir));
-        return new IssueWorktreeService(repository, authorization);
     }
 
     /** A stub listener on the port named by {@code --bind-addr} so {@code start()}'s own wait for a connection succeeds (#776). */
@@ -78,7 +111,8 @@ class CodeServerProxyAuthorizationTest {
                             break;
                         }
                     }
-                    return new ProcessBuilder("true").start();
+                    // Outlives start()'s liveness poll, which treats an exited process as a failed launch.
+                    return new ProcessBuilder("sleep", "60").start();
                 });
     }
 }

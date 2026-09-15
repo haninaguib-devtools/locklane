@@ -1,6 +1,7 @@
 package dev.locklane.engine.codeserver;
 
 import dev.locklane.engine.persistence.IssueWorktreeService;
+import dev.locklane.engine.persistence.ProjectIdeSessionService;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -12,19 +13,24 @@ import java.util.Optional;
  * proxy and the WebSocket proxy, made in one place. The visibility rule is exactly the
  * one {@code AgentSessionsController#openIde} applies when starting the process
  * ({@link IssueWorktreeService#allWorktreeIds}: the agent session must belong to the named
- * project and that project to the caller, CONSTITUTION.md §4.5), so the proxy can
- * never admit a request the start endpoint would have refused. An agent session whose IDE is
- * not running resolves to nothing: the proxy never starts one, and it never
- * distinguishes "not yours" from "not there" to a caller.
+ * project and that project to the caller, CONSTITUTION.md §4.5 — or, for the
+ * project's own main-checkout IDE session that listing deliberately omits (#831),
+ * {@link ProjectIdeSessionService#isOpenAndVisibleTo}), so the proxy can never admit a
+ * request the start endpoint would have refused, nor refuse one it just admitted. An
+ * agent session whose IDE is not running resolves to nothing: the proxy never starts
+ * one, and it never distinguishes "not yours" from "not there" to a caller.
  */
 @Component
 public class CodeServerProxyAuthorization {
 
     private final IssueWorktreeService worktrees;
+    private final ProjectIdeSessionService projectIdeSessions;
     private final CodeServerService codeServerService;
 
-    public CodeServerProxyAuthorization(IssueWorktreeService worktrees, CodeServerService codeServerService) {
+    public CodeServerProxyAuthorization(IssueWorktreeService worktrees, ProjectIdeSessionService projectIdeSessions,
+            CodeServerService codeServerService) {
         this.worktrees = worktrees;
+        this.projectIdeSessions = projectIdeSessions;
         this.codeServerService = codeServerService;
     }
 
@@ -38,7 +44,9 @@ public class CodeServerProxyAuthorization {
         if (username == null) {
             return Optional.empty();
         }
-        if (!worktrees.allWorktreeIds(path.projectId(), username).contains(path.agentSessionId())) {
+        boolean visible = worktrees.allWorktreeIds(path.projectId(), username).contains(path.agentSessionId())
+                || projectIdeSessions.isOpenAndVisibleTo(path.projectId(), path.agentSessionId(), username);
+        if (!visible) {
             return Optional.empty();
         }
         return codeServerService.upstream(path.agentSessionId());
