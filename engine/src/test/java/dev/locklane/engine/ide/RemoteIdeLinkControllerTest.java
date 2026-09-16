@@ -51,6 +51,8 @@ class RemoteIdeLinkControllerTest {
                 .andExpect(jsonPath("$.user").value(System.getProperty("user.name")))
                 .andExpect(jsonPath("$.sshPort").value(22))
                 .andExpect(jsonPath("$.path").value("/srv/wt/a"))
+                // The test classpath's application.yml sets no gateway keys, so these are the
+                // @Value fallbacks; the shipped defaults are checked by shippedDefaultsNameAGatewayBackend.
                 .andExpect(jsonPath("$.gateway.productCode").isEmpty())
                 .andExpect(jsonPath("$.gateway.buildNumber").isEmpty())
                 .andExpect(jsonPath("$.gateway.idePath").isEmpty());
@@ -115,5 +117,22 @@ class RemoteIdeLinkControllerTest {
 
         org.assertj.core.api.Assertions.assertThat(body.gateway())
                 .isEqualTo(new RemoteIdeLinkController.Gateway(null, null, null));
+    }
+
+    /**
+     * The shipped application.yml names a backend for Gateway to deploy (#971), so a
+     * remote Gateway open works with no per-machine setup: the client refuses to build a
+     * link when product code and build number are both blank and no ide-path is set.
+     * Read from the source file because the test classpath's application.yml shadows it.
+     */
+    @Test
+    void shippedDefaultsNameAGatewayBackend() {
+        var factory = new org.springframework.beans.factory.config.YamlPropertiesFactoryBean();
+        factory.setResources(new org.springframework.core.io.FileSystemResource("src/main/resources/application.yml"));
+        java.util.Properties shipped = factory.getObject();
+
+        org.assertj.core.api.Assertions.assertThat(shipped.getProperty("locklane.remote-ide.gateway.product-code")).isEqualTo("IU");
+        org.assertj.core.api.Assertions.assertThat(shipped.getProperty("locklane.remote-ide.gateway.build-number")).isEqualTo("262.9437.185");
+        org.assertj.core.api.Assertions.assertThat(shipped.getProperty("locklane.remote-ide.gateway.ide-path")).isEmpty();
     }
 }
