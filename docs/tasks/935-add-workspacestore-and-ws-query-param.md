@@ -21,8 +21,5 @@ Introduce the workspace model and make the active workspace part of the URL. A `
 ## Deviations / notes
 - `scripts/check.sh` ran `./mvnw -B test`: engine tests fail with the known local-environment failures (worktree/credential-helper/`/bin/true` tests, identical on the integration branch); the diff is client-only and `cd client && npm test` passes (996 specs). Reported as FAIL in the PR with this note.
 
-## Deviations / notes
-- none
-
 ## Agents
 - work: claude-code / claude-fable-5-1
