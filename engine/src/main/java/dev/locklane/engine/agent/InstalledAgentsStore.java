@@ -5,7 +5,7 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
- * The single table of id + label per known coding-agent CLI (#359, #681, #695) — the
+ * The single table of id + label per known coding-agent CLI (#359, #681, #695, #928) — the
  * only place that pairing is written down; {@link InstalledAgentsController} and every
  * label a client sees (the settings picker, a resumed session's tool) come from here.
  * Also holds which of {@link #KNOWN_AGENTS} {@link InstalledAgentsBootstrapper} found on
@@ -20,7 +20,8 @@ public class InstalledAgentsStore {
             new AgentInfo("claude", "Claude"),
             new AgentInfo("codex", "Codex"),
             new AgentInfo("opencode", "OpenCode"),
-            new AgentInfo("omp", "OMP"));
+            new AgentInfo("omp", "OMP"),
+            new AgentInfo("muse", "Muse Code"));
 
     private volatile Set<String> installedIds = Set.of();
 

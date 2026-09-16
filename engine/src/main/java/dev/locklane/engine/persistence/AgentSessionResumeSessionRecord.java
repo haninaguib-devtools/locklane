@@ -3,10 +3,10 @@ package dev.locklane.engine.persistence;
 import java.time.Instant;
 
 /**
- * One resume id seen in one agent session's output (#102, #295, #681): {@code tool} is the CLI that can
- * resume it ("claude", "codex", "opencode", or "omp"), {@code resumeId} is what that CLI's resume command
- * accepts (`claude --resume <id>` / `codex resume <id>` / `opencode --session <id>` /
- * `omp --resume <id>`), and {@code worktreeId} ties
+ * One resume id seen in one agent session's output (#102, #295, #681, #928): {@code tool} is the CLI that
+ * can resume it ("claude", "codex", "opencode", "omp", or "muse"), {@code resumeId} is what that CLI's
+ * resume command accepts (`claude --resume <id>` / `codex resume <id>` / `opencode --session <id>` /
+ * `omp --resume <id>` / `muse resume <id>`), and {@code worktreeId} ties
  * it to the agent session — and through the worktree-id naming convention
  * ({@link IssueWorktreeService}) to the project/issue — it was captured in.
  */

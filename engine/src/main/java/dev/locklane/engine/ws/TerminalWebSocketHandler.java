@@ -3,6 +3,7 @@ package dev.locklane.engine.ws;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.locklane.engine.agent.CodexBellHookScript;
+import dev.locklane.engine.agent.MuseBellHook;
 import dev.locklane.engine.agent.OmpBellHookExtension;
 import dev.locklane.engine.agent.OpenCodeBellPlugin;
 import dev.locklane.engine.persistence.ProjectAgentSessionService;
@@ -116,6 +117,15 @@ import java.util.regex.Pattern;
  * subscribes to the OMP events that mean "stopped, waiting for the user" and rings
  * the same bell on each. See {@link #withOmpBellHook}.
  *
+ * <p>Every {@code muse} launch is wrapped as {@code env TBH_MANAGED_HOOKS_PATH=<path>
+ * muse ...} naming {@link MuseBellHook}'s own hooks file (#928): Muse Code loads the
+ * hooks file named by that variable on every launch, trusted workspace or not, and
+ * runs the bell script it names on the events that mean "stopped, waiting for the
+ * user" (plus one that hands the engine the session id its TUI never prints). The
+ * variable travels in the argv, through {@code env}, rather than the session
+ * environment, so every {@code muse} argv this class composes visibly carries its
+ * attachment the same way the other agents' do. See {@link #withMuseBellHook}.
+ *
  * <p>OpenCode gets no argv treatment (#858): unlike the other three, it has no
  * launch-time way to load a local plugin file, so nothing here changes for
  * {@code opencode}. This class still depends on {@link OpenCodeBellPlugin} purely so
@@ -124,7 +134,7 @@ import java.util.regex.Pattern;
  * place a reader already looks for it.
  *
  * <p>{@link #resolveLaunch} also decides a brand-new session's quiescence fallback
- * (#130, #862): off for {@code claude}/{@code codex}/{@code opencode}/{@code omp},
+ * (#130, #862): off for {@code claude}/{@code codex}/{@code opencode}/{@code omp}/{@code muse},
  * every command this class recognises as an agent with a landed bell hook, since the
  * fallback would only add false positives alongside an already-precise signal; on for
  * a shell or anything else, unchanged from before. See {@link Launch#quiescenceFallbackEnabled}.
@@ -158,17 +168,20 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     private final Path codexBellNotifyScript;
     // #857: as above, for every omp launch's `--hook=<path>`.
     private final Path ompBellHookExtension;
+    // #928: as above, for every muse launch's `TBH_MANAGED_HOOKS_PATH=<path>`.
+    private final Path museBellHooksFile;
 
     @Autowired
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
             WorktreeSessionAuthorization authorization, Clock clock,
             @Value("${locklane.terminal.heartbeat-interval-ms}") long heartbeatIntervalMs,
             CodexBellHookScript codexBellHookScript, OmpBellHookExtension ompBellHookExtension,
+            MuseBellHook museBellHook,
             // #858: not read here -- see the class-level note above on why this
             // class depends on it anyway.
             OpenCodeBellPlugin openCodeBellPlugin) {
         this(sessionRegistry, projectAgentSessionService, authorization, clock, heartbeatIntervalMs,
-                codexBellHookScript.scriptPath(), ompBellHookExtension.extensionPath());
+                codexBellHookScript.scriptPath(), ompBellHookExtension.extensionPath(), museBellHook.hooksFilePath());
     }
 
     // Fixed, obviously-fake paths -- never resolved against a real filesystem -- for
@@ -176,6 +189,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     // beyond composing them into an argv the same way the real ones would be.
     static final Path TEST_CODEX_BELL_NOTIFY_SCRIPT = Path.of("/test-data-dir/hooks/bell.sh");
     static final Path TEST_OMP_BELL_HOOK_EXTENSION = Path.of("/test-data-dir/hooks/omp-bell.js");
+    static final Path TEST_MUSE_BELL_HOOKS_FILE = Path.of("/test-data-dir/hooks/muse-hooks.json");
 
     /**
      * Test-only: these tests never call {@link #afterConnectionEstablished}, so the
@@ -183,33 +197,35 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      */
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService) {
         this(sessionRegistry, projectAgentSessionService, null, Clock.systemUTC(), 20_000L, TEST_CODEX_BELL_NOTIFY_SCRIPT,
-                TEST_OMP_BELL_HOOK_EXTENSION);
+                TEST_OMP_BELL_HOOK_EXTENSION, TEST_MUSE_BELL_HOOKS_FILE);
     }
 
     /**
-     * Test-only: as the real constructor, with the fixed test codex/omp paths
-     * (#856, #857) rather than real {@link CodexBellHookScript}/{@link
-     * OmpBellHookExtension} beans.
+     * Test-only: as the real constructor, with the fixed test codex/omp/muse paths
+     * (#856, #857, #928) rather than real {@link CodexBellHookScript}/{@link
+     * OmpBellHookExtension}/{@link MuseBellHook} beans.
      */
     public TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
             WorktreeSessionAuthorization authorization, Clock clock, long heartbeatIntervalMs) {
         this(sessionRegistry, projectAgentSessionService, authorization, clock, heartbeatIntervalMs,
-                TEST_CODEX_BELL_NOTIFY_SCRIPT, TEST_OMP_BELL_HOOK_EXTENSION);
+                TEST_CODEX_BELL_NOTIFY_SCRIPT, TEST_OMP_BELL_HOOK_EXTENSION, TEST_MUSE_BELL_HOOKS_FILE);
     }
 
     /**
-     * Shared implementation: never called with a real {@link CodexBellHookScript} or
-     * {@link OmpBellHookExtension} directly, only their already-resolved paths.
+     * Shared implementation: never called with a real {@link CodexBellHookScript},
+     * {@link OmpBellHookExtension} or {@link MuseBellHook} directly, only their
+     * already-resolved paths.
      */
     private TerminalWebSocketHandler(SessionRegistry sessionRegistry, ProjectAgentSessionService projectAgentSessionService,
             WorktreeSessionAuthorization authorization, Clock clock, long heartbeatIntervalMs, Path codexBellNotifyScript,
-            Path ompBellHookExtension) {
+            Path ompBellHookExtension, Path museBellHooksFile) {
         this.sessionRegistry = sessionRegistry;
         this.projectAgentSessionService = projectAgentSessionService;
         this.authorization = authorization;
         this.heartbeat = new TerminalHeartbeat(clock, heartbeatIntervalMs);
         this.codexBellNotifyScript = codexBellNotifyScript;
         this.ompBellHookExtension = ompBellHookExtension;
+        this.museBellHooksFile = museBellHooksFile;
     }
 
     @Override
@@ -457,8 +473,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * plain reattach stays untouched. Package-visible for tests.
      */
     String[] resolveLaunchCommand(String sessionId, String cmd, String resume) {
-        if (resume == null && cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode") || cmd.equals("omp"))
-                && sessionRegistry.find(sessionId).isEmpty()) {
+        if (resume == null && isAgent(cmd) && sessionRegistry.find(sessionId).isEmpty()) {
             resume = sessionRegistry.latestResumeId(sessionId, cmd).orElse(null);
         }
         return resolveLaunchCommand(cmd, resume);
@@ -476,10 +491,10 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * flagged {@code seeded} so the caller records the launch. Anything else resolves
      * exactly as before, with {@code seeded} false. {@code quiescenceFallbackEnabled}
      * (#862) is {@code isAgent(cmd)}'s negation regardless of which branch runs below:
-     * every {@code claude}/{@code codex}/{@code opencode}/{@code omp} launch this
-     * class composes already carries (or, for {@code opencode}, is guaranteed by
+     * every {@code claude}/{@code codex}/{@code opencode}/{@code omp}/{@code muse} launch
+     * this class composes already carries (or, for {@code opencode}, is guaranteed by
      * {@link OpenCodeBellPlugin} having installed at startup) a landed bell hook
-     * (#855-#858), a precise "waiting" signal the quiescence fallback would only add
+     * (#855-#858, #928), a precise "waiting" signal the quiescence fallback would only add
      * noise alongside; a shell or any other/unrecognised command keeps the fallback on,
      * exactly as before. Package-visible for tests.
      */
@@ -504,7 +519,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
     }
 
     private static boolean isAgent(String cmd) {
-        return cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode") || cmd.equals("omp"));
+        return cmd != null && (cmd.equals("claude") || cmd.equals("codex") || cmd.equals("opencode") || cmd.equals("omp")
+                || cmd.equals("muse"));
     }
 
     /**
@@ -527,11 +543,12 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * The agent's own "start interactively with this first prompt" shape (#537):
-     * {@code claude <prompt>}, {@code codex <prompt>}, and {@code omp <prompt>} take it positionally,
-     * {@code opencode --prompt <prompt>} by flag (confirmed against opencode 1.18.25).
+     * {@code claude <prompt>}, {@code codex <prompt>}, {@code omp <prompt>} and {@code muse <prompt>}
+     * take it positionally, {@code opencode --prompt <prompt>} by flag (confirmed against
+     * opencode 1.18.25; {@code muse [OPTIONS] [PROMPT]} against Muse Code 1.3.0, #928).
      * The prompt travels as one argv element — never through a shell — and is always
      * engine text, so nothing the client sends reaches the process. {@code null} for
-     * anything that is not one of the four agents. Package-visible for tests.
+     * anything that is not one of the five agents. Package-visible for tests.
      */
     String[] seededLaunchCommand(String cmd, String prompt) {
         if (cmd == null || prompt == null) {
@@ -542,6 +559,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             case "codex" -> withCodexBellNotify(new String[] {"codex", prompt});
             case "opencode" -> new String[] {"opencode", "--prompt", prompt};
             case "omp" -> withOmpBellHook(new String[] {"omp", prompt});
+            case "muse" -> withMuseBellHook(new String[] {"muse", prompt});
             default -> null;
         };
     }
@@ -564,6 +582,9 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             if (cmd.equals("omp")) {
                 return withOmpBellHook(new String[] {"omp", "--resume", resume});
             }
+            if (cmd.equals("muse")) {
+                return withMuseBellHook(new String[] {"muse", "resume", resume});
+            }
         }
         if (cmd.equals("claude")) {
             return withClaudeBellHooks(new String[] {cmd});
@@ -573,6 +594,9 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         }
         if (cmd.equals("omp")) {
             return withOmpBellHook(new String[] {cmd});
+        }
+        if (cmd.equals("muse")) {
+            return withMuseBellHook(new String[] {cmd});
         }
         return new String[] {cmd};
     }
@@ -710,6 +734,28 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         String[] withHook = Arrays.copyOf(command, command.length + 1);
         withHook[command.length] = "--hook=" + ompBellHookExtension;
         return withHook;
+    }
+
+    /** The variable Muse Code 1.3.0 reads a managed hooks file's path from (#928); see {@link MuseBellHook}. */
+    static final String MUSE_MANAGED_HOOKS_PATH_VARIABLE = "TBH_MANAGED_HOOKS_PATH";
+
+    /**
+     * Wraps a {@code muse} argv as {@code env TBH_MANAGED_HOOKS_PATH=<path> muse ...}
+     * naming {@link #museBellHooksFile} (#928): Muse Code has no launch flag for a
+     * hooks file, only this environment variable, and {@code env} puts it in the argv
+     * rather than the session environment so the attachment stays visible on the
+     * launch itself. Nothing of the user's own Muse Code configuration is touched:
+     * a managed hooks file loads alongside, never instead of, whatever {@code
+     * ~/.config/muse/} and the workspace declare. Every caller here already knows
+     * {@code command[0]} is {@code "muse"}, the same precondition {@link
+     * #withClaudeBellHooks} keeps.
+     */
+    private String[] withMuseBellHook(String[] command) {
+        String[] wrapped = new String[command.length + 2];
+        wrapped[0] = "env";
+        wrapped[1] = MUSE_MANAGED_HOOKS_PATH_VARIABLE + "=" + museBellHooksFile;
+        System.arraycopy(command, 0, wrapped, 2, command.length);
+        return wrapped;
     }
 
     private static Integer parseIntParam(WebSocketSession wsSession, String name) {

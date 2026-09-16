@@ -41,6 +41,9 @@ class TerminalWebSocketHandlerTemplateSeedTest {
             "notify=[\"" + TerminalWebSocketHandler.TEST_CODEX_BELL_NOTIFY_SCRIPT + "\"]";
     // #857: as above, for every omp argv's --hook override.
     private static final String OMP_HOOK_ARG = "--hook=" + TerminalWebSocketHandler.TEST_OMP_BELL_HOOK_EXTENSION;
+    // #928: as above, for every muse argv's managed hooks file, carried through `env`.
+    private static final String MUSE_HOOKS_ENV_ARG =
+            "TBH_MANAGED_HOOKS_PATH=" + TerminalWebSocketHandler.TEST_MUSE_BELL_HOOKS_FILE;
 
     @TempDir
     Path dbDir;
@@ -105,6 +108,7 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         TerminalWebSocketHandler.Launch opencode =
                 handler.resolveLaunch(agentSessionId, "opencode", null, "template", workDir);
         TerminalWebSocketHandler.Launch omp = handler.resolveLaunch(agentSessionId, "omp", null, "template", workDir);
+        TerminalWebSocketHandler.Launch muse = handler.resolveLaunch(agentSessionId, "muse", null, "template", workDir);
 
         assertThat(claude.seeded()).isTrue();
         assertThat(claude.command())
@@ -116,6 +120,9 @@ class TerminalWebSocketHandlerTemplateSeedTest {
         assertThat(omp.seeded()).isTrue();
         assertThat(omp.command())
                 .containsExactly("omp", ProjectAgentSessionService.PLAIN_SEED_PROMPT, OMP_HOOK_ARG);
+        assertThat(muse.seeded()).isTrue();
+        assertThat(muse.command())
+                .containsExactly("env", MUSE_HOOKS_ENV_ARG, "muse", ProjectAgentSessionService.PLAIN_SEED_PROMPT);
         assertThat(ProjectAgentSessionService.PLAIN_SEED_PROMPT).contains("PROJECT_TEMPLATE.md").contains("push")
                 .doesNotContain("/t-open");
     }

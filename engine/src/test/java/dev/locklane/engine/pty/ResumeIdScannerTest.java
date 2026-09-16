@@ -91,6 +91,34 @@ class ResumeIdScannerTest {
     }
 
     @Test
+    void capturesAMuseResumeCommand() {
+        ResumeIdScanner scanner = new ResumeIdScanner(null);
+
+        assertThat(scanner.feed(bytes("To continue this session, run muse resume " + ID + ".\n")))
+                .containsExactly(new ResumeIdScanner.Capture("muse", ID));
+    }
+
+    @Test
+    void aMuseResumeCommandInsideADcsStringIsCapturedThroughTheStrippedEscapes() {
+        // #928: Muse Code's TUI never prints its session id, so MuseBellHook's
+        // SessionStart hook writes `muse resume <id>` inside a DCS string (ESC P ...
+        // ESC \) -- swallowed whole by the browser terminal, while this scanner strips
+        // only the two ESC sequences and reads the command left between them.
+        ResumeIdScanner scanner = new ResumeIdScanner(null);
+
+        assertThat(scanner.feed(bytes("\u001BPlocklane;muse resume " + ID + "\u001B\\")))
+                .containsExactly(new ResumeIdScanner.Capture("muse", ID));
+    }
+
+    @Test
+    void aLabeledSessionIdIsAttributedToMuseWhenThatIsTheLaunchCommandsTool() {
+        ResumeIdScanner scanner = new ResumeIdScanner(ResumeIdScanner.MUSE);
+
+        assertThat(scanner.feed(bytes("session id: " + ID + "\n")))
+                .containsExactly(new ResumeIdScanner.Capture("muse", ID));
+    }
+
+    @Test
     void anOpenCodeIdsCaseIsPreservedUnlikeAUuids() {
         ResumeIdScanner scanner = new ResumeIdScanner(null);
         String mixedCaseId = "ses_AbCdEf1234567890ABCDEFabcd";
@@ -182,6 +210,7 @@ class ResumeIdScannerTest {
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"/usr/local/bin/codex"})).isEqualTo("codex");
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"/usr/local/bin/opencode"})).isEqualTo("opencode");
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"/usr/local/bin/omp"})).isEqualTo("omp");
+        assertThat(ResumeIdScanner.toolHintFor(new String[] {"/Users/someone/.local/bin/muse"})).isEqualTo("muse");
         assertThat(ResumeIdScanner.toolHintFor(new String[] {"/bin/sh", "-i"})).isNull();
         assertThat(ResumeIdScanner.toolHintFor(null)).isNull();
     }
