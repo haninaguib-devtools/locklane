@@ -19,6 +19,13 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.41 — 2026-09-16
+
+### Other
+- Let users assign labels to issues from the UI (#961, #966)
+- Sidenav author/label pickers grow to fill row instead of truncating (#959, #960)
+- Fix JetBrains Gateway remote-SSH open failing with underspecified deploy params (#957, #958)
+
 ## v0.2.40 — 2026-09-16
 
 ### Other
