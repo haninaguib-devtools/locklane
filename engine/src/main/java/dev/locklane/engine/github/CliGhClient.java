@@ -70,7 +70,7 @@ public class CliGhClient implements GhClient {
     @Override
     public List<GhIssue> issues() {
         String json = run("issue", "list", "--state", "all", "--limit", "1000",
-                "--json", "number,title,state,labels,body,createdAt,updatedAt,parent");
+                "--json", "number,title,state,labels,body,createdAt,updatedAt,parent,author");
         try {
             List<GhIssue> result = new ArrayList<>();
             for (JsonNode issue : MAPPER.readTree(json)) {
@@ -127,7 +127,8 @@ public class CliGhClient implements GhClient {
                 issue.path("body").asText(""),
                 issue.path("createdAt").asText(""),
                 issue.path("updatedAt").asText(""),
-                parent);
+                parent,
+                issue.path("author").path("login").asText(""));
     }
 
     private static GhPullRequest toPullRequest(JsonNode pr) {

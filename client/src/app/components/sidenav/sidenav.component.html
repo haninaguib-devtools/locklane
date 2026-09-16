@@ -9,6 +9,17 @@
         aria-label="Filter cases"
         [(ngModel)]="filterText"
       />
+      <select
+        class="author-select"
+        aria-label="Filter by author"
+        title="Show only issues one GitHub login opened"
+        [(ngModel)]="filterAuthor"
+      >
+        <option value="">anyone</option>
+        @for (author of authors; track author) {
+          <option [value]="author">{{ author }}</option>
+        }
+      </select>
       <button
         type="button"
         class="refresh"
