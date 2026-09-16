@@ -5,7 +5,7 @@ import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Subscription, filter, forkJoin, map, merge } from 'rxjs';
-import { GithubRefreshStatus, Project, TreeNode, TreeResponse } from '../../models/issue.model';
+import { GhLabel, GithubRefreshStatus, Project, TreeNode, TreeResponse } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { CurrentProjectService } from '../../services/current-project.service';
@@ -229,6 +229,16 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   deleteError: string | null = null;
 
   private openMenuFor: string | null = null;
+
+  // The per-row "Labels" popup (#963): at most one open at a time, keyed the same
+  // way as openMenuFor. repoLabels/labelsError hold the last fetch for whichever
+  // row is open; pendingLabelToggle is the label name (if any) whose own add/remove
+  // request is still in flight, to keep a second click from racing it.
+  private labelAssignFor: string | null = null;
+  repoLabels: GhLabel[] = [];
+  labelsLoading = false;
+  labelsError: string | null = null;
+  pendingLabelToggle: string | null = null;
 
   // Live clone progress (#717): first-seen timestamps per cloning project drive the
   // elapsed-seconds counters, and the 1s tick only wakes change detection -- the
@@ -1133,6 +1143,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   togglePicker(picker: 'authors' | 'labels', event: Event): void {
     event.stopPropagation();
     this.openMenuFor = null;
+    this.labelAssignFor = null;
     this.openPicker = this.openPicker === picker ? null : picker;
   }
 
@@ -1211,14 +1222,79 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   toggleMenu(projectId: number, issueNumber: number, event: Event): void {
     event.stopPropagation();
     event.preventDefault();
+    this.labelAssignFor = null;
     const key = this.menuKey(projectId, issueNumber);
     this.openMenuFor = this.openMenuFor === key ? null : key;
+  }
+
+  isLabelAssignOpen(projectId: number, issueNumber: number): boolean {
+    return this.labelAssignFor === this.menuKey(projectId, issueNumber);
+  }
+
+  /** Opens the row's "Labels" popup (#963) and fetches the repo's full label set fresh each time -- it's live and uncached server-side (#962). */
+  openLabelAssign(projectId: number, issueNumber: number, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.openMenuFor = null;
+    this.openPicker = null;
+    const key = this.menuKey(projectId, issueNumber);
+    this.labelAssignFor = this.labelAssignFor === key ? null : key;
+    if (this.labelAssignFor === null) {
+      return;
+    }
+    this.pendingLabelToggle = null;
+    this.labelsError = null;
+    this.labelsLoading = true;
+    this.repoLabels = [];
+    this.issuesService.labels(projectId).subscribe({
+      next: (labels) => {
+        this.labelsLoading = false;
+        this.repoLabels = labels;
+      },
+      error: () => {
+        this.labelsLoading = false;
+        this.labelsError = "Couldn't load labels";
+      },
+    });
+  }
+
+  isLabelPending(label: string): boolean {
+    return this.pendingLabelToggle === label;
+  }
+
+  /**
+   * Adds or removes `label` on `node`'s issue (#963), disabling that one checkbox
+   * until its own request resolves so a second click cannot race it. The response
+   * carries the issue's resulting labels, written back onto the same `TreeNode`
+   * already held in `this.sections` so the row and the top filter's own `labels`
+   * getter both pick it up immediately.
+   */
+  toggleIssueLabel(projectId: number, node: TreeNode, label: string, event: Event): void {
+    event.stopPropagation();
+    if (this.pendingLabelToggle !== null) {
+      return;
+    }
+    const adding = !node.labels.includes(label);
+    this.pendingLabelToggle = label;
+    this.issuesService
+      .updateLabels(projectId, node.number, adding ? [label] : [], adding ? [] : [label])
+      .subscribe({
+        next: (issue) => {
+          this.pendingLabelToggle = null;
+          node.labels = issue.labels;
+        },
+        error: () => {
+          this.pendingLabelToggle = null;
+          this.labelsError = "Couldn't update that label";
+        },
+      });
   }
 
   @HostListener('document:click')
   closeMenu(): void {
     this.openMenuFor = null;
     this.openPicker = null;
+    this.labelAssignFor = null;
   }
 
   isSelected(projectId: number, issueNumber: number): boolean {

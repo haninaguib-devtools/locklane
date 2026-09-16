@@ -2154,6 +2154,126 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([2]);
   });
 
+  describe('per-row labels popup (#963)', () => {
+    function labeledTree(): TreeNode[] {
+      return [
+        { number: 4, title: 'Standalone', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: ['bug'], author: '', children: [] },
+      ];
+    }
+
+    function rowFor(fixture: { nativeElement: HTMLElement }, issueNumber: number): HTMLElement {
+      return fixture.nativeElement.querySelector(`a.row[data-issue-number="${issueNumber}"]`) as HTMLElement;
+    }
+
+    it('clicking "Labels" in the kebab menu opens a popup listing every repo label, checked for the ones the issue already carries', () => {
+      const fixture = init();
+      flushTree(1, labeledTree());
+      fixture.detectChanges();
+
+      (rowFor(fixture, 4).querySelector('.kebab') as HTMLElement).click();
+      fixture.detectChanges();
+      const labelsItem = Array.from(rowFor(fixture, 4).querySelectorAll('.menu button')).find(
+        (button) => button.textContent?.trim() === 'Labels',
+      ) as HTMLElement;
+      labelsItem.click();
+      fixture.detectChanges();
+      httpMock
+        .expectOne('/api/projects/1/issues/labels')
+        .flush([
+          { name: 'bug', color: 'd73a4a' },
+          { name: 'enhancement', color: 'a2eeef' },
+        ]);
+      fixture.detectChanges();
+
+      const options = Array.from(rowFor(fixture, 4).querySelectorAll('.picker .picker-option')) as HTMLLabelElement[];
+      expect(options.map((o) => o.textContent?.trim())).toEqual(['bug', 'enhancement']);
+      expect((options[0].querySelector('input') as HTMLInputElement).checked).toBeTrue();
+      expect((options[1].querySelector('input') as HTMLInputElement).checked).toBeFalse();
+    });
+
+    it('opening the popup a second time on the same row closes it without fetching again', () => {
+      const fixture = init();
+      flushTree(1, labeledTree());
+      fixture.componentInstance.openLabelAssign(1, 4, new Event('click'));
+      httpMock.expectOne('/api/projects/1/issues/labels').flush([{ name: 'bug', color: 'd73a4a' }]);
+
+      fixture.componentInstance.openLabelAssign(1, 4, new Event('click'));
+
+      expect(fixture.componentInstance.isLabelAssignOpen(1, 4)).toBeFalse();
+      httpMock.expectNone('/api/projects/1/issues/labels');
+    });
+
+    it('a failed label fetch shows an inline error instead of leaving the popup blank', () => {
+      const fixture = init();
+      flushTree(1, labeledTree());
+      fixture.componentInstance.openLabelAssign(1, 4, new Event('click'));
+
+      httpMock.expectOne('/api/projects/1/issues/labels').error(new ProgressEvent('network error'));
+
+      expect(fixture.componentInstance.labelsLoading).toBeFalse();
+      expect(fixture.componentInstance.labelsError).toBeTruthy();
+    });
+
+    it("toggling a label the issue doesn't carry adds it, and the row's shown labels update on success", () => {
+      const fixture = init();
+      flushTree(1, labeledTree());
+      const node = fixture.componentInstance.mainNodesFor(fixture.componentInstance.projectSections[0])[0];
+      fixture.componentInstance.openLabelAssign(1, 4, new Event('click'));
+      httpMock.expectOne('/api/projects/1/issues/labels').flush([
+        { name: 'bug', color: 'd73a4a' },
+        { name: 'enhancement', color: 'a2eeef' },
+      ]);
+
+      fixture.componentInstance.toggleIssueLabel(1, node, 'enhancement', new Event('change'));
+
+      expect(fixture.componentInstance.isLabelPending('enhancement')).toBeTrue();
+      const req = httpMock.expectOne('/api/projects/1/issues/4/labels');
+      expect(req.request.method).toBe('PATCH');
+      expect(req.request.body).toEqual({ add: ['enhancement'], remove: [] });
+      req.flush({ number: 4, title: 'Standalone', state: 'OPEN', labels: ['bug', 'enhancement'], body: '', createdAt: '', updatedAt: '' });
+
+      expect(node.labels).toEqual(['bug', 'enhancement']);
+      expect(fixture.componentInstance.isLabelPending('enhancement')).toBeFalse();
+    });
+
+    it('toggling a label the issue already carries removes it', () => {
+      const fixture = init();
+      flushTree(1, labeledTree());
+      const node = fixture.componentInstance.mainNodesFor(fixture.componentInstance.projectSections[0])[0];
+      fixture.componentInstance.openLabelAssign(1, 4, new Event('click'));
+      httpMock.expectOne('/api/projects/1/issues/labels').flush([{ name: 'bug', color: 'd73a4a' }]);
+
+      fixture.componentInstance.toggleIssueLabel(1, node, 'bug', new Event('change'));
+
+      const req = httpMock.expectOne('/api/projects/1/issues/4/labels');
+      expect(req.request.body).toEqual({ add: [], remove: ['bug'] });
+      req.flush({ number: 4, title: 'Standalone', state: 'OPEN', labels: [], body: '', createdAt: '', updatedAt: '' });
+
+      expect(node.labels).toEqual([]);
+    });
+
+    it("a second toggle of the same label while the first is still in flight is ignored, so the two never race", () => {
+      const fixture = init();
+      flushTree(1, labeledTree());
+      const node = fixture.componentInstance.mainNodesFor(fixture.componentInstance.projectSections[0])[0];
+      fixture.componentInstance.openLabelAssign(1, 4, new Event('click'));
+      httpMock.expectOne('/api/projects/1/issues/labels').flush([{ name: 'bug', color: 'd73a4a' }]);
+
+      fixture.componentInstance.toggleIssueLabel(1, node, 'bug', new Event('change'));
+      fixture.componentInstance.toggleIssueLabel(1, node, 'bug', new Event('change'));
+
+      httpMock.expectOne('/api/projects/1/issues/4/labels').flush({
+        number: 4,
+        title: 'Standalone',
+        state: 'OPEN',
+        labels: [],
+        body: '',
+        createdAt: '',
+        updatedAt: '',
+      });
+    });
+  });
+
   describe('active workspace (#937)', () => {
     function sectionIds(fixture: { nativeElement: HTMLElement }): string[] {
       return Array.from(fixture.nativeElement.querySelectorAll('.section-header .project-label')).map(
