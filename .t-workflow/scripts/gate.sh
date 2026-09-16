@@ -13,9 +13,11 @@
 #                       section — that blocks) and its open medium/low findings.
 #                       A child of an initiative merges into the integration branch
 #                       (`merge: automatic`); a parent's PR is the integration branch
-#                       to the trunk (`merge: confirm`): every child closed, every
-#                       completed child's record in the diff (or already on the trunk,
-#                       from before the integration branch existed), no cancelled child's.
+#                       to the trunk (`merge: confirm`): the integration branch carries
+#                       the current trunk (else the direct merge is named), every child
+#                       closed, every completed child's record in the diff (or already
+#                       on the trunk, from before the integration branch existed), no
+#                       cancelled child's. A child's PR carrying trunk commits is refused.
 #   exit 0 = proceed; 1 = at least one BLOCKED line; 2 = could not evaluate.
 set -uo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -120,6 +122,16 @@ ship)
     child)  want_base=$(integration_branch "$parent"); want_head=""; echo "merge: automatic (into $want_base; the human's gate is /t-ship $parent)" ;;
     *)      want_base="$trunk"; want_head=""; echo "merge: confirm" ;;
   esac
+  # A parent's integration branch takes the trunk by a merge pushed to it directly —
+  # never by a child PR, whose squash keeps the files and drops the merge parent, so
+  # the next gate replays the same conflict. Named before the PR is looked at, so the
+  # merge lands before the integration PR opens and the review runs on it.
+  merge_trunk="git fetch origin && git checkout -B $want_head origin/$want_head && git merge origin/$trunk && git push origin $want_head"
+  if [ "$kind" = parent ] && git show-ref -q --verify "refs/remotes/origin/$want_head" \
+     && ! git merge-base --is-ancestor "origin/$trunk" "origin/$want_head" 2>/dev/null; then
+    echo "trunk-behind: $(git rev-list --count "origin/$want_head..origin/$trunk") commit(s) of $trunk not on $want_head"
+    block "$want_head does not carry the current $trunk — merge it directly (a child PR cannot, its squash drops the merge): $merge_trunk"
+  fi
   pr=$(pr_for_task "$id"); rc=$?
   if [ "$rc" -ne 0 ]; then
     [ "$rc" -eq 3 ] && block "more than one open PR for #$id: $(printf '%s' "$pr" | tr '\n' ' ')"
@@ -145,6 +157,12 @@ ship)
   [ "$prbase" = "$want_base" ] || block "PR base is $prbase; a $kind's PR merges into $want_base"
   [ -n "$want_head" ] && [ "$branch" != "$want_head" ] && block "PR head is $branch; a parent's PR is its integration branch $want_head"
   git fetch -q origin "$branch" 2>/dev/null
+  if [ "$kind" = child ] && git show-ref -q --verify "refs/remotes/origin/$want_base"; then
+    # Trunk commits on the child that its base lacks: a merge of the trunk done here
+    # would be squashed away; it belongs on the integration branch itself.
+    carried=$(comm -12 <(git rev-list "origin/$want_base..origin/$branch" | sort) <(git rev-list "origin/$want_base..origin/$trunk" | sort) | grep -c . || true)
+    [ "$carried" -eq 0 ] || block "this branch carries $carried trunk commit(s); merge origin/$trunk into $want_base directly instead of through a child: git fetch origin && git checkout -B $want_base origin/$want_base && git merge origin/$trunk && git push origin $want_base"
+  fi
 
   # check_record <id> <path>: the record as it is at the PR head, through record.sh.
   check_record() {
@@ -194,7 +212,7 @@ ship)
   [ -n "$out" ] && printf '%s\n' "$out"
   m=$(printf '%s' "$v" | jq -r .mergeable); echo "mergeable: $m"
   if [ "$m" = CONFLICTING ]; then
-    if [ "$kind" = parent ]; then block "the integration branch conflicts with $trunk — it is PR-only, so merge origin/$trunk into it through a child task (/t-open, then /t-drive it)"
+    if [ "$kind" = parent ]; then block "the integration branch conflicts with $trunk — merge it directly, resolve, push: $merge_trunk"
     else block "the branch conflicts with $want_base — rebase through /t-work $id"; fi
   fi
   cur=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
