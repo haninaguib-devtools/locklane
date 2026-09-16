@@ -16,6 +16,9 @@
         </div>
         <div class="project-name" [attr.title]="projectName()">{{ projectName() }}</div>
         <div class="topbar-actions">
+          @if (!focusMode()) {
+            <app-workspace-picker />
+          }
           <app-agent-session-indicator />
           @if (!focusMode()) {
             <button type="button" class="add-project" (click)="openAddProject()">+ add project</button>

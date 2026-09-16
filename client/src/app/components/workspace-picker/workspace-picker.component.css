@@ -1,0 +1,160 @@
+.workspace {
+  position: relative;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.trigger:hover,
+.trigger.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.caret {
+  font-size: 10px;
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(53, 50, 44, 0.2);
+}
+
+.picker {
+  position: fixed;
+  z-index: 31;
+  top: 14vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 40px));
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(53, 50, 44, 0.18);
+}
+
+.picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.picker-head h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.picker-head p {
+  margin: 2px 0 0;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.keycap {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.rows {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  outline: none;
+}
+
+.separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border-soft);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row.selected {
+  background: var(--accent-soft);
+}
+
+.row.current .name {
+  font-weight: 600;
+}
+
+.row.new {
+  color: var(--accent);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+}
+
+.count {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.actions {
+  display: flex;
+  gap: 4px;
+}
+
+.action {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.action.danger:hover {
+  border-color: var(--danger, #b3432b);
+  color: var(--danger, #b3432b);
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
