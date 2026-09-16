@@ -216,6 +216,26 @@ describe('WorkspacePickerComponent (#936)', () => {
     expect(fixture.nativeElement.querySelector('.picker')).toBeNull();
   }));
 
+  it('"Open in new window" is on every workspace row, first, and pops out that row (#969)', fakeAsync(() => {
+    const store = TestBed.inject(WorkspaceStore);
+    const active = store.create('Backend', [1]);
+    const other = store.create('Frontend', [2]);
+    const fixture = mount(`/projects/1/issues?ws=${active.id}`);
+    const openSpy = spyOn(window, 'open');
+
+    trigger(fixture).click();
+    fixture.detectChanges();
+    const labels = (row: HTMLElement) =>
+      Array.from(row.querySelectorAll('.action')).map((b) => b.getAttribute('aria-label'));
+    expect(labels(rows(fixture)[1])).toEqual(['Open in new window', 'Edit projects', 'Rename', 'Delete']);
+    expect(labels(rows(fixture)[2])).toEqual(['Open in new window']);
+
+    (rows(fixture)[2].querySelector('.action[aria-label="Open in new window"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(openSpy).toHaveBeenCalledWith(`/projects/1/issues?ws=${other.id}`, '_blank');
+    expect(fixture.nativeElement.querySelector('.picker')).toBeNull();
+  }));
+
   it('keyboard: arrows move, Enter selects, Escape closes', fakeAsync(() => {
     const ws = TestBed.inject(WorkspaceStore).create('Backend', [1]);
     const fixture = mount('/projects/1/issues');
