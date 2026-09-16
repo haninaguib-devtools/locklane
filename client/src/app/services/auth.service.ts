@@ -1,6 +1,6 @@
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, map, of, tap } from 'rxjs';
+import { Observable, Subject, catchError, map, of, tap } from 'rxjs';
 import { EventsService } from './events.service';
 
 const FORM_HEADERS = new HttpHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' });
@@ -55,6 +55,18 @@ export class AuthService {
   /** Whether the signed-in account is an admin (#240) -- see the class doc above. */
   readonly isAdmin = computed(() => this.userRole() === 'ADMIN');
 
+  private readonly sessionEstablishedSubject = new Subject<void>();
+  /**
+   * Fires whenever `loggedIn` flips to true -- a fresh `login`, `verifyTwoFactor`, or
+   * `completePasswordChange`. A redeploy that logs everyone out (session store reset)
+   * is exactly when a new client bundle is also likely waiting, but the events socket
+   * only notices that once it reconnects, which can lag several seconds behind
+   * exponential backoff (`EventsService`). The user re-logging in is an earlier, more
+   * reliable signal that the engine is back up, so `AppUpdateService` also checks here
+   * instead of only on `versionChanged$`.
+   */
+  readonly sessionEstablished$: Observable<void> = this.sessionEstablishedSubject.asObservable();
+
   constructor() {
     // The events socket reconnecting (#128) means the server was unreachable and is
     // back -- e.g. it restarted -- so an otherwise-idle tab that made no request in the
@@ -76,6 +88,7 @@ export class AuthService {
             this.loggedIn.set(true);
             this.user.set(username);
             this.userRole.set(response?.role ?? null);
+            this.sessionEstablishedSubject.next();
           }
         }),
         map((response) => ({
@@ -92,6 +105,7 @@ export class AuthService {
         this.loggedIn.set(true);
         this.user.set(response?.username ?? null);
         this.userRole.set(response?.role ?? null);
+        this.sessionEstablishedSubject.next();
       }),
       map(() => undefined),
     );
@@ -110,6 +124,7 @@ export class AuthService {
           this.loggedIn.set(true);
           this.user.set(response?.username ?? null);
           this.userRole.set(response?.role ?? null);
+          this.sessionEstablishedSubject.next();
         }),
         map(() => undefined),
       );

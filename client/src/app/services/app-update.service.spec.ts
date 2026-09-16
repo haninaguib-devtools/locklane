@@ -3,10 +3,12 @@ import { TestBed } from '@angular/core/testing';
 import { SwUpdate, VersionEvent, VersionReadyEvent } from '@angular/service-worker';
 import { Subject } from 'rxjs';
 import { AppUpdateService } from './app-update.service';
+import { AuthService } from './auth.service';
 import { EventsService } from './events.service';
 
 describe('AppUpdateService', () => {
   let versionChanged: Subject<void>;
+  let sessionEstablished: Subject<void>;
   let versionUpdates: Subject<VersionEvent>;
   let checkForUpdate: jasmine.Spy;
   let swUpdateStub: { isEnabled: boolean; checkForUpdate: jasmine.Spy; versionUpdates: Subject<VersionEvent> };
@@ -14,6 +16,7 @@ describe('AppUpdateService', () => {
 
   beforeEach(() => {
     versionChanged = new Subject<void>();
+    sessionEstablished = new Subject<void>();
     versionUpdates = new Subject<VersionEvent>();
     checkForUpdate = jasmine.createSpy('checkForUpdate').and.returnValue(Promise.resolve(false));
     swUpdateStub = { isEnabled: true, checkForUpdate, versionUpdates };
@@ -22,6 +25,7 @@ describe('AppUpdateService', () => {
     TestBed.configureTestingModule({
       providers: [
         { provide: EventsService, useValue: { versionChanged$: versionChanged.asObservable() } },
+        { provide: AuthService, useValue: { sessionEstablished$: sessionEstablished.asObservable() } },
         { provide: SwUpdate, useValue: swUpdateStub },
         { provide: DOCUMENT, useValue: { location: { reload } } },
       ],
@@ -32,6 +36,14 @@ describe('AppUpdateService', () => {
     TestBed.inject(AppUpdateService);
 
     versionChanged.next();
+
+    expect(checkForUpdate).toHaveBeenCalled();
+  });
+
+  it('checks for an update when the user logs back in', () => {
+    TestBed.inject(AppUpdateService);
+
+    sessionEstablished.next();
 
     expect(checkForUpdate).toHaveBeenCalled();
   });
