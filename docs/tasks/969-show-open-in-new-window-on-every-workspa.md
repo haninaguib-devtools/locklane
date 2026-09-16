@@ -17,10 +17,17 @@ The header's workspace picker dropdown (`WorkspacePickerComponent`) lists "All p
 - Any change to the sidenav or agent-session-indicator widgets.
 
 ## Decisions made along the way
-- none
+- The `.actions` span now renders on every workspace row with `↗` first; only the three
+  active-row buttons stay inside the `@if (isActive(row))`. No CSS change was needed:
+  `.actions` already lays its buttons out in a flex row, so a single `↗` sits in the
+  same column as the active row's first button.
 
 ## Deviations / notes
-- none
+- `scripts/check.sh` ran `./mvnw -B test`: client module PASS (all specs incl. the new
+  one); engine module FAIL on this Mac only for environment reasons unrelated to this
+  client-only diff (`setsid` absent on macOS in BellHookCommandDetachedShapeTest,
+  `/bin/true` absent, worktree/credential-helper tests, and one 5 s await timeout under
+  full load). Reported as FAIL; CI is the verdict.
 
 ## Agents
 - work: claude-code / claude-fable-5-1
