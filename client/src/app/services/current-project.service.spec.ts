@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { Router, provideRouter } from '@angular/router';
 import { CurrentProjectService, FocusPreservingRouter } from './current-project.service';
 import { EventsService } from './events.service';
+import { WorkspaceStore } from './workspace-store';
 import { Project } from '../models/issue.model';
 import { routes } from '../app.routes';
 
@@ -40,7 +41,10 @@ describe('CurrentProjectService', () => {
     httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.removeItem('locklane.workspaces');
+  });
 
   function navigateTo(projectId: number): void {
     TestBed.inject(Router).navigateByUrl(`/projects/${projectId}/issues`);
@@ -172,7 +176,80 @@ describe('CurrentProjectService', () => {
     expect(service.projects().map((p) => p.id)).toEqual([1]);
   }));
 
+  describe('active workspace (#935)', () => {
+    it('is null, with visibleProjectIds null, when the URL carries no ws param', fakeAsync(() => {
+      navigateTo(1);
+      const service = TestBed.inject(CurrentProjectService);
+      httpMock.expectOne('/api/projects').flush([PROJECT]);
+
+      expect(service.activeWorkspaceId()).toBeNull();
+      expect(service.visibleProjectIds()).toBeNull();
+    }));
+
+    it('names the stored workspace ws=<id> points at, with its project ids', fakeAsync(() => {
+      const ws = TestBed.inject(WorkspaceStore).create('Backend', [1, 3]);
+      TestBed.inject(Router).navigateByUrl(`/projects/1/issues?ws=${ws.id}`);
+      tick();
+      const service = TestBed.inject(CurrentProjectService);
+      httpMock.expectOne('/api/projects').flush([PROJECT]);
+
+      expect(service.activeWorkspaceId()).toBe(ws.id);
+      expect(service.visibleProjectIds()).toEqual([1, 3]);
+
+      // Editing the workspace is reflected without a navigation.
+      TestBed.inject(WorkspaceStore).setProjects(ws.id, [2]);
+      expect(service.visibleProjectIds()).toEqual([2]);
+
+      // Leaving the workspace (ws dropped deliberately) is back to all projects.
+      TestBed.inject(Router).navigate(['/projects', 1, 'issues'], { queryParams: { ws: null } });
+      tick();
+      expect(service.activeWorkspaceId()).toBeNull();
+      expect(service.visibleProjectIds()).toBeNull();
+    }));
+
+    it('behaves like no workspace when ws names no stored workspace', fakeAsync(() => {
+      TestBed.inject(Router).navigateByUrl('/projects/1/issues?ws=unknown');
+      tick();
+      const service = TestBed.inject(CurrentProjectService);
+      httpMock.expectOne('/api/projects').flush([PROJECT]);
+
+      expect(service.activeWorkspaceId()).toBe('unknown');
+      expect(service.visibleProjectIds()).toBeNull();
+    }));
+  });
+
   describe('FocusPreservingRouter (#803)', () => {
+    it('carries ws=<id> onto every in-app navigation, alongside focus=1 (#935)', fakeAsync(() => {
+      const router = TestBed.inject(Router);
+      router.navigateByUrl('/projects/1/issues?ws=abc');
+      tick();
+
+      router.navigate(['/projects', 1, 'issues', 7]);
+      tick();
+      expect(router.url).toBe('/projects/1/issues/7?ws=abc');
+      expect(router.serializeUrl(router.createUrlTree(['/projects', 1, 'issues', 8]))).toBe(
+        '/projects/1/issues/8?ws=abc',
+      );
+      router.navigate(['/projects', 1, 'console'], { queryParams: { new: 1 } });
+      tick();
+      expect(router.url).toBe('/projects/1/console?new=1&ws=abc');
+
+      // Both at once: a workspace opened in its own focused window.
+      router.navigateByUrl('/projects/1/issues?focus=1&ws=abc');
+      tick();
+      router.navigate(['/projects', 1, 'issues', 7]);
+      tick();
+      expect(router.url).toBe('/projects/1/issues/7?focus=1&ws=abc');
+
+      // A caller that names `ws` itself wins: switching workspace, or dropping it.
+      router.navigate(['/projects', 1, 'issues'], { queryParams: { ws: 'def' } });
+      tick();
+      expect(router.url).toBe('/projects/1/issues?ws=def&focus=1');
+      router.navigate(['/projects', 1, 'issues'], { queryParams: { ws: null } });
+      tick();
+      expect(router.url).toBe('/projects/1/issues?focus=1');
+    }));
+
     it('carries focus=1 onto every in-app navigation started from a focused URL', fakeAsync(() => {
       const router = TestBed.inject(Router);
       router.navigateByUrl('/projects/1/issues?focus=1');
