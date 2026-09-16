@@ -1,41 +1,94 @@
 <nav class="sidenav">
   <div class="sidenav-scroll">
   <div class="controls">
-    <div class="filter-row">
-      <input
-        type="search"
-        class="filter-input"
-        placeholder="filter cases…"
-        aria-label="Filter cases"
-        [(ngModel)]="filterText"
-      />
-      <select
-        class="author-select"
-        aria-label="Filter by author"
-        title="Show only issues one GitHub login opened"
-        [(ngModel)]="filterAuthor"
-      >
-        <option value="">anyone</option>
-        @for (author of authors; track author) {
-          <option [value]="author">{{ author }}</option>
-        }
-      </select>
-      <button
-        type="button"
-        class="refresh"
-        [class.spinning]="refreshing"
-        [disabled]="refreshing"
-        (click)="refresh()"
-        aria-label="Refresh issues"
-        title="Refresh issues"
-      >
-        ⟳
-      </button>
+    <div class="controls-row">
+      <div class="filter-row">
+        <input
+          type="search"
+          class="filter-input"
+          placeholder="filter cases…"
+          aria-label="Filter cases"
+          [(ngModel)]="filterText"
+        />
+        <button
+          type="button"
+          class="refresh"
+          [class.spinning]="refreshing"
+          [disabled]="refreshing"
+          (click)="refresh()"
+          aria-label="Refresh issues"
+          title="Refresh issues"
+        >
+          ⟳
+        </button>
+      </div>
+      <label class="opened-toggle">
+        <input type="checkbox" [(ngModel)]="hideShipped" />
+        Open
+      </label>
     </div>
-    <label class="opened-toggle">
-      <input type="checkbox" [(ngModel)]="hideShipped" />
-      Open
-    </label>
+    <!-- Second row (#947): the author and label pickers, each a button over a checkbox list. -->
+    <div class="controls-row pickers">
+      <div class="picker-wrap" [class.open]="openPicker === 'authors'">
+        <button
+          type="button"
+          class="picker-button author-picker-button"
+          [class.active]="filterAuthors.length > 0"
+          [attr.aria-expanded]="openPicker === 'authors'"
+          aria-label="Filter by author"
+          title="Show only issues the ticked GitHub logins opened"
+          (click)="togglePicker('authors', $event)"
+        >
+          {{ authorsButtonLabel }} <span class="caret">▾</span>
+        </button>
+        @if (openPicker === 'authors') {
+          <div class="picker author-picker" role="group" aria-label="Authors" (click)="keepPickerOpen($event)">
+            @if (authors.length === 0) {
+              <div class="picker-option picker-empty">no authors</div>
+            }
+            @for (author of authors; track author) {
+              <label class="picker-option">
+                <input type="checkbox" [checked]="filterAuthors.includes(author)" (change)="toggleAuthor(author)" />
+                {{ author }}
+              </label>
+            }
+          </div>
+        }
+      </div>
+      <div class="picker-wrap" [class.open]="openPicker === 'labels'">
+        <button
+          type="button"
+          class="picker-button label-picker-button"
+          [class.active]="filterLabels.length > 0"
+          [attr.aria-expanded]="openPicker === 'labels'"
+          aria-label="Filter by label"
+          title="Show only issues carrying any ticked label"
+          (click)="togglePicker('labels', $event)"
+        >
+          {{ labelsButtonLabel }} <span class="caret">▾</span>
+        </button>
+        @if (openPicker === 'labels') {
+          <div class="picker label-picker" role="group" aria-label="Labels" (click)="keepPickerOpen($event)">
+            <input
+              type="search"
+              class="picker-search"
+              placeholder="find a label…"
+              aria-label="Find a label"
+              [(ngModel)]="labelSearch"
+            />
+            @if (visibleLabels.length === 0) {
+              <div class="picker-option picker-empty">no labels</div>
+            }
+            @for (label of visibleLabels; track label) {
+              <label class="picker-option">
+                <input type="checkbox" [checked]="filterLabels.includes(label)" (change)="toggleLabel(label)" />
+                {{ label }}
+              </label>
+            }
+          </div>
+        }
+      </div>
+    </div>
   </div>
 
   @if (pendingDeleteProjectId !== null) {

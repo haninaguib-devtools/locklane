@@ -145,13 +145,13 @@ describe('tree-filter', () => {
   it('with no author selected, the author filter (#930) is a no-op', () => {
     const tree = [task(1, 'A', 'OPEN', [], 'alice'), task(2, 'B', 'OPEN', [], 'bob')];
 
-    expect(filterTree(tree, '', false, [], () => false, '')).toEqual(tree);
+    expect(filterTree(tree, '', false, [], () => false, [])).toEqual(tree);
   });
 
   it('an author filter (#930) drops leaf tasks another login opened', () => {
     const tree = [task(1, 'A', 'OPEN', [], 'alice'), task(2, 'B', 'OPEN', [], 'bob'), task(3, 'C')];
 
-    const result = filterTree(tree, '', false, [], () => false, 'alice');
+    const result = filterTree(tree, '', false, [], () => false, ['alice']);
 
     expect(result.map((n) => n.number)).toEqual([1]);
   });
@@ -163,7 +163,7 @@ describe('tree-filter', () => {
       initiative(6, 'Nothing of mine', [task(7, 'Theirs', 'OPEN', [], 'bob')], 'OPEN', 'bob'),
     ];
 
-    const result = filterTree(tree, '', false, [], () => false, 'alice');
+    const result = filterTree(tree, '', false, [], () => false, ['alice']);
 
     expect(result.map((n) => n.number)).toEqual([1, 4]);
     expect(result[0].children.map((c) => c.number)).toEqual([2]);
@@ -179,15 +179,23 @@ describe('tree-filter', () => {
       task(4, 'Match', 'OPEN', [], 'alice'),
     ];
 
-    const result = filterTree(tree, 'match', true, [], () => false, 'alice');
+    const result = filterTree(tree, 'match', true, [], () => false, ['alice']);
 
     expect(result.map((n) => n.number)).toEqual([4]);
+  });
+
+  it('several selected authors (#947) OR together: a node opened by any of them matches', () => {
+    const tree = [task(1, 'A', 'OPEN', [], 'alice'), task(2, 'B', 'OPEN', [], 'bob'), task(3, 'C', 'OPEN', [], 'carol')];
+
+    const result = filterTree(tree, '', false, [], () => false, ['alice', 'carol']);
+
+    expect(result.map((n) => n.number)).toEqual([1, 3]);
   });
 
   it('an open agent session (#263) does not exempt a node from the author filter (#930)', () => {
     const tree = [task(1, 'Theirs, with an agent', 'OPEN', [], 'bob')];
 
-    expect(filterTree(tree, '', false, [], () => true, 'alice')).toEqual([]);
+    expect(filterTree(tree, '', false, [], () => true, ['alice'])).toEqual([]);
   });
 
   it('an open agent session (#263) exempts a closed leaf task from hideShipped', () => {
@@ -250,7 +258,7 @@ describe('filterPinnedTree', () => {
   it('unlike filterTree, a pinned entry another login opened is never dropped (#930)', () => {
     const pinned = [task(1, 'Pinned, theirs', 'OPEN', [], 'bob')];
 
-    expect(filterPinnedTree(pinned, '', false, [], () => false, 'alice')).toEqual(pinned);
+    expect(filterPinnedTree(pinned, '', false, [], () => false, ['alice'])).toEqual(pinned);
   });
 
   it("a pinned initiative's children still respect the author filter (#930)", () => {
@@ -265,7 +273,7 @@ describe('filterPinnedTree', () => {
       children: [task(2, 'Mine', 'OPEN', [], 'alice'), task(3, 'Theirs', 'OPEN', [], 'bob')],
     };
 
-    const result = filterPinnedTree([initiative], '', false, [], () => false, 'alice');
+    const result = filterPinnedTree([initiative], '', false, [], () => false, ['alice']);
 
     expect(result).toHaveSize(1);
     expect(result[0].children.map((c) => c.number)).toEqual([2]);
