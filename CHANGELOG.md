@@ -16,6 +16,7 @@ here.
 - Support Muse Code as a fifth known coding agent, with its own bell hook and resume capture (#928)
 
 ### Fixes
+- JetBrains Gateway opens out of the box: the engine defaults the backend to IntelliJ IDEA Ultimate 262.9437.185 instead of blank settings the client refused to link with (#971)
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 

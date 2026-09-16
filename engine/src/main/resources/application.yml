@@ -108,13 +108,20 @@ locklane:
     ssh-port: 22
     gateway:
       # Either a product code + build number for Gateway to deploy the IDE backend on
-      # this host (e.g. IU and 241.15989.150), or the path of a backend already
-      # installed here. All blank: the client shows a hint asking for one of these
-      # instead of opening a link, since current Gateway refuses a deploy=true link
-      # with neither set ("Cannot Connect: There was an error in the connection
-      # provider", JetBrains YouTrack GTW-6264) rather than asking which IDE to use.
-      product-code: ""
-      build-number: ""
+      # this host, or the path of a backend already installed here (ide-path wins
+      # when set). The defaults name IntelliJ IDEA Ultimate (#971): Gateway installs
+      # that build once under ~/.cache/JetBrains/RemoteDev/dist/ on this host and
+      # reuses it for every worktree. The build number is read from an installed
+      # IDEA's Contents/Resources/product-info.json; bump it to move to a newer
+      # backend. Override per machine with LOCKLANE_REMOTE_IDE_GATEWAY_PRODUCT_CODE,
+      # LOCKLANE_REMOTE_IDE_GATEWAY_BUILD_NUMBER, LOCKLANE_REMOTE_IDE_GATEWAY_IDE_PATH
+      # or the same keys in ~/.locklane/application-locklane.properties. All blank:
+      # the client shows a hint asking for one of these instead of opening a link,
+      # since current Gateway refuses a deploy=true link with neither set ("Cannot
+      # Connect: There was an error in the connection provider", JetBrains YouTrack
+      # GTW-6264) rather than asking which IDE to use.
+      product-code: IU
+      build-number: 262.9437.185
       ide-path: ""
   security:
     # The single account created on first run if no user exists yet (#47). MUST be
