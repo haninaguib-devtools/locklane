@@ -15,9 +15,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Covers #397 (the rollup parse keeps each check's name, outcome, and link), #671 (a
- * missing working directory is reported as such, never as a missing gh), and #763
+ * missing working directory is reported as such, never as a missing gh), #763
  * (a gh that never exits is killed and reported within the timeout, with nothing
- * left running; a gh that floods stderr first still gets its stdout read).
+ * left running; a gh that floods stderr first still gets its stdout read), and #962
+ * (listing repo labels and adding/removing labels on an issue).
  */
 class CliGhClientTest {
 
@@ -93,6 +94,47 @@ class CliGhClientTest {
         List<GhIssue> issues = client.issues();
 
         assertThat(issues).extracting(GhIssue::author).containsExactly("alice", "");
+    }
+
+    @Test
+    void labelsReportsEveryRepoLabelWithItsColor(@TempDir Path dir) throws Exception {
+        Path fakeGh = FakeGh.script(dir, """
+                echo '[{"name": "bug", "color": "d73a4a"}, {"name": "enhancement", "color": "a2eeef"}]'
+                """);
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        List<GhLabel> labels = client.labels();
+
+        assertThat(labels).containsExactly(
+                new GhLabel("bug", "d73a4a"),
+                new GhLabel("enhancement", "a2eeef"));
+    }
+
+    @Test
+    void updateIssueLabelsPassesEachAddAndRemoveFlagToGh(@TempDir Path dir) throws Exception {
+        Path recorded = dir.resolve("args");
+        Path fakeGh = FakeGh.script(dir, """
+                echo "$@" >> "%s"
+                """.formatted(recorded));
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        client.updateIssueLabels(7, List.of("bug", "urgent"), List.of("wontfix"));
+
+        assertThat(Files.readString(recorded).strip())
+                .isEqualTo("issue edit 7 --add-label bug --add-label urgent --remove-label wontfix");
+    }
+
+    @Test
+    void updateIssueLabelsDoesNothingWhenBothListsAreEmpty(@TempDir Path dir) throws Exception {
+        Path recorded = dir.resolve("args");
+        Path fakeGh = FakeGh.script(dir, """
+                echo "$@" >> "%s"
+                """.formatted(recorded));
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        client.updateIssueLabels(7, List.of(), List.of());
+
+        assertThat(Files.exists(recorded)).isFalse();
     }
 
     @Test

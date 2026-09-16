@@ -3,13 +3,16 @@ package dev.locklane.engine.github;
 import dev.locklane.engine.ws.EventBroadcaster;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Serves the sidenav issue list/tree, issue header, and "?" popup data. Nested under
@@ -87,6 +90,36 @@ public class IssueController {
     public ResponseEntity<IssueDetail> issueDetail(@PathVariable long projectId, @PathVariable int number) {
         return resources.forProject(projectId)
                 .flatMap(ctx -> ctx.detailService().detail(number))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Every label defined in the repo (#962) — not just labels currently on some loaded issue. */
+    @GetMapping("/labels")
+    public ResponseEntity<List<GhLabel>> labels(@PathVariable long projectId) {
+        return resources.forProject(projectId)
+                .map(ctx -> ResponseEntity.ok(ctx.client().labels()))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Adds and removes labels on one issue (#962), then refreshes the cache so the
+     * response and any {@code issuesChanged} broadcast carry the new label set —
+     * the same refresh-and-broadcast pattern {@code tree(fresh=true)} already uses.
+     */
+    @PatchMapping("/{number}/labels")
+    public ResponseEntity<GhIssue> updateLabels(@PathVariable long projectId, @PathVariable int number,
+            @RequestBody LabelUpdateRequest request) {
+        Optional<ProjectGhContext> context = resources.forProject(projectId);
+        if (context.isEmpty() || context.get().cache().issue(number).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        ProjectGhContext ctx = context.get();
+        ctx.client().updateIssueLabels(number, request.add(), request.remove());
+        if (ctx.cache().refresh()) {
+            eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
+        }
+        return ctx.cache().issue(number)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

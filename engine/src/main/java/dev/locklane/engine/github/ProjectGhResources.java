@@ -262,6 +262,16 @@ public class ProjectGhResources {
         public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
             return Optional.empty();
         }
+
+        @Override
+        public List<GhLabel> labels() {
+            return List.of();
+        }
+
+        @Override
+        public void updateIssueLabels(int number, List<String> add, List<String> remove) {
+            // No checkout to run gh in (#569); nothing to update.
+        }
     }
 
     private ProjectGhContext build(ProjectRecord project) {

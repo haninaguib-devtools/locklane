@@ -112,6 +112,37 @@ public class CliGhClient implements GhClient {
         }
     }
 
+    @Override
+    public List<GhLabel> labels() {
+        String json = run("label", "list", "--json", "name,color", "--limit", "1000");
+        try {
+            List<GhLabel> result = new ArrayList<>();
+            for (JsonNode label : MAPPER.readTree(json)) {
+                result.add(new GhLabel(label.path("name").asText(), label.path("color").asText("")));
+            }
+            return result;
+        } catch (IOException e) {
+            throw new GhUnavailableException("Could not parse gh label list output", e);
+        }
+    }
+
+    @Override
+    public void updateIssueLabels(int number, List<String> add, List<String> remove) {
+        if (add.isEmpty() && remove.isEmpty()) {
+            return;
+        }
+        List<String> arguments = new ArrayList<>(List.of("issue", "edit", String.valueOf(number)));
+        for (String label : add) {
+            arguments.add("--add-label");
+            arguments.add(label);
+        }
+        for (String label : remove) {
+            arguments.add("--remove-label");
+            arguments.add(label);
+        }
+        run(arguments.toArray(new String[0]));
+    }
+
     private static GhIssue toIssue(JsonNode issue) {
         List<String> labels = new ArrayList<>();
         for (JsonNode label : issue.path("labels")) {
