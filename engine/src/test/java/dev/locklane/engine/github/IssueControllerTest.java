@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -220,6 +221,76 @@ class IssueControllerTest {
         verify(broadcaster, times(1)).broadcast(eq("githubRefreshStatus"), any());
     }
 
+    @Test
+    void labelsReturnsWhatTheClientReports(@TempDir Path root) throws IOException {
+        long projectId = readyProject(root);
+        LabelGhClient client = new LabelGhClient(List.of(), List.of(new GhLabel("bug", "d73a4a")));
+        IssueController controller = controllerWith(root, client);
+
+        assertThat(controller.labels(projectId).getBody()).containsExactly(new GhLabel("bug", "d73a4a"));
+    }
+
+    @Test
+    void labelsIsNotFoundForAnUnknownProject(@TempDir Path root) throws IOException {
+        readyProject(root);
+        IssueController controller = controllerWith(root, new LabelGhClient(List.of(), List.of()));
+
+        assertThat(controller.labels(999).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void updateLabelsAppliesTheChangeAndReturnsTheUpdatedIssue(@TempDir Path root) throws IOException {
+        long projectId = readyProject(root);
+        LabelGhClient client = new LabelGhClient(
+                List.of(new GhIssue(1, "First", "OPEN", List.of("wontfix"), "", "", "")), List.of());
+        EventBroadcaster broadcaster = mock(EventBroadcaster.class);
+        IssueController controller = controllerWith(root, client, broadcaster);
+
+        ResponseEntity<GhIssue> response = controller.updateLabels(projectId, 1,
+                new LabelUpdateRequest(List.of("bug"), List.of("wontfix")));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().labels()).containsExactly("bug");
+        assertThat(client.lastAdd).containsExactly("bug");
+        assertThat(client.lastRemove).containsExactly("wontfix");
+        verify(broadcaster).broadcast("issuesChanged", Map.of("projectId", projectId));
+    }
+
+    @Test
+    void updateLabelsIsNotFoundForAnUnknownIssue(@TempDir Path root) throws IOException {
+        long projectId = readyProject(root);
+        LabelGhClient client = new LabelGhClient(List.of(), List.of());
+        IssueController controller = controllerWith(root, client);
+
+        ResponseEntity<GhIssue> response = controller.updateLabels(projectId, 404,
+                new LabelUpdateRequest(List.of("bug"), List.of()));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(client.lastAdd).isNull();
+    }
+
+    @Test
+    void updateLabelsIsNotFoundForAnUnknownProject(@TempDir Path root) throws IOException {
+        readyProject(root);
+        IssueController controller = controllerWith(root, new LabelGhClient(List.of(), List.of()));
+
+        ResponseEntity<GhIssue> response = controller.updateLabels(999, 1, new LabelUpdateRequest(List.of(), List.of()));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    private static IssueController controllerWith(Path root, GhClient client) throws IOException {
+        return controllerWith(root, client, mock(EventBroadcaster.class));
+    }
+
+    private static IssueController controllerWith(Path root, GhClient client, EventBroadcaster broadcaster) throws IOException {
+        ProjectRepository projectRepository = TestSqliteDatabases.newProjectRepository(root);
+        TokenCipher tokenCipher = new TokenCipher(new EncryptionKeyProvider(root.toString()));
+        ProjectGhResources resources = new ProjectGhResources(projectRepository,
+                TestSqliteDatabases.newGhAccountRepository(root), tokenCipher, (path, token) -> client);
+        return new IssueController(resources, broadcaster);
+    }
+
     private static long readyProject(Path root) {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(root);
         return repository.createReady("proj", "url", root.resolve("checkout"), "main", 1L, Instant.now()).id();
@@ -291,6 +362,60 @@ class IssueControllerTest {
         @Override
         public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
             return Optional.empty();
+        }
+    }
+
+    /** Serves fixed repo labels and applies an add/remove call to its own issue list, so a refresh sees the change (#962). */
+    private static final class LabelGhClient implements GhClient {
+        private List<GhIssue> issues;
+        private final List<GhLabel> labels;
+        private List<String> lastAdd;
+        private List<String> lastRemove;
+
+        LabelGhClient(List<GhIssue> issues, List<GhLabel> labels) {
+            this.issues = issues;
+            this.labels = labels;
+        }
+
+        @Override
+        public List<GhIssue> issues() {
+            return issues;
+        }
+
+        @Override
+        public List<GhPullRequest> pullRequests() {
+            return List.of();
+        }
+
+        @Override
+        public Optional<GhPullRequestDetail> pullRequestDetail(int number) {
+            return Optional.empty();
+        }
+
+        @Override
+        public List<GhLabel> labels() {
+            return labels;
+        }
+
+        @Override
+        public void updateIssueLabels(int number, List<String> add, List<String> remove) {
+            lastAdd = add;
+            lastRemove = remove;
+            issues = issues.stream()
+                    .map(issue -> issue.number() == number ? withLabels(issue, add, remove) : issue)
+                    .toList();
+        }
+
+        private static GhIssue withLabels(GhIssue issue, List<String> add, List<String> remove) {
+            List<String> updated = new ArrayList<>(issue.labels());
+            updated.removeAll(remove);
+            for (String label : add) {
+                if (!updated.contains(label)) {
+                    updated.add(label);
+                }
+            }
+            return new GhIssue(issue.number(), issue.title(), issue.state(), updated, issue.body(),
+                    issue.createdAt(), issue.updatedAt(), issue.parent(), issue.author());
         }
     }
 }

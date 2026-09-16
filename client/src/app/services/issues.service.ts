@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, Subject, map } from 'rxjs';
-import { GhIssue, IssueDetail, ResumeSession, TreeNode, TreeResponse } from '../models/issue.model';
+import { GhIssue, GhLabel, IssueDetail, ResumeSession, TreeNode, TreeResponse } from '../models/issue.model';
 
 // Nested under a project id since #43 -- issue data itself still comes from one
 // shared repo for every project (see #43's task record), but every route requires
@@ -40,6 +40,16 @@ export class IssuesService {
 
   detail(projectId: number, number: number): Observable<IssueDetail> {
     return this.http.get<IssueDetail>(`/api/projects/${projectId}/issues/${number}/detail`);
+  }
+
+  /** Every label defined in the repo (#962/#963), not just labels currently on some loaded issue. */
+  labels(projectId: number): Observable<GhLabel[]> {
+    return this.http.get<GhLabel[]>(`/api/projects/${projectId}/issues/labels`);
+  }
+
+  /** Adds and removes labels on one issue (#962/#963); the response carries its resulting label set. */
+  updateLabels(projectId: number, number: number, add: string[], remove: string[]): Observable<GhIssue> {
+    return this.http.patch<GhIssue>(`/api/projects/${projectId}/issues/${number}/labels`, { add, remove });
   }
 
   worktrees(projectId: number, number: number): Observable<string[]> {
