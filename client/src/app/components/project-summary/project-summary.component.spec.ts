@@ -468,6 +468,38 @@ describe('ProjectSummaryComponent', () => {
       expect(openSpy).not.toHaveBeenCalled();
     });
 
+    it('for a remote-SSH entry, mints the session, fetches the link facts and opens the link here, never open-ide (#949)', () => {
+      localStorage.setItem(IDE_STORAGE_KEY, 'vscode-remote-ssh');
+      spyOn<any>(TestBed.inject(DefaultIdeStore), 'currentHostname').and.returnValue('box.example.com');
+      const fixture = init();
+      // A stored choice makes ngOnInit look the installed set up (#782).
+      httpMock.expectOne('/api/ides/installed').flush({ installed: [{ id: 'code-server', label: 'code-server', desktop: false }] });
+      fixture.detectChanges();
+      spyOn<any>(fixture.componentInstance, 'currentHostname').and.returnValue('box.example.com');
+      const openLink = spyOn<any>(fixture.componentInstance, 'openLink');
+      const openSpy = spyOn(window, 'open');
+      const compiled = fixture.nativeElement as HTMLElement;
+
+      const button = compiled.querySelector<HTMLButtonElement>('.open-ide-button')!;
+      expect(button.textContent?.trim()).toBe('Open in VS Code (remote SSH)');
+      button.click();
+      httpMock.expectOne('/api/projects/1/consoles/main-checkout-ide').flush({ sessionId: '1-ide-main' });
+      httpMock
+        .expectOne((req) => req.url === '/api/ides/remote-link' && req.params.get('project') === '1' && req.params.get('session') === '1-ide-main')
+        .flush({ user: 'hani', sshPort: 22, path: '/srv/main', gateway: { productCode: null, buildNumber: null, idePath: null } });
+      fixture.detectChanges();
+
+      httpMock.expectNone('/api/projects/1/consoles/1-ide-main/open-ide');
+      expect(openLink).toHaveBeenCalledWith('vscode://vscode-remote/ssh-remote+hani@box.example.com/srv/main');
+      expect(openSpy).not.toHaveBeenCalled();
+      expect(compiled.querySelector('.ide-hint')?.textContent).toContain('ssh hani@box.example.com');
+      expect(button.disabled).toBeFalse();
+
+      compiled.querySelector<HTMLButtonElement>('.ide-hint-dismiss')!.click();
+      fixture.detectChanges();
+      expect(compiled.querySelector('.ide-hint')).toBeNull();
+    });
+
     it('names a desktop IDE chosen on localhost, and sends its id to open-ide (#831, #782)', () => {
       localStorage.setItem(IDE_STORAGE_KEY, 'intellij');
       spyOn<any>(TestBed.inject(DefaultIdeStore), 'currentHostname').and.returnValue('localhost');

@@ -11,6 +11,7 @@ here.
 ## Unreleased
 
 ### Features
+- Open a worktree in VS Code or JetBrains Gateway on the browser's own machine over SSH, from Settings' IDE picker when the page is not on localhost (#949)
 - Sidebar filters: pick several authors, and filter by labels, from checkbox pickers on their own row (#947)
 - Support Muse Code as a fifth known coding agent, with its own bell hook and resume capture (#928)
 

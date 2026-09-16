@@ -16,6 +16,7 @@ import { DefaultAgentStore } from '../../services/default-agent-store';
 import { DefaultIdeStore, InstalledIde } from '../../services/default-ide-store';
 import { LastAgentSessionStore } from '../../services/last-agent-session-store';
 import { CurrentProjectService } from '../../services/current-project.service';
+import { isRemoteIde, remoteIdeHint, remoteIdeUrl } from '../../services/remote-ide-link';
 
 /** The issue counts shown on a project's summary, all derived from its tree (#85). */
 export interface IssueCounts {
@@ -108,6 +109,8 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
   // session, then opens it exactly like the per-tab "Open IDE" action does.
   startingIde = false;
   ideOpenFailed = false;
+  // The install hint after a remote-SSH click (#949), until dismissed or the next click.
+  remoteIdeHint: string | null = null;
 
   // This project's past agent session conversations (#752), shown in an always-visible
   // column the same way an issue's Overview tab shows its own (overview-tab's
@@ -454,7 +457,8 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     if (this.startingIde) {
       return 'opening…';
     }
-    return this.effectiveIde.desktop ? `Open in ${this.effectiveIde.label}` : 'Open IDE';
+    const ide = this.effectiveIde;
+    return ide.desktop || isRemoteIde(ide) ? `Open in ${ide.label}` : 'Open IDE';
   }
 
   /**
@@ -470,9 +474,34 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
     }
     this.startingIde = true;
     this.ideOpenFailed = false;
+    this.remoteIdeHint = null;
+    const ide = this.effectiveIde;
+    if (isRemoteIde(ide)) {
+      // #949: the same minted session, but the engine only reports its worktree facts;
+      // the link is built and opened here, on the browser's own machine.
+      this.agentSessionsService
+        .openMainCheckoutIdeSession(this.projectId)
+        .pipe(switchMap((session) => this.agentSessionsService.remoteIdeLink(this.projectId, session.sessionId)))
+        .subscribe({
+          next: (link) => {
+            this.startingIde = false;
+            const host = this.currentHostname();
+            const url = remoteIdeUrl(ide.id, host, link);
+            if (url !== null) {
+              this.openLink(url);
+              this.remoteIdeHint = remoteIdeHint(link.user, host);
+            }
+          },
+          error: () => {
+            this.startingIde = false;
+            this.ideOpenFailed = true;
+          },
+        });
+      return;
+    }
     this.agentSessionsService
       .openMainCheckoutIdeSession(this.projectId)
-      .pipe(switchMap((session) => this.agentSessionsService.openIde(this.projectId, session.sessionId, this.effectiveIde.id)))
+      .pipe(switchMap((session) => this.agentSessionsService.openIde(this.projectId, session.sessionId, ide.id)))
       .subscribe({
         next: (opened) => {
           this.startingIde = false;
@@ -485,6 +514,20 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
           this.ideOpenFailed = true;
         },
       });
+  }
+
+  dismissRemoteIdeHint(): void {
+    this.remoteIdeHint = null;
+  }
+
+  // Indirections for testability (#949, #497's pattern): neither window.location.hostname
+  // nor window.location.assign can be spied on in most browsers.
+  protected currentHostname(): string {
+    return window.location.hostname;
+  }
+
+  protected openLink(url: string): void {
+    window.location.assign(url);
   }
 }
 

@@ -117,6 +117,15 @@
   <div class="ide-error">could not open the IDE for that agent — try again</div>
 }
 
+@if (remoteIdeHint; as hint) {
+  <!-- #949: informational, not an error -- the link was opened, the browser just cannot
+       say whether anything answered it. -->
+  <div class="ide-hint" role="status">
+    <span>{{ hint }}</span>
+    <button type="button" class="ide-hint-dismiss" (click)="dismissRemoteIdeHint()" aria-label="Dismiss">×</button>
+  </div>
+}
+
 @if (pendingCloseId !== null) {
   <app-confirm-dialog
     [title]="closeTitle"

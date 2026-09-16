@@ -98,6 +98,22 @@ locklane:
     # screenshots this exists for). Keep it below spring.servlet.multipart above,
     # whose container-level ceiling would otherwise answer first.
     max-file-bytes: 10485760
+  remote-ide:
+    # What a browser away from this machine needs to open a worktree in VS Code or
+    # JetBrains Gateway running on the *browser's* machine over SSH (#949). The engine
+    # never launches anything for these; the client builds the link from these values,
+    # the OS user the engine runs as, and its own page hostname. Overridable like every
+    # other key here, e.g. LOCKLANE_REMOTE_IDE_SSH_PORT or
+    # ~/.locklane/application-locklane.properties.
+    ssh-port: 22
+    gateway:
+      # Either a product code + build number for Gateway to deploy the IDE backend on
+      # this host (e.g. IU and 241.15989.150), or the path of a backend already
+      # installed here. All blank: the client sends the deploy variant with neither,
+      # and Gateway asks.
+      product-code: ""
+      build-number: ""
+      ide-path: ""
   security:
     # The single account created on first run if no user exists yet (#47). MUST be
     # overridden (env vars LOCKLANE_SECURITY_BOOTSTRAP_USERNAME /

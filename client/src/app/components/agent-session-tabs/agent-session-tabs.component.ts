@@ -7,6 +7,7 @@ import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.compone
 import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { AgentSessionTab, OVERVIEW_TAB_ID, tabText } from './agent-session-labels';
 import { AgentShellPickerComponent } from '../agent-shell-picker/agent-shell-picker.component';
+import { isRemoteIde, remoteIdeHint, remoteIdeUrl } from '../../services/remote-ide-link';
 
 export interface OpenAgentSessionRequest {
   agent: Agent;
@@ -248,6 +249,10 @@ export class AgentSessionTabsComponent implements OnInit {
   // Whether the last "Open IDE" attempt failed (#628) -- cleared on the next one.
   ideOpenFailed = false;
 
+  // The install hint shown after a remote-SSH click (#949), until dismissed or the next
+  // click. Informational: a browser cannot tell whether the link found an app to open.
+  remoteIdeHint: string | null = null;
+
   // The IDE "Open IDE" acts on (#782): the Settings choice when this browser may use
   // it, else code-server -- and code-server outright when the strip was built without
   // the store (bare construction in specs).
@@ -256,10 +261,11 @@ export class AgentSessionTabsComponent implements OnInit {
   }
 
   // The menu item names a desktop choice -- `Open in VS Code`, `Open in IntelliJ IDEA`
-  // -- and stays `Open IDE` for code-server (#782).
+  // -- or a remote one -- `Open in VS Code (remote SSH)` (#949) -- and stays
+  // `Open IDE` for code-server (#782).
   get ideLabel(): string {
     const ide = this.effectiveIde;
-    return ide.desktop ? `Open in ${ide.label}` : 'Open IDE';
+    return ide.desktop || isRemoteIde(ide) ? `Open in ${ide.label}` : 'Open IDE';
   }
 
   /**
@@ -270,7 +276,10 @@ export class AgentSessionTabsComponent implements OnInit {
    * desktop IDE the engine launches the editor on its own host and returns no URL,
    * so nothing opens here. Offered on every host, unlike Folder (#655): away from
    * localhost the effective choice is always code-server, whose URL is the engine's
-   * own proxied path, so it works wherever this page itself was reached from.
+   * own proxied path, so it works wherever this page itself was reached from -- or,
+   * since #949, one of the remote-SSH entries, which never reach the open-IDE endpoint:
+   * the engine only reports the session's worktree facts and the link is built and
+   * opened here, on the browser's own machine.
    */
   openIdeAt(tab: AgentSessionTab, event: Event): void {
     event.stopPropagation();
@@ -281,7 +290,23 @@ export class AgentSessionTabsComponent implements OnInit {
       return;
     }
     this.ideOpenFailed = false;
-    agentSessions.openIde(projectId, tab.id, this.effectiveIde.id).subscribe({
+    this.remoteIdeHint = null;
+    const ide = this.effectiveIde;
+    if (isRemoteIde(ide)) {
+      agentSessions.remoteIdeLink(projectId, tab.id).subscribe({
+        next: (link) => {
+          const host = this.currentHostname();
+          const url = remoteIdeUrl(ide.id, host, link);
+          if (url !== null) {
+            this.openLink(url);
+            this.remoteIdeHint = remoteIdeHint(link.user, host);
+          }
+        },
+        error: () => (this.ideOpenFailed = true),
+      });
+      return;
+    }
+    agentSessions.openIde(projectId, tab.id, ide.id).subscribe({
       next: (opened) => {
         if (opened.url !== null) {
           window.open(opened.url, 'locklane-ide');
@@ -289,6 +314,17 @@ export class AgentSessionTabsComponent implements OnInit {
       },
       error: () => (this.ideOpenFailed = true),
     });
+  }
+
+  dismissRemoteIdeHint(): void {
+    this.remoteIdeHint = null;
+  }
+
+  // Opens a custom-scheme link (#949) in place: the browser hands it to the registered
+  // app and the page stays. Indirection for testability, like currentHostname below --
+  // `window.location.assign` cannot be spied on in most browsers.
+  protected openLink(url: string): void {
+    window.location.assign(url);
   }
 
   confirmClose(): void {
