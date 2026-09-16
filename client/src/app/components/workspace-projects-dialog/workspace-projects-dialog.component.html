@@ -1,0 +1,37 @@
+<div class="backdrop" (click)="cancelled.emit()">
+  <div class="dialog" role="dialog" aria-modal="true" [attr.aria-label]="title" (click)="$event.stopPropagation()">
+    <div class="dialog-header">{{ title }}</div>
+    <div class="dialog-body">
+      @if (showName) {
+        <label class="name">
+          Name
+          <input
+            #nameInput
+            type="text"
+            name="workspaceName"
+            [value]="name"
+            (input)="name = $any($event.target).value"
+            (keydown.enter)="save()"
+            placeholder="e.g. Backend"
+          />
+        </label>
+      }
+      @if (showProjects) {
+        <div class="projects" role="group" aria-label="Projects in this workspace">
+          @for (project of projects(); track project.id) {
+            <label class="project">
+              <input type="checkbox" [checked]="isSelected(project.id)" (change)="toggle(project.id)" />
+              <span class="ellipsis">{{ project.name }}</span>
+            </label>
+          } @empty {
+            <p class="hint">No projects yet.</p>
+          }
+        </div>
+      }
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="secondary" (click)="cancelled.emit()">Cancel</button>
+      <button type="button" class="save" [disabled]="!canSave()" (click)="save()">{{ saveLabel }}</button>
+    </div>
+  </div>
+</div>

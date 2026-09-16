@@ -10,6 +10,7 @@ import { OverviewComponent } from './components/overview/overview.component';
 import { SidebarResizerComponent } from './components/sidebar-resizer/sidebar-resizer.component';
 import { LoginComponent } from './components/login/login.component';
 import { AgentSessionIndicatorComponent } from './components/agent-session-indicator/agent-session-indicator.component';
+import { WorkspacePickerComponent } from './components/workspace-picker/workspace-picker.component';
 import { ProjectAgentSessionComponent } from './components/project-agent-session/project-agent-session.component';
 import { SettingsDialogComponent } from './components/settings-dialog/settings-dialog.component';
 import { AboutDialogComponent } from './components/about-dialog/about-dialog.component';
@@ -40,6 +41,7 @@ const WIDTH_STORAGE_KEY = 'locklane.sidebarWidth';
     SidebarResizerComponent,
     LoginComponent,
     AgentSessionIndicatorComponent,
+    WorkspacePickerComponent,
     SettingsDialogComponent,
     AboutDialogComponent,
     AdminUsersComponent,
