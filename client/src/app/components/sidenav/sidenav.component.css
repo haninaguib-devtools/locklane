@@ -84,12 +84,15 @@ app-usage-widget {
    toggle's checkbox. */
 .picker-wrap {
   position: relative;
+  flex: 1;
 }
 
 .picker-button {
   display: flex;
   align-items: center;
   gap: 4px;
+  width: 100%;
+  overflow: hidden;
   cursor: pointer;
   white-space: nowrap;
 }
