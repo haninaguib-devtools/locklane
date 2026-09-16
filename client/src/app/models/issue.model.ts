@@ -9,6 +9,14 @@ export interface GhIssue {
   updatedAt: string;
 }
 
+// Mirrors dev.locklane.engine.github.GhLabel (#962): one label defined in the repo,
+// not just labels currently on some loaded issue -- what the sidenav's per-row
+// label-assign popup lists (#963), distinct from TreeNode.labels below.
+export interface GhLabel {
+  name: string;
+  color: string;
+}
+
 // Mirrors dev.locklane.engine.github.FlowStep.
 export interface FlowStep {
   name: string;

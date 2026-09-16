@@ -320,6 +320,31 @@
               <button type="button" role="menuitem" (click)="togglePin(projectId, node.number, $event)">
                 {{ isPinned(projectId, node.number) ? 'Unpin' : 'Pin' }}
               </button>
+              <button type="button" role="menuitem" (click)="openLabelAssign(projectId, node.number, $event)">
+                Labels
+              </button>
+            </div>
+          }
+          @if (isLabelAssignOpen(projectId, node.number)) {
+            <div class="picker" role="group" aria-label="Labels" (click)="keepPickerOpen($event)">
+              @if (labelsLoading) {
+                <div class="picker-option picker-empty">loading…</div>
+              } @else if (labelsError) {
+                <div class="picker-option picker-empty">{{ labelsError }}</div>
+              } @else if (repoLabels.length === 0) {
+                <div class="picker-option picker-empty">no labels</div>
+              }
+              @for (repoLabel of repoLabels; track repoLabel.name) {
+                <label class="picker-option">
+                  <input
+                    type="checkbox"
+                    [checked]="node.labels.includes(repoLabel.name)"
+                    [disabled]="isLabelPending(repoLabel.name)"
+                    (change)="toggleIssueLabel(projectId, node, repoLabel.name, $event)"
+                  />
+                  {{ repoLabel.name }}
+                </label>
+              }
             </div>
           }
         </div>

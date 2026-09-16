@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { IssuesService } from './issues.service';
-import { GhIssue, IssueDetail, ResumeSession, TreeNode } from '../models/issue.model';
+import { GhIssue, GhLabel, IssueDetail, ResumeSession, TreeNode } from '../models/issue.model';
 
 describe('IssuesService', () => {
   let service: IssuesService;
@@ -158,5 +158,32 @@ describe('IssuesService', () => {
     const req = httpMock.expectOne('/api/projects/1/issues/5/worktrees/1-5-slug');
     expect(req.request.method).toBe('DELETE');
     req.flush(null);
+  });
+
+  it('lists repo labels from GET /api/projects/{projectId}/issues/labels (#962/#963)', () => {
+    const labels: GhLabel[] = [{ name: 'bug', color: 'd73a4a' }];
+    service.labels(1).subscribe((result) => expect(result).toEqual(labels));
+
+    const req = httpMock.expectOne('/api/projects/1/issues/labels');
+    expect(req.request.method).toBe('GET');
+    req.flush(labels);
+  });
+
+  it('updates an issue\'s labels via PATCH .../issues/{number}/labels (#962/#963)', () => {
+    const issue: GhIssue = {
+      number: 5,
+      title: 'Fifth',
+      state: 'OPEN',
+      labels: ['bug'],
+      body: '',
+      createdAt: '',
+      updatedAt: '',
+    };
+    service.updateLabels(1, 5, ['bug'], ['wontfix']).subscribe((result) => expect(result).toEqual(issue));
+
+    const req = httpMock.expectOne('/api/projects/1/issues/5/labels');
+    expect(req.request.method).toBe('PATCH');
+    expect(req.request.body).toEqual({ add: ['bug'], remove: ['wontfix'] });
+    req.flush(issue);
   });
 });
