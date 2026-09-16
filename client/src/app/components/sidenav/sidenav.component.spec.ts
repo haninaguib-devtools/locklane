@@ -1,4 +1,5 @@
 import { TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Router, provideRouter } from '@angular/router';
@@ -8,6 +9,7 @@ import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { EventsService } from '../../services/events.service';
+import { CurrentProjectService } from '../../services/current-project.service';
 import { IssuesService } from '../../services/issues.service';
 import { Project, TreeNode } from '../../models/issue.model';
 import { UsageSnapshot } from '../../models/usage.model';
@@ -35,6 +37,11 @@ describe('SidenavComponent', () => {
   };
   const PROJECT_B: Project = { ...PROJECT_A, id: 2, name: 'proj-b', gitUrl: 'url-b', workareaPath: '/tmp/b' };
 
+  // The active workspace's project set (#937), as the sidenav reads it off the shared
+  // CurrentProjectService -- stubbed, since the real one fetches /api/projects on its
+  // own and would double every project-list expectation below.
+  let visibleProjectIds: ReturnType<typeof signal<number[] | null>>;
+
   beforeEach(() => {
     localStorage.removeItem('locklane.pinnedIssues');
     localStorage.removeItem('locklane.collapsedInitiatives');
@@ -43,12 +50,14 @@ describe('SidenavComponent', () => {
     // this on an empty installed list -- cleared so an earlier spec file's choice
     // never leaks into what these tests see as "known".
     localStorage.removeItem('locklane.defaultAgent');
+    visibleProjectIds = signal<number[] | null>(null);
     TestBed.configureTestingModule({
       imports: [SidenavComponent],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
+        { provide: CurrentProjectService, useValue: { visibleProjectIds } },
       ],
     });
     httpMock = TestBed.inject(HttpTestingController);
@@ -2034,5 +2043,98 @@ describe('SidenavComponent', () => {
 
     httpMock.expectNone('/api/projects/1/issues/tree');
     expect(fixture.componentInstance.projectSections.map((s) => s.project.id)).toEqual([2]);
+  });
+
+  describe('active workspace (#937)', () => {
+    function sectionIds(fixture: { nativeElement: HTMLElement }): string[] {
+      return Array.from(fixture.nativeElement.querySelectorAll('.section-header .project-label')).map(
+        (el) => el.getAttribute('title')!,
+      );
+    }
+
+    it('lists every project with no workspace, and only the workspace\'s projects with one', () => {
+      visibleProjectIds.set([2]);
+      const fixture = init([PROJECT_A, PROJECT_B]);
+      // Only project 2's tree is ever requested (#286's pattern): verify() in
+      // afterEach would flag project 1's if it were.
+      flushTree(2, tree());
+      fixture.detectChanges();
+
+      expect(sectionIds(fixture)).toEqual(['proj-b']);
+    });
+
+    it('re-narrows as soon as the workspace changes, without waiting for refresh()', () => {
+      const fixture = init([PROJECT_A, PROJECT_B]);
+      flushTree(1, tree());
+      flushTree(2, tree());
+      fixture.detectChanges();
+      expect(sectionIds(fixture)).toEqual(['proj-a', 'proj-b']);
+
+      visibleProjectIds.set([1]);
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      flushTree(1, tree());
+      fixture.detectChanges();
+      expect(sectionIds(fixture)).toEqual(['proj-a']);
+
+      visibleProjectIds.set(null);
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      flushTree(1, tree());
+      flushTree(2, tree());
+      fixture.detectChanges();
+      expect(sectionIds(fixture)).toEqual(['proj-a', 'proj-b']);
+    });
+
+    it('the focused-window narrowing still applies on top of the workspace', () => {
+      visibleProjectIds.set([1, 2]);
+      const fixture = TestBed.createComponent(SidenavComponent);
+      fixture.componentInstance.focusedProjectId = 2;
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+      httpMock.expectOne('/api/agents/installed').flush({ installed: [] });
+      flushTree(2, tree());
+      fixture.detectChanges();
+
+      expect(sectionIds(fixture)).toEqual(['proj-b']);
+    });
+
+    it('a project created while in a workspace does not appear until the workspace is edited', () => {
+      visibleProjectIds.set([1]);
+      const fixture = init([PROJECT_A]);
+      flushTree(1, tree());
+      fixture.detectChanges();
+
+      // The engine's projectCreated broadcast for a project outside the workspace is
+      // no reason to reload: the reload could not list it.
+      emitAppEvent({ type: 'projectCreated', projectId: 2 });
+      httpMock.expectNone('/api/projects');
+      expect(sectionIds(fixture)).toEqual(['proj-a']);
+
+      visibleProjectIds.set([1, 2]);
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      flushTree(1, tree());
+      flushTree(2, tree());
+      fixture.detectChanges();
+      expect(sectionIds(fixture)).toEqual(['proj-a', 'proj-b']);
+    });
+
+    it('a page for a project outside the workspace still renders, with the list narrowed', () => {
+      visibleProjectIds.set([1]);
+      const fixture = TestBed.createComponent(SidenavComponent);
+      // AppComponent binds the open project off the URL (#309) whatever the workspace.
+      fixture.componentInstance.selectedProject = 2;
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      httpMock.expectOne('/api/usage').flush(EMPTY_USAGE);
+      httpMock.expectOne('/api/agents/installed').flush({ installed: [] });
+      flushTree(1, tree());
+      fixture.detectChanges();
+
+      expect(sectionIds(fixture)).toEqual(['proj-a']);
+      expect(fixture.componentInstance.selectedProject).toBe(2);
+    });
   });
 });

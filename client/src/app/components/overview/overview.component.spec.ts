@@ -1,4 +1,5 @@
 import { TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
@@ -7,6 +8,7 @@ import { Project, TreeNode } from '../../models/issue.model';
 import { AgentStore } from '../../services/agent-store';
 import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { EventsService } from '../../services/events.service';
+import { CurrentProjectService } from '../../services/current-project.service';
 
 // Session ids ("<projectId>-console[-<hex>]"), "<repo>-console-<hex>" worktree directories, the
 // /console and /consoles REST paths and the 'console' route segment below keep their persisted and
@@ -49,11 +51,21 @@ describe('OverviewComponent', () => {
     ];
   }
 
+  // The active workspace's project set (#937), stubbed: the real CurrentProjectService
+  // fetches /api/projects itself and would double every expectation below.
+  let visibleProjectIds: ReturnType<typeof signal<number[] | null>>;
+
   beforeEach(() => {
     localStorage.removeItem('locklane.sessionAgents');
+    visibleProjectIds = signal<number[] | null>(null);
     TestBed.configureTestingModule({
       imports: [OverviewComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: CurrentProjectService, useValue: { visibleProjectIds } },
+      ],
     });
     httpMock = TestBed.inject(HttpTestingController);
   });
@@ -290,5 +302,42 @@ describe('OverviewComponent', () => {
     const req = httpMock.expectOne('/api/projects/1/console');
     expect(req.request.method).toBe('POST');
     req.flush({ sessionId: '1-console-a1b2c3d4', workingDirectory: '/repo' });
+  });
+
+  describe('active workspace (#937)', () => {
+    const PROJECT_B: Project = { ...PROJECT_A, id: 2, name: 'proj-b', gitUrl: 'url-b', workareaPath: '/tmp/b' };
+
+    it('lists every project with no workspace, and only the workspace\'s projects with one', () => {
+      visibleProjectIds.set([2]);
+      const fixture = init([PROJECT_A, PROJECT_B]);
+      // Only project 2's tree is ever requested: verify() would flag project 1's.
+      httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.rows.map((r) => r.project.id)).toEqual([2]);
+    });
+
+    it('re-narrows as soon as the workspace changes', () => {
+      const fixture = init([PROJECT_A, PROJECT_B]);
+      httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+      httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+      fixture.detectChanges();
+      expect(fixture.componentInstance.rows.map((r) => r.project.id)).toEqual([1, 2]);
+
+      visibleProjectIds.set([1]);
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+      fixture.detectChanges();
+      expect(fixture.componentInstance.rows.map((r) => r.project.id)).toEqual([1]);
+
+      visibleProjectIds.set(null);
+      fixture.detectChanges();
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      httpMock.expectOne('/api/projects/1/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+      httpMock.expectOne('/api/projects/2/issues/tree').flush({ nodes: [], github: GITHUB_OK });
+      fixture.detectChanges();
+      expect(fixture.componentInstance.rows.map((r) => r.project.id)).toEqual([1, 2]);
+    });
   });
 });

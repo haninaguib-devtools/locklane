@@ -1,12 +1,13 @@
 import { Component, ElementRef, ViewChild, computed, effect, inject, signal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { Observable, catchError, combineLatest, EMPTY, map, merge, of, switchMap } from 'rxjs';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { Observable, catchError, combineLatest, distinctUntilChanged, EMPTY, map, merge, of, startWith, switchMap } from 'rxjs';
 import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { CurrentProjectService } from '../../services/current-project.service';
 import { AttentionStore } from '../../services/attention-store';
 import { AgentSessionEntriesService, AgentSessionEntry } from '../../services/agent-session-entries.service';
 import { NotificationService } from '../../services/notification.service';
 import { Project } from '../../models/issue.model';
+import { WorkspaceStore } from '../../services/workspace-store';
 
 /** One project's entries, in the order `groups` below picks headings by (#290). */
 export interface AgentSessionGroup {
@@ -34,6 +35,7 @@ export interface AgentSessionGroup {
 })
 export class AgentSessionIndicatorComponent {
   private readonly currentProject = inject(CurrentProjectService);
+  private readonly workspaceStore = inject(WorkspaceStore);
   private readonly agentSessionsService = inject(AgentSessionsService);
   private readonly agentSessionEntries = inject(AgentSessionEntriesService);
   // The one shared "which sessions are waiting" store (#791), read by session id.
@@ -60,10 +62,30 @@ export class AgentSessionIndicatorComponent {
   // Built from the service's own observables, not its signals, so this stays
   // synchronous the same way the widget's pre-#309 project fetch was -- a
   // signal-to-observable bridge only updates on the next change-detection tick.
+  //
+  // The active workspace (#934, #937) narrows the same way, on top of the focused
+  // window: built off `activeWorkspaceId$` (synchronous, like the rest) and re-read
+  // from the store whenever its workspaces change, so editing the active workspace's
+  // projects in the header dropdown is reflected without a navigation.
+  private readonly workspaceProjectIds$: Observable<number[] | null> = combineLatest([
+    this.currentProject.activeWorkspaceId$,
+    toObservable(this.workspaceStore.workspaces).pipe(startWith(null)),
+  ]).pipe(
+    map(([id]) => (id === null ? null : (this.workspaceStore.get(id)?.projectIds ?? null))),
+    distinctUntilChanged((a, b) => a === b || (a !== null && b !== null && a.length === b.length && a.every((x, i) => x === b[i]))),
+  );
+
   private readonly visibleProjects$: Observable<Project[]> = combineLatest([
     this.currentProject.projects$,
     this.currentProject.focusedProjectId$,
-  ]).pipe(map(([projects, id]) => (id === null ? projects : projects.filter((project) => project.id === id))));
+    this.workspaceProjectIds$,
+  ]).pipe(
+    map(([projects, id, workspaceIds]) =>
+      projects.filter(
+        (project) => (id === null || project.id === id) && (workspaceIds === null || workspaceIds.includes(project.id)),
+      ),
+    ),
+  );
 
   private readonly visibleProjects = toSignal(this.visibleProjects$, { initialValue: [] as Project[] });
 

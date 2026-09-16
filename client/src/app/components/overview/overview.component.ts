@@ -1,4 +1,4 @@
-import { Component, EventEmitter, OnDestroy, OnInit, Output, inject } from '@angular/core';
+import { Component, EventEmitter, OnDestroy, OnInit, Output, effect, inject, untracked } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { Subscription, catchError, filter, forkJoin, map, merge, of, switchMap } from 'rxjs';
 import { Project, TreeNode } from '../../models/issue.model';
@@ -14,6 +14,7 @@ import {
 import { IssuesService } from '../../services/issues.service';
 import { ProjectAgentSessionService } from '../../services/project-agent-session.service';
 import { ProjectsService } from '../../services/projects.service';
+import { CurrentProjectService } from '../../services/current-project.service';
 import { IssueCounts, countIssues } from '../project-summary/project-summary.component';
 
 /** One row of the per-project breakdown; `counts` is null for a project not yet READY. */
@@ -42,6 +43,8 @@ export class OverviewComponent implements OnInit, OnDestroy {
   private readonly agentSessionsService = inject(AgentSessionsService);
   private readonly eventsService = inject(EventsService);
   private readonly router = inject(Router);
+  // The active workspace's project set (#934, #937), or null for all projects.
+  private readonly currentProject = inject(CurrentProjectService);
 
   // Emitted by the zero-project empty state's CTA (#227) -- opening the add-project
   // popup is AppComponent's job, since it's also the header button's opener.
@@ -63,6 +66,17 @@ export class OverviewComponent implements OnInit, OnDestroy {
   private readonly eventsSub: Subscription;
 
   constructor() {
+    // Switching workspaces, or editing the active one's projects, re-narrows the rows
+    // right away (#937); the effect's own first run is covered by ngOnInit's load.
+    let seenWorkspace = false;
+    effect(() => {
+      this.currentProject.visibleProjectIds();
+      if (!seenWorkspace) {
+        seenWorkspace = true;
+        return;
+      }
+      untracked(() => this.load(true));
+    });
     this.eventsSub = merge(
       this.eventsService.events$.pipe(
         filter(isProjectStatusEvent),
@@ -98,6 +112,12 @@ export class OverviewComponent implements OnInit, OnDestroy {
     this.projectsService
       .list()
       .pipe(
+        // The active workspace (#937) narrows the rows to its own projects; a
+        // project created while in one stays out until the workspace is edited.
+        map((projects) => {
+          const visible = this.currentProject.visibleProjectIds();
+          return visible === null ? projects : projects.filter((p) => visible.includes(p.id));
+        }),
         switchMap((projects) =>
           projects.length === 0
             ? of([] as ProjectOverviewRow[])
