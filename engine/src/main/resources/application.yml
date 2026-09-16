@@ -109,8 +109,10 @@ locklane:
     gateway:
       # Either a product code + build number for Gateway to deploy the IDE backend on
       # this host (e.g. IU and 241.15989.150), or the path of a backend already
-      # installed here. All blank: the client sends the deploy variant with neither,
-      # and Gateway asks.
+      # installed here. All blank: the client shows a hint asking for one of these
+      # instead of opening a link, since current Gateway refuses a deploy=true link
+      # with neither set ("Cannot Connect: There was an error in the connection
+      # provider", JetBrains YouTrack GTW-6264) rather than asking which IDE to use.
       product-code: ""
       build-number: ""
       ide-path: ""

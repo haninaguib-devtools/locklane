@@ -631,11 +631,13 @@ describe('AgentSessionTabsComponent open-the-ide (#628, #782)', () => {
       expect(fixture.nativeElement.querySelector('.ide-error')).toBeNull();
     });
 
-    it('opens the Gateway link for the Gateway entry', () => {
+    it('opens the Gateway link for the Gateway entry when an ide path is configured', () => {
       const { fixture, openLink } = renderRemote('jetbrains-gateway-remote-ssh');
 
       ideItem(fixture).click();
-      httpMock.expectOne((req) => req.url === '/api/ides/remote-link').flush({ ...LINK, sshPort: 2222 });
+      httpMock
+        .expectOne((req) => req.url === '/api/ides/remote-link')
+        .flush({ ...LINK, sshPort: 2222, gateway: { productCode: null, buildNumber: null, idePath: '/opt/idea' } });
 
       const url = openLink.calls.mostRecent().args[0] as string;
       expect(url.startsWith('jetbrains-gateway://connect#')).toBeTrue();
@@ -644,7 +646,27 @@ describe('AgentSessionTabsComponent open-the-ide (#628, #782)', () => {
       expect(params.get('port')).toBe('2222');
       expect(params.get('user')).toBe('hani');
       expect(params.get('projectPath')).toBe('/srv/wt/do-the-thing');
-      expect(params.get('deploy')).toBe('true');
+      expect(params.get('deploy')).toBe('false');
+      expect(params.get('idePath')).toBe('/opt/idea');
+    });
+
+    // #949 follow-up: an unconfigured Gateway (no idePath, no product+build) produces a
+    // deploy=true-alone link that current Gateway refuses with "Cannot Connect: There
+    // was an error in the connection provider" instead of asking which IDE to use
+    // (JetBrains YouTrack GTW-6264) -- so this never opens that link.
+    it('shows a config hint instead of opening an unusable Gateway link', () => {
+      const openSpy = spyOn(window, 'open');
+      const { fixture, openLink } = renderRemote('jetbrains-gateway-remote-ssh');
+
+      ideItem(fixture).click();
+      httpMock.expectOne((req) => req.url === '/api/ides/remote-link').flush(LINK);
+      fixture.detectChanges();
+
+      expect(openLink).not.toHaveBeenCalled();
+      expect(openSpy).not.toHaveBeenCalled();
+      const hint = fixture.nativeElement.querySelector('.ide-hint') as HTMLElement;
+      expect(hint.textContent).toContain('locklane.remote-ide.gateway.ide-path');
+      expect(fixture.nativeElement.querySelector('.ide-error')).toBeNull();
     });
 
     it('the hint can be dismissed', () => {

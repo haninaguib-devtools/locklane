@@ -500,6 +500,35 @@ describe('ProjectSummaryComponent', () => {
       expect(compiled.querySelector('.ide-hint')).toBeNull();
     });
 
+    // #949 follow-up: with nothing under locklane.remote-ide.gateway configured, the
+    // link is deploy=true alone, which current Gateway refuses with "Cannot Connect:
+    // There was an error in the connection provider" (JetBrains YouTrack GTW-6264)
+    // rather than asking which IDE to use -- so this shows a hint instead of opening it.
+    it('shows a config hint instead of opening an unusable Gateway link (#949 follow-up)', () => {
+      localStorage.setItem(IDE_STORAGE_KEY, 'jetbrains-gateway-remote-ssh');
+      spyOn<any>(TestBed.inject(DefaultIdeStore), 'currentHostname').and.returnValue('box.example.com');
+      const fixture = init();
+      httpMock.expectOne('/api/ides/installed').flush({ installed: [{ id: 'code-server', label: 'code-server', desktop: false }] });
+      fixture.detectChanges();
+      spyOn<any>(fixture.componentInstance, 'currentHostname').and.returnValue('box.example.com');
+      const openLink = spyOn<any>(fixture.componentInstance, 'openLink');
+      const openSpy = spyOn(window, 'open');
+      const compiled = fixture.nativeElement as HTMLElement;
+
+      const button = compiled.querySelector<HTMLButtonElement>('.open-ide-button')!;
+      button.click();
+      httpMock.expectOne('/api/projects/1/consoles/main-checkout-ide').flush({ sessionId: '1-ide-main' });
+      httpMock
+        .expectOne((req) => req.url === '/api/ides/remote-link')
+        .flush({ user: 'hani', sshPort: 22, path: '/srv/main', gateway: { productCode: null, buildNumber: null, idePath: null } });
+      fixture.detectChanges();
+
+      expect(openLink).not.toHaveBeenCalled();
+      expect(openSpy).not.toHaveBeenCalled();
+      expect(compiled.querySelector('.ide-hint')?.textContent).toContain('locklane.remote-ide.gateway.ide-path');
+      expect(button.disabled).toBeFalse();
+    });
+
     it('names a desktop IDE chosen on localhost, and sends its id to open-ide (#831, #782)', () => {
       localStorage.setItem(IDE_STORAGE_KEY, 'intellij');
       spyOn<any>(TestBed.inject(DefaultIdeStore), 'currentHostname').and.returnValue('localhost');

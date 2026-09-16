@@ -16,7 +16,14 @@ import { DefaultAgentStore } from '../../services/default-agent-store';
 import { DefaultIdeStore, InstalledIde } from '../../services/default-ide-store';
 import { LastAgentSessionStore } from '../../services/last-agent-session-store';
 import { CurrentProjectService } from '../../services/current-project.service';
-import { isRemoteIde, remoteIdeHint, remoteIdeUrl } from '../../services/remote-ide-link';
+import {
+  GATEWAY_REMOTE_ID,
+  gatewayLinkIsUsable,
+  gatewayUnconfiguredHint,
+  isRemoteIde,
+  remoteIdeHint,
+  remoteIdeUrl,
+} from '../../services/remote-ide-link';
 
 /** The issue counts shown on a project's summary, all derived from its tree (#85). */
 export interface IssueCounts {
@@ -485,6 +492,10 @@ export class ProjectSummaryComponent implements OnChanges, OnInit {
         .subscribe({
           next: (link) => {
             this.startingIde = false;
+            if (ide.id === GATEWAY_REMOTE_ID && !gatewayLinkIsUsable(link)) {
+              this.remoteIdeHint = gatewayUnconfiguredHint();
+              return;
+            }
             const host = this.currentHostname();
             const url = remoteIdeUrl(ide.id, host, link);
             if (url !== null) {
