@@ -580,6 +580,97 @@ describe('AgentSessionTabsComponent open-the-ide (#628, #782)', () => {
     expect(openSpy).not.toHaveBeenCalled();
     expect(fixture.nativeElement.querySelector('.ide-error')).not.toBeNull();
   });
+  // #949: a remote-SSH entry never reaches open-ide; the engine only reports the
+  // session's worktree facts and the link opens here.
+  describe('remote SSH (#949)', () => {
+    const LINK = {
+      user: 'hani',
+      sshPort: 22,
+      path: '/srv/wt/do-the-thing',
+      gateway: { productCode: null, buildNumber: null, idePath: null },
+    };
+
+    function renderRemote(ide: string) {
+      localStorage.setItem(IDE_STORAGE_KEY, ide);
+      atHost('box.example.com');
+      const fixture = render([{ id: '1-7-do-the-thing', agent: 'claude', label: 'wtree · claude' }]);
+      httpMock.expectOne('/api/ides/installed').flush({ installed: [{ id: 'code-server', label: 'code-server', desktop: false }] });
+      fixture.detectChanges();
+      // The strip reads the page host for the link through its own indirection (#497's pattern), same as Folder.
+      spyOn<any>(fixture.componentInstance, 'currentHostname').and.returnValue('box.example.com');
+      const openLink = spyOn<any>(fixture.componentInstance, 'openLink');
+      openMenu(fixture, 1);
+      return { fixture, openLink };
+    }
+
+    it('names the remote entry in the menu item', () => {
+      const { fixture } = renderRemote('vscode-remote-ssh');
+
+      expect(ideItem(fixture).textContent!.trim()).toBe('Open in VS Code (remote SSH)');
+    });
+
+    it('opens the VS Code link built from the engine facts and the page host, and shows the hint', () => {
+      const openSpy = spyOn(window, 'open');
+      const { fixture, openLink } = renderRemote('vscode-remote-ssh');
+
+      ideItem(fixture).click();
+
+      const link = httpMock.expectOne(
+        (req) => req.url === '/api/ides/remote-link' && req.params.get('project') === '1' && req.params.get('session') === '1-7-do-the-thing',
+      );
+      expect(link.request.method).toBe('GET');
+      link.flush(LINK);
+      fixture.detectChanges();
+
+      httpMock.expectNone('/api/projects/1/consoles/1-7-do-the-thing/open-ide');
+      expect(openLink).toHaveBeenCalledWith('vscode://vscode-remote/ssh-remote+hani@box.example.com/srv/wt/do-the-thing');
+      expect(openSpy).not.toHaveBeenCalled();
+      const hint = fixture.nativeElement.querySelector('.ide-hint') as HTMLElement;
+      expect(hint.textContent).toContain('Nothing opened?');
+      expect(hint.textContent).toContain('ssh hani@box.example.com');
+      expect(fixture.nativeElement.querySelector('.ide-error')).toBeNull();
+    });
+
+    it('opens the Gateway link for the Gateway entry', () => {
+      const { fixture, openLink } = renderRemote('jetbrains-gateway-remote-ssh');
+
+      ideItem(fixture).click();
+      httpMock.expectOne((req) => req.url === '/api/ides/remote-link').flush({ ...LINK, sshPort: 2222 });
+
+      const url = openLink.calls.mostRecent().args[0] as string;
+      expect(url.startsWith('jetbrains-gateway://connect#')).toBeTrue();
+      const params = new URLSearchParams(url.slice('jetbrains-gateway://connect#'.length));
+      expect(params.get('host')).toBe('box.example.com');
+      expect(params.get('port')).toBe('2222');
+      expect(params.get('user')).toBe('hani');
+      expect(params.get('projectPath')).toBe('/srv/wt/do-the-thing');
+      expect(params.get('deploy')).toBe('true');
+    });
+
+    it('the hint can be dismissed', () => {
+      const { fixture } = renderRemote('vscode-remote-ssh');
+      ideItem(fixture).click();
+      httpMock.expectOne((req) => req.url === '/api/ides/remote-link').flush(LINK);
+      fixture.detectChanges();
+
+      (fixture.nativeElement.querySelector('.ide-hint-dismiss') as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('.ide-hint')).toBeNull();
+    });
+
+    it('a failed lookup shows the error note and no hint', () => {
+      const { fixture, openLink } = renderRemote('vscode-remote-ssh');
+      ideItem(fixture).click();
+      httpMock.expectOne((req) => req.url === '/api/ides/remote-link').flush(null, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      expect(openLink).not.toHaveBeenCalled();
+      expect(fixture.nativeElement.querySelector('.ide-error')).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('.ide-hint')).toBeNull();
+    });
+  });
+
 });
 
 // The per-tab attention dot (#791) reads the shared AttentionStore, so like the

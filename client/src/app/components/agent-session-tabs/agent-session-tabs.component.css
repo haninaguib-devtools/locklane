@@ -138,6 +138,27 @@
   color: #b3261e;
 }
 
+/* #949: the remote-SSH install hint -- muted, not red, with its own dismiss. */
+.ide-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ide-hint-dismiss {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+}
+
 /* The "+" button and its dropdown live in AgentShellPickerComponent now (#886),
    shared with the sidenav's own "+" -- see its own stylesheet. */
 

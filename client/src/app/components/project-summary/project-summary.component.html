@@ -42,6 +42,14 @@
         <div class="action-error">could not open the IDE — try again</div>
       }
 
+      @if (remoteIdeHint; as hint) {
+        <!-- #949: informational, not an error. -->
+        <div class="ide-hint" role="status">
+          <span>{{ hint }}</span>
+          <button type="button" class="ide-hint-dismiss" (click)="dismissRemoteIdeHint()" aria-label="Dismiss">×</button>
+        </div>
+      }
+
       @if (counts; as c) {
         <div class="counts">
           <div class="count primary">

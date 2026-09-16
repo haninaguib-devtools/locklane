@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, Subject, filter, map, merge } from 'rxjs';
 import { EventsService, isAgentSessionsChangedEvent } from './events.service';
+import { RemoteIdeLink } from './remote-ide-link';
 
 /**
  * What `open-ide` returns (#628, #781): the proxied code-server URL to open, or `null`
@@ -64,6 +65,17 @@ export class AgentSessionsService {
   openIde(projectId: number, id: string, ide: string): Observable<OpenedIde> {
     // The /consoles REST path is a compatibility surface kept under ADR-112.
     return this.http.post<OpenedIde>(`/api/projects/${projectId}/consoles/${id}/open-ide`, { ide });
+  }
+
+  /**
+   * What this browser needs to open an agent session's worktree in VS Code or JetBrains
+   * Gateway on *this* machine over SSH (#949): the engine's OS user, the SSH port, the
+   * absolute worktree path and the Gateway settings. The link itself is built client-side
+   * (`remote-ide-link.ts`); the engine launches nothing. 404 for a session the caller may
+   * not see, exactly like {@link openIde}.
+   */
+  remoteIdeLink(projectId: number, id: string): Observable<RemoteIdeLink> {
+    return this.http.get<RemoteIdeLink>('/api/ides/remote-link', { params: { project: projectId, session: id } });
   }
 
   /**

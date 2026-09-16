@@ -2,6 +2,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideHttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import { DefaultIdeStore, InstalledIde } from './default-ide-store';
+import { GATEWAY_REMOTE_ID, REMOTE_IDES, VSCODE_REMOTE_ID } from './remote-ide-link';
 
 const STORAGE_KEY = 'locklane.defaultIde';
 
@@ -108,13 +109,38 @@ describe('DefaultIdeStore', () => {
     expect(store.available()).toEqual([CODE_SERVER, VSCODE, INTELLIJ]);
   });
 
-  it('offers only non-desktop entries away from localhost', () => {
+  it('offers only non-desktop entries away from localhost, followed by the two remote-SSH entries (#949)', () => {
     const store = create('example.com');
 
     store.refreshInstalled();
     flushInstalled([CODE_SERVER, VSCODE, INTELLIJ]);
 
-    expect(store.available()).toEqual([CODE_SERVER]);
+    expect(store.available()).toEqual([CODE_SERVER, ...REMOTE_IDES]);
+  });
+
+  it('offers the remote-SSH entries away from localhost even before the installed set is known (#949)', () => {
+    const store = create('example.com');
+
+    expect(store.available()).toEqual([...REMOTE_IDES]);
+  });
+
+  it('never offers the remote-SSH entries on localhost, and a stored one falls back to code-server there (#949)', () => {
+    localStorage.setItem(STORAGE_KEY, VSCODE_REMOTE_ID);
+    const store = create('localhost');
+
+    store.refreshInstalled();
+    flushInstalled([CODE_SERVER, VSCODE, INTELLIJ]);
+
+    expect(store.available()).toEqual([CODE_SERVER, VSCODE, INTELLIJ]);
+    expect(store.effective()).toEqual(CODE_SERVER);
+  });
+
+  it('honours a stored remote-SSH entry away from localhost (#949)', () => {
+    localStorage.setItem(STORAGE_KEY, GATEWAY_REMOTE_ID);
+    const store = create('example.com');
+
+    expect(store.effective().id).toBe(GATEWAY_REMOTE_ID);
+    expect(store.effective().label).toBe('JetBrains Gateway (remote SSH)');
   });
 
   it('honours a stored desktop IDE on localhost', () => {

@@ -167,16 +167,40 @@ describe('SettingsDialogComponent', () => {
     expect(localStorage.getItem(DEFAULT_IDE_STORAGE_KEY)).toBe('vscode');
   });
 
-  it('away from localhost, offers no desktop IDE -- and with code-server alone there is no IDE section at all (#782)', () => {
+  it('away from localhost, offers no desktop IDE but the two remote-SSH entries after code-server, with a stored desktop id shown as code-server (#782, #949)', () => {
     atHost('example.com');
     localStorage.setItem(DEFAULT_IDE_STORAGE_KEY, 'vscode');
     const fixture = create();
     flushInstalledIdes(fixture, ['code-server', 'vscode', 'intellij']);
-    const compiled = fixture.nativeElement as HTMLElement;
 
-    expect(ideOptions(fixture).length).toBe(0);
-    expect(compiled.querySelector('.ide-toggle')).toBeNull();
-    expect(Array.from(compiled.querySelectorAll('h2')).map((h) => h.textContent?.trim())).not.toContain('IDE');
+    expect(ideOptions(fixture).map((b) => b.textContent?.trim())).toEqual([
+      'code-server',
+      'VS Code (remote SSH)',
+      'JetBrains Gateway (remote SSH)',
+    ]);
+    expect(ideOptions(fixture).map((b) => b.classList.contains('chosen'))).toEqual([true, false, false]);
+  });
+
+  it('away from localhost, a remote-SSH entry can be picked and persists like any other choice (#949)', () => {
+    atHost('example.com');
+    const fixture = create();
+    flushInstalledIdes(fixture, ['code-server']);
+
+    ideOptions(fixture)[2].click();
+    fixture.detectChanges();
+
+    expect(ideOptions(fixture).map((b) => b.classList.contains('chosen'))).toEqual([false, false, true]);
+    expect(localStorage.getItem(DEFAULT_IDE_STORAGE_KEY)).toBe('jetbrains-gateway-remote-ssh');
+  });
+
+  it('on localhost, the remote-SSH entries never appear, even when stored (#949)', () => {
+    atHost('localhost');
+    localStorage.setItem(DEFAULT_IDE_STORAGE_KEY, 'vscode-remote-ssh');
+    const fixture = create();
+    flushInstalledIdes(fixture, ['code-server', 'vscode', 'intellij']);
+
+    expect(ideOptions(fixture).map((b) => b.textContent?.trim())).toEqual(['code-server', 'VS Code', 'IntelliJ IDEA']);
+    expect(ideOptions(fixture).map((b) => b.classList.contains('chosen'))).toEqual([true, false, false]);
   });
 
   it('on localhost with only code-server installed, renders no IDE section either (#782)', () => {

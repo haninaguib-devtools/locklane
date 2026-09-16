@@ -185,6 +185,27 @@ h1 {
   margin-bottom: 10px;
 }
 
+/* #949: the remote-SSH install hint -- muted, not accent-colored like an error. */
+.ide-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.ide-hint-dismiss {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+}
+
 .delete-error {
   margin-top: 10px;
   font-size: 12px;

@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { REMOTE_IDES } from './remote-ide-link';
 
 const STORAGE_KEY = 'locklane.defaultIde';
 
@@ -15,6 +16,12 @@ export interface InstalledIde {
   id: string;
   label: string;
   desktop: boolean;
+  /**
+   * True for one of the two client-side remote entries (#949, `remote-ide-link.ts`):
+   * a desktop IDE on the *browser's* machine reached over SSH. Never sent by the
+   * engine, which only ever lists what it detected on its own host.
+   */
+  remote?: boolean;
 }
 
 /** What {@link DefaultIdeStore.effective} resolves to when nothing better is known -- and what a caller with no store at all acts on. */
@@ -29,7 +36,8 @@ export const CODE_SERVER_IDE: InstalledIde = { id: CODE_SERVER_ID, label: 'code-
  * Exposes {@link installed} -- what the engine detected on its host at startup, from
  * `GET /api/ides/installed`, fetched once per app load on request -- and derives from it
  * {@link available}, the entries this browser may pick (a desktop IDE only on
- * `localhost`, the same gate "Folder" uses in the tab strip), and {@link effective},
+ * `localhost`, the same gate "Folder" uses in the tab strip; the two remote-SSH entries
+ * of #949 only away from it, appended after whatever the engine listed), and {@link effective},
  * what "Open IDE" will actually do: the stored choice when it is available, otherwise
  * code-server. Until some caller's fetch resolves nothing is known to be installed, so
  * the effective choice is code-server -- exactly the behaviour before this store existed.
@@ -45,10 +53,15 @@ export class DefaultIdeStore {
   readonly ide = this.ideSignal.asReadonly();
   readonly installed = this.installedSignal.asReadonly();
 
-  /** The installed entries this browser may choose from: every one on `localhost`, only non-desktop ones elsewhere. */
-  readonly available = computed<InstalledIde[]>(() =>
-    this.installedSignal().filter((ide) => !ide.desktop || this.isLocalHost),
-  );
+  /**
+   * The entries this browser may choose from: every installed one on `localhost`; away
+   * from it only the non-desktop ones, followed by the remote-SSH entries (#949), which
+   * need no engine detection since they open on this machine.
+   */
+  readonly available = computed<InstalledIde[]>(() => {
+    const installed = this.installedSignal().filter((ide) => !ide.desktop || this.isLocalHost);
+    return this.isLocalHost ? installed : [...installed, ...REMOTE_IDES];
+  });
 
   /** The entry "Open IDE" acts on: the stored choice when it is {@link available}, otherwise code-server. */
   readonly effective = computed<InstalledIde>(
