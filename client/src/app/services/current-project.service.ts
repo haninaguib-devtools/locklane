@@ -5,6 +5,7 @@ import { Observable, ReplaySubject, combineLatest, distinctUntilChanged, filter,
 import { Project } from '../models/issue.model';
 import { ProjectsService } from './projects.service';
 import { EventsService, isProjectCreatedEvent, isProjectDeletedEvent } from './events.service';
+import { WorkspaceStore } from './workspace-store';
 
 export interface CurrentProject {
   id: number;
@@ -18,6 +19,15 @@ export const FOCUS_QUERY_PARAM = 'focus';
 /** Whether the URL this route snapshot came from names a focused window (#286). */
 export function isFocusedRoute(snapshot: ActivatedRouteSnapshot): boolean {
   return snapshot.queryParamMap.get(FOCUS_QUERY_PARAM) === '1';
+}
+
+/** The query param naming the active workspace (#934): `ws=<id>`. Absent = all projects. */
+export const WORKSPACE_QUERY_PARAM = 'ws';
+
+/** The workspace id the URL this route snapshot came from names, or null (#935). */
+export function workspaceIdOfRoute(snapshot: ActivatedRouteSnapshot): string | null {
+  const id = snapshot.queryParamMap.get(WORKSPACE_QUERY_PARAM);
+  return id ? id : null;
 }
 
 /**
@@ -34,7 +44,10 @@ export function isFocusedRoute(snapshot: ActivatedRouteSnapshot): boolean {
  * carry it: when the URL this window is showing is focused, the one being built is
  * too, unless the caller set `focus` itself (`focus: null` still drops it).
  *
- * Only `focus` is carried. Angular's own router-wide default for this,
+ * The active workspace's `ws=<id>` (#935) is carried the same way, for the same reason:
+ * it too lives in the URL alone and would otherwise be lost on the first click.
+ *
+ * Only `focus` and `ws` are carried. Angular's own router-wide default for this,
  * `withRouterConfig({ defaultQueryParamsHandling: 'merge' })`, would carry every
  * param from page to page -- and the others are one-shot handoffs the agent session page
  * deliberately drops from the URL once acted on (`new`, #370; `dir`/`resume`/`tool`,
@@ -47,12 +60,21 @@ export function isFocusedRoute(snapshot: ActivatedRouteSnapshot): boolean {
 export class FocusPreservingRouter extends Router {
   override createUrlTree(commands: unknown[], navigationExtras: UrlCreationOptions = {}): UrlTree {
     const queryParams = navigationExtras.queryParams ?? {};
-    if (!isFocusedRoute(this.routerState.snapshot.root) || queryParams[FOCUS_QUERY_PARAM] !== undefined) {
+    const current = this.routerState.snapshot.root;
+    const carried: Record<string, string> = {};
+    if (isFocusedRoute(current) && queryParams[FOCUS_QUERY_PARAM] === undefined) {
+      carried[FOCUS_QUERY_PARAM] = '1';
+    }
+    const workspaceId = workspaceIdOfRoute(current);
+    if (workspaceId !== null && queryParams[WORKSPACE_QUERY_PARAM] === undefined) {
+      carried[WORKSPACE_QUERY_PARAM] = workspaceId;
+    }
+    if (Object.keys(carried).length === 0) {
       return super.createUrlTree(commands, navigationExtras);
     }
     return super.createUrlTree(commands, {
       ...navigationExtras,
-      queryParams: { ...queryParams, [FOCUS_QUERY_PARAM]: '1' },
+      queryParams: { ...queryParams, ...carried },
     });
   }
 }
@@ -76,6 +98,7 @@ export class CurrentProjectService {
   private readonly route = inject(ActivatedRoute);
   private readonly projectsService = inject(ProjectsService);
   private readonly eventsService = inject(EventsService);
+  private readonly workspaceStore = inject(WorkspaceStore);
 
   private readonly projectsSubject = new ReplaySubject<Project[]>(1);
 
@@ -126,6 +149,27 @@ export class CurrentProjectService {
   );
   readonly focusedProjectId = toSignal(this.focusedProjectId$, { initialValue: null as number | null });
 
+  // The active workspace (#934, #935): like focus mode, it lives in the URL alone --
+  // `ws=<id>` -- and is re-derived from it on every navigation. An id that names no
+  // stored workspace (deleted, or pasted from another browser) behaves like none.
+  readonly activeWorkspaceId$: Observable<string | null> = this.router.events.pipe(
+    filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+    map(() => this.currentWorkspaceId()),
+    startWith(this.currentWorkspaceId()),
+    distinctUntilChanged(),
+  );
+  readonly activeWorkspaceId = toSignal(this.activeWorkspaceId$, { initialValue: this.currentWorkspaceId() });
+
+  /** The projects the active workspace shows, or null for "all projects" (#935). */
+  readonly visibleProjectIds = computed<number[] | null>(() => {
+    const id = this.activeWorkspaceId();
+    if (id === null) {
+      return null;
+    }
+    const workspace = this.workspaceStore.workspaces().find((w) => w.id === id);
+    return workspace ? workspace.projectIds : null;
+  });
+
   constructor() {
     // A one-shot call, same as AgentSessionIndicatorComponent's own former fetch --
     // completes on its own once the response lands, nothing to unsubscribe.
@@ -167,5 +211,9 @@ export class CurrentProjectService {
 
   private isFocusMode(): boolean {
     return isFocusedRoute(this.route.snapshot);
+  }
+
+  private currentWorkspaceId(): string | null {
+    return workspaceIdOfRoute(this.route.snapshot);
   }
 }
