@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, EventEmitter, HostListener, OnChanges, OnDestroy, OnInit, Output, Input, SimpleChanges, inject } from '@angular/core';
+import { Component, EventEmitter, HostListener, OnChanges, OnDestroy, OnInit, Output, Input, SimpleChanges, effect, inject, untracked } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { FormsModule } from '@angular/forms';
@@ -8,6 +8,8 @@ import { Subscription, filter, forkJoin, map, merge } from 'rxjs';
 import { GithubRefreshStatus, Project, TreeNode, TreeResponse } from '../../models/issue.model';
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
+import { CurrentProjectService } from '../../services/current-project.service';
+import { WorkspaceStore } from '../../services/workspace-store';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
@@ -126,6 +128,12 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   // from it rather than this component keeping its own copy fed from `events$`.
   private readonly attentionStore = inject(AttentionStore);
   private readonly router = inject(Router);
+  // The active workspace's project set (#934, #937), or null for all projects: read
+  // off the shared service the header dropdown writes through the URL, rather than
+  // bound in like `focusedProjectId` -- both narrowings compose in `isListed`.
+  private readonly currentProject = inject(CurrentProjectService);
+  // Where the filters below live while a workspace is active (#938).
+  private readonly workspaceStore = inject(WorkspaceStore);
   // Backs the section header's "+" picker (#886): its own choices (installed agents,
   // Settings default), the same store the agent session page's "+" already reads.
   readonly defaultAgentStore = inject(DefaultAgentStore);
@@ -178,9 +186,26 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   // very first load's failure (show the sidenav-wide `error` state, nothing to keep).
   private hasLoadedList = false;
 
-  // None of these persist across reloads, matching the old app (#22's Goal).
-  filterText = '';
-  hideShipped = true;
+  // With no workspace active, neither persists across reloads, matching the old app
+  // (#22's Goal). While one is active (#938) both are read from and written to that
+  // workspace's record as they change -- the setters write through, and the effect in
+  // the constructor swaps the values in when the active workspace changes.
+  private _filterText = '';
+  private _hideShipped = true;
+  get filterText(): string {
+    return this._filterText;
+  }
+  set filterText(value: string) {
+    this._filterText = value;
+    this.saveFilters({ filterText: value });
+  }
+  get hideShipped(): boolean {
+    return this._hideShipped;
+  }
+  set hideShipped(value: boolean) {
+    this._hideShipped = value;
+    this.saveFilters({ hideShipped: value });
+  }
   // The GitHub login the author picker narrows the tree to (#930); '' is no filtering.
   filterAuthor = '';
 
@@ -246,6 +271,30 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   private loadingTrees = new Set<number>();
 
   constructor() {
+    // A workspace change after the first load (#937) -- switching workspaces in the
+    // header, or editing the active one's projects -- re-narrows the list right away,
+    // the same reload a focus change runs in ngOnChanges. Skipped on the effect's
+    // own first run, which ngOnInit's load covers.
+    let seenWorkspace = false;
+    effect(() => {
+      this.currentProject.visibleProjectIds();
+      if (!seenWorkspace) {
+        seenWorkspace = true;
+        return;
+      }
+      if (this.initialized) {
+        untracked(() => this.load(() => {}));
+      }
+    });
+    // The filters follow the active workspace (#938): switching to one shows its saved
+    // values, back to all projects shows today's defaults. Runs on its first pass too,
+    // so a window opened straight into a workspace starts with that workspace's filters.
+    // Writes to the private fields, never the setters, so loading never saves back.
+    effect(() => {
+      const workspace = this.activeWorkspace();
+      this._filterText = workspace?.filterText ?? '';
+      this._hideShipped = workspace?.hideShipped ?? true;
+    });
     this.agentSessionSub = merge(this.agentSessionsService.onOpened, this.agentSessionsService.onClosed).subscribe(() =>
       this.refreshAgentSessionIndicators(),
     );
@@ -429,10 +478,9 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   private load(onDone: () => void, fresh = false): void {
     this.projectsService.list().subscribe({
       next: (projects) => {
-        // Focus mode (#286): narrow to the one focused project before fetching any
+        // Focus mode (#286) and the active workspace (#937): narrow before fetching any
         // tree, so no other project's (expensive) tree is ever requested or shown.
-        const relevant =
-          this.focusedProjectId === null ? projects : projects.filter((p) => p.id === this.focusedProjectId);
+        const relevant = projects.filter((p) => this.isListed(p.id));
         const previous = new Map(this.sections.map((s) => [s.project.id, s]));
         this.sections = relevant.map((project): Section => {
           const carried = previous.get(project.id);
@@ -574,11 +622,35 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
 
   /**
    * Whether a project could ever appear in this sidenav: a focused window (#286)
-   * lists exactly one project, so an event about any other is never a reason to
-   * reload -- the reload could not carry it.
+   * lists exactly one project, and a workspace (#937) only its own, so an event
+   * about any other -- a project just created outside the workspace included -- is
+   * never a reason to reload: the reload could not carry it.
    */
   private couldList(projectId: number): boolean {
-    return this.focusedProjectId === null || this.focusedProjectId === projectId;
+    return this.isListed(projectId);
+  }
+
+  /** The active workspace's record (#938), or null with none active or an unknown id. */
+  private activeWorkspace() {
+    const id = this.currentProject.activeWorkspaceId();
+    return id === null ? null : this.workspaceStore.get(id);
+  }
+
+  /** Saves a filter change onto the active workspace (#938); nothing is saved with none active. */
+  private saveFilters(filters: { filterText?: string; hideShipped?: boolean }): void {
+    const workspace = untracked(() => this.activeWorkspace());
+    if (workspace) {
+      this.workspaceStore.updateFilters(workspace.id, filters);
+    }
+  }
+
+  /** Both narrowings at once: the focused project, if any, and the workspace's set, if any. */
+  private isListed(projectId: number): boolean {
+    if (this.focusedProjectId !== null && this.focusedProjectId !== projectId) {
+      return false;
+    }
+    const visible = this.currentProject.visibleProjectIds();
+    return visible === null || visible.includes(projectId);
   }
 
   private hasSection(projectId: number): boolean {

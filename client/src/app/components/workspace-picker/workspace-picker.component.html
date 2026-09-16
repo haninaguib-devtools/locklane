@@ -1,0 +1,111 @@
+<div class="workspace">
+  <button
+    #trigger
+    type="button"
+    class="trigger"
+    [class.active]="activeWorkspace() !== null"
+    aria-haspopup="dialog"
+    [attr.aria-expanded]="open()"
+    [attr.aria-label]="'Workspace: ' + label()"
+    (click)="toggle()"
+  >
+    <span class="ellipsis">{{ label() }}</span>
+    <span class="caret" aria-hidden="true">▾</span>
+  </button>
+
+  @if (open()) {
+    <div class="scrim" (click)="close()"></div>
+
+    <div class="picker" role="dialog" aria-modal="true" aria-labelledby="workspace-picker-title">
+      <div class="picker-head">
+        <div>
+          <h2 id="workspace-picker-title">Workspaces</h2>
+          <p>Choose which projects this window shows.</p>
+        </div>
+        <kbd class="keycap">esc</kbd>
+      </div>
+
+      <div
+        #results
+        class="rows"
+        role="listbox"
+        tabindex="0"
+        [attr.aria-activedescendant]="rowId(selected())"
+        (keydown)="onKey($event)"
+      >
+        @for (row of rows(); track $index) {
+          @if (row.kind === 'new') {
+            <div class="separator"></div>
+          }
+          <div
+            class="row"
+            role="option"
+            [id]="rowId($index)"
+            [class.selected]="$index === selected()"
+            [class.current]="isActive(row)"
+            [class.new]="row.kind === 'new'"
+            [attr.aria-selected]="$index === selected()"
+            (mouseenter)="selected.set($index)"
+            (click)="choose(row)"
+          >
+            <span class="name ellipsis">
+              @switch (row.kind) {
+                @case ('all') { All projects }
+                @case ('workspace') { {{ row.workspace.name }} }
+                @case ('new') { New workspace… }
+              }
+            </span>
+            @if (row.kind === 'workspace') {
+              <span class="count">{{ row.workspace.projectIds.length }}</span>
+              @if (isActive(row)) {
+                <span class="actions">
+                  <button type="button" class="action" title="Edit projects" aria-label="Edit projects" (click)="editProjects(row.workspace, $event)">edit</button>
+                  <button type="button" class="action" title="Rename" aria-label="Rename" (click)="rename(row.workspace, $event)">rename</button>
+                  <button type="button" class="action" title="Open in new window" aria-label="Open in new window" (click)="openInNewWindow(row.workspace, $event)">↗</button>
+                  <button type="button" class="action danger" title="Delete" aria-label="Delete" (click)="askDelete(row.workspace, $event)">delete</button>
+                </span>
+              }
+            }
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+  @if (dialog(); as d) {
+    @switch (d.kind) {
+      @case ('create') {
+        <app-workspace-projects-dialog title="New workspace" saveLabel="Create" (saved)="onDialogSaved($event)" (cancelled)="closeDialog()" />
+      }
+      @case ('edit') {
+        <app-workspace-projects-dialog
+          [title]="'Projects in ' + d.workspace.name"
+          [showName]="false"
+          [projectIds]="d.workspace.projectIds"
+          (saved)="onDialogSaved($event)"
+          (cancelled)="closeDialog()"
+        />
+      }
+      @case ('rename') {
+        <app-workspace-projects-dialog
+          title="Rename workspace"
+          saveLabel="Rename"
+          [showProjects]="false"
+          [name]="d.workspace.name"
+          (saved)="onDialogSaved($event)"
+          (cancelled)="closeDialog()"
+        />
+      }
+      @case ('delete') {
+        <app-confirm-dialog
+          title="Delete workspace"
+          [message]="'Delete the workspace “' + d.workspace.name + '”? Your projects are not affected.'"
+          confirmLabel="Delete"
+          [danger]="true"
+          (confirmed)="confirmDelete()"
+          (cancelled)="closeDialog()"
+        />
+      }
+    }
+  }
+</div>

@@ -17,8 +17,9 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withInterceptors([unauthorizedInterceptor])),
     provideRouter(routes),
     // Every in-app navigation inside a popped-out focused window (#286) keeps its
-    // `focus=1` (#803) -- see FocusPreservingRouter for why only that one param is
-    // carried rather than Angular's router-wide `defaultQueryParamsHandling: 'merge'`.
+    // `focus=1` (#803), and the active workspace its `ws=<id>` (#935) -- see
+    // FocusPreservingRouter for why only those params are carried rather than
+    // Angular's router-wide `defaultQueryParamsHandling: 'merge'`.
     { provide: Router, useClass: FocusPreservingRouter },
     // Ask the engine whether the session cookie is still valid before first
     // render (#58) -- otherwise a page refresh always starts logged-out and

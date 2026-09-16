@@ -7,6 +7,7 @@ import { ActiveAgentSessionStore } from '../../services/active-agent-session-sto
 import { AgentStore } from '../../services/agent-store';
 import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { EventsService } from '../../services/events.service';
+import { WorkspaceStore } from '../../services/workspace-store';
 import { OpenProjectAgentSession } from '../../services/project-agent-session.service';
 import { GhIssue, Project } from '../../models/issue.model';
 import { routes } from '../../app.routes';
@@ -495,4 +496,62 @@ describe('AgentSessionIndicatorComponent, inside a focused project window (#286,
     expect(fixture.componentInstance.entries().map((e) => e.projectId)).toEqual([1]);
     expect(fixture.componentInstance.showGroupHeadings()).toBeTrue();
   }));
+
+  describe('active workspace (#937)', () => {
+    afterEach(() => localStorage.removeItem('locklane.workspaces'));
+
+    it("lists only the workspace's projects' entries, and every project's without one", fakeAsync(() => {
+      const ws = TestBed.inject(WorkspaceStore).create('Beta only', [2]);
+      TestBed.inject(Router).navigateByUrl(`/?ws=${ws.id}`);
+      tick();
+
+      const fixture = TestBed.createComponent(AgentSessionIndicatorComponent);
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      // Project 1's entries are never requested.
+      flushProjectEntries(2, ['2-9-x'], [issue(9, 'Nine')]);
+      expect(fixture.componentInstance.entries().map((e) => e.projectId)).toEqual([2]);
+      expect(fixture.componentInstance.showGroupHeadings()).toBeFalse();
+
+      // Editing the active workspace's projects is reflected without a navigation.
+      TestBed.inject(WorkspaceStore).setProjects(ws.id, [1, 2]);
+      fixture.detectChanges();
+      flushProjectEntries(1, [], []);
+      flushProjectEntries(2, ['2-9-x'], [issue(9, 'Nine')]);
+      expect(fixture.componentInstance.showGroupHeadings()).toBeTrue();
+
+      // Back to all projects.
+      TestBed.inject(Router).navigate([], { queryParams: { ws: null } });
+      tick();
+      flushProjectEntries(1, [], []);
+      flushProjectEntries(2, ['2-9-x'], [issue(9, 'Nine')]);
+      expect(fixture.componentInstance.showGroupHeadings()).toBeTrue();
+    }));
+
+    it('the focused-window narrowing still applies on top of the workspace', fakeAsync(() => {
+      const ws = TestBed.inject(WorkspaceStore).create('Both', [1, 2]);
+      TestBed.inject(Router).navigateByUrl(`/projects/1/issues?focus=1&ws=${ws.id}`);
+      tick();
+
+      const fixture = TestBed.createComponent(AgentSessionIndicatorComponent);
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      flushProjectEntries(1, ['1-7-rename-toggle'], [issue(7, 'Seven')]);
+
+      expect(fixture.componentInstance.entries().map((e) => e.projectId)).toEqual([1]);
+      expect(fixture.componentInstance.showGroupHeadings()).toBeFalse();
+    }));
+
+    it("a page for a project outside the workspace loads with ws still in the URL, and the widget stays narrowed", fakeAsync(() => {
+      const ws = TestBed.inject(WorkspaceStore).create('Alpha only', [1]);
+      const router = TestBed.inject(Router);
+      router.navigateByUrl(`/projects/2/issues?ws=${ws.id}`);
+      tick();
+
+      const fixture = TestBed.createComponent(AgentSessionIndicatorComponent);
+      httpMock.expectOne('/api/projects').flush([PROJECT_A, PROJECT_B]);
+      flushProjectEntries(1, [], []);
+
+      expect(router.url).toBe(`/projects/2/issues?ws=${ws.id}`);
+      expect(fixture.componentInstance.groups()).toEqual([]);
+    }));
+  });
 });
