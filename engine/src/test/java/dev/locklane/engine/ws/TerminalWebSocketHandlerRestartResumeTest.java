@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Covers #173: after an engine restart the live processes are gone but the resume
  * ids captured by #102/#295/#681 are not, so a client reattaching to a
- * claude/codex/opencode/omp session id gets its conversation back — the launch command
+ * claude/codex/opencode/omp/muse session id gets its conversation back — the launch command
  * resolves to the tool's own resume
  * command, filled from the most recently captured id for that session and tool. A
  * session with nothing captured, an explicit {@code resume} parameter, or a process
@@ -36,6 +36,9 @@ class TerminalWebSocketHandlerRestartResumeTest {
             "notify=[\"" + TerminalWebSocketHandler.TEST_CODEX_BELL_NOTIFY_SCRIPT + "\"]";
     // #857: as above, for every omp argv's --hook override.
     private static final String OMP_HOOK_ARG = "--hook=" + TerminalWebSocketHandler.TEST_OMP_BELL_HOOK_EXTENSION;
+    // #928: as above, for every muse argv's managed hooks file, carried through `env`.
+    private static final String MUSE_HOOKS_ENV_ARG =
+            "TBH_MANAGED_HOOKS_PATH=" + TerminalWebSocketHandler.TEST_MUSE_BELL_HOOKS_FILE;
 
     @TempDir
     Path dbDir;
@@ -109,6 +112,14 @@ class TerminalWebSocketHandlerRestartResumeTest {
 
         assertThat(handler.resolveLaunchCommand("42-worktree", "omp", null))
                 .containsExactly("omp", "--resume", NEWER_ID, OMP_HOOK_ARG);
+    }
+
+    @Test
+    void museResumesWithItsOwnCommandShape() {
+        resumeRepository.record("42-worktree", "muse", NEWER_ID, Instant.parse("2026-08-27T10:00:00Z"));
+
+        assertThat(handler.resolveLaunchCommand("42-worktree", "muse", null))
+                .containsExactly("env", MUSE_HOOKS_ENV_ARG, "muse", "resume", NEWER_ID);
     }
 
     @Test

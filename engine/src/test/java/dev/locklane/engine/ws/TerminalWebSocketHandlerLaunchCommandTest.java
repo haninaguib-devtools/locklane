@@ -32,6 +32,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code LOCKLANE_TTY} before exec, so the bell hook -- run in a detached child with
  * no controlling terminal of its own -- can still write the bell by path.
  *
+ * <p>Also covers #928: every {@code muse} launch is wrapped as {@code env
+ * TBH_MANAGED_HOOKS_PATH=<path> muse ...} naming the hooks file {@link
+ * dev.locklane.engine.agent.MuseBellHook} installs.
+ *
  * <p>Also covers #862: {@link TerminalWebSocketHandler#resolveLaunch} flags the
  * quiescence fallback off for every command recognised as an agent with a landed
  * bell hook, and on for a shell or anything else.
@@ -63,6 +67,10 @@ class TerminalWebSocketHandlerLaunchCommandTest {
 
     // As above, for omp's --hook override (#857).
     private static final String OMP_HOOK_ARG = "--hook=" + TerminalWebSocketHandler.TEST_OMP_BELL_HOOK_EXTENSION;
+
+    // As above, for muse's managed hooks file (#928), carried through `env`.
+    private static final String MUSE_HOOKS_ENV_ARG =
+            "TBH_MANAGED_HOOKS_PATH=" + TerminalWebSocketHandler.TEST_MUSE_BELL_HOOKS_FILE;
 
     @BeforeEach
     void setUp() {
@@ -102,6 +110,7 @@ class TerminalWebSocketHandlerLaunchCommandTest {
                 .containsExactly(wrapped("codex", "-c", CODEX_NOTIFY_ARG));
         assertThat(handler.resolveLaunchCommand("opencode", null)).containsExactly("opencode");
         assertThat(handler.resolveLaunchCommand("omp", null)).containsExactly("omp", OMP_HOOK_ARG);
+        assertThat(handler.resolveLaunchCommand("muse", null)).containsExactly("env", MUSE_HOOKS_ENV_ARG, "muse");
     }
 
     @Test
@@ -114,6 +123,8 @@ class TerminalWebSocketHandlerLaunchCommandTest {
                 .containsExactly("opencode", "--session", OPENCODE_ID);
         assertThat(handler.resolveLaunchCommand("omp", UUID))
                 .containsExactly("omp", "--resume", UUID, OMP_HOOK_ARG);
+        assertThat(handler.resolveLaunchCommand("muse", UUID))
+                .containsExactly("env", MUSE_HOOKS_ENV_ARG, "muse", "resume", UUID);
     }
 
     @Test
@@ -124,10 +135,12 @@ class TerminalWebSocketHandlerLaunchCommandTest {
                 .containsExactly(wrapped("claude", "--settings", claudeSettingsJson));
         assertThat(handler.resolveLaunchCommand("codex", "not-a-uuid"))
                 .containsExactly(wrapped("codex", "-c", CODEX_NOTIFY_ARG));
+        assertThat(handler.resolveLaunchCommand("muse", "--yolo"))
+                .containsExactly("env", MUSE_HOOKS_ENV_ARG, "muse");
     }
 
     // #537: the seeded first prompt rides as one argv element in each agent's own
-    // "start with this prompt" shape; anything that is not one of the four agents
+    // "start with this prompt" shape; anything that is not one of the five agents
     // gets no seeded command at all.
 
     @Test
@@ -140,6 +153,8 @@ class TerminalWebSocketHandlerLaunchCommandTest {
                 .containsExactly("opencode", "--prompt", "do it");
         assertThat(handler.seededLaunchCommand("omp", "do it"))
                 .containsExactly("omp", "do it", OMP_HOOK_ARG);
+        assertThat(handler.seededLaunchCommand("muse", "do it"))
+                .containsExactly("env", MUSE_HOOKS_ENV_ARG, "muse", "do it");
     }
 
     @Test
@@ -167,6 +182,7 @@ class TerminalWebSocketHandlerLaunchCommandTest {
         assertThat(handler.resolveLaunch("s", "codex", UUID, null, workDir).quiescenceFallbackEnabled()).isFalse();
         assertThat(handler.resolveLaunch("s", "opencode", OPENCODE_ID, null, workDir).quiescenceFallbackEnabled()).isFalse();
         assertThat(handler.resolveLaunch("s", "omp", UUID, null, workDir).quiescenceFallbackEnabled()).isFalse();
+        assertThat(handler.resolveLaunch("s", "muse", UUID, null, workDir).quiescenceFallbackEnabled()).isFalse();
 
         assertThat(handler.resolveLaunch("s", null, UUID, null, workDir).quiescenceFallbackEnabled()).isTrue();
         assertThat(handler.resolveLaunch("s", "shell", UUID, null, workDir).quiescenceFallbackEnabled()).isTrue();

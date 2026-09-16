@@ -9,9 +9,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Watches one session's output stream for a Claude/Codex/OpenCode/omp resume id (#102,
- * #295, #681) — the id that {@code claude --resume <id>}, {@code codex resume <id>},
- * {@code opencode --session <id>}, or {@code omp --resume <id>} accepts. Current CLI
+ * Watches one session's output stream for a Claude/Codex/OpenCode/omp/Muse Code resume
+ * id (#102, #295, #681, #928) — the id that {@code claude --resume <id>}, {@code codex
+ * resume <id>}, {@code opencode --session <id>}, {@code omp --resume <id>}, or
+ * {@code muse resume <id>} accepts. Current CLI
  * versions print no id at plain startup; ids surface later — a status screen, a
  * crash/exit hint — so the scanner watches the whole stream for the session's lifetime,
  * not a startup banner.
@@ -19,8 +20,12 @@ import java.util.regex.Pattern;
  * <p>Terminal UIs interleave ANSI escape sequences with text and split lines across
  * PTY reads, so raw chunks are accumulated into a bounded rolling window and escape
  * sequences are stripped over the whole window before matching — a sequence split
- * across two reads heals once the rest arrives. Redraw loops repeat the same text
- * endlessly; each (tool, id) pair is reported exactly once.
+ * across two reads heals once the rest arrives. Only the sequences themselves go: the
+ * body of a DCS string (ESC P ... ESC \) stays, which is how Muse Code's id arrives
+ * (#928) — its TUI never prints one, so Locklane's own {@code SessionStart} hook
+ * ({@code dev.locklane.engine.agent.MuseBellHook}) writes {@code muse resume <id>}
+ * inside a DCS string the browser terminal swallows whole and this scanner reads.
+ * Redraw loops repeat the same text endlessly; each (tool, id) pair is reported exactly once.
  *
  * <p>An explicit resume command names its own tool. A bare labeled form
  * ("Session ID: &lt;uuid&gt;") is attributed to {@code toolHint} — the tool the
@@ -36,6 +41,7 @@ final class ResumeIdScanner {
     static final String CODEX = "codex";
     static final String OPENCODE = "opencode";
     static final String OMP = "omp";
+    static final String MUSE = "muse";
 
     private static final String UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
     // OpenCode's own ids are ULID-based (`ses_` + 26 base32 characters), not UUIDs; the
@@ -57,6 +63,9 @@ final class ResumeIdScanner {
     // equivalent per omp's CLI reference.
     private static final Pattern OMP_RESUME_COMMAND =
             Pattern.compile("(?i)\\bomp\\s+(?:--resume|-r|--session)\\s+(" + UUID + ")");
+    // Muse Code's ids are UUIDv7 too (#928); `muse resume <id>` is the Codex shape.
+    private static final Pattern MUSE_RESUME_COMMAND =
+            Pattern.compile("(?i)\\bmuse\\s+resume\\s+(" + UUID + ")");
     private static final Pattern LABELED_SESSION_ID =
             Pattern.compile("(?i)\\bsession[ _-]?id\\s*[:=]?\\s*(" + ANY_ID + ")");
 
@@ -84,7 +93,7 @@ final class ResumeIdScanner {
     private final StringBuilder window = new StringBuilder();
     private final Set<String> reported = new HashSet<>();
 
-    /** {@code toolHint}: {@link #CLAUDE}, {@link #CODEX}, {@link #OPENCODE}, {@link #OMP}, or null when the launch command names none of them. */
+    /** {@code toolHint}: {@link #CLAUDE}, {@link #CODEX}, {@link #OPENCODE}, {@link #OMP}, {@link #MUSE}, or null when the launch command names none of them. */
     ResumeIdScanner(String toolHint) {
         this.toolHint = toolHint;
     }
@@ -108,6 +117,9 @@ final class ResumeIdScanner {
         if (basename.startsWith(OMP)) {
             return OMP;
         }
+        if (basename.startsWith(MUSE)) {
+            return MUSE;
+        }
         return null;
     }
 
@@ -126,6 +138,7 @@ final class ResumeIdScanner {
         collect(captures, CODEX_RESUME_COMMAND, plain, CODEX);
         collect(captures, OPENCODE_RESUME_COMMAND, plain, OPENCODE);
         collect(captures, OMP_RESUME_COMMAND, plain, OMP);
+        collect(captures, MUSE_RESUME_COMMAND, plain, MUSE);
         if (toolHint != null) {
             collect(captures, LABELED_SESSION_ID, plain, toolHint);
         }

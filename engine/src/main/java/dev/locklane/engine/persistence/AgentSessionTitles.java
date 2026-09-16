@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.sqlite.SQLiteConfig;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -11,8 +12,14 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,6 +56,12 @@ import java.util.stream.Stream;
  *       line carries the auto-generated title — also embedded in its
  *       {@code {"type":"session",...}} line. The last such line wins — the title is
  *       regenerated as a conversation grows.</li>
+ *   <li><b>Muse Code</b> keeps an SQLite index of every session at
+ *       {@code <museDataDir>/session-index.db} (by default {@code ~/.local/share/muse},
+ *       or {@code $XDG_DATA_HOME/muse}), whose {@code sessions} table carries the
+ *       auto-generated {@code title} and, once the user has renamed a session, a
+ *       {@code session_name} that wins over it (#928). Read once per batch, for the
+ *       batch's own ids only, through the SQLite JDBC driver the engine already ships.</li>
  * </ul>
  *
  * <p><b>A missing title is the normal case, never an error.</b> A conversation too
@@ -59,10 +72,11 @@ import java.util.stream.Stream;
  * throws, and nothing here is load-bearing: the reopen path never consults a title.
  *
  * <p>Lookups are made in batches ({@link #titlesFor}) rather than one at a time,
- * because the four mechanisms have very different costs: Codex's index and each
+ * because the five mechanisms have very different costs: Codex's index and each
  * OpenCode directory are read once for the whole batch, where a per-row loop would
  * spawn one {@code opencode} process per listed conversation; omp's session files
- * are likewise located with a single walk of the sessions directory.
+ * are likewise located with a single walk of the sessions directory, and Muse Code's
+ * index is opened once and asked one query.
  */
 @Service
 public class AgentSessionTitles {
@@ -73,6 +87,7 @@ public class AgentSessionTitles {
     static final String CODEX = "codex";
     static final String OPENCODE = "opencode";
     static final String OMP = "omp";
+    static final String MUSE = "muse";
 
     // How Claude names the per-project directory holding a conversation's transcript:
     // every character that is not a letter or digit becomes '-'. Derived by reading the
@@ -88,14 +103,20 @@ public class AgentSessionTitles {
     // open forever.
     private static final long OPENCODE_TIMEOUT_SECONDS = 10;
 
+    // SQLite caps a statement's bound parameters (999 on older builds), so a batch's
+    // ids are queried in slices of this many; a listing is far smaller in practice.
+    private static final int MUSE_QUERY_SLICE = 500;
+
     private final ObjectMapper json = new ObjectMapper();
     private final Path claudeHome;
     private final Path codexHome;
     private final OpencodeLister opencodeLister;
     private final Path ompAgentDir;
+    private final Path museDataDir;
 
     public AgentSessionTitles() {
-        this(defaultClaudeHome(), defaultCodexHome(), AgentSessionTitles::runOpencodeSessionList, defaultOmpAgentDir());
+        this(defaultClaudeHome(), defaultCodexHome(), AgentSessionTitles::runOpencodeSessionList, defaultOmpAgentDir(),
+                defaultMuseDataDir());
     }
 
     /** Test seam: the two CLI home directories, and however OpenCode's listing is obtained. */
@@ -105,10 +126,17 @@ public class AgentSessionTitles {
 
     /** Test seam with an explicit omp agent directory for title lookups. */
     AgentSessionTitles(Path claudeHome, Path codexHome, OpencodeLister opencodeLister, Path ompAgentDir) {
+        this(claudeHome, codexHome, opencodeLister, ompAgentDir, defaultMuseDataDir());
+    }
+
+    /** Test seam with explicit omp and Muse Code storage directories for title lookups. */
+    AgentSessionTitles(Path claudeHome, Path codexHome, OpencodeLister opencodeLister, Path ompAgentDir,
+            Path museDataDir) {
         this.claudeHome = claudeHome;
         this.codexHome = codexHome;
         this.opencodeLister = opencodeLister;
         this.ompAgentDir = ompAgentDir;
+        this.museDataDir = museDataDir;
     }
 
     /** One conversation to look a title up for: which CLI, which id, and where it ran. */
@@ -127,6 +155,7 @@ public class AgentSessionTitles {
         List<Sighting> codexSightings = new ArrayList<>();
         Map<Path, List<Sighting>> opencodeByDirectory = new LinkedHashMap<>();
         List<Sighting> ompSightings = new ArrayList<>();
+        List<Sighting> museSightings = new ArrayList<>();
 
         for (Sighting sighting : sightings) {
             switch (sighting.tool() == null ? "" : sighting.tool()) {
@@ -137,6 +166,7 @@ public class AgentSessionTitles {
                         .computeIfAbsent(sighting.workingDirectory(), directory -> new ArrayList<>())
                         .add(sighting);
                 case OMP -> ompSightings.add(sighting);
+                case MUSE -> museSightings.add(sighting);
                 default -> {
                     // A tool this class knows no title mechanism for -- a shell
                     // agent session, or a CLI added later -- keeps the timestamp fallback.
@@ -168,6 +198,16 @@ public class AgentSessionTitles {
             Map<String, String> byResumeId = ompTitles();
             for (Sighting sighting : ompSightings) {
                 String title = byResumeId.get(sighting.resumeId());
+                if (title != null) {
+                    titles.put(key(sighting), title);
+                }
+            }
+        }
+
+        if (!museSightings.isEmpty()) {
+            Map<String, String> bySessionId = museTitles(museSightings.stream().map(Sighting::resumeId).toList());
+            for (Sighting sighting : museSightings) {
+                String title = bySessionId.get(sighting.resumeId());
                 if (title != null) {
                     titles.put(key(sighting), title);
                 }
@@ -346,6 +386,58 @@ public class AgentSessionTitles {
         return Optional.ofNullable(title);
     }
 
+    /**
+     * The title Muse Code's own session index holds for each of {@code resumeIds}
+     * (#928): the user's {@code session_name} when one is set, else the auto-generated
+     * {@code title}; blank ones are skipped. The index is opened read-only, asked for
+     * the batch's own ids only, and closed again. Every failure — no index yet (Muse
+     * Code never run), a table this class does not recognise, a locked or corrupt
+     * file — reads as "no titles", like every other lookup here.
+     */
+    private Map<String, String> museTitles(List<String> resumeIds) {
+        Map<String, String> titles = new HashMap<>();
+        if (museDataDir == null || resumeIds.isEmpty()) {
+            return titles;
+        }
+        Path index = museDataDir.resolve("session-index.db");
+        if (!Files.isRegularFile(index)) {
+            return titles;
+        }
+        SQLiteConfig readOnly = new SQLiteConfig();
+        readOnly.setReadOnly(true);
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + index, readOnly.toProperties())) {
+            for (int from = 0; from < resumeIds.size(); from += MUSE_QUERY_SLICE) {
+                List<String> slice = resumeIds.subList(from, Math.min(from + MUSE_QUERY_SLICE, resumeIds.size()));
+                String sql = "SELECT session_id, session_name, title FROM sessions WHERE session_id IN ("
+                        + String.join(",", Collections.nCopies(slice.size(), "?")) + ")";
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    for (int i = 0; i < slice.size(); i++) {
+                        statement.setString(i + 1, slice.get(i));
+                    }
+                    try (ResultSet rows = statement.executeQuery()) {
+                        while (rows.next()) {
+                            String id = rows.getString("session_id");
+                            String title = firstNonBlank(rows.getString("session_name"), rows.getString("title"));
+                            if (id != null && title != null) {
+                                titles.put(id, title);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (SQLException | RuntimeException e) {
+            log.debug("Could not read {}", index, e);
+        }
+        return titles;
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first;
+        }
+        return second != null && !second.isBlank() ? second : null;
+    }
+
     /** How {@link #opencodeTitles} obtains OpenCode's listing; swapped out in tests. */
     interface OpencodeLister {
         /** Raw stdout, or null/blank when there is nothing to report for any reason. */
@@ -475,6 +567,14 @@ public class AgentSessionTitles {
         return configured != null && !configured.isBlank()
                 ? Path.of(configured)
                 : Path.of(System.getProperty("user.home"), ".codex");
+    }
+
+    /** {@code $XDG_DATA_HOME/muse}, or {@code ~/.local/share/muse} — where Muse Code 1.3.0 keeps its session index. */
+    private static Path defaultMuseDataDir() {
+        String configured = System.getenv("XDG_DATA_HOME");
+        return configured != null && !configured.isBlank()
+                ? Path.of(configured, "muse")
+                : Path.of(System.getProperty("user.home"), ".local", "share", "muse");
     }
 
     private static Path defaultOmpAgentDir() {

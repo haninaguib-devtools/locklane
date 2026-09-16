@@ -10,6 +10,9 @@ here.
 
 ## Unreleased
 
+### Features
+- Support Muse Code as a fifth known coding agent, with its own bell hook and resume capture (#928)
+
 ### Fixes
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)

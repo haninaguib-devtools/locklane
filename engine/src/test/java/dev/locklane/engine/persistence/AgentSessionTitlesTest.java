@@ -6,6 +6,10 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +26,8 @@ class AgentSessionTitlesTest {
     private static final String CODEX_ID = "bbbbbbbb-0000-0000-0000-000000000000";
     private static final String OPENCODE_ID = "ses_01ABCDEFGHIJKLMNOPQRSTUVWX";
     private static final String OMP_ID = "01a07088-257e-708f-a453-a7eee5db1e4e";
+    private static final String MUSE_ID = "01a0a7d1-7496-7741-8eca-9c642d1f1478";
+    private static final String OTHER_MUSE_ID = "01a0a7d0-ae35-7571-a495-e0f71a8614b9";
 
     @Test
     void readsClaudesLatestGeneratedTitleFromTheConversationsOwnTranscript(@TempDir Path tmp) throws IOException {
@@ -221,6 +227,48 @@ class AgentSessionTitlesTest {
     }
 
     @Test
+    void readsMusesTitleFromItsOwnSessionIndex(@TempDir Path tmp) throws Exception {
+        writeMuseIndex(tmp, """
+                INSERT INTO sessions (session_id, title, session_name) VALUES ('%s', 'Fix the sidenav filter', NULL);
+                INSERT INTO sessions (session_id, title, session_name) VALUES ('%s', 'Unrelated session', NULL);
+                """.formatted(MUSE_ID, OTHER_MUSE_ID));
+
+        assertThat(museTitles(tmp).titlesFor(List.of(
+                new AgentSessionTitles.Sighting("muse", MUSE_ID, tmp))))
+                .containsExactly(entry("muse:" + MUSE_ID, "Fix the sidenav filter"));
+    }
+
+    @Test
+    void prefersTheNameTheUserGaveAMuseSessionOverItsGeneratedTitle(@TempDir Path tmp) throws Exception {
+        writeMuseIndex(tmp, """
+                INSERT INTO sessions (session_id, title, session_name) VALUES ('%s', 'hi', 'Drive 928');
+                """.formatted(MUSE_ID));
+
+        assertThat(museTitles(tmp).titlesFor(List.of(
+                new AgentSessionTitles.Sighting("muse", MUSE_ID, tmp))))
+                .containsExactly(entry("muse:" + MUSE_ID, "Drive 928"));
+    }
+
+    @Test
+    void hasNoMuseTitleWhenTheIndexIsMissingBlankOrNotAnIndexAtAll(@TempDir Path tmp) throws Exception {
+        // Muse Code never run: no index file at all.
+        assertThat(museTitles(tmp).titlesFor(List.of(
+                new AgentSessionTitles.Sighting("muse", MUSE_ID, tmp)))).isEmpty();
+
+        // An index whose title is blank and whose name is unset.
+        writeMuseIndex(tmp, """
+                INSERT INTO sessions (session_id, title, session_name) VALUES ('%s', '', NULL);
+                """.formatted(MUSE_ID));
+        assertThat(museTitles(tmp).titlesFor(List.of(
+                new AgentSessionTitles.Sighting("muse", MUSE_ID, tmp)))).isEmpty();
+
+        // A file at the index's path that is not an SQLite database.
+        Files.writeString(tmp.resolve("muse").resolve("session-index.db"), "not a database");
+        assertThat(museTitles(tmp).titlesFor(List.of(
+                new AgentSessionTitles.Sighting("muse", MUSE_ID, tmp)))).isEmpty();
+    }
+
+    @Test
     void hasNoTitleForAToolWithNoKnownTitleMechanism(@TempDir Path tmp) {
         // A shell session, or a CLI added after this class was written.
         assertThat(titles(tmp).titlesFor(List.of(
@@ -310,6 +358,39 @@ class AgentSessionTitlesTest {
     /** A lookup with both CLI homes under {@code tmp} and no OpenCode process at all. */
     private static AgentSessionTitles titles(Path tmp) {
         return new AgentSessionTitles(tmp.resolve("claude"), tmp.resolve("codex"), directory -> null);
+    }
+
+    /** A lookup with both CLI homes and the Muse Code data directory under {@code tmp}. */
+    private static AgentSessionTitles museTitles(Path tmp) {
+        return new AgentSessionTitles(tmp.resolve("claude"), tmp.resolve("codex"), directory -> null,
+                tmp.resolve("omp-agent"), tmp.resolve("muse"));
+    }
+
+    /**
+     * Writes a session index exactly where Muse Code keeps one ({@code
+     * <dataDir>/session-index.db}), with the columns of its {@code sessions} table
+     * this lookup reads plus {@code sql} run against it.
+     */
+    private static void writeMuseIndex(Path tmp, String sql) throws IOException, SQLException {
+        Path index = Files.createDirectories(tmp.resolve("muse")).resolve("session-index.db");
+        Files.deleteIfExists(index);
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + index);
+                Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    CREATE TABLE sessions (
+                      session_id TEXT PRIMARY KEY,
+                      workspace_root TEXT,
+                      title TEXT NOT NULL,
+                      first_user_prompt TEXT,
+                      created_at_us INTEGER,
+                      updated_at_us INTEGER,
+                      session_name TEXT)""");
+            for (String insert : sql.split(";")) {
+                if (!insert.isBlank()) {
+                    statement.executeUpdate(insert);
+                }
+            }
+        }
     }
 
     /** A lookup with both CLI homes and the omp agent directory under {@code tmp}. */

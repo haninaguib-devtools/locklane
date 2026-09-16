@@ -23,9 +23,16 @@ class InstalledAgentsStoreTest {
     }
 
     @Test
-    void knownAgentsIncludesOmp() {
+    void knownAgentsIncludesOmpAndMuseCode() {
         assertThat(InstalledAgentsStore.KNOWN_AGENTS).containsExactly(new AgentInfo("claude", "Claude"),
-                new AgentInfo("codex", "Codex"), new AgentInfo("opencode", "OpenCode"), new AgentInfo("omp", "OMP"));
+                new AgentInfo("codex", "Codex"), new AgentInfo("opencode", "OpenCode"), new AgentInfo("omp", "OMP"),
+                new AgentInfo("muse", "Muse Code"));
+    }
+
+    @Test
+    void museCodeIsTheLabelAPersonSeesForMuse() {
+        // ADR-112: "Muse Code" is the product wording; "muse" is the on-the-wire id.
+        assertThat(new InstalledAgentsStore().labelFor("muse")).isEqualTo("Muse Code");
     }
 
     @Test
