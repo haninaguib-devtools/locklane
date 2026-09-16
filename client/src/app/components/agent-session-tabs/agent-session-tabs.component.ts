@@ -7,7 +7,14 @@ import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.compone
 import { AgentSessionsService } from '../../services/agent-sessions.service';
 import { AgentSessionTab, OVERVIEW_TAB_ID, tabText } from './agent-session-labels';
 import { AgentShellPickerComponent } from '../agent-shell-picker/agent-shell-picker.component';
-import { isRemoteIde, remoteIdeHint, remoteIdeUrl } from '../../services/remote-ide-link';
+import {
+  GATEWAY_REMOTE_ID,
+  gatewayLinkIsUsable,
+  gatewayUnconfiguredHint,
+  isRemoteIde,
+  remoteIdeHint,
+  remoteIdeUrl,
+} from '../../services/remote-ide-link';
 
 export interface OpenAgentSessionRequest {
   agent: Agent;
@@ -295,6 +302,10 @@ export class AgentSessionTabsComponent implements OnInit {
     if (isRemoteIde(ide)) {
       agentSessions.remoteIdeLink(projectId, tab.id).subscribe({
         next: (link) => {
+          if (ide.id === GATEWAY_REMOTE_ID && !gatewayLinkIsUsable(link)) {
+            this.remoteIdeHint = gatewayUnconfiguredHint();
+            return;
+          }
           const host = this.currentHostname();
           const url = remoteIdeUrl(ide.id, host, link);
           if (url !== null) {

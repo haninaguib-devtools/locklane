@@ -4,6 +4,8 @@ import {
   REMOTE_IDES,
   RemoteIdeLink,
   VSCODE_REMOTE_ID,
+  gatewayLinkIsUsable,
+  gatewayUnconfiguredHint,
   isRemoteIde,
   jetbrainsGatewayUrl,
   remoteIdeHint,
@@ -89,7 +91,7 @@ describe('remote-ide-link (#949)', () => {
       expect(params.has('buildNumber')).toBeFalse();
     });
 
-    it('with nothing configured deploys and lets Gateway ask which IDE', () => {
+    it('with nothing configured still builds a deploy=true link, even though it is unusable', () => {
       const params = query(jetbrainsGatewayUrl('box', link()));
 
       expect(params.get('deploy')).toBe('true');
@@ -115,5 +117,29 @@ describe('remote-ide-link (#949)', () => {
   it('the hint names the ssh command to try', () => {
     expect(remoteIdeHint('hani', 'box.example.com')).toContain('`ssh hani@box.example.com` works without a password');
     expect(remoteIdeHint('hani', 'box')).toContain('Nothing opened?');
+  });
+
+  describe('gatewayLinkIsUsable (#949 follow-up)', () => {
+    it('is unusable with nothing configured', () => {
+      expect(gatewayLinkIsUsable(link())).toBeFalse();
+    });
+
+    it('is usable with only an ide path', () => {
+      expect(gatewayLinkIsUsable(link({}, { idePath: '/opt/idea' }))).toBeTrue();
+    });
+
+    it('is usable with a product code and build number', () => {
+      expect(gatewayLinkIsUsable(link({}, { productCode: 'IU', buildNumber: '241.15989.150' }))).toBeTrue();
+    });
+
+    it('is unusable with only a product code', () => {
+      expect(gatewayLinkIsUsable(link({}, { productCode: 'IU' }))).toBeFalse();
+    });
+  });
+
+  it('the unconfigured-Gateway hint names the settings to set', () => {
+    expect(gatewayUnconfiguredHint()).toContain('locklane.remote-ide.gateway.ide-path');
+    expect(gatewayUnconfiguredHint()).toContain('product-code');
+    expect(gatewayUnconfiguredHint()).toContain('build-number');
   });
 });

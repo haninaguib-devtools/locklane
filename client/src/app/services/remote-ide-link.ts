@@ -55,10 +55,11 @@ export function vscodeRemoteSshUrl(host: string, link: RemoteIdeLink): string {
  * `jetbrains-gateway://connect#type=ssh&host=…&port=…&user=…&projectPath=…` plus the
  * backend to use: `deploy=false&idePath=<remote path>` when the engine names an IDE
  * already installed on its host, otherwise `deploy=true` with `productCode` and
- * `buildNumber` when both are set (Gateway installs that backend on the host). Neither
- * configured: `deploy=true` alone, and Gateway asks which IDE to deploy. Parameter
- * names per JetBrains' "connect to a remote server from a link" documentation
- * (https://www.jetbrains.com/help/idea/remote-development-a.html#gateway_link).
+ * `buildNumber` when both are set (Gateway installs that backend on the host).
+ * Parameter names per JetBrains' "connect to a remote server from a link"
+ * documentation (https://www.jetbrains.com/help/idea/remote-development-a.html#gateway_link).
+ *
+ * Callers must not reach here with neither set -- see {@link gatewayLinkIsUsable}.
  */
 export function jetbrainsGatewayUrl(host: string, link: RemoteIdeLink): string {
   const params = new URLSearchParams({
@@ -80,6 +81,30 @@ export function jetbrainsGatewayUrl(host: string, link: RemoteIdeLink): string {
     }
   }
   return `jetbrains-gateway://connect#${params.toString()}`;
+}
+
+/**
+ * Whether `link`'s Gateway settings are enough for Gateway to actually connect: an
+ * `idePath` naming a backend already on the host, or both `productCode` and
+ * `buildNumber` for Gateway to install one. Neither set does *not* make Gateway ask
+ * which IDE to deploy, despite the link format docs' phrasing -- current Gateway
+ * versions refuse a `deploy=true`-alone link outright with "Cannot Connect: There was
+ * an error in the connection provider" (JetBrains YouTrack GTW-6264, "underspecified
+ * deploy parameters for the SSH connector"). Callers check this before building a
+ * Gateway link and building one anyway would just open a link known to fail.
+ */
+export function gatewayLinkIsUsable(link: RemoteIdeLink): boolean {
+  const { productCode, buildNumber, idePath } = link.gateway;
+  return Boolean(idePath) || Boolean(productCode && buildNumber);
+}
+
+/** Shown instead of opening a link when {@link gatewayLinkIsUsable} is false. */
+export function gatewayUnconfiguredHint(): string {
+  return (
+    'JetBrains Gateway needs locklane.remote-ide.gateway.ide-path, or ' +
+    'product-code together with build-number, set on the engine -- without one of ' +
+    'those Gateway refuses the connection instead of asking which IDE to deploy.'
+  );
 }
 
 /** The link for a remote entry's id, or null for any other id. */
