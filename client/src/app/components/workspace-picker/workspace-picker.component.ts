@@ -14,9 +14,10 @@ type Dialog = { kind: 'create' } | { kind: 'edit'; workspace: Workspace } | { ki
  * The header's workspace dropdown (#934, #936), next to the open-agents widget: lists
  * "All projects", one row per saved workspace, and "New workspace…". Selecting a row
  * navigates with `ws=<id>` set or removed -- the active workspace lives in the URL
- * alone (see CurrentProjectService), so this never holds it itself. The active row
- * also carries Edit projects / Rename / Open in new window / Delete. Scrim, focus
- * trap and arrow/enter/escape follow `agent-session-indicator`.
+ * alone (see CurrentProjectService), so this never holds it itself. Every workspace
+ * row carries Open in new window first, so the icon lines up down the list (#969);
+ * the active row adds Edit projects / Rename / Delete after it. Scrim, focus trap and
+ * arrow/enter/escape follow `agent-session-indicator`.
  */
 @Component({
   selector: 'app-workspace-picker',

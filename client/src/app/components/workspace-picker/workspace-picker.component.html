@@ -57,14 +57,14 @@
             </span>
             @if (row.kind === 'workspace') {
               <span class="count">{{ row.workspace.projectIds.length }}</span>
-              @if (isActive(row)) {
-                <span class="actions">
+              <span class="actions">
+                <button type="button" class="action" title="Open in new window" aria-label="Open in new window" (click)="openInNewWindow(row.workspace, $event)">↗</button>
+                @if (isActive(row)) {
                   <button type="button" class="action" title="Edit projects" aria-label="Edit projects" (click)="editProjects(row.workspace, $event)">edit</button>
                   <button type="button" class="action" title="Rename" aria-label="Rename" (click)="rename(row.workspace, $event)">rename</button>
-                  <button type="button" class="action" title="Open in new window" aria-label="Open in new window" (click)="openInNewWindow(row.workspace, $event)">↗</button>
                   <button type="button" class="action danger" title="Delete" aria-label="Delete" (click)="askDelete(row.workspace, $event)">delete</button>
-                </span>
-              }
+                }
+              </span>
             }
           </div>
         }
