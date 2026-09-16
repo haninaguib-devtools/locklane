@@ -108,12 +108,17 @@ app-usage-widget {
 
 .picker {
   left: 0;
-  right: auto;
   top: calc(100% + 2px);
   min-width: 160px;
   max-height: 260px;
   overflow-y: auto;
   padding: 4px 0;
+}
+
+/* The row popup sits at the sidebar's edge: drop `left` so `.menu`'s `right: 0`
+   anchors it and it opens leftward instead of under the main pane (#975). */
+.menu-wrap .picker {
+  left: auto;
 }
 
 .picker-search {
@@ -584,9 +589,6 @@ ul.branch {
   cursor: pointer;
   font-size: 13px;
   padding: 0 2px;
-}
-
-.kebab {
   visibility: hidden;
 }
 
