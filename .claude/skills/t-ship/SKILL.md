@@ -10,13 +10,23 @@ Read `.t-workflow/AGENTS.md`.
 1. `.t-workflow/scripts/gate.sh ship <id>`. Any `BLOCKED:` line → stop and relay it
    with the command it names — including a review whose pending human checks or
    findings are unknown because it lacks that section: an absent section is never read
-   as none. One exception: a parent (initiative) whose only block is "no PR" names the
-   `gh pr create` that opens its integration PR — run it (body: `Closes #<id>`, one line
-   per child `- #<child> <title> — docs/tasks/<child>-<slug>.md`, and `## Checks run`
-   with the children's), then gate again. Keep the output: it is the evidence for
-   step 4. `merge:` says which gate this is: `confirm` (a task, or a parent) asks the
-   human in step 4; `automatic` (a child of an initiative) merges on green without a
-   question, because the initiative's own PR is where the human decides.
+   as none. Two exceptions, for a parent (initiative) only, each followed by gating
+   again:
+   - "does not carry the current trunk" names a merge of the trunk into the
+     integration branch, pushed to it directly — never through a child PR, whose squash
+     drops the merge and replays the conflict. Run it. A conflict stops the run: note
+     the conflicting files (`git diff --name-only --diff-filter=U`), `git merge --abort`,
+     report the files and the gate's commands with the merge to be resolved by hand,
+     and name `/t-ship <id>` to re-run. A push the branch's protection refuses is
+     reported verbatim and stops the same way.
+   - "no PR" names the `gh pr create` that opens the integration PR — run it (body:
+     `Closes #<id>`, one line per child `- #<child> <title> — docs/tasks/<child>-<slug>.md`,
+     and `## Checks run` with the children's).
+
+   Keep the output: it is the evidence for step 4. `merge:` says which gate this is:
+   `confirm` (a task, or a parent) asks the human in step 4; `automatic` (a child of an
+   initiative) merges on green without a question, because the initiative's own PR is
+   where the human decides.
 2. `gh pr ready <pr>`. CI starts here (drafts skip it). A PR that was already ready may
    carry a run that went red before its review existed: `.t-workflow/scripts/rerun-ci.sh <pr>`
    re-runs the red runs (a no-op unless a completed run at the head is red). Then

@@ -26,10 +26,11 @@ question (`merge: automatic`), so the run continues straight to the next child w
 blockers are now satisfied. A child that fails its bounded retry stops the run with a
 report — it is never skipped, and the parent cannot ship while it is open; fixing it
 (`/t-drive <child>`) or cancelling it (`/t-cancel <child>`) resumes. When no child is
-open: `gate.sh ship <id>` — when it names the `gh pr create` that opens the
-integration PR, run it — then `/t-review <id>` in a subagent when the combined diff
-is protected, then `/t-ship <id>`; the parent's confirmation question is the run's
-stop.
+open: `gate.sh ship <id>` — when it names the merge of the trunk into the
+integration branch, run it as `/t-ship` step 1 says (a conflict stops the run with
+that report), and when it names the `gh pr create` that opens the integration PR, run
+it — then `/t-review <id>` in a subagent when the combined diff is protected, then
+`/t-ship <id>`; the parent's confirmation question is the run's stop.
 
 Report at every stop: what was done, what is waiting, and ask per the Communication
 rule in `.t-workflow/AGENTS.md`.

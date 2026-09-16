@@ -62,7 +62,9 @@ An initiative's children branch from and merge into `wip/<parent>-integration`, 
 from the trunk by the first child's `/t-work`; nothing of an initiative reaches the
 trunk until the parent's own PR, from that branch, does. The parent's PR carries the
 children's records and one `Task:` line per child; the parent relation is the issue's
-own, never a label on the child.
+own, never a label on the child. An integration branch takes the trunk by merge,
+pushed to the branch directly, never through a PR (a child's squash would drop the
+merge and replay the conflict); the trunk itself still moves only by a confirmed PR.
 
 ## Protected paths
 
