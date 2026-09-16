@@ -45,6 +45,12 @@ app-usage-widget {
 .controls {
   padding: 8px 10px;
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.controls-row {
+  display: flex;
   align-items: center;
   gap: 10px;
 }
@@ -56,9 +62,9 @@ app-usage-widget {
   gap: 6px;
 }
 
-.filter-input {
-  flex: 1;
-  min-width: 0;
+.filter-input,
+.picker-button,
+.picker-search {
   height: 28px;
   padding: 0 8px;
   border: 1px solid var(--border-soft);
@@ -68,18 +74,61 @@ app-usage-widget {
   color: var(--text);
 }
 
-/* The author picker (#930) sits beside the text filter, styled to match it. */
-.author-select {
-  flex: 0 1 auto;
-  max-width: 40%;
+.filter-input {
+  flex: 1;
   min-width: 0;
-  height: 28px;
-  padding: 0 4px;
-  border: 1px solid var(--border-soft);
-  border-radius: 5px;
-  background: var(--panel);
+}
+
+/* The author and label pickers (#930, #947): a second row of buttons styled like the
+   text filter, each over a checkbox list that shares `.menu`'s chrome and the Open
+   toggle's checkbox. */
+.picker-wrap {
+  position: relative;
+}
+
+.picker-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.picker-button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.caret {
+  color: var(--muted);
+}
+
+.picker {
+  left: 0;
+  right: auto;
+  top: calc(100% + 2px);
+  min-width: 160px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.picker-search {
+  display: block;
+  width: calc(100% - 12px);
+  box-sizing: border-box;
+  margin: 2px 6px 6px;
+}
+
+.picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 10px;
   font-size: 12px;
-  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .refresh {
@@ -129,7 +178,8 @@ app-usage-widget {
   cursor: pointer;
 }
 
-.opened-toggle input[type='checkbox'] {
+.opened-toggle input[type='checkbox'],
+.picker-option input[type='checkbox'] {
   appearance: none;
   -webkit-appearance: none;
   position: relative;
@@ -143,12 +193,14 @@ app-usage-widget {
   cursor: pointer;
 }
 
-.opened-toggle input[type='checkbox']:checked {
+.opened-toggle input[type='checkbox']:checked,
+.picker-option input[type='checkbox']:checked {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-.opened-toggle input[type='checkbox']:checked::after {
+.opened-toggle input[type='checkbox']:checked::after,
+.picker-option input[type='checkbox']:checked::after {
   content: '';
   position: absolute;
   left: 4px;
@@ -541,7 +593,8 @@ ul.branch {
   visibility: visible;
 }
 
-.menu {
+.menu,
+.picker {
   position: absolute;
   right: 0;
   top: 100%;
@@ -575,7 +628,7 @@ ul.branch {
 
 @media (any-pointer: coarse), (hover: none) {
   .filter-input,
-  .author-select,
+  .picker-button,
   .refresh,
   .opened-toggle {
     min-height: 36px;

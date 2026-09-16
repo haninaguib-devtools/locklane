@@ -206,8 +206,17 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
     this._hideShipped = value;
     this.saveFilters({ hideShipped: value });
   }
-  // The GitHub login the author picker narrows the tree to (#930); '' is no filtering.
-  filterAuthor = '';
+  // The GitHub logins the author picker narrows the tree to (#930, multi-select since
+  // #947) and the labels the label picker narrows it to (#947); empty is no filtering.
+  // Neither is stored in a workspace (#934): both are plain component state.
+  filterAuthors: string[] = [];
+  filterLabels: string[] = [];
+  // The label picker's find-as-you-type box (#947): it narrows the picker's own list,
+  // never the tree, and a ticked label stays in effect while it is hidden.
+  labelSearch = '';
+  // Which filter picker's checkbox list is open, if any; the document click that
+  // closes row menus closes it too.
+  openPicker: 'authors' | 'labels' | null = null;
 
   // The failed project awaiting delete confirmation in the app-styled dialog (#231),
   // replacing the synchronous native `confirm()` this used to block on.
@@ -1039,9 +1048,9 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
         ordered,
         this.filterText,
         this.hideShipped,
-        [],
+        this.filterLabels,
         (n) => this.hasOpenAgentSession(section.project.id, n.number),
-        this.filterAuthor,
+        this.filterAuthors,
       );
       if (nodes.length > 0) {
         groups.push({ project: section.project, nodes });
@@ -1071,9 +1080,9 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
       topLevel,
       this.filterText,
       this.hideShipped,
-      [],
+      this.filterLabels,
       (n) => this.hasOpenAgentSession(section.project.id, n.number),
-      this.filterAuthor,
+      this.filterAuthors,
     );
   }
 
@@ -1081,7 +1090,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   // trees, off the raw trees so a chosen author never vanishes from its own picker.
   // A selection whose author has since left the tree stays listed until it is cleared.
   get authors(): string[] {
-    const logins = new Set<string>();
+    const logins = new Set<string>(this.filterAuthors);
     for (const section of this.sections) {
       for (const node of this.flatten(section.tree)) {
         if (node.author) {
@@ -1089,10 +1098,59 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
         }
       }
     }
-    if (this.filterAuthor) {
-      logins.add(this.filterAuthor);
-    }
     return [...logins].sort((a, b) => a.localeCompare(b));
+  }
+
+  // The label picker's choices (#947), by the same rule as `authors`.
+  get labels(): string[] {
+    const names = new Set<string>(this.filterLabels);
+    for (const section of this.sections) {
+      for (const node of this.flatten(section.tree)) {
+        for (const label of node.labels) {
+          names.add(label);
+        }
+      }
+    }
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }
+
+  // The labels the picker shows after its search box narrows them (#947).
+  get visibleLabels(): string[] {
+    const needle = this.labelSearch.trim().toLowerCase();
+    return needle ? this.labels.filter((l) => l.toLowerCase().includes(needle)) : this.labels;
+  }
+
+  get authorsButtonLabel(): string {
+    const n = this.filterAuthors.length;
+    return n === 0 ? 'authors' : n === 1 ? '1 author' : `${n} authors`;
+  }
+
+  get labelsButtonLabel(): string {
+    const n = this.filterLabels.length;
+    return n === 0 ? 'labels' : n === 1 ? '1 label' : `${n} labels`;
+  }
+
+  togglePicker(picker: 'authors' | 'labels', event: Event): void {
+    event.stopPropagation();
+    this.openMenuFor = null;
+    this.openPicker = this.openPicker === picker ? null : picker;
+  }
+
+  // Clicks inside an open picker must not reach the document listener that closes it.
+  keepPickerOpen(event: Event): void {
+    event.stopPropagation();
+  }
+
+  toggleAuthor(login: string): void {
+    this.filterAuthors = this.filterAuthors.includes(login)
+      ? this.filterAuthors.filter((a) => a !== login)
+      : [...this.filterAuthors, login];
+  }
+
+  toggleLabel(label: string): void {
+    this.filterLabels = this.filterLabels.includes(label)
+      ? this.filterLabels.filter((l) => l !== label)
+      : [...this.filterLabels, label];
   }
 
   // Counted off the raw tree, before the text filter and hideShipped run (#186):
@@ -1160,6 +1218,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   @HostListener('document:click')
   closeMenu(): void {
     this.openMenuFor = null;
+    this.openPicker = null;
   }
 
   isSelected(projectId: number, issueNumber: number): boolean {

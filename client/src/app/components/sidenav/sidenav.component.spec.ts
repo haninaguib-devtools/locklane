@@ -521,7 +521,7 @@ describe('SidenavComponent', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  it('the author picker (#930) lists the distinct authors of the loaded trees, sorted, after "anyone"', () => {
+  it('the author picker (#930, #947) lists the distinct authors of the loaded trees, sorted, as checkboxes', () => {
     const fixture = init([PROJECT_A, PROJECT_B]);
     httpMock.expectOne('/api/projects/1/issues/tree').flush({
       nodes: [
@@ -538,15 +538,20 @@ describe('SidenavComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.authors).toEqual(['alice', 'bob', 'carol']);
+    expect(fixture.nativeElement.querySelector('.author-picker')).toBeNull();
+    const button = fixture.nativeElement.querySelector('.author-picker-button') as HTMLButtonElement;
+    expect(button.textContent!.trim()).toContain('authors');
+    button.click();
+    fixture.detectChanges();
     const options = Array.from(
-      fixture.nativeElement.querySelectorAll('.author-select option') as NodeListOf<HTMLOptionElement>,
+      fixture.nativeElement.querySelectorAll('.author-picker .picker-option') as NodeListOf<HTMLLabelElement>,
     );
-    expect(options.map((o) => o.value)).toEqual(['', 'alice', 'bob', 'carol']);
-    expect(options[0].textContent!.trim()).toBe('anyone');
-    expect(fixture.componentInstance.filterAuthor).toBe('');
+    expect(options.map((o) => o.textContent!.trim())).toEqual(['alice', 'bob', 'carol']);
+    expect(options.every((o) => !(o.querySelector('input') as HTMLInputElement).checked)).toBeTrue();
+    expect(fixture.componentInstance.filterAuthors).toEqual([]);
   });
 
-  it('choosing an author (#930) hides every row another login opened, composing with the text filter', () => {
+  it('ticking authors (#930, #947) keeps rows any ticked login opened, composing with the text filter', () => {
     const fixture = init();
     const [initiative, standalone] = tree();
     flushTree(1, [
@@ -558,7 +563,7 @@ describe('SidenavComponent', () => {
           { ...initiative.children[1], state: 'OPEN', author: 'bob' },
         ],
       },
-      { ...standalone, author: 'alice' },
+      { ...standalone, author: 'carol' },
     ]);
     fixture.detectChanges();
     const shown = () =>
@@ -567,24 +572,122 @@ describe('SidenavComponent', () => {
       );
     expect(shown()).toEqual([1, 2, 3, 4]);
 
-    const select = fixture.nativeElement.querySelector('.author-select') as HTMLSelectElement;
-    select.value = 'alice';
-    select.dispatchEvent(new Event('change'));
+    (fixture.nativeElement.querySelector('.author-picker-button') as HTMLButtonElement).click();
     fixture.detectChanges();
+    const tick = (login: string) => {
+      const box = Array.from(
+        fixture.nativeElement.querySelectorAll('.author-picker .picker-option') as NodeListOf<HTMLLabelElement>,
+      ).find((o) => o.textContent!.trim() === login)!.querySelector('input') as HTMLInputElement;
+      box.click();
+      fixture.detectChanges();
+    };
 
-    expect(fixture.componentInstance.filterAuthor).toBe('alice');
+    tick('alice');
+    expect(fixture.componentInstance.filterAuthors).toEqual(['alice']);
     // The initiative bob opened survives only for alice's child; bob's child and the
     // initiative's own authorship do not keep #3.
+    expect(shown()).toEqual([1, 2]);
+    expect((fixture.nativeElement.querySelector('.author-picker-button') as HTMLElement).textContent).toContain('1 author');
+
+    tick('carol');
+    expect(fixture.componentInstance.filterAuthors).toEqual(['alice', 'carol']);
     expect(shown()).toEqual([1, 2, 4]);
+    expect((fixture.nativeElement.querySelector('.author-picker-button') as HTMLElement).textContent).toContain('2 authors');
 
     fixture.componentInstance.filterText = 'standalone';
     fixture.detectChanges();
     expect(shown()).toEqual([4]);
 
-    select.value = '';
-    select.dispatchEvent(new Event('change'));
-    fixture.detectChanges();
+    tick('alice');
+    tick('carol');
+    expect(fixture.componentInstance.filterAuthors).toEqual([]);
     expect(shown()).toEqual([4]);
+  });
+
+  it('the label picker (#947) filters the tree by any ticked label and its search box only narrows the list', () => {
+    const fixture = init();
+    const [initiative, standalone] = tree();
+    flushTree(1, [
+      {
+        ...initiative,
+        labels: ['feature'],
+        children: [
+          { ...initiative.children[0], labels: ['bug'] },
+          { ...initiative.children[1], state: 'OPEN', labels: ['feature-request'] },
+        ],
+      },
+      { ...standalone, labels: ['chore'] },
+    ]);
+    fixture.detectChanges();
+    const shown = () =>
+      Array.from(fixture.nativeElement.querySelectorAll('.project-section .row') as NodeListOf<HTMLElement>).map(
+        (row) => Number(row.dataset['issueNumber']),
+      );
+    const listed = () =>
+      Array.from(
+        fixture.nativeElement.querySelectorAll('.label-picker .picker-option') as NodeListOf<HTMLLabelElement>,
+      ).map((o) => o.textContent!.trim());
+    const tick = (label: string) => {
+      const box = Array.from(
+        fixture.nativeElement.querySelectorAll('.label-picker .picker-option') as NodeListOf<HTMLLabelElement>,
+      ).find((o) => o.textContent!.trim() === label)!.querySelector('input') as HTMLInputElement;
+      box.click();
+      fixture.detectChanges();
+    };
+    expect(fixture.componentInstance.labels).toEqual(['bug', 'chore', 'feature', 'feature-request']);
+    expect(shown()).toEqual([1, 2, 3, 4]);
+
+    (fixture.nativeElement.querySelector('.label-picker-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(listed()).toEqual(['bug', 'chore', 'feature', 'feature-request']);
+
+    tick('bug');
+    expect(fixture.componentInstance.filterLabels).toEqual(['bug']);
+    // The initiative carries "feature", not "bug": it survives only for its "bug" child.
+    expect(shown()).toEqual([1, 2]);
+
+    // The search box narrows the picker's list, not the tree, and "bug" stays ticked.
+    const search = fixture.nativeElement.querySelector('.picker-search') as HTMLInputElement;
+    search.value = 'FEA';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(listed()).toEqual(['feature', 'feature-request']);
+    expect(shown()).toEqual([1, 2]);
+    expect(fixture.componentInstance.filterLabels).toEqual(['bug']);
+
+    tick('feature');
+    expect(fixture.componentInstance.filterLabels).toEqual(['bug', 'feature']);
+    // A matching initiative keeps its children, each still subject to the label filter.
+    expect(shown()).toEqual([1, 2]);
+    expect((fixture.nativeElement.querySelector('.label-picker-button') as HTMLElement).textContent).toContain('2 labels');
+
+    search.value = '';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(listed()).toEqual(['bug', 'chore', 'feature', 'feature-request']);
+    expect((listed().indexOf('bug') >= 0)).toBeTrue();
+    tick('bug');
+    tick('feature');
+    expect(shown()).toEqual([1, 2, 3, 4]);
+  });
+
+  it('only one picker (#947) is open at a time, and a click elsewhere closes it', () => {
+    const fixture = init();
+    flushTree(1, tree());
+    fixture.detectChanges();
+
+    (fixture.nativeElement.querySelector('.author-picker-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.author-picker')).not.toBeNull();
+
+    (fixture.nativeElement.querySelector('.label-picker-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.author-picker')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.label-picker')).not.toBeNull();
+
+    document.body.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.label-picker')).toBeNull();
   });
 
   it('isSelected only matches the exact project/issue pair', () => {
