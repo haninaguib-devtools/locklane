@@ -19,6 +19,11 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.40 — 2026-09-16
+
+### Other
+- Check for client update on login, not just WS reconnect (#953, #954)
+
 ## v0.2.39 — 2026-09-15
 
 ### Other
