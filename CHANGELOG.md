@@ -20,6 +20,12 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.42 — 2026-09-16
+
+### Other
+- Show Open-in-new-window on every workspace row, left-aligned (#969, #970)
+- Default the Gateway backend to IntelliJ IDEA Ultimate 262.9437.185 (#971, #972)
+
 ## v0.2.41 — 2026-09-16
 
 ### Other
