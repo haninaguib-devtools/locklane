@@ -18,3 +18,4 @@ Move t-workflow from v0.0.7 to v0.0.8 by replacing every t-workflow-owned file w
 - none
 
 ## Agents
+- work (fix): claude-code 2.1.273 (Claude Code) / claude-fable-5-1
