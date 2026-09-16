@@ -9,6 +9,7 @@ import { GithubRefreshStatus, Project, TreeNode, TreeResponse } from '../../mode
 import { IssuesService } from '../../services/issues.service';
 import { ProjectsService } from '../../services/projects.service';
 import { CurrentProjectService } from '../../services/current-project.service';
+import { WorkspaceStore } from '../../services/workspace-store';
 import { PinStore } from '../../services/pin-store';
 import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
@@ -131,6 +132,8 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   // off the shared service the header dropdown writes through the URL, rather than
   // bound in like `focusedProjectId` -- both narrowings compose in `isListed`.
   private readonly currentProject = inject(CurrentProjectService);
+  // Where the filters below live while a workspace is active (#938).
+  private readonly workspaceStore = inject(WorkspaceStore);
   // Backs the section header's "+" picker (#886): its own choices (installed agents,
   // Settings default), the same store the agent session page's "+" already reads.
   readonly defaultAgentStore = inject(DefaultAgentStore);
@@ -183,9 +186,26 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   // very first load's failure (show the sidenav-wide `error` state, nothing to keep).
   private hasLoadedList = false;
 
-  // None of these persist across reloads, matching the old app (#22's Goal).
-  filterText = '';
-  hideShipped = true;
+  // With no workspace active, neither persists across reloads, matching the old app
+  // (#22's Goal). While one is active (#938) both are read from and written to that
+  // workspace's record as they change -- the setters write through, and the effect in
+  // the constructor swaps the values in when the active workspace changes.
+  private _filterText = '';
+  private _hideShipped = true;
+  get filterText(): string {
+    return this._filterText;
+  }
+  set filterText(value: string) {
+    this._filterText = value;
+    this.saveFilters({ filterText: value });
+  }
+  get hideShipped(): boolean {
+    return this._hideShipped;
+  }
+  set hideShipped(value: boolean) {
+    this._hideShipped = value;
+    this.saveFilters({ hideShipped: value });
+  }
   // The GitHub login the author picker narrows the tree to (#930); '' is no filtering.
   filterAuthor = '';
 
@@ -265,6 +285,15 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
       if (this.initialized) {
         untracked(() => this.load(() => {}));
       }
+    });
+    // The filters follow the active workspace (#938): switching to one shows its saved
+    // values, back to all projects shows today's defaults. Runs on its first pass too,
+    // so a window opened straight into a workspace starts with that workspace's filters.
+    // Writes to the private fields, never the setters, so loading never saves back.
+    effect(() => {
+      const workspace = this.activeWorkspace();
+      this._filterText = workspace?.filterText ?? '';
+      this._hideShipped = workspace?.hideShipped ?? true;
     });
     this.agentSessionSub = merge(this.agentSessionsService.onOpened, this.agentSessionsService.onClosed).subscribe(() =>
       this.refreshAgentSessionIndicators(),
@@ -599,6 +628,20 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
    */
   private couldList(projectId: number): boolean {
     return this.isListed(projectId);
+  }
+
+  /** The active workspace's record (#938), or null with none active or an unknown id. */
+  private activeWorkspace() {
+    const id = this.currentProject.activeWorkspaceId();
+    return id === null ? null : this.workspaceStore.get(id);
+  }
+
+  /** Saves a filter change onto the active workspace (#938); nothing is saved with none active. */
+  private saveFilters(filters: { filterText?: string; hideShipped?: boolean }): void {
+    const workspace = untracked(() => this.activeWorkspace());
+    if (workspace) {
+      this.workspaceStore.updateFilters(workspace.id, filters);
+    }
   }
 
   /** Both narrowings at once: the focused project, if any, and the workspace's set, if any. */

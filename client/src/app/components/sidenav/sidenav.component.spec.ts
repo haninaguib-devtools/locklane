@@ -10,6 +10,7 @@ import { CollapseStore } from '../../services/collapse-store';
 import { ProjectSectionStore } from '../../services/project-section-store';
 import { EventsService } from '../../services/events.service';
 import { CurrentProjectService } from '../../services/current-project.service';
+import { WorkspaceStore } from '../../services/workspace-store';
 import { IssuesService } from '../../services/issues.service';
 import { Project, TreeNode } from '../../models/issue.model';
 import { UsageSnapshot } from '../../models/usage.model';
@@ -41,6 +42,8 @@ describe('SidenavComponent', () => {
   // CurrentProjectService -- stubbed, since the real one fetches /api/projects on its
   // own and would double every project-list expectation below.
   let visibleProjectIds: ReturnType<typeof signal<number[] | null>>;
+  // The active workspace's id (#938), as the sidenav reads it for its filters.
+  let activeWorkspaceId: ReturnType<typeof signal<string | null>>;
 
   beforeEach(() => {
     localStorage.removeItem('locklane.pinnedIssues');
@@ -50,14 +53,16 @@ describe('SidenavComponent', () => {
     // this on an empty installed list -- cleared so an earlier spec file's choice
     // never leaks into what these tests see as "known".
     localStorage.removeItem('locklane.defaultAgent');
+    localStorage.removeItem('locklane.workspaces');
     visibleProjectIds = signal<number[] | null>(null);
+    activeWorkspaceId = signal<string | null>(null);
     TestBed.configureTestingModule({
       imports: [SidenavComponent],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
-        { provide: CurrentProjectService, useValue: { visibleProjectIds } },
+        { provide: CurrentProjectService, useValue: { visibleProjectIds, activeWorkspaceId } },
       ],
     });
     httpMock = TestBed.inject(HttpTestingController);
@@ -74,6 +79,7 @@ describe('SidenavComponent', () => {
     localStorage.removeItem('locklane.collapsedInitiatives');
     localStorage.removeItem('locklane.collapsedProjectSections');
     localStorage.removeItem('locklane.defaultAgent');
+    localStorage.removeItem('locklane.workspaces');
   });
 
   function tree(): TreeNode[] {
@@ -2136,5 +2142,94 @@ describe('SidenavComponent', () => {
       expect(sectionIds(fixture)).toEqual(['proj-a']);
       expect(fixture.componentInstance.selectedProject).toBe(2);
     });
+  });
+
+  describe('per-workspace filters (#938)', () => {
+    function filterInput(fixture: { nativeElement: HTMLElement }): HTMLInputElement {
+      return fixture.nativeElement.querySelector('.filter-input') as HTMLInputElement;
+    }
+    function hideShippedBox(fixture: { nativeElement: HTMLElement }): HTMLInputElement {
+      return fixture.nativeElement.querySelector('.opened-toggle input') as HTMLInputElement;
+    }
+
+    it('shows the active workspace\'s saved filters, saves changes to it, and swaps on switch', fakeAsync(() => {
+      const store = TestBed.inject(WorkspaceStore);
+      const a = store.create('A', [1]);
+      store.updateFilters(a.id, { filterText: 'alpha', hideShipped: false });
+      const b = store.create('B', [1]);
+      store.updateFilters(b.id, { filterText: 'beta' });
+
+      activeWorkspaceId.set(a.id);
+      const fixture = init();
+      flushTree(1, tree());
+      fixture.detectChanges();
+      tick();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.filterText).toBe('alpha');
+      expect(fixture.componentInstance.hideShipped).toBeFalse();
+      expect(filterInput(fixture).value).toBe('alpha');
+      expect(hideShippedBox(fixture).checked).toBeFalse();
+
+      // Typing saves as you type; toggling saves too.
+      filterInput(fixture).value = 'alpha two';
+      filterInput(fixture).dispatchEvent(new Event('input'));
+      hideShippedBox(fixture).click();
+      fixture.detectChanges();
+      expect(store.get(a.id)).toEqual(jasmine.objectContaining({ filterText: 'alpha two', hideShipped: true }));
+      expect(store.get(b.id)).toEqual(jasmine.objectContaining({ filterText: 'beta', hideShipped: true }));
+
+      // Switching to B shows B's values.
+      activeWorkspaceId.set(b.id);
+      fixture.detectChanges();
+      tick();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.filterText).toBe('beta');
+      expect(fixture.componentInstance.hideShipped).toBeTrue();
+      expect(filterInput(fixture).value).toBe('beta');
+
+      // Back to all projects: empty filter, default hide-shipped, and nothing saved.
+      activeWorkspaceId.set(null);
+      fixture.detectChanges();
+      tick();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.filterText).toBe('');
+      expect(fixture.componentInstance.hideShipped).toBeTrue();
+      filterInput(fixture).value = 'loose';
+      filterInput(fixture).dispatchEvent(new Event('input'));
+      hideShippedBox(fixture).click();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.filterText).toBe('loose');
+      expect(fixture.componentInstance.hideShipped).toBeFalse();
+      expect(store.get(a.id)).toEqual(jasmine.objectContaining({ filterText: 'alpha two', hideShipped: true }));
+      expect(store.get(b.id)).toEqual(jasmine.objectContaining({ filterText: 'beta', hideShipped: true }));
+    }));
+
+    it('a new workspace starts with an empty filter and hide-shipped on', fakeAsync(() => {
+      const store = TestBed.inject(WorkspaceStore);
+      const fixture = init();
+      flushTree(1, tree());
+      fixture.componentInstance.filterText = 'loose';
+      fixture.componentInstance.hideShipped = false;
+
+      const fresh = store.create('Fresh', [1]);
+      expect(fresh).toEqual(jasmine.objectContaining({ filterText: '', hideShipped: true }));
+      activeWorkspaceId.set(fresh.id);
+      fixture.detectChanges();
+      tick();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.filterText).toBe('');
+      expect(fixture.componentInstance.hideShipped).toBeTrue();
+    }));
+
+    it('a ws id naming no stored workspace behaves like no workspace', fakeAsync(() => {
+      activeWorkspaceId.set('gone');
+      const fixture = init();
+      flushTree(1, tree());
+      fixture.detectChanges();
+      tick();
+      fixture.componentInstance.filterText = 'x';
+      expect(fixture.componentInstance.filterText).toBe('x');
+      expect(TestBed.inject(WorkspaceStore).list()).toEqual([]);
+    }));
   });
 });
