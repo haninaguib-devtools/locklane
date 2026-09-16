@@ -2191,6 +2191,21 @@ describe('SidenavComponent', () => {
       expect((options[1].querySelector('input') as HTMLInputElement).checked).toBeFalse();
     });
 
+    it('the row popup anchors to the right edge of its menu-wrap so it opens leftward inside the sidebar (#975)', () => {
+      const fixture = init();
+      flushTree(1, labeledTree());
+      fixture.componentInstance.openLabelAssign(1, 4, new Event('click'));
+      httpMock.expectOne('/api/projects/1/issues/labels').flush([{ name: 'bug', color: 'd73a4a' }]);
+      fixture.detectChanges();
+
+      const picker = rowFor(fixture, 4).querySelector('.menu-wrap .picker') as HTMLElement;
+      expect(picker).not.toBeNull();
+      const wrap = rowFor(fixture, 4).querySelector('.menu-wrap') as HTMLElement;
+      expect(getComputedStyle(picker).position).toBe('absolute');
+      // Right edges coincide: the popup grows leftward from the kebab, not off the sidebar.
+      expect(picker.getBoundingClientRect().right).toBeCloseTo(wrap.getBoundingClientRect().right, 0);
+    });
+
     it('opening the popup a second time on the same row closes it without fetching again', () => {
       const fixture = init();
       flushTree(1, labeledTree());
