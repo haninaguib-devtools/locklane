@@ -81,6 +81,21 @@ class CliGhClientTest {
     }
 
     @Test
+    void anIssuesAuthorIsItsGitHubLoginOrEmptyWhenAbsent(@TempDir Path dir) throws Exception {
+        // #930: the sidenav's author picker reads author.login; an issue gh reports with
+        // no author (a deleted account, say) maps to "" rather than null.
+        Path fakeGh = FakeGh.script(dir, """
+                echo '[{"number": 1, "title": "One", "state": "OPEN", "labels": [], "author": {"login": "alice"}},
+                       {"number": 2, "title": "Two", "state": "OPEN", "labels": []}]'
+                """);
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        List<GhIssue> issues = client.issues();
+
+        assertThat(issues).extracting(GhIssue::author).containsExactly("alice", "");
+    }
+
+    @Test
     void aNonzeroExitReportsGhsOwnStderrText(@TempDir Path dir) throws Exception {
         // ProjectGhResources looks for "Bad credentials" in this message (#656).
         Path fakeGh = FakeGh.script(dir, """

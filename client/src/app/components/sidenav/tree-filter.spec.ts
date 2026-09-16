@@ -2,12 +2,18 @@ import { filterPinnedTree, filterTree } from './tree-filter';
 import { TreeNode } from '../../models/issue.model';
 
 describe('tree-filter', () => {
-  function task(number: number, title: string, state = 'OPEN', labels: string[] = []): TreeNode {
-    return { number, title, kind: 'TASK', state, hasActiveBranch: false, labels, children: [] };
+  function task(number: number, title: string, state = 'OPEN', labels: string[] = [], author = ''): TreeNode {
+    return { number, title, kind: 'TASK', state, hasActiveBranch: false, labels, author, children: [] };
   }
 
-  function initiative(number: number, title: string, children: TreeNode[], state = 'OPEN'): TreeNode {
-    return { number, title, kind: 'INITIATIVE', state, hasActiveBranch: false, labels: [], children };
+  function initiative(
+    number: number,
+    title: string,
+    children: TreeNode[],
+    state = 'OPEN',
+    author = '',
+  ): TreeNode {
+    return { number, title, kind: 'INITIATIVE', state, hasActiveBranch: false, labels: [], author, children };
   }
 
   it('with no filter text and hideShipped off, returns everything unchanged', () => {
@@ -136,6 +142,54 @@ describe('tree-filter', () => {
     expect(result[0].number).toBe(3);
   });
 
+  it('with no author selected, the author filter (#930) is a no-op', () => {
+    const tree = [task(1, 'A', 'OPEN', [], 'alice'), task(2, 'B', 'OPEN', [], 'bob')];
+
+    expect(filterTree(tree, '', false, [], () => false, '')).toEqual(tree);
+  });
+
+  it('an author filter (#930) drops leaf tasks another login opened', () => {
+    const tree = [task(1, 'A', 'OPEN', [], 'alice'), task(2, 'B', 'OPEN', [], 'bob'), task(3, 'C')];
+
+    const result = filterTree(tree, '', false, [], () => false, 'alice');
+
+    expect(result.map((n) => n.number)).toEqual([1]);
+  });
+
+  it('an author filter (#930) keeps an initiative another login opened only for its matching children', () => {
+    const tree = [
+      initiative(1, 'Theirs', [task(2, 'Mine', 'OPEN', [], 'alice'), task(3, 'Theirs too', 'OPEN', [], 'bob')], 'OPEN', 'bob'),
+      initiative(4, 'Mine', [task(5, 'Theirs', 'OPEN', [], 'bob')], 'OPEN', 'alice'),
+      initiative(6, 'Nothing of mine', [task(7, 'Theirs', 'OPEN', [], 'bob')], 'OPEN', 'bob'),
+    ];
+
+    const result = filterTree(tree, '', false, [], () => false, 'alice');
+
+    expect(result.map((n) => n.number)).toEqual([1, 4]);
+    expect(result[0].children.map((c) => c.number)).toEqual([2]);
+    // A matching initiative keeps its children, but each child still has to match.
+    expect(result[1].children).toEqual([]);
+  });
+
+  it('the author filter (#930) combines with hideShipped and the text filter (ANDed)', () => {
+    const tree = [
+      task(1, 'Match', 'CLOSED', [], 'alice'),
+      task(2, 'Match', 'OPEN', [], 'bob'),
+      task(3, 'Other', 'OPEN', [], 'alice'),
+      task(4, 'Match', 'OPEN', [], 'alice'),
+    ];
+
+    const result = filterTree(tree, 'match', true, [], () => false, 'alice');
+
+    expect(result.map((n) => n.number)).toEqual([4]);
+  });
+
+  it('an open agent session (#263) does not exempt a node from the author filter (#930)', () => {
+    const tree = [task(1, 'Theirs, with an agent', 'OPEN', [], 'bob')];
+
+    expect(filterTree(tree, '', false, [], () => true, 'alice')).toEqual([]);
+  });
+
   it('an open agent session (#263) exempts a closed leaf task from hideShipped', () => {
     const tree = [task(1, 'Closed but has an agent session', 'CLOSED')];
 
@@ -177,8 +231,8 @@ describe('tree-filter', () => {
 });
 
 describe('filterPinnedTree', () => {
-  function task(number: number, title: string, state = 'OPEN', labels: string[] = []): TreeNode {
-    return { number, title, kind: 'TASK', state, hasActiveBranch: false, labels, children: [] };
+  function task(number: number, title: string, state = 'OPEN', labels: string[] = [], author = ''): TreeNode {
+    return { number, title, kind: 'TASK', state, hasActiveBranch: false, labels, author, children: [] };
   }
 
   it('unlike filterTree, a shipped pinned entry is never dropped', () => {
@@ -191,6 +245,30 @@ describe('filterPinnedTree', () => {
     const pinned = [task(1, 'Pinned, untagged', 'OPEN', [])];
 
     expect(filterPinnedTree(pinned, '', false, ['bug'])).toEqual(pinned);
+  });
+
+  it('unlike filterTree, a pinned entry another login opened is never dropped (#930)', () => {
+    const pinned = [task(1, 'Pinned, theirs', 'OPEN', [], 'bob')];
+
+    expect(filterPinnedTree(pinned, '', false, [], () => false, 'alice')).toEqual(pinned);
+  });
+
+  it("a pinned initiative's children still respect the author filter (#930)", () => {
+    const initiative: TreeNode = {
+      number: 1,
+      title: 'Pinned initiative',
+      kind: 'INITIATIVE',
+      state: 'OPEN',
+      hasActiveBranch: false,
+      labels: [],
+      author: 'bob',
+      children: [task(2, 'Mine', 'OPEN', [], 'alice'), task(3, 'Theirs', 'OPEN', [], 'bob')],
+    };
+
+    const result = filterPinnedTree([initiative], '', false, [], () => false, 'alice');
+
+    expect(result).toHaveSize(1);
+    expect(result[0].children.map((c) => c.number)).toEqual([2]);
   });
 
   it('the text filter still applies to a pinned entry', () => {
@@ -207,6 +285,7 @@ describe('filterPinnedTree', () => {
       state: 'OPEN',
       hasActiveBranch: false,
       labels: [],
+      author: '',
       children: [task(2, 'Open child', 'OPEN'), task(3, 'Closed child', 'CLOSED')],
     };
 
@@ -223,6 +302,7 @@ describe('filterPinnedTree', () => {
       state: 'OPEN',
       hasActiveBranch: false,
       labels: [],
+      author: '',
       children: [task(2, 'Bug', 'OPEN', ['bug']), task(3, 'Docs', 'OPEN', ['documentation'])],
     };
 
@@ -247,6 +327,7 @@ describe('filterPinnedTree', () => {
       state: 'OPEN',
       hasActiveBranch: false,
       labels: [],
+      author: '',
       children: [task(2, 'Open child', 'OPEN'), task(3, 'Closed child, has agent session', 'CLOSED')],
     };
 

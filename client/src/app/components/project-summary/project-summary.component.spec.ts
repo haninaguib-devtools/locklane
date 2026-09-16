@@ -43,12 +43,13 @@ describe('ProjectSummaryComponent', () => {
         state: 'OPEN',
         hasActiveBranch: false,
         labels: [],
+        author: '',
         children: [
-          { number: 2, title: 'Child A', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], children: [] },
-          { number: 3, title: 'Child B', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, labels: [], children: [] },
+          { number: 2, title: 'Child A', kind: 'TASK', state: 'OPEN', hasActiveBranch: false, labels: [], author: '', children: [] },
+          { number: 3, title: 'Child B', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, labels: [], author: '', children: [] },
         ],
       },
-      { number: 4, title: 'Standalone', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, labels: [], children: [] },
+      { number: 4, title: 'Standalone', kind: 'TASK', state: 'CLOSED', hasActiveBranch: false, labels: [], author: '', children: [] },
     ];
   }
 

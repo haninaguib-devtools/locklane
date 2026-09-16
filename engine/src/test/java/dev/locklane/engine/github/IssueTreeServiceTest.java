@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /** Covers #21's done-when: initiatives nest their direct children, edge cases handled explicitly. */
 class IssueTreeServiceTest {
@@ -39,6 +40,23 @@ class IssueTreeServiceTest {
         assertThat(tree).hasSize(1);
         TreeNode initiative = tree.get(0);
         assertThat(initiative.children()).extracting(TreeNode::number).containsExactlyInAnyOrder(2, 3);
+    }
+
+    @Test
+    void authorIsCopiedVerbatimOntoInitiativesTasksAndChildren() {
+        // #930: the sidenav's author picker filters on this field.
+        IssueTreeService service = service(
+                withAuthor(initiative(1, "Rebuild the app"), "alice"),
+                withAuthor(taskWithParent(2, "Server piece", 1), "bob"),
+                withAuthor(task(3, "Standalone"), "carol"),
+                task(4, "No author"));
+
+        List<TreeNode> tree = service.tree();
+
+        assertThat(tree).extracting(TreeNode::number, TreeNode::author)
+                .containsExactlyInAnyOrder(tuple(1, "alice"), tuple(3, "carol"), tuple(4, ""));
+        TreeNode initiative = tree.stream().filter(n -> n.number() == 1).findFirst().orElseThrow();
+        assertThat(initiative.children()).extracting(TreeNode::author).containsExactly("bob");
     }
 
     @Test
@@ -215,6 +233,11 @@ class IssueTreeServiceTest {
 
     private static GhIssue taskWithParent(int number, String title, int parent) {
         return new GhIssue(number, title, "OPEN", List.of(), "", "", "", parent);
+    }
+
+    private static GhIssue withAuthor(GhIssue issue, String author) {
+        return new GhIssue(issue.number(), issue.title(), issue.state(), issue.labels(), issue.body(), issue.createdAt(),
+                issue.updatedAt(), issue.parent(), author);
     }
 
     private static GhIssue closedTask(int number, String title) {

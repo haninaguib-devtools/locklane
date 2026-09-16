@@ -54,6 +54,9 @@ export interface TreeNode {
   // Verbatim from GhIssue.labels (#111) -- the sidebar's tag filter picks its own
   // classification subset out of these.
   labels: string[];
+  // Verbatim from GhIssue.author (#930): the GitHub login of whoever opened the
+  // issue, '' when GitHub reports none. The sidebar's author picker filters on it.
+  author: string;
   children: TreeNode[];
 }
 

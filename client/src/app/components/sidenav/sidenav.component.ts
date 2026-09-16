@@ -178,9 +178,11 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   // very first load's failure (show the sidenav-wide `error` state, nothing to keep).
   private hasLoadedList = false;
 
-  // Neither persists across reloads, matching the old app (#22's Goal).
+  // None of these persist across reloads, matching the old app (#22's Goal).
   filterText = '';
   hideShipped = true;
+  // The GitHub login the author picker narrows the tree to (#930); '' is no filtering.
+  filterAuthor = '';
 
   // The failed project awaiting delete confirmation in the app-styled dialog (#231),
   // replacing the synchronous native `confirm()` this used to block on.
@@ -961,8 +963,13 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
             : n,
         );
       // hideShipped never removes a pin, only the text filter can -- see tree-filter.ts.
-      const nodes = filterPinnedTree(ordered, this.filterText, this.hideShipped, [], (n) =>
-        this.hasOpenAgentSession(section.project.id, n.number),
+      const nodes = filterPinnedTree(
+        ordered,
+        this.filterText,
+        this.hideShipped,
+        [],
+        (n) => this.hasOpenAgentSession(section.project.id, n.number),
+        this.filterAuthor,
       );
       if (nodes.length > 0) {
         groups.push({ project: section.project, nodes });
@@ -988,9 +995,32 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
           ? { ...n, children: n.children.filter((c) => !pinnedNumbers.has(c.number)) }
           : n,
       );
-    return filterTree(topLevel, this.filterText, this.hideShipped, [], (n) =>
-      this.hasOpenAgentSession(section.project.id, n.number),
+    return filterTree(
+      topLevel,
+      this.filterText,
+      this.hideShipped,
+      [],
+      (n) => this.hasOpenAgentSession(section.project.id, n.number),
+      this.filterAuthor,
     );
+  }
+
+  // The author picker's choices (#930): every distinct GitHub login across the loaded
+  // trees, off the raw trees so a chosen author never vanishes from its own picker.
+  // A selection whose author has since left the tree stays listed until it is cleared.
+  get authors(): string[] {
+    const logins = new Set<string>();
+    for (const section of this.sections) {
+      for (const node of this.flatten(section.tree)) {
+        if (node.author) {
+          logins.add(node.author);
+        }
+      }
+    }
+    if (this.filterAuthor) {
+      logins.add(this.filterAuthor);
+    }
+    return [...logins].sort((a, b) => a.localeCompare(b));
   }
 
   // Counted off the raw tree, before the text filter and hideShipped run (#186):

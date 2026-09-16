@@ -8,7 +8,10 @@ import java.util.List;
  * the same PR-derived signal, just a boolean since the tree has no per-issue detail
  * fetch to hang the branch name itself off of. {@code labels} mirrors
  * {@link GhIssue#labels()} verbatim (#111) -- the sidebar's tag filter picks its own
- * classification subset out of these rather than the tree pre-filtering them. */
+ * classification subset out of these rather than the tree pre-filtering them.
+ * {@code author} mirrors {@link GhIssue#author()} verbatim (#930) for the sidebar's
+ * author picker. */
 public record TreeNode(
-        int number, String title, String kind, String state, boolean hasActiveBranch, List<String> labels, List<TreeNode> children) {
+        int number, String title, String kind, String state, boolean hasActiveBranch, List<String> labels, String author,
+        List<TreeNode> children) {
 }
