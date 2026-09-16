@@ -19,6 +19,12 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.39 — 2026-09-15
+
+### Other
+- Open worktree in VS Code or Gateway on the browser machine over SSH (#949, #950)
+- Multi-select author and label pickers on a second sidebar filter row (#947, #948)
+
 ## v0.2.38 — 2026-09-15
 
 ### Other
