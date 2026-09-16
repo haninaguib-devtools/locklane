@@ -20,6 +20,11 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.43 — 2026-09-16
+
+### Other
+- Open the row Labels popup leftward so it is not clipped by the main pane (#975, #976)
+
 ## v0.2.42 — 2026-09-16
 
 ### Other
