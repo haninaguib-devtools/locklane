@@ -17,6 +17,14 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.38 — 2026-09-15
+
+### Other
+- Workspaces: named project views with scoped filters (#934, #944)
+- Support Muse Code as a fifth known coding agent (#928, #939)
+- Update t-workflow from v0.0.7 to v0.0.8 (#932, #933)
+- Filter the sidenav issue tree by GitHub author (#930, #931)
+
 ## v0.2.37 — 2026-09-15
 
 ### Other
