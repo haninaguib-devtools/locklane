@@ -12,7 +12,7 @@ import { EventsService } from './events.service';
  * bundle, so `SwUpdate.checkForUpdate()` is what confirms one is ready before anything
  * is shown.
  *
- * Also checks on `AuthService.sessionEstablished$` (#1013): a redeploy resets the
+ * Also checks on `AuthService.sessionEstablished$` (#953): a redeploy resets the
  * engine's session store, so the user logging back in is often a faster, more
  * reliable signal that the engine is back than waiting on the events socket's own
  * exponential-backoff reconnect.
