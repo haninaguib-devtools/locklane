@@ -10,6 +10,9 @@ import { RemoteControlStore } from '../../services/remote-control-store';
 
 type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enabled';
 
+/** The dialog's three tabs (#983): General, Notifications, Security. */
+type SettingsTab = 'general' | 'notifications' | 'security';
+
 /**
  * The settings dialog (#90): a title bar and a body holding a default-agent section
  * (#219) -- rendering a button only for a CLI the engine detected as installed at
@@ -34,6 +37,11 @@ type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enable
  * <p>Also a Remote Control section (#979, off by default): a checkbox toggle, the same
  * shape as the Notifications section's, deciding whether a brand-new Claude Code
  * session Locklane launches carries Claude Code's own `--remote-control` flag.
+ *
+ * <p>The sections are grouped into three tabs (#983: General, Notifications, Security)
+ * to keep the dialog from growing into one long scroll. Every tab's panel stays mounted
+ * at all times -- only `hidden` toggles -- so switching tabs never resets a section's own
+ * state, such as an in-progress two-factor enrollment or backup-code regeneration.
  */
 @Component({
   selector: 'app-settings-dialog',
@@ -52,6 +60,8 @@ export class SettingsDialogComponent implements OnInit {
   private readonly remoteControlStore = inject(RemoteControlStore);
 
   @Output() closed = new EventEmitter<void>();
+
+  readonly selectedTab = signal<SettingsTab>('general');
 
   readonly defaultAgent = this.defaultAgentStore.agent;
   readonly installedAgents = this.defaultAgentStore.installed;
@@ -99,6 +109,10 @@ export class SettingsDialogComponent implements OnInit {
   @HostListener('document:keydown.escape')
   onEscape(): void {
     this.closed.emit();
+  }
+
+  selectTab(tab: SettingsTab): void {
+    this.selectedTab.set(tab);
   }
 
   chooseDefaultAgent(agent: DefaultAgent): void {

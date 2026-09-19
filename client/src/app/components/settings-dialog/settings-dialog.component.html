@@ -4,7 +4,52 @@
       <span>settings</span>
       <button type="button" class="close" (click)="closed.emit()" aria-label="Close">×</button>
     </div>
-    <div class="popup-body">
+    <div class="tabs" role="tablist" aria-label="Settings categories">
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        id="settings-tab-general"
+        [class.active]="selectedTab() === 'general'"
+        [attr.aria-selected]="selectedTab() === 'general'"
+        aria-controls="settings-panel-general"
+        (click)="selectTab('general')"
+      >
+        General
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        id="settings-tab-notifications"
+        [class.active]="selectedTab() === 'notifications'"
+        [attr.aria-selected]="selectedTab() === 'notifications'"
+        aria-controls="settings-panel-notifications"
+        (click)="selectTab('notifications')"
+      >
+        Notifications
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        id="settings-tab-security"
+        [class.active]="selectedTab() === 'security'"
+        [attr.aria-selected]="selectedTab() === 'security'"
+        aria-controls="settings-panel-security"
+        (click)="selectTab('security')"
+      >
+        Security
+      </button>
+    </div>
+
+    <div
+      class="popup-body"
+      role="tabpanel"
+      id="settings-panel-general"
+      aria-labelledby="settings-tab-general"
+      [hidden]="selectedTab() !== 'general'"
+    >
       <section class="section">
         <h2>Default agent</h2>
         <p class="muted">Which agent CLI a new agent launches with by default.</p>
@@ -58,7 +103,15 @@
           <button type="button" class="secondary" (click)="resetAccent()">Reset</button>
         </div>
       </section>
+    </div>
 
+    <div
+      class="popup-body"
+      role="tabpanel"
+      id="settings-panel-notifications"
+      aria-labelledby="settings-tab-notifications"
+      [hidden]="selectedTab() !== 'notifications'"
+    >
       <section class="section">
         <h2>Notifications</h2>
         <p class="muted">
@@ -107,7 +160,15 @@
           Remote Control for new Claude sessions
         </label>
       </section>
+    </div>
 
+    <div
+      class="popup-body"
+      role="tabpanel"
+      id="settings-panel-security"
+      aria-labelledby="settings-tab-security"
+      [hidden]="selectedTab() !== 'security'"
+    >
       <section class="section">
         <h2>Password</h2>
         <p class="muted">Change the password used to sign in.</p>

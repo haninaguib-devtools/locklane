@@ -224,6 +224,61 @@ describe('SettingsDialogComponent', () => {
     expect(ideOptions(fixture).map((b) => b.classList.contains('chosen'))).toEqual([true, false]);
   });
 
+  // #983: the dialog is grouped into three tabs, each panel kept mounted (hidden, not
+  // destroyed) so switching away and back never resets a section's own state.
+  describe('Tabs', () => {
+    const tabButton = (fixture: ReturnType<typeof create>, id: string) =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(`#settings-tab-${id}`)!;
+    const panel = (fixture: ReturnType<typeof create>, id: string) =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(`#settings-panel-${id}`)!;
+
+    it('starts on General, with the other panels hidden', () => {
+      const fixture = create();
+      flushStatus(fixture, false);
+
+      expect(tabButton(fixture, 'general').getAttribute('aria-selected')).toBe('true');
+      expect(tabButton(fixture, 'notifications').getAttribute('aria-selected')).toBe('false');
+      expect(tabButton(fixture, 'security').getAttribute('aria-selected')).toBe('false');
+      expect(panel(fixture, 'general').hidden).toBe(false);
+      expect(panel(fixture, 'notifications').hidden).toBe(true);
+      expect(panel(fixture, 'security').hidden).toBe(true);
+    });
+
+    it('switches panels on click, keeping every setting reachable in its own tab', () => {
+      const fixture = create();
+      flushStatus(fixture, false);
+
+      tabButton(fixture, 'security').click();
+      fixture.detectChanges();
+
+      expect(tabButton(fixture, 'security').classList.contains('active')).toBe(true);
+      expect(panel(fixture, 'general').hidden).toBe(true);
+      expect(panel(fixture, 'security').hidden).toBe(false);
+      expect(panel(fixture, 'security').textContent).toContain('Two-factor authentication is off');
+
+      tabButton(fixture, 'notifications').click();
+      fixture.detectChanges();
+
+      expect(panel(fixture, 'security').hidden).toBe(true);
+      expect(panel(fixture, 'notifications').hidden).toBe(false);
+      expect(panel(fixture, 'notifications').querySelector('.remote-control-toggle')).toBeTruthy();
+    });
+
+    it('keeps a section\'s own state after switching tabs away and back', () => {
+      const fixture = create();
+      flushStatus(fixture, false);
+      fixture.componentInstance.currentPasswordForChange = 'old-password';
+      fixture.detectChanges();
+
+      tabButton(fixture, 'notifications').click();
+      fixture.detectChanges();
+      tabButton(fixture, 'security').click();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.currentPasswordForChange).toBe('old-password');
+    });
+  });
+
   it('renders a title bar and loads the 2FA status', () => {
     const fixture = create();
     const compiled = fixture.nativeElement as HTMLElement;
