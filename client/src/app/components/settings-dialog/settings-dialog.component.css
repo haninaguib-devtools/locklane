@@ -200,7 +200,8 @@ input {
   color: var(--danger, #b3432b);
 }
 
-.notification-toggle {
+.notification-toggle,
+.remote-control-toggle {
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -212,7 +213,8 @@ input {
   cursor: pointer;
 }
 
-.notification-toggle input {
+.notification-toggle input,
+.remote-control-toggle input {
   width: auto;
 }
 

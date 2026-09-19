@@ -266,7 +266,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
         }
 
         Launch launch = resolveLaunch(sessionId, queryParam(wsSession, "cmd"), queryParam(wsSession, "resume"),
-                queryParam(wsSession, "seed"), workingDirectory);
+                queryParam(wsSession, "seed"), "true".equals(queryParam(wsSession, "remoteControl")), workingDirectory);
         Integer columns = parseIntParam(wsSession, "cols");
         Integer rows = parseIntParam(wsSession, "rows");
         // Empty for anything that isn't a project agent session's session id (#139) — a
@@ -473,10 +473,15 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * plain reattach stays untouched. Package-visible for tests.
      */
     String[] resolveLaunchCommand(String sessionId, String cmd, String resume) {
+        return resolveLaunchCommand(sessionId, cmd, resume, false);
+    }
+
+    /** As {@link #resolveLaunchCommand(String, String, String)}, plus #979's {@code remoteControl}. */
+    String[] resolveLaunchCommand(String sessionId, String cmd, String resume, boolean remoteControl) {
         if (resume == null && isAgent(cmd) && sessionRegistry.find(sessionId).isEmpty()) {
             resume = sessionRegistry.latestResumeId(sessionId, cmd).orElse(null);
         }
-        return resolveLaunchCommand(cmd, resume);
+        return resolveLaunchCommand(cmd, resume, remoteControl);
     }
 
     /** The accepted value of the {@code seed} query parameter (#537). */
@@ -499,15 +504,30 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * exactly as before. Package-visible for tests.
      */
     Launch resolveLaunch(String sessionId, String cmd, String resume, String seed, Path workingDirectory) {
+        return resolveLaunch(sessionId, cmd, resume, seed, false, workingDirectory);
+    }
+
+    /**
+     * As {@link #resolveLaunch(String, String, String, String, Path)}, plus #979: when
+     * {@code remoteControl} is true, a brand-new {@code claude} launch -- positional-prompt
+     * (seeded) or bare, resumed or not -- carries {@code --remote-control} in its argv,
+     * ahead of the {@code --settings <bell-hooks-json>}/{@code --resume <id>} handling
+     * {@link #resolveLaunchCommand(String, String, boolean)} and {@link
+     * #seededLaunchCommand(String, String, boolean)} already do. Ignored for every other
+     * {@code cmd}, and for a reattach to an already-running process, which ignores every
+     * launch parameter regardless (see {@code SessionRegistry#attach}). Package-visible for tests.
+     */
+    Launch resolveLaunch(String sessionId, String cmd, String resume, String seed, boolean remoteControl,
+            Path workingDirectory) {
         boolean quiescenceFallbackEnabled = !isAgent(cmd);
         if (SEED_TEMPLATE.equals(seed) && resume == null && isAgent(cmd)
                 && sessionRegistry.find(sessionId).isEmpty() && projectAgentSessionService != null) {
             Optional<String> prompt = projectAgentSessionService.templateSeedPrompt(sessionId, workingDirectory);
             if (prompt.isPresent()) {
-                return new Launch(seededLaunchCommand(cmd, prompt.get()), true, quiescenceFallbackEnabled);
+                return new Launch(seededLaunchCommand(cmd, prompt.get(), remoteControl), true, quiescenceFallbackEnabled);
             }
         }
-        return new Launch(resolveLaunchCommand(sessionId, cmd, resume), false, quiescenceFallbackEnabled);
+        return new Launch(resolveLaunchCommand(sessionId, cmd, resume, remoteControl), false, quiescenceFallbackEnabled);
     }
 
     /**
@@ -551,11 +571,16 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
      * anything that is not one of the five agents. Package-visible for tests.
      */
     String[] seededLaunchCommand(String cmd, String prompt) {
+        return seededLaunchCommand(cmd, prompt, false);
+    }
+
+    /** As {@link #seededLaunchCommand(String, String)}, plus #979's {@code remoteControl}. */
+    String[] seededLaunchCommand(String cmd, String prompt, boolean remoteControl) {
         if (cmd == null || prompt == null) {
             return null;
         }
         return switch (cmd) {
-            case "claude" -> withClaudeBellHooks(new String[] {"claude", prompt});
+            case "claude" -> withClaudeBellHooks(withRemoteControl(new String[] {"claude", prompt}, remoteControl));
             case "codex" -> withCodexBellNotify(new String[] {"codex", prompt});
             case "opencode" -> new String[] {"opencode", "--prompt", prompt};
             case "omp" -> withOmpBellHook(new String[] {"omp", prompt});
@@ -566,12 +591,17 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     /** {@code null} (absent or "shell") defers to {@link SessionRegistry}'s default shell. Package-visible for tests. */
     String[] resolveLaunchCommand(String cmd, String resume) {
+        return resolveLaunchCommand(cmd, resume, false);
+    }
+
+    /** As {@link #resolveLaunchCommand(String, String)}, plus #979's {@code remoteControl}. */
+    String[] resolveLaunchCommand(String cmd, String resume, boolean remoteControl) {
         if (cmd == null || cmd.isBlank() || cmd.equals("shell")) {
             return null;
         }
         if (resume != null && RESUME_ID.matcher(resume).matches()) {
             if (cmd.equals("claude")) {
-                return withClaudeBellHooks(new String[] {"claude", "--resume", resume});
+                return withClaudeBellHooks(withRemoteControl(new String[] {"claude", "--resume", resume}, remoteControl));
             }
             if (cmd.equals("codex")) {
                 return withCodexBellNotify(new String[] {"codex", "resume", resume});
@@ -587,7 +617,7 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             }
         }
         if (cmd.equals("claude")) {
-            return withClaudeBellHooks(new String[] {cmd});
+            return withClaudeBellHooks(withRemoteControl(new String[] {cmd}, remoteControl));
         }
         if (cmd.equals("codex")) {
             return withCodexBellNotify(new String[] {cmd});
@@ -599,6 +629,26 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
             return withMuseBellHook(new String[] {cmd});
         }
         return new String[] {cmd};
+    }
+
+    /**
+     * Inserts {@code --remote-control} right after {@code command[0]} ({@code "claude"})
+     * when {@code remoteControl} is true (#979), ahead of whatever {@code --resume <id>}
+     * or {@code --settings <bell-hooks-json>} the caller appends next -- Claude Code's own
+     * flag for showing up in the claude.ai / Claude mobile app session list. A no-op
+     * (returns {@code command} unchanged) when {@code remoteControl} is false. Every
+     * caller here already knows {@code command[0]} is {@code "claude"}, the same
+     * precondition {@link #withClaudeBellHooks} keeps.
+     */
+    private static String[] withRemoteControl(String[] command, boolean remoteControl) {
+        if (!remoteControl) {
+            return command;
+        }
+        String[] withFlag = new String[command.length + 1];
+        withFlag[0] = command[0];
+        withFlag[1] = "--remote-control";
+        System.arraycopy(command, 1, withFlag, 2, command.length - 1);
+        return withFlag;
     }
 
     // #855: rings the engine's own agent-agnostic bell signal (#130), never the

@@ -39,6 +39,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Also covers #862: {@link TerminalWebSocketHandler#resolveLaunch} flags the
  * quiescence fallback off for every command recognised as an agent with a landed
  * bell hook, and on for a shell or anything else.
+ *
+ * <p>Also covers #979: a {@code claude} launch built with {@code remoteControl} true
+ * carries {@code --remote-control} right after {@code claude}, ahead of any
+ * {@code --resume <id>}/{@code --settings <bell-hooks-json>} the launch already
+ * carries; every other tool's argv is untouched by it regardless.
  */
 class TerminalWebSocketHandlerLaunchCommandTest {
 
@@ -255,6 +260,46 @@ class TerminalWebSocketHandlerLaunchCommandTest {
             }
         }
         throw new AssertionError("no " + event + " hook group matching " + matcher + " in " + hooks);
+    }
+
+    @Test
+    void remoteControlInsertsTheFlagRightAfterClaudeAheadOfResumeAndSettings() {
+        assertThat(handler.resolveLaunchCommand("claude", null, true))
+                .containsExactly(wrapped("claude", "--remote-control", "--settings", claudeSettingsJson));
+        assertThat(handler.resolveLaunchCommand("claude", UUID, true))
+                .containsExactly(wrapped("claude", "--remote-control", "--resume", UUID, "--settings", claudeSettingsJson));
+        assertThat(handler.seededLaunchCommand("claude", "do it", true))
+                .containsExactly(wrapped("claude", "--remote-control", "do it", "--settings", claudeSettingsJson));
+    }
+
+    @Test
+    void remoteControlIsANoOpWhenFalseOrForAnyOtherTool() {
+        assertThat(handler.resolveLaunchCommand("claude", null, false))
+                .containsExactly(wrapped("claude", "--settings", claudeSettingsJson));
+        assertThat(handler.resolveLaunchCommand("codex", null, true))
+                .containsExactly(wrapped("codex", "-c", CODEX_NOTIFY_ARG));
+        assertThat(handler.resolveLaunchCommand("opencode", null, true)).containsExactly("opencode");
+        assertThat(handler.resolveLaunchCommand("omp", null, true)).containsExactly("omp", OMP_HOOK_ARG);
+        assertThat(handler.resolveLaunchCommand("muse", null, true)).containsExactly("env", MUSE_HOOKS_ENV_ARG, "muse");
+        assertThat(handler.seededLaunchCommand("codex", "do it", true))
+                .containsExactly(wrapped("codex", "do it", "-c", CODEX_NOTIFY_ARG));
+    }
+
+    @Test
+    void resolveLaunchThreadsRemoteControlThroughToAClaudeLaunch() {
+        Path workDir = Path.of("/tmp/does-not-matter");
+        // A resume id shaped like a real one short-circuits resolveLaunch's own
+        // sessionRegistry lookup before it's reached, same as this file's other
+        // resolveLaunch(...) test -- this test's handler carries a null registry.
+
+        assertThat(handler.resolveLaunch("s", "claude", UUID, null, true, workDir).command())
+                .containsExactly(wrapped("claude", "--remote-control", "--resume", UUID, "--settings", claudeSettingsJson));
+        assertThat(handler.resolveLaunch("s", "claude", UUID, null, false, workDir).command())
+                .containsExactly(wrapped("claude", "--resume", UUID, "--settings", claudeSettingsJson));
+        // Unaffected: resolveLaunch(sessionId, cmd, resume, seed, workingDirectory) still
+        // defaults remoteControl to false, so an existing caller sees no change (#979).
+        assertThat(handler.resolveLaunch("s", "claude", UUID, null, workDir).command())
+                .containsExactly(wrapped("claude", "--resume", UUID, "--settings", claudeSettingsJson));
     }
 
     @Test

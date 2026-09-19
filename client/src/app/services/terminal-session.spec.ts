@@ -121,6 +121,23 @@ describe('TerminalSession', () => {
     expect(socket.url).not.toContain('resume=');
   });
 
+  it('includes remoteControl=true in the connect URL when given (#979)', () => {
+    const session = new TerminalSession('7-worktree', '/repo', 'claude', null, null, null, false, null, true);
+    session.connect(
+      () => {},
+      () => {},
+    );
+    const socket = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+
+    expect(socket.url).toContain('remoteControl=true');
+  });
+
+  it('omits the remoteControl param from the connect URL when not given (#979)', () => {
+    const { socket } = connect();
+
+    expect(socket.url).not.toContain('remoteControl=');
+  });
+
   it('tags keystroke input with the input type', () => {
     const { session, socket } = connect();
 

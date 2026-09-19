@@ -7,6 +7,7 @@ import { DefaultIdeStore, InstalledIde } from '../../services/default-ide-store'
 const DEFAULT_AGENT_STORAGE_KEY = 'locklane.defaultAgent';
 const DEFAULT_IDE_STORAGE_KEY = 'locklane.defaultIde';
 const NOTIFICATIONS_STORAGE_KEY = 'locklane.notificationsEnabled';
+const REMOTE_CONTROL_STORAGE_KEY = 'locklane.remoteControl';
 
 describe('SettingsDialogComponent', () => {
   let httpMock: HttpTestingController;
@@ -16,6 +17,7 @@ describe('SettingsDialogComponent', () => {
     localStorage.removeItem(DEFAULT_AGENT_STORAGE_KEY);
     localStorage.removeItem(DEFAULT_IDE_STORAGE_KEY);
     localStorage.removeItem(NOTIFICATIONS_STORAGE_KEY);
+    localStorage.removeItem(REMOTE_CONTROL_STORAGE_KEY);
     originalNotification = (window as unknown as { Notification?: typeof Notification }).Notification;
     await TestBed.configureTestingModule({
       imports: [SettingsDialogComponent],
@@ -29,6 +31,7 @@ describe('SettingsDialogComponent', () => {
     localStorage.removeItem(DEFAULT_AGENT_STORAGE_KEY);
     localStorage.removeItem(DEFAULT_IDE_STORAGE_KEY);
     localStorage.removeItem(NOTIFICATIONS_STORAGE_KEY);
+    localStorage.removeItem(REMOTE_CONTROL_STORAGE_KEY);
     (window as unknown as { Notification?: typeof Notification }).Notification = originalNotification;
   });
 
@@ -523,6 +526,44 @@ describe('SettingsDialogComponent', () => {
       fixture.componentInstance.toggleNotifications(false);
 
       expect(requestPermission).not.toHaveBeenCalled();
+    });
+  });
+
+  // #979: the Remote Control toggle -- off by default, persisted in localStorage the
+  // same way as the Notifications toggle above.
+  describe('Remote Control', () => {
+    it('is unchecked with no stored preference', () => {
+      const fixture = create();
+      flushStatus(fixture, false);
+
+      const checkbox: HTMLInputElement = fixture.nativeElement.querySelector('.remote-control-toggle input');
+      expect(checkbox.checked).toBeFalse();
+    });
+
+    it('checking it checks the box and persists the choice', () => {
+      const fixture = create();
+      flushStatus(fixture, false);
+
+      fixture.componentInstance.toggleRemoteControl(true);
+      fixture.detectChanges();
+
+      const checkbox: HTMLInputElement = fixture.nativeElement.querySelector('.remote-control-toggle input');
+      expect(checkbox.checked).toBeTrue();
+      expect(localStorage.getItem(REMOTE_CONTROL_STORAGE_KEY)).toBe('true');
+    });
+
+    it('unchecking it unchecks the box and persists the choice', () => {
+      const fixture = create();
+      flushStatus(fixture, false);
+      fixture.componentInstance.toggleRemoteControl(true);
+      fixture.detectChanges();
+
+      fixture.componentInstance.toggleRemoteControl(false);
+      fixture.detectChanges();
+
+      const checkbox: HTMLInputElement = fixture.nativeElement.querySelector('.remote-control-toggle input');
+      expect(checkbox.checked).toBeFalse();
+      expect(localStorage.getItem(REMOTE_CONTROL_STORAGE_KEY)).toBe('false');
     });
   });
 });
