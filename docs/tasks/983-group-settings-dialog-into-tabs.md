@@ -49,7 +49,16 @@ exactly as today — only how the sections are grouped and switched between chan
 - No change to the dialog's outer chrome (backdrop, header, close button, Escape-to-close).
 
 ## Decisions made along the way
-- none
+- Kept every tab panel mounted at all times, toggling visibility with the `hidden`
+  attribute rather than an `@if`/`*ngIf` that would destroy and recreate a panel on
+  each switch. This preserves each section's own component state (e.g. an
+  in-progress two-factor enrollment, or an unsaved password field) across tab
+  switches, and also meant the existing spec's `querySelector` calls kept finding
+  elements without needing to select a tab first — `hidden` only affects rendering,
+  not the DOM tree or `textContent`.
+- Added a `describe('Tabs', ...)` block to the spec covering the default active tab,
+  switching panels, and that a section's own state survives a tab switch; every
+  pre-existing test passed unmodified.
 
 ## Deviations / notes
 - none
