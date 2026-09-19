@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
+import { RemoteControlStore } from '../../services/remote-control-store';
 import { TerminalComponent } from './terminal.component';
 
 // TerminalSession opens a real WebSocket the moment a tab connects -- stubbed out
@@ -50,6 +51,7 @@ describe('TerminalComponent', () => {
     originalWebSocket = window.WebSocket;
     (window as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
     FakeWebSocket.opened = [];
+    localStorage.removeItem('locklane.remoteControl');
     TestBed.configureTestingModule({
       imports: [TerminalComponent],
       // The component injects SessionUploadsService (#436); nothing here talks to a
@@ -62,6 +64,7 @@ describe('TerminalComponent', () => {
     fixture?.destroy();
     fixture = null;
     (window as unknown as { WebSocket: unknown }).WebSocket = originalWebSocket;
+    localStorage.removeItem('locklane.remoteControl');
   });
 
   /**
@@ -447,6 +450,41 @@ describe('TerminalComponent', () => {
     expect(fitSpy).toHaveBeenCalled();
     expect(sentFrames()).toContain('2');
     expect(sentFrames().some((frame) => /^1\d+x\d+$/.test(frame))).toBeTrue();
+  }));
+
+  // Remote Control (#979): only a brand-new claude launch ever carries the flag.
+
+  function mountTabWithCmd(cmd: string | null): TerminalComponent {
+    fixture = TestBed.createComponent(TerminalComponent);
+    fixture.componentInstance.sessionId = 'test-session';
+    fixture.componentInstance.cmd = cmd;
+    fixture.detectChanges();
+    return fixture.componentInstance;
+  }
+
+  it('sends remoteControl=true for a claude launch once the preference is on', fakeAsync(() => {
+    TestBed.inject(RemoteControlStore).setEnabled(true);
+
+    mountTabWithCmd('claude');
+    tick();
+
+    expect(FakeWebSocket.opened[FakeWebSocket.opened.length - 1].url).toContain('remoteControl=true');
+  }));
+
+  it('omits remoteControl with the preference off, even for a claude launch', fakeAsync(() => {
+    mountTabWithCmd('claude');
+    tick();
+
+    expect(FakeWebSocket.opened[FakeWebSocket.opened.length - 1].url).not.toContain('remoteControl=');
+  }));
+
+  it('omits remoteControl for a non-claude launch even with the preference on', fakeAsync(() => {
+    TestBed.inject(RemoteControlStore).setEnabled(true);
+
+    mountTabWithCmd('codex');
+    tick();
+
+    expect(FakeWebSocket.opened[FakeWebSocket.opened.length - 1].url).not.toContain('remoteControl=');
   }));
 
   // File drag-and-drop and image paste (#436).

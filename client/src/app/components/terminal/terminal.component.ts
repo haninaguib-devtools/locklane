@@ -16,6 +16,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import { IDisposable, Terminal } from '@xterm/xterm';
 import { forkJoin } from 'rxjs';
+import { RemoteControlStore } from '../../services/remote-control-store';
 import { SessionUploadsService } from '../../services/session-uploads.service';
 import { TerminalSession } from '../../services/terminal-session';
 
@@ -54,6 +55,7 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly uploadsService = inject(SessionUploadsService);
+  private readonly remoteControlStore = inject(RemoteControlStore);
 
   private term: Terminal | null = null;
   private fitAddon: FitAddon | null = null;
@@ -474,6 +476,8 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       this.term?.rows ?? null,
       this.active,
       this.seed,
+      // Claude-Code-specific (#979): never sent for any other cmd.
+      this.cmd === 'claude' && this.remoteControlStore.enabled(),
     );
     this.session.connect(
       (text) => this.term?.write(text),

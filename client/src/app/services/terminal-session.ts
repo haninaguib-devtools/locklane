@@ -64,6 +64,11 @@ export class TerminalSession {
     // on every open like the other launch params -- harmless on a reattach, where the
     // engine ignores every launch parameter for an already-running process.
     private readonly seed: string | null = null,
+    // Whether a brand-new claude launch should carry Claude Code's own
+    // `--remote-control` flag (#979, RemoteControlStore) -- the caller passes true
+    // only when this session's cmd is 'claude'; sent on every open like the other
+    // launch params, and likewise harmless on a reattach.
+    private readonly remoteControl: boolean = false,
   ) {
     this.cols = cols;
     this.rows = rows;
@@ -91,6 +96,9 @@ export class TerminalSession {
     }
     if (this.seed) {
       params.set('seed', this.seed);
+    }
+    if (this.remoteControl) {
+      params.set('remoteControl', 'true');
     }
     // The size as it is *now*, not as it was when this session was constructed -- a
     // reconnect that makes the engine create the PTY (after an engine restart, say)

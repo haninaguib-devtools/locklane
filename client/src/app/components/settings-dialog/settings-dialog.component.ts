@@ -6,6 +6,7 @@ import { DefaultAgent, DefaultAgentStore } from '../../services/default-agent-st
 import { DefaultIdeStore } from '../../services/default-ide-store';
 import { NotificationsStore } from '../../services/notifications-store';
 import { PushService } from '../../services/push.service';
+import { RemoteControlStore } from '../../services/remote-control-store';
 
 type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enabled';
 
@@ -29,6 +30,10 @@ type TwoFactorStage = 'loading' | 'off' | 'enrolling' | 'backup-codes' | 'enable
  * <p>Confirming an enrollment, and regenerating from the enabled state, both land on the
  * `backup-codes` stage (#93) so the freshly generated set is shown exactly once before
  * moving on to `enabled` -- the only place either flow's codes are ever visible.
+ *
+ * <p>Also a Remote Control section (#979, off by default): a checkbox toggle, the same
+ * shape as the Notifications section's, deciding whether a brand-new Claude Code
+ * session Locklane launches carries Claude Code's own `--remote-control` flag.
  */
 @Component({
   selector: 'app-settings-dialog',
@@ -44,6 +49,7 @@ export class SettingsDialogComponent implements OnInit {
   private readonly accentThemeStore = inject(AccentThemeStore);
   private readonly notificationsStore = inject(NotificationsStore);
   private readonly pushService = inject(PushService);
+  private readonly remoteControlStore = inject(RemoteControlStore);
 
   @Output() closed = new EventEmitter<void>();
 
@@ -63,6 +69,8 @@ export class SettingsDialogComponent implements OnInit {
   readonly effectiveIde = this.defaultIdeStore.effective;
 
   readonly accentTheme = this.accentThemeStore.theme;
+
+  readonly remoteControlEnabled = this.remoteControlStore.enabled;
 
   currentPasswordForChange = '';
   newPasswordForChange = '';
@@ -111,6 +119,10 @@ export class SettingsDialogComponent implements OnInit {
 
   toggleNotifications(enabled: boolean): void {
     this.notificationsStore.setEnabled(enabled);
+  }
+
+  toggleRemoteControl(enabled: boolean): void {
+    this.remoteControlStore.setEnabled(enabled);
   }
 
   changePassword(): void {

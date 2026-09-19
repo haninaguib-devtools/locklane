@@ -93,6 +93,22 @@
       </section>
 
       <section class="section">
+        <h2>Remote Control</h2>
+        <p class="muted">
+          Show a brand-new Claude agent session in the claude.ai / Claude mobile app session list. Has no
+          effect on other agent CLIs, or on resuming or reattaching to a session already running.
+        </p>
+        <label class="remote-control-toggle">
+          <input
+            type="checkbox"
+            [checked]="remoteControlEnabled()"
+            (change)="toggleRemoteControl($any($event.target).checked)"
+          />
+          Remote Control for new Claude sessions
+        </label>
+      </section>
+
+      <section class="section">
         <h2>Password</h2>
         <p class="muted">Change the password used to sign in.</p>
 
