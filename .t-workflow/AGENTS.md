@@ -7,8 +7,10 @@ agent session. Scripts under `.t-workflow/scripts/` make the judgments; skills c
 
 1. **Work starts from a tracker issue.** Changing any file — code, config, docs — is
    work; answering questions and reading is not. Never edit the tree outside a task's
-   own `/t-work` session, however small the ask. The one exception is a repository's
-   genesis commit.
+   own `/t-work` session, however small the ask. Describing a problem is not asking for
+   it to be fixed: a bug report, a symptom, a complaint, or a wished-for outcome is
+   information, and the response to it is `/t-open` or a question, never an edit. The
+   one exception is a repository's genesis commit.
 2. **Every task carries a record**, `docs/tasks/<id>-<slug>.md`, in its PR.
 3. **The trunk moves only by a pull request a human confirmed.** That confirmation is a
    rule the skills follow, not an approval GitHub enforces. Never commit or push
@@ -18,6 +20,12 @@ agent session. Scripts under `.t-workflow/scripts/` make the judgments; skills c
    a label.
 5. **A skill runs only when the human named it**, and nothing chains from one stage to
    the next. `/t-drive` is the one exception: named once, it chains the stages itself.
+   Named means said: a reply that is terse, general, or about something else is not a
+   stage invocation, and naming is never satisfied by inference — including inference by
+   elimination, that only one stage was left to mean. Approval of one thing is approval
+   of that thing only; agreement about part of a diff is not readiness of the task, and
+   authorization for one gate never carries to a different or later one. Where a reply
+   could be read either way, read it as not given and ask.
 6. **Writing to the tracker** — creating, labelling, commenting, closing — happens only
    inside the stage the human invoked, for that stage's own task. Anything else is a
    proposal in the report, never an act.
@@ -95,7 +103,10 @@ say what actually happened; a failed check is reported as failed, never softened
 A stop that needs the human's decision is asked as a question with fixed options: the
 evidence goes in the message first, then the question, through the structured question
 the agent CLI offers when it has one, and as the last sentence of the message
-otherwise. Nothing continues on silence. A stop that asks nothing — a `BLOCKED:` line,
-red CI, a dirty tree, a rebase conflict, or a skill's own handoff to the next command —
-is unchanged by this: it ends the turn with a report, and notifying on it is the
-harness's job, not the workflow's.
+otherwise. Nothing continues on silence, and nothing continues on a reply that does not
+answer the question that was asked — an unclear answer is asked again, not resolved in
+the session's favour. A gate's confirmation is the answer to that gate's own question,
+asked where the skill asks it; nothing said earlier stands in for it. A stop that asks
+nothing — a `BLOCKED:` line, red CI, a dirty tree, a rebase conflict, or a skill's own
+handoff to the next command — is unchanged by this: it ends the turn with a report, and
+notifying on it is the harness's job, not the workflow's.
