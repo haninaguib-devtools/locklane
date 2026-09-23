@@ -18,3 +18,4 @@ Move t-workflow from v0.0.9 to v0.0.11 by replacing every t-workflow-owned file 
 - none
 
 ## Agents
+- work: claude-code 2.1.280 / claude-opus-5-5
