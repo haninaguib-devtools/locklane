@@ -88,6 +88,17 @@ count_sections() { normalize | grep -c "^## $1\$" || true; }
 
 repo_nwo() { gh repo view --json nameWithOwner -q .nameWithOwner; }
 
+# pr_files <base> <head>: every path the pull request <base>...<head> changes, from git
+# as ci.sh reads it — never `gh pr view --json files`, which stops at 100 entries. Both
+# branches are fetched first; a branch that cannot be read fails (exit 1), so an empty
+# list never stands for "no files".
+pr_files() {
+  git fetch -q origin "$1" "$2" 2>/dev/null || true
+  git rev-parse -q --verify "origin/$1^{commit}" >/dev/null && git rev-parse -q --verify "origin/$2^{commit}" >/dev/null \
+    || { echo "cannot read origin/$1 and origin/$2 to list the PR's files" >&2; return 1; }
+  git -c core.quotePath=false diff --name-only "origin/$1...origin/$2"
+}
+
 # pr_for_task <id> [state]: prints the number of the PR whose head is wip/<id>-*.
 # Exit 0 = exactly one, 1 = none, 3 = more than one (all printed).
 pr_for_task() {

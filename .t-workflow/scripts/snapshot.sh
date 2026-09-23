@@ -13,13 +13,17 @@ review)
   pr=$(pr_for_task "$id" all) || { [ $? -eq 3 ] && die "more than one PR for #$id: $(printf '%s' "$pr" | tr '\n' ' ')"; die "no PR for #$id"; }
   issue=$(gh issue view "$id" --json number,title,state,labels,body,parent --jq '. + {labels: [.labels[].name], parent: (.parent.number // null)}')
   plan=$(printf '%s' "$issue" | jq -r .body | normalize | section Plan)
-  prv=$(gh pr view "$pr" --json number,url,title,body,isDraft,headRefOid,headRefName,baseRefName,files,reviews,commits \
-        --jq '{number,url,title,isDraft,headRefOid,headRefName,baseRefName,files: [.files[].path],reviews, head_time: .commits[-1].committedDate, checks_run: (.body | capture("## Checks run\n(?<c>(.|\n)*?)(\n## |$)").c? // "")}')
-  diff=$(gh pr diff "$pr")
+  prv=$(gh pr view "$pr" --json number,url,title,body,isDraft,headRefOid,headRefName,baseRefName,reviews,commits \
+        --jq '{number,url,title,isDraft,headRefOid,headRefName,baseRefName,reviews, head_time: .commits[-1].committedDate, checks_run: (.body | capture("## Checks run\n(?<c>(.|\n)*?)(\n## |$)").c? // "")}')
+  # The file list and the diff can outgrow the command line, so they reach jq as files.
+  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+  pr_files "$(printf '%s' "$prv" | jq -r .baseRefName)" "$(printf '%s' "$prv" | jq -r .headRefName)" > "$tmp/files" || die "cannot list the files of PR #$pr"
+  gh pr diff "$pr" > "$tmp/diff"
+  printf '%s' "$prv" | jq -c --rawfile f "$tmp/files" '. + {files: ($f | split("\n") | map(select(. != "")))}' > "$tmp/pr"
   children='[]'
   if printf '%s' "$issue" | jq -e '.labels | index("initiative")' >/dev/null; then
-    children=$(children_json "$id" | jq -c --argjson files "$(printf '%s' "$prv" | jq -c .files)" \
-      '[.[] | . + {record: (. as $c | $files | map(select(test("^docs/tasks/\($c.number)-[^/]+\\.md$"))) | first)}]')
+    children=$(children_json "$id" | jq -c --slurpfile pr "$tmp/pr" \
+      '[.[] | . + {record: (. as $c | $pr[0].files | map(select(test("^docs/tasks/\($c.number)-[^/]+\\.md$"))) | first)}]')
     while IFS= read -r c; do
       [ -n "$c" ] || continue
       cplan=$(gh issue view "$c" --json body -q .body | normalize | section Plan)
@@ -27,9 +31,9 @@ review)
     done < <(printf '%s' "$children" | jq -r '.[].number')
   fi
   clean=true; [ -z "$(git status --porcelain | grep -v '^??')" ] || clean=false
-  jq -n --argjson issue "$issue" --arg plan "$plan" --argjson children "$children" --argjson pr "$prv" --arg diff "$diff" \
+  jq -n --argjson issue "$issue" --arg plan "$plan" --argjson children "$children" --slurpfile pr "$tmp/pr" --rawfile diff "$tmp/diff" \
         --arg head "$(git rev-parse HEAD)" --arg branch "$(git branch --show-current)" --argjson clean "$clean" \
-        '{issue: $issue, plan: $plan, children: $children, pr: $pr, diff: $diff, local: {head: $head, branch: $branch, clean: $clean}}' ;;
+        '{issue: $issue, plan: $plan, children: $children, pr: $pr[0], diff: $diff, local: {head: $head, branch: $branch, clean: $clean}}' ;;
 
 status)
   issues=$(gh issue list --state open --limit 200 --json number,title,labels,blockedBy,parent \

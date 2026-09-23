@@ -145,9 +145,9 @@ ship)
     fi
     exit 1
   fi
-  v=$(gh pr view "$pr" --json number,title,url,isDraft,mergeable,headRefOid,headRefName,baseRefName,files,reviews,commits,statusCheckRollup)
+  v=$(gh pr view "$pr" --json number,title,url,isDraft,mergeable,headRefOid,headRefName,baseRefName,reviews,commits,statusCheckRollup)
   head=$(printf '%s' "$v" | jq -r .headRefOid); branch=$(printf '%s' "$v" | jq -r .headRefName); prbase=$(printf '%s' "$v" | jq -r .baseRefName)
-  files=$(printf '%s' "$v" | jq -r '.files[].path')
+  files=$(pr_files "$prbase" "$branch") || die "cannot list the files of PR #$pr"
   echo "pr: #$pr $(printf '%s' "$v" | jq -r .url)"
   echo "pr-title: $(printf '%s' "$v" | jq -r .title)"
   echo "draft: $(printf '%s' "$v" | jq -r .isDraft)"
@@ -156,7 +156,6 @@ ship)
   printf '%s' "$v" | jq -r .title | grep -qE "^\[$id\] " || block "PR title must start with '[$id] '"
   [ "$prbase" = "$want_base" ] || block "PR base is $prbase; a $kind's PR merges into $want_base"
   [ -n "$want_head" ] && [ "$branch" != "$want_head" ] && block "PR head is $branch; a parent's PR is its integration branch $want_head"
-  git fetch -q origin "$branch" 2>/dev/null
   if [ "$kind" = child ] && git show-ref -q --verify "refs/remotes/origin/$want_base"; then
     # Trunk commits on the child that its base lacks: a merge of the trunk done here
     # would be squashed away; it belongs on the integration branch itself.
