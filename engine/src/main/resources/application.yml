@@ -35,8 +35,8 @@ spring:
   task:
     scheduling:
       # The one thread pool behind every @Scheduled method in the engine (#763).
-      # Seven jobs share it: ProjectGhResources.refreshAll (the 30 s issue/PR poll,
-      # one gh subprocess pair per project), TerminalWebSocketHandler's and
+      # Seven jobs share it: ProjectGhResources.scheduledRefresh (the 30 s issue/PR
+      # poll, one gh change probe per project, more only when something changed), TerminalWebSocketHandler's and
       # EventsWebSocketHandler's heartbeats, SessionRegistry's quiescence check,
       # WorktreeCleanupSweeper (runs git fetch), GhTokenRenewalService, and
       # ReleaseUpdateChecker (a gh subprocess). Spring's default is a single thread,
@@ -83,6 +83,13 @@ locklane:
     # pair and renews the access token ahead of expiry and on a 401 (#620, #656,
     # docs/architecture/github-token-lifetime.md).
     oauth-client-id: "Ov23lifzJ18NqTqgqdRn"
+    issue-poll:
+      # How often dev.locklane.engine.github.ProjectGhResources refreshes each project's
+      # issue/PR cache while no browser is connected to /ws/events (#991). With a
+      # browser connected it polls every 30 s, and a browser connecting after an idle
+      # stretch triggers one refresh at once. Each poll is one conditional GitHub
+      # request per project when nothing changed.
+      idle-interval-ms: 300000
     token-renewal:
       # How often dev.locklane.engine.github.GhTokenRenewalService looks for a
       # device-flow account whose access token expires within the next five minutes
