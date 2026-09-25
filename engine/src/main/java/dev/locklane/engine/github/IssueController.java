@@ -44,11 +44,13 @@ public class IssueController {
     // "/tree" segment ahead of the "{number}" path variable regardless, but keeping
     // them adjacent here documents that the two must never collide.
     /**
-     * {@code fresh=true} (#140) forces a live {@code gh} fetch before serving the
-     * tree, bypassing whatever {@link GhIssueCache} is still holding from the
-     * scheduled 30s refresh — for a caller that just left an agent session where
-     * an agent may have created an issue via {@code gh}, and wants it to show up
-     * immediately rather than waiting on the next scheduled poll. When that forced
+     * {@code fresh=true} (#140) refreshes from GitHub before serving the tree -- for a
+     * caller that just left an agent session where an agent may have created an issue
+     * via {@code gh}, and wants it to show up immediately rather than waiting on the
+     * next scheduled poll. It is the same cheap refresh the poll makes (#995): one
+     * conditional change probe, then only the issues and PRs updated since the last
+     * fetch; an issue deleted or transferred away is left to the poll's daily full
+     * fetch. When that forced
      * fetch turns up a change, it broadcasts {@code issuesChanged} the same way the
      * scheduled {@code ProjectGhResources.refreshAll} does (#545), so other open
      * tabs learn about it too rather than only the caller that triggered it.
@@ -67,7 +69,7 @@ public class IssueController {
                 .map(ctx -> {
                     if (fresh) {
                         GhRefreshStatus before = ctx.cache().status();
-                        boolean changed = ctx.cache().refreshFully();
+                        boolean changed = ctx.cache().refresh();
                         ProjectGhResources.broadcastStatusIfMoved(eventBroadcaster, projectId, before, ctx.cache().status());
                         if (changed) {
                             eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));

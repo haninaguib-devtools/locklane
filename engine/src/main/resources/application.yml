@@ -90,6 +90,11 @@ locklane:
       # stretch triggers one refresh at once. Each poll is one conditional GitHub
       # request per project when nothing changed.
       idle-interval-ms: 300000
+      # How often each project's issue/PR cache is re-fetched in full (#995) -- the
+      # only refresh that drops an issue deleted or transferred away. Every other
+      # refresh, the sidenav's button included, fetches only what changed. The first
+      # poll after the server starts is always a full one.
+      full-refresh-interval-ms: 86400000
     token-renewal:
       # How often dev.locklane.engine.github.GhTokenRenewalService looks for a
       # device-flow account whose access token expires within the next five minutes

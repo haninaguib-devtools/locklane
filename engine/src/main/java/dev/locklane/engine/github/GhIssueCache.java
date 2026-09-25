@@ -4,6 +4,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -46,6 +48,8 @@ public class GhIssueCache {
     // refresh -- what the next one asks "changed since?" with. Guarded by this.
     private String etag;
     private String watermark;
+    // #995: when the last successful full fetch finished; null until one has.
+    private Instant lastFullFetchAt;
 
     public GhIssueCache(GhClient ghClient) {
         this(ghClient, Clock.systemUTC());
@@ -90,12 +94,27 @@ public class GhIssueCache {
     }
 
     /**
-     * A full re-fetch of every issue and PR, whatever the cache holds (#991) — the
-     * sidenav's explicit refresh, which is also what picks up an issue that was deleted
-     * or transferred away, something an incremental fetch cannot see.
+     * A full re-fetch of every issue and PR, whatever the cache holds (#991) — what
+     * picks up an issue that was deleted or transferred away, something an
+     * incremental fetch cannot see.
      */
     boolean refreshFully() {
         return refresh(false, true);
+    }
+
+    /**
+     * The scheduled poll's refresh (#995): {@link #refreshFully()} when no full fetch
+     * has succeeded within {@code fullFetchInterval}, {@link #refresh()} otherwise. A
+     * cold cache's first refresh is always a full one, so the server's first poll
+     * after starting is too.
+     */
+    boolean refreshOnSchedule(Duration fullFetchInterval) {
+        Instant last;
+        synchronized (this) {
+            last = lastFullFetchAt;
+        }
+        boolean due = last == null || !Duration.between(last, clock.instant()).minus(fullFetchInterval).isNegative();
+        return due ? refreshFully() : refresh();
     }
 
     /**
@@ -111,6 +130,7 @@ public class GhIssueCache {
             if (!ghClient.supportsIncrementalRefresh()) {
                 freshIssues = ghClient.issues();
                 freshPullRequests = ghClient.pullRequests();
+                lastFullFetchAt = clock.instant();
             } else {
                 boolean incremental = !full && previousIssues != null && previousPullRequests != null
                         && etag != null && watermark != null;
@@ -126,6 +146,7 @@ public class GhIssueCache {
                 } else {
                     freshIssues = merge(List.of(), ghClient.issues(), GhIssue::number);
                     freshPullRequests = merge(List.of(), ghClient.pullRequests(), GhPullRequest::number);
+                    lastFullFetchAt = clock.instant();
                 }
                 // Only now that the fetch succeeded: a failed one must leave the old
                 // ETag in place, so the next probe still sees the change it missed.

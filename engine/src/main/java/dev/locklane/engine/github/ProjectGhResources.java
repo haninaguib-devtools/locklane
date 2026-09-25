@@ -42,6 +42,8 @@ public class ProjectGhResources {
     private static final Duration REFRESH_INTERVAL = Duration.ofMillis(REFRESH_INTERVAL_MS);
     /** How often to poll while no browser is connected (#991), unless configured otherwise. */
     static final Duration DEFAULT_IDLE_INTERVAL = Duration.ofMinutes(5);
+    /** How often a project's cache is re-fetched in full (#995), unless configured otherwise. */
+    static final Duration DEFAULT_FULL_FETCH_INTERVAL = Duration.ofDays(1);
 
     private final ProjectRepository projectRepository;
     private final GhAccountRepository ghAccountRepository;
@@ -52,6 +54,7 @@ public class ProjectGhResources {
     private volatile CredentialRenewer credentialRenewer = CredentialRenewer.NONE;
     private final Clock clock;
     private final Duration idleInterval;
+    private final Duration fullFetchInterval;
     private final Executor connectRefreshExecutor;
     // #991: one refreshAll at a time -- the scheduled tick and a connect-triggered one.
     private final ReentrantLock refreshing = new ReentrantLock();
@@ -61,9 +64,11 @@ public class ProjectGhResources {
     @Autowired
     public ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
             TokenCipher tokenCipher, EventBroadcaster eventBroadcaster,
-            @Value("${locklane.github.issue-poll.idle-interval-ms:300000}") long idleIntervalMs) {
+            @Value("${locklane.github.issue-poll.idle-interval-ms:300000}") long idleIntervalMs,
+            @Value("${locklane.github.issue-poll.full-refresh-interval-ms:86400000}") long fullFetchIntervalMs) {
         this(projectRepository, ghAccountRepository, tokenCipher, eventBroadcaster, CliGhClient::new,
-                Clock.systemUTC(), Duration.ofMillis(idleIntervalMs), ProjectGhResources::refreshOnItsOwnThread);
+                Clock.systemUTC(), Duration.ofMillis(idleIntervalMs), Duration.ofMillis(fullFetchIntervalMs),
+                ProjectGhResources::refreshOnItsOwnThread);
         // Only here, the production path: the test constructors' broadcasters have no
         // clients, and a test drives clientConnected() itself.
         eventBroadcaster.onClientConnected(this::clientConnected);
@@ -85,13 +90,16 @@ public class ProjectGhResources {
     public ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
             TokenCipher tokenCipher, EventBroadcaster eventBroadcaster, BiFunction<Path, String, GhClient> clientFactory) {
         this(projectRepository, ghAccountRepository, tokenCipher, eventBroadcaster, clientFactory, Clock.systemUTC(),
-                DEFAULT_IDLE_INTERVAL, ProjectGhResources::refreshOnItsOwnThread);
+                DEFAULT_IDLE_INTERVAL, DEFAULT_FULL_FETCH_INTERVAL, ProjectGhResources::refreshOnItsOwnThread);
     }
 
-    /** Test-only (#991): a controllable clock and idle interval, and an executor a test can run inline. */
+    /**
+     * Test-only (#991, #995): a controllable clock, idle and full-fetch intervals, and an
+     * executor a test can run inline.
+     */
     ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
             TokenCipher tokenCipher, EventBroadcaster eventBroadcaster, BiFunction<Path, String, GhClient> clientFactory,
-            Clock clock, Duration idleInterval, Executor connectRefreshExecutor) {
+            Clock clock, Duration idleInterval, Duration fullFetchInterval, Executor connectRefreshExecutor) {
         this.projectRepository = projectRepository;
         this.ghAccountRepository = ghAccountRepository;
         this.tokenCipher = tokenCipher;
@@ -99,6 +107,7 @@ public class ProjectGhResources {
         this.clientFactory = clientFactory;
         this.clock = clock;
         this.idleInterval = idleInterval;
+        this.fullFetchInterval = fullFetchInterval;
         this.connectRefreshExecutor = connectRefreshExecutor;
     }
 
@@ -250,12 +259,12 @@ public class ProjectGhResources {
                 }
                 ProjectGhContext context = found.get();
                 GhRefreshStatus before = context.cache().status();
-                boolean changed = context.cache().refresh();
+                boolean changed = context.cache().refreshOnSchedule(fullFetchInterval);
                 GhRefreshStatus after = context.cache().status();
                 if (isBadCredentials(after) && credentialRenewer.renewForProject(projectId)) {
                     Optional<ProjectGhContext> rebuilt = forProject(projectId);
                     if (rebuilt.isPresent()) {
-                        changed = rebuilt.get().cache().refresh();
+                        changed = rebuilt.get().cache().refreshOnSchedule(fullFetchInterval);
                         after = rebuilt.get().cache().status();
                         if (isBadCredentials(after)) {
                             credentialRenewer.renewalDidNotHelp(projectId);

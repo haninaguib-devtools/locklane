@@ -154,22 +154,46 @@ class GhIssueCacheIncrementalTest {
                 "pullRequestsSince 2026-09-01T00:00:00Z");
     }
 
-    private static GhIssue issue(int number, String title, String updatedAt) {
+    // #995: the scheduled poll refreshes in full once a day, cheaply the rest of the time.
+
+    @Test
+    void theScheduledRefreshIsFullAtFirstThenIncrementalUntilTheFullFetchIntervalHasPassed() {
+        FakeRepo repo = new FakeRepo();
+        repo.issues.add(issue(1, "One", "2026-09-01T00:00:00Z"));
+        ProjectGhResourcesSchedulingTest.MutableClock clock = new ProjectGhResourcesSchedulingTest.MutableClock();
+        GhIssueCache cache = new GhIssueCache(repo, clock);
+
+        cache.refreshOnSchedule(Duration.ofDays(1));
+        assertThat(repo.calls).as("a cold cache: the server's first poll").containsExactly(
+                "probe null", "issues", "pullRequests");
+
+        repo.calls.clear();
+        clock.advance(Duration.ofHours(23).plusMinutes(59));
+        cache.refreshOnSchedule(Duration.ofDays(1));
+        assertThat(repo.calls).containsExactly("probe W/\"1\"");
+
+        repo.calls.clear();
+        clock.advance(Duration.ofMinutes(1));
+        cache.refreshOnSchedule(Duration.ofDays(1));
+        assertThat(repo.calls).containsExactly("probe null", "issues", "pullRequests");
+    }
+
+    static GhIssue issue(int number, String title, String updatedAt) {
         return new GhIssue(number, title, "OPEN", List.of(), "body " + number, "2026-08-01T00:00:00Z", updatedAt);
     }
 
-    private static GhPullRequest pr(int number, String state) {
+    static GhPullRequest pr(int number, String state) {
         return new GhPullRequest(number, "PR " + number, state, false, "wip/" + number + "-x");
     }
 
-    private record Stamped<T>(T item, String updatedAt) {
+    record Stamped<T>(T item, String updatedAt) {
     }
 
     /**
      * A repo whose change probe behaves like GitHub's: the ETag is the repo's version,
      * a matching one answers not-modified, and the newest updated_at comes back with it.
      */
-    private static final class FakeRepo implements GhClient {
+    static final class FakeRepo implements GhClient {
         final List<GhIssue> issues = new ArrayList<>();
         final List<Stamped<GhPullRequest>> pullRequests = new ArrayList<>();
         final List<String> calls = new ArrayList<>();
