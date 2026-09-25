@@ -20,6 +20,13 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.46 — 2026-09-25
+
+### Other
+- Cut GitHub API usage of the issue/PR poll (#991, #992)
+- Update t-workflow from v0.0.9 to v0.0.11 (#989, #990)
+- Update t-workflow from v0.0.8 to v0.0.9 (#987, #988)
+
 ## v0.2.45 — 2026-09-19
 
 ### Other
