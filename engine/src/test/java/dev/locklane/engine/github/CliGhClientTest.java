@@ -72,7 +72,8 @@ class CliGhClientTest {
         // stuck test.
         Path fakeGh = FakeGh.script(dir, """
                 head -c 1000000 /dev/zero | tr '\\0' x >&2
-                echo '[{"number": 1, "title": "One", "state": "OPEN", "labels": []}]'
+                echo '{"data": {"repository": {"issues": {"pageInfo": {"hasNextPage": false},
+                      "nodes": [{"number": 1, "title": "One", "state": "OPEN", "labels": {"nodes": []}}]}}}}'
                 """);
         CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
 
@@ -86,8 +87,9 @@ class CliGhClientTest {
         // #930: the sidenav's author picker reads author.login; an issue gh reports with
         // no author (a deleted account, say) maps to "" rather than null.
         Path fakeGh = FakeGh.script(dir, """
-                echo '[{"number": 1, "title": "One", "state": "OPEN", "labels": [], "author": {"login": "alice"}},
-                       {"number": 2, "title": "Two", "state": "OPEN", "labels": []}]'
+                echo '{"data": {"repository": {"issues": {"pageInfo": {"hasNextPage": false}, "nodes": [
+                       {"number": 1, "title": "One", "state": "OPEN", "labels": {"nodes": []}, "author": {"login": "alice"}},
+                       {"number": 2, "title": "Two", "state": "OPEN", "labels": {"nodes": []}, "author": null}]}}}}'
                 """);
         CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
 
@@ -242,6 +244,121 @@ class CliGhClientTest {
         GhPullRequestDetail detail = CliGhClient.toPullRequestDetail(MAPPER.readTree(json));
 
         assertThat(detail.checks()).isEqualTo(ChecksSummary.none());
+    }
+
+    // #991: the change probe, and the paged GraphQL fetches that replaced --limit 1000.
+
+    @Test
+    void theChangeProbeSendsItsEtagAndReadsA304AsNotModified(@TempDir Path dir) throws Exception {
+        Path recorded = dir.resolve("args");
+        Path fakeGh = FakeGh.script(dir, """
+                printf '%%s\\n' "$@" > "%s"
+                printf 'HTTP/2.0 304 Not Modified\\n\\n'
+                echo 'gh: HTTP 304' >&2
+                exit 1
+                """.formatted(recorded));
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        GhClient.ChangeProbe probe = client.probeChanges("W/\"abc\"");
+
+        assertThat(probe.modified()).isFalse();
+        assertThat(Files.readAllLines(recorded)).containsSequence("-H", "If-None-Match: W/\"abc\"");
+    }
+
+    @Test
+    void theChangeProbeReportsTheNewEtagAndTheNewestUpdatedAt(@TempDir Path dir) throws Exception {
+        Path recorded = dir.resolve("args");
+        Path fakeGh = FakeGh.script(dir, """
+                printf '%%s\\n' "$@" > "%s"
+                printf 'HTTP/2.0 200 OK\\r\\nETag: W/"def"\\r\\n\\r\\n[{"number": 9, "updated_at": "2026-09-25T16:41:42Z"}]'
+                """.formatted(recorded));
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        GhClient.ChangeProbe probe = client.probeChanges(null);
+
+        assertThat(probe).isEqualTo(new GhClient.ChangeProbe(true, "W/\"def\"", "2026-09-25T16:41:42Z"));
+        assertThat(Files.readAllLines(recorded)).doesNotContain("-H");
+    }
+
+    @Test
+    void aRefusedChangeProbeReportsBadCredentialsWithoutTheResponseHeaders(@TempDir Path dir) throws Exception {
+        Path fakeGh = FakeGh.script(dir, """
+                printf 'HTTP/2.0 401 Unauthorized\\nX-Github-Request-Id: 1\\n\\n{"message": "Bad credentials"}'
+                echo 'gh: Bad credentials (HTTP 401)' >&2
+                exit 1
+                """);
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        assertThatThrownBy(() -> client.probeChanges("W/\"abc\""))
+                .isInstanceOf(GhClient.GhUnavailableException.class)
+                .hasMessageContaining("Bad credentials")
+                .hasMessageNotContaining("X-Github-Request-Id");
+    }
+
+    @Test
+    void moreThanAThousandIssuesArePagedThroughToTheEnd(@TempDir Path dir) throws Exception {
+        // Eleven pages of 100: page n (cursor n) answers issues n*100+1..n*100+100.
+        Path calls = dir.resolve("calls");
+        Path fakeGh = FakeGh.script(dir, """
+                echo x >> "%s"
+                page=0
+                for a in "$@"; do case "$a" in after=*) page=${a#after=} ;; esac; done
+                nodes=""
+                for i in $(seq 1 100); do
+                  n=$((page * 100 + i))
+                  nodes="$nodes{\\"number\\": $n, \\"title\\": \\"T$n\\", \\"state\\": \\"OPEN\\", \\"labels\\": {\\"nodes\\": []}},"
+                done
+                next=$((page + 1))
+                more=false
+                [ "$next" -lt 11 ] && more=true
+                echo "{\\"data\\": {\\"repository\\": {\\"issues\\": {\\"pageInfo\\": {\\"hasNextPage\\": $more, \\"endCursor\\": \\"$next\\"}, \\"nodes\\": [${nodes%%,}]}}}}"
+                """.formatted(calls));
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        List<GhIssue> issues = client.issues();
+
+        assertThat(issues).hasSize(1100);
+        assertThat(issues.get(1099).number()).isEqualTo(1100);
+        assertThat(Files.readAllLines(calls)).hasSize(11);
+    }
+
+    @Test
+    void issuesUpdatedSinceAsksGitHubToFilterByThatTime(@TempDir Path dir) throws Exception {
+        Path recorded = dir.resolve("args");
+        Path fakeGh = FakeGh.script(dir, """
+                printf '%%s\\n' "$@" > "%s"
+                echo '{"data": {"repository": {"issues": {"pageInfo": {"hasNextPage": false},
+                      "nodes": [{"number": 5, "title": "Five", "state": "CLOSED", "body": "Part of: #1",
+                                 "labels": {"nodes": [{"name": "bug"}]}, "parent": {"number": 1}}]}}}}'
+                """.formatted(recorded));
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        List<GhIssue> issues = client.issuesUpdatedSince("2026-09-01T00:00:00Z");
+
+        assertThat(Files.readAllLines(recorded)).containsSequence("-f", "since=2026-09-01T00:00:00Z");
+        assertThat(issues).containsExactly(
+                new GhIssue(5, "Five", "CLOSED", List.of("bug"), "Part of: #1", "", "", 1, ""));
+    }
+
+    @Test
+    void pullRequestsUpdatedSinceStopsAtTheFirstOlderOneWithoutFetchingTheNextPage(@TempDir Path dir)
+            throws Exception {
+        Path calls = dir.resolve("calls");
+        Path fakeGh = FakeGh.script(dir, """
+                echo x >> "%s"
+                echo '{"data": {"repository": {"pullRequests": {"pageInfo": {"hasNextPage": true, "endCursor": "c"},
+                      "nodes": [
+                        {"number": 8, "title": "New", "state": "OPEN", "isDraft": true, "headRefName": "wip/7-x",
+                         "updatedAt": "2026-09-10T00:00:00Z"},
+                        {"number": 6, "title": "Old", "state": "MERGED", "isDraft": false, "headRefName": "wip/5-y",
+                         "updatedAt": "2026-08-01T00:00:00Z"}]}}}}'
+                """.formatted(calls));
+        CliGhClient client = new CliGhClient(dir, null, fakeGh.toString(), Duration.ofSeconds(20));
+
+        List<GhPullRequest> prs = client.pullRequestsUpdatedSince("2026-09-01T00:00:00Z");
+
+        assertThat(prs).containsExactly(new GhPullRequest(8, "New", "OPEN", true, "wip/7-x"));
+        assertThat(Files.readAllLines(calls)).hasSize(1);
     }
 
     /** A stand-in for gh written into a temp dir, for the process-level tests (#763). */

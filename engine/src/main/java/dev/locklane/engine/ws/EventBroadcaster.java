@@ -10,8 +10,10 @@ import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Injectable publisher other engine components call to push a small JSON notification
@@ -38,6 +40,7 @@ public class EventBroadcaster {
     private static final Logger log = LoggerFactory.getLogger(EventBroadcaster.class);
 
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+    private final List<Runnable> connectListeners = new CopyOnWriteArrayList<>();
     private final ObjectMapper objectMapper;
 
     public EventBroadcaster(ObjectMapper objectMapper) {
@@ -46,6 +49,27 @@ public class EventBroadcaster {
 
     void register(WebSocketSession session) {
         sessions.put(session.getId(), session);
+        for (Runnable listener : connectListeners) {
+            try {
+                listener.run();
+            } catch (RuntimeException e) {
+                log.error("A connect listener failed for session {}", session.getId(), e);
+            }
+        }
+    }
+
+    /**
+     * Runs {@code listener} each time a client connects, on the connecting thread,
+     * after it is registered (#991) -- so the issue poll can refresh at once when
+     * someone starts watching again. A listener must hand any slow work off.
+     */
+    public void onClientConnected(Runnable listener) {
+        connectListeners.add(listener);
+    }
+
+    /** How many clients are connected right now (#991): the issue poll slows down at zero. */
+    public int connectedClientCount() {
+        return sessions.size();
     }
 
     void unregister(WebSocketSession session) {

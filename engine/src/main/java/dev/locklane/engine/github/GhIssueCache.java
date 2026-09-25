@@ -4,10 +4,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -35,6 +42,10 @@ public class GhIssueCache {
     // fallbacks below all record here, so a token that stopped working is visible
     // from the very first fetch that fails, not only from the next scheduled poll.
     private final AtomicReference<GhRefreshStatus> status = new AtomicReference<>(GhRefreshStatus.initial());
+    // #991: the change probe's ETag and newest updated_at from the last successful
+    // refresh -- what the next one asks "changed since?" with. Guarded by this.
+    private String etag;
+    private String watermark;
 
     public GhIssueCache(GhClient ghClient) {
         this(ghClient, Clock.systemUTC());
@@ -56,13 +67,71 @@ public class GhIssueCache {
      * are records, so list equality is a structural, field-by-field comparison.
      * {@code false} on a failed fetch (nothing changed; the old data is still being
      * served) and on a fetch that came back identical to what was already cached.
+     *
+     * <p>With a client that supports it (#991), a warm cache first asks GitHub one
+     * conditional question — has anything changed since the last fetch? — and does
+     * nothing more on a 304, which costs no rate limit. When something did change, only
+     * the issues and PRs updated since the last fetch are fetched and merged into the
+     * cached lists, so an unchanged issue's body is never downloaded again. A cold cache
+     * fetches everything.
      */
     boolean refresh() {
+        return refresh(true, false);
+    }
+
+    /**
+     * As {@link #refresh()}, but never takes a 304 for an answer (#991): used right
+     * after the engine itself changed an issue (#962), when the change probe's own
+     * listing could lag the write by a moment and report nothing new. Still fetches
+     * only what changed since the last fetch.
+     */
+    boolean refreshAfterWrite() {
+        return refresh(false, false);
+    }
+
+    /**
+     * A full re-fetch of every issue and PR, whatever the cache holds (#991) — the
+     * sidenav's explicit refresh, which is also what picks up an issue that was deleted
+     * or transferred away, something an incremental fetch cannot see.
+     */
+    boolean refreshFully() {
+        return refresh(false, true);
+    }
+
+    /**
+     * Synchronized (#991) so the scheduled poll and a request-driven refresh never
+     * interleave their reads and writes of the ETag and watermark below.
+     */
+    private synchronized boolean refresh(boolean conditional, boolean full) {
         List<GhIssue> previousIssues = cachedIssues.get();
         List<GhPullRequest> previousPullRequests = cachedPullRequests.get();
         try {
-            List<GhIssue> freshIssues = ghClient.issues();
-            List<GhPullRequest> freshPullRequests = ghClient.pullRequests();
+            List<GhIssue> freshIssues;
+            List<GhPullRequest> freshPullRequests;
+            if (!ghClient.supportsIncrementalRefresh()) {
+                freshIssues = ghClient.issues();
+                freshPullRequests = ghClient.pullRequests();
+            } else {
+                boolean incremental = !full && previousIssues != null && previousPullRequests != null
+                        && etag != null && watermark != null;
+                GhClient.ChangeProbe probe = ghClient.probeChanges(incremental && conditional ? etag : null);
+                if (!probe.modified()) {
+                    recordSuccess();
+                    return false;
+                }
+                if (incremental) {
+                    freshIssues = merge(previousIssues, ghClient.issuesUpdatedSince(watermark), GhIssue::number);
+                    freshPullRequests = merge(previousPullRequests, ghClient.pullRequestsUpdatedSince(watermark),
+                            GhPullRequest::number);
+                } else {
+                    freshIssues = merge(List.of(), ghClient.issues(), GhIssue::number);
+                    freshPullRequests = merge(List.of(), ghClient.pullRequests(), GhPullRequest::number);
+                }
+                // Only now that the fetch succeeded: a failed one must leave the old
+                // ETag in place, so the next probe still sees the change it missed.
+                etag = probe.etag();
+                watermark = probe.newestUpdatedAt();
+            }
             cachedIssues.set(freshIssues);
             cachedPullRequests.set(freshPullRequests);
             recordSuccess();
@@ -75,6 +144,28 @@ public class GhIssueCache {
             recordFailure(e);
             return false;
         }
+    }
+
+    /**
+     * {@code base} with every item of {@code updates} replacing the one with the same
+     * number, or added (#991), newest number first — the one order both a full fetch
+     * and an incremental one end in, so the two produce equal lists. A duplicate
+     * within {@code updates} (a page boundary moving mid-fetch) keeps its first copy.
+     */
+    private static <T> List<T> merge(List<T> base, List<T> updates, ToIntFunction<T> number) {
+        Map<Integer, T> byNumber = new HashMap<>();
+        for (T item : base) {
+            byNumber.put(number.applyAsInt(item), item);
+        }
+        Set<Integer> updated = new HashSet<>();
+        for (T item : updates) {
+            if (updated.add(number.applyAsInt(item))) {
+                byNumber.put(number.applyAsInt(item), item);
+            }
+        }
+        List<T> merged = new ArrayList<>(byNumber.values());
+        merged.sort(Comparator.comparingInt(number).reversed());
+        return List.copyOf(merged);
     }
 
     /**

@@ -43,12 +43,47 @@ public class CliGhClient implements GhClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
-     * How long one gh call may take before it is killed. Generous on purpose: the
-     * two {@code --limit 1000} lists run against a large repo can legitimately take
-     * tens of seconds over a slow link, and a timeout that fires on a healthy call
+     * How long one gh call may take before it is killed. Generous on purpose: one
+     * page of a full issue list, bodies included, can legitimately take tens of
+     * seconds over a slow link, and a timeout that fires on a healthy call
      * would report a phantom outage. Shared with {@link CliReleaseClient}.
      */
     static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
+
+    /** Items per GraphQL page (#991) — GitHub's own maximum for a connection. */
+    static final int PAGE_SIZE = 100;
+
+    private static final String ISSUES_QUERY = """
+            query($owner: String!, $name: String!, $pageSize: Int!, $since: DateTime, $after: String) {
+              repository(owner: $owner, name: $name) {
+                issues(first: $pageSize, after: $after, filterBy: {since: $since},
+                       orderBy: {field: CREATED_AT, direction: DESC}) {
+                  pageInfo { hasNextPage endCursor }
+                  nodes {
+                    number title state body createdAt updatedAt
+                    labels(first: 100) { nodes { name } }
+                    parent { number }
+                    author { login }
+                  }
+                }
+              }
+            }""";
+
+    private static final String PULL_REQUESTS_QUERY = pullRequestsQuery("CREATED_AT");
+
+    private static final String PULL_REQUESTS_BY_UPDATE_QUERY = pullRequestsQuery("UPDATED_AT");
+
+    private static String pullRequestsQuery(String orderField) {
+        return """
+                query($owner: String!, $name: String!, $pageSize: Int!, $after: String) {
+                  repository(owner: $owner, name: $name) {
+                    pullRequests(first: $pageSize, after: $after, orderBy: {field: %s, direction: DESC}) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes { number title state isDraft headRefName updatedAt }
+                    }
+                  }
+                }""".formatted(orderField);
+    }
 
     private final Path workingDirectory;
     private final String token;
@@ -69,31 +104,141 @@ public class CliGhClient implements GhClient {
 
     @Override
     public List<GhIssue> issues() {
-        String json = run("issue", "list", "--state", "all", "--limit", "1000",
-                "--json", "number,title,state,labels,body,createdAt,updatedAt,parent,author");
-        try {
-            List<GhIssue> result = new ArrayList<>();
-            for (JsonNode issue : MAPPER.readTree(json)) {
-                result.add(toIssue(issue));
-            }
-            return result;
-        } catch (IOException e) {
-            throw new GhUnavailableException("Could not parse gh issue list output", e);
-        }
+        return fetchIssues(null);
     }
 
     @Override
     public List<GhPullRequest> pullRequests() {
-        String json = run("pr", "list", "--state", "all", "--limit", "1000",
-                "--json", "number,title,state,isDraft,headRefName");
+        return fetchPullRequests(null);
+    }
+
+    @Override
+    public boolean supportsIncrementalRefresh() {
+        return true;
+    }
+
+    /**
+     * {@code GET /issues?sort=updated&per_page=1} (#991): the issues endpoint lists PRs
+     * too, so its newest-updated item — and so its ETag — moves whenever any issue or PR
+     * does. gh has no flag for a 304: it exits 1 ("gh: HTTP 304"), so the status line
+     * {@code -i} prints first is what tells that apart from a real failure.
+     */
+    @Override
+    public ChangeProbe probeChanges(String etag) {
+        List<String> arguments = new ArrayList<>(List.of("api", "-i"));
+        if (etag != null && !etag.isBlank()) {
+            arguments.add("-H");
+            arguments.add("If-None-Match: " + etag);
+        }
+        arguments.add("repos/{owner}/{repo}/issues?state=all&sort=updated&direction=desc&per_page=1");
+        ProcessOutcome outcome = runForOutcome(arguments.toArray(new String[0]));
+        String crlfSafe = outcome.stdout().replace("\r\n", "\n");
+        int headerEnd = crlfSafe.indexOf("\n\n");
+        String headers = headerEnd < 0 ? crlfSafe : crlfSafe.substring(0, headerEnd);
+        String statusLine = headers.lines().findFirst().orElse("");
+        if (statusLine.matches("HTTP/\\S+ 304\\b.*")) {
+            return ChangeProbe.notModified();
+        }
+        String body = headerEnd < 0 ? "" : crlfSafe.substring(headerEnd + 2);
+        if (outcome.failed()) {
+            // The headers -i printed are noise in a message a person reads; the body
+            // and gh's stderr ("gh: Bad credentials (HTTP 401)", which #656 looks for) are not.
+            ProcessOutcome withoutHeaders = new ProcessOutcome(outcome.exitCode(), body, outcome.stderr());
+            throw new GhUnavailableException("gh exited " + outcome.exitCode() + ": " + withoutHeaders.describe(), null);
+        }
+        String newEtag = headers.lines()
+                .filter(line -> line.regionMatches(true, 0, "etag:", 0, 5))
+                .map(line -> line.substring(5).strip())
+                .findFirst()
+                .orElse(null);
         try {
-            List<GhPullRequest> result = new ArrayList<>();
-            for (JsonNode pr : MAPPER.readTree(json)) {
+            JsonNode items = MAPPER.readTree(body.isBlank() ? "[]" : body);
+            String newest = items.size() == 0 ? null : items.get(0).path("updated_at").asText(null);
+            return new ChangeProbe(true, newEtag, newest);
+        } catch (IOException e) {
+            throw new GhUnavailableException("Could not parse the issue change probe's output", e);
+        }
+    }
+
+    @Override
+    public List<GhIssue> issuesUpdatedSince(String since) {
+        return fetchIssues(since);
+    }
+
+    @Override
+    public List<GhPullRequest> pullRequestsUpdatedSince(String since) {
+        return fetchPullRequests(since);
+    }
+
+    /**
+     * Every issue — or with {@code since}, every issue updated at or after it — through
+     * GraphQL (#991), a page of {@link #PAGE_SIZE} per gh call until the last page, so
+     * no repo is cut off at a fixed count and each page's call gets its own timeout.
+     * The same fields {@code gh issue list --json} gave, in the same shape. Ordered by
+     * creation, which an update cannot reshuffle mid-pagination.
+     */
+    private List<GhIssue> fetchIssues(String since) {
+        List<GhIssue> result = new ArrayList<>();
+        String after = null;
+        do {
+            JsonNode connection = graphql(ISSUES_QUERY, since, after).path("issues");
+            for (JsonNode issue : connection.path("nodes")) {
+                result.add(toIssue(issue));
+            }
+            after = nextCursor(connection);
+        } while (after != null);
+        return result;
+    }
+
+    /**
+     * Every PR, paged the same way (#991). With {@code since}, pages newest-updated
+     * first and stops at the first PR older than it — GitHub's PR connection has no
+     * {@code since} filter of its own.
+     */
+    private List<GhPullRequest> fetchPullRequests(String since) {
+        List<GhPullRequest> result = new ArrayList<>();
+        String query = since == null ? PULL_REQUESTS_QUERY : PULL_REQUESTS_BY_UPDATE_QUERY;
+        String after = null;
+        do {
+            JsonNode connection = graphql(query, null, after).path("pullRequests");
+            for (JsonNode pr : connection.path("nodes")) {
+                if (since != null && pr.path("updatedAt").asText("").compareTo(since) < 0) {
+                    return result;
+                }
                 result.add(toPullRequest(pr));
             }
-            return result;
+            after = nextCursor(connection);
+        } while (after != null);
+        return result;
+    }
+
+    private static String nextCursor(JsonNode connection) {
+        JsonNode pageInfo = connection.path("pageInfo");
+        return pageInfo.path("hasNextPage").asBoolean(false) ? pageInfo.path("endCursor").asText(null) : null;
+    }
+
+    /** One GraphQL page against the cwd's own repo; gh fills {@code {owner}}/{@code {repo}} from its git remote, as for every other call here. */
+    private JsonNode graphql(String query, String since, String after) {
+        List<String> arguments = new ArrayList<>(List.of("api", "graphql",
+                "-F", "owner={owner}", "-F", "name={repo}", "-F", "pageSize=" + PAGE_SIZE, "-f", "query=" + query));
+        if (since != null) {
+            arguments.add("-f");
+            arguments.add("since=" + since);
+        }
+        if (after != null) {
+            arguments.add("-f");
+            arguments.add("after=" + after);
+        }
+        String json = run(arguments.toArray(new String[0]));
+        try {
+            JsonNode root = MAPPER.readTree(json);
+            JsonNode repository = root.path("data").path("repository");
+            if (repository.isMissingNode() || repository.isNull()) {
+                throw new GhUnavailableException("gh api graphql returned no repository: " + json.strip(), null);
+            }
+            return repository;
         } catch (IOException e) {
-            throw new GhUnavailableException("Could not parse gh pr list output", e);
+            throw new GhUnavailableException("Could not parse gh api graphql output", e);
         }
     }
 
@@ -145,7 +290,7 @@ public class CliGhClient implements GhClient {
 
     private static GhIssue toIssue(JsonNode issue) {
         List<String> labels = new ArrayList<>();
-        for (JsonNode label : issue.path("labels")) {
+        for (JsonNode label : issue.path("labels").path("nodes")) {
             labels.add(label.path("name").asText());
         }
         JsonNode parentNode = issue.path("parent");
@@ -241,6 +386,15 @@ public class CliGhClient implements GhClient {
     }
 
     private String run(String... arguments) {
+        ProcessOutcome outcome = runForOutcome(arguments);
+        if (outcome.failed()) {
+            throw new GhUnavailableException("gh exited " + outcome.exitCode() + ": " + outcome.describe(), null);
+        }
+        return outcome.stdout();
+    }
+
+    /** Runs gh and hands back its outcome, failed or not; only a gh that could not run, or ran too long, throws. */
+    private ProcessOutcome runForOutcome(String... arguments) {
         // Checked up front (#671): ProcessBuilder.start() reports a missing working
         // directory with the same "error=2, No such file or directory" it reports for a
         // missing executable, and the catch below would blame gh's PATH for it.
@@ -256,11 +410,7 @@ public class CliGhClient implements GhClient {
             if (token != null && !token.isBlank()) {
                 builder.environment().put("GH_TOKEN", token);
             }
-            ProcessOutcome outcome = runBounded(builder, timeout);
-            if (outcome.failed()) {
-                throw new GhUnavailableException("gh exited " + outcome.exitCode() + ": " + outcome.describe(), null);
-            }
-            return outcome.stdout();
+            return runBounded(builder, timeout);
         } catch (ProcessTimedOut e) {
             throw new GhUnavailableException(e.getMessage(), null);
         } catch (InterruptedException e) {

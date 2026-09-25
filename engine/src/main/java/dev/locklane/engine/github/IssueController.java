@@ -67,7 +67,7 @@ public class IssueController {
                 .map(ctx -> {
                     if (fresh) {
                         GhRefreshStatus before = ctx.cache().status();
-                        boolean changed = ctx.cache().refresh();
+                        boolean changed = ctx.cache().refreshFully();
                         ProjectGhResources.broadcastStatusIfMoved(eventBroadcaster, projectId, before, ctx.cache().status());
                         if (changed) {
                             eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
@@ -116,7 +116,7 @@ public class IssueController {
         }
         ProjectGhContext ctx = context.get();
         ctx.client().updateIssueLabels(number, request.add(), request.remove());
-        if (ctx.cache().refresh()) {
+        if (ctx.cache().refreshAfterWrite()) {
             eventBroadcaster.broadcast("issuesChanged", Map.of("projectId", projectId));
         }
         return ctx.cache().issue(number)

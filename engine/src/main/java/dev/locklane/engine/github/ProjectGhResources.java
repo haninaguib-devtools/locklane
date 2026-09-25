@@ -10,15 +10,21 @@ import dev.locklane.engine.ws.EventBroadcaster;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
 
 /**
@@ -33,6 +39,9 @@ public class ProjectGhResources {
 
     private static final Logger log = LoggerFactory.getLogger(ProjectGhResources.class);
     private static final long REFRESH_INTERVAL_MS = 30_000;
+    private static final Duration REFRESH_INTERVAL = Duration.ofMillis(REFRESH_INTERVAL_MS);
+    /** How often to poll while no browser is connected (#991), unless configured otherwise. */
+    static final Duration DEFAULT_IDLE_INTERVAL = Duration.ofMinutes(5);
 
     private final ProjectRepository projectRepository;
     private final GhAccountRepository ghAccountRepository;
@@ -41,11 +50,23 @@ public class ProjectGhResources {
     private final BiFunction<Path, String, GhClient> clientFactory;
     private final Map<Long, ProjectGhContext> contexts = new ConcurrentHashMap<>();
     private volatile CredentialRenewer credentialRenewer = CredentialRenewer.NONE;
+    private final Clock clock;
+    private final Duration idleInterval;
+    private final Executor connectRefreshExecutor;
+    // #991: one refreshAll at a time -- the scheduled tick and a connect-triggered one.
+    private final ReentrantLock refreshing = new ReentrantLock();
+    // When the most recent refreshAll started; null until the first.
+    private volatile Instant lastRefreshStartedAt;
 
     @Autowired
     public ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
-            TokenCipher tokenCipher, EventBroadcaster eventBroadcaster) {
-        this(projectRepository, ghAccountRepository, tokenCipher, eventBroadcaster, CliGhClient::new);
+            TokenCipher tokenCipher, EventBroadcaster eventBroadcaster,
+            @Value("${locklane.github.issue-poll.idle-interval-ms:300000}") long idleIntervalMs) {
+        this(projectRepository, ghAccountRepository, tokenCipher, eventBroadcaster, CliGhClient::new,
+                Clock.systemUTC(), Duration.ofMillis(idleIntervalMs), ProjectGhResources::refreshOnItsOwnThread);
+        // Only here, the production path: the test constructors' broadcasters have no
+        // clients, and a test drives clientConnected() itself.
+        eventBroadcaster.onClientConnected(this::clientConnected);
     }
 
     /**
@@ -63,11 +84,27 @@ public class ProjectGhResources {
 
     public ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
             TokenCipher tokenCipher, EventBroadcaster eventBroadcaster, BiFunction<Path, String, GhClient> clientFactory) {
+        this(projectRepository, ghAccountRepository, tokenCipher, eventBroadcaster, clientFactory, Clock.systemUTC(),
+                DEFAULT_IDLE_INTERVAL, ProjectGhResources::refreshOnItsOwnThread);
+    }
+
+    /** Test-only (#991): a controllable clock and idle interval, and an executor a test can run inline. */
+    ProjectGhResources(ProjectRepository projectRepository, GhAccountRepository ghAccountRepository,
+            TokenCipher tokenCipher, EventBroadcaster eventBroadcaster, BiFunction<Path, String, GhClient> clientFactory,
+            Clock clock, Duration idleInterval, Executor connectRefreshExecutor) {
         this.projectRepository = projectRepository;
         this.ghAccountRepository = ghAccountRepository;
         this.tokenCipher = tokenCipher;
         this.eventBroadcaster = eventBroadcaster;
         this.clientFactory = clientFactory;
+        this.clock = clock;
+        this.idleInterval = idleInterval;
+        this.connectRefreshExecutor = connectRefreshExecutor;
+    }
+
+    /** Off the WebSocket handshake thread, which must not wait on gh. */
+    private static void refreshOnItsOwnThread(Runnable refresh) {
+        Thread.ofVirtual().name("gh-refresh-on-connect").start(refresh);
     }
 
     /**
@@ -142,9 +179,65 @@ public class ProjectGhResources {
      * tick, so a renewed account recovers here rather than a poll later. A retry that
      * still answers 401 tells the renewer, which marks the account as needing
      * reconnection so nothing retries it again.
+     *
+     * <p>Only runs when {@link #refreshDue} says so (#991): every tick while a browser is
+     * connected to the events channel, and once per idle interval while none is.
      */
     @Scheduled(fixedDelay = REFRESH_INTERVAL_MS, initialDelay = 0)
+    void scheduledRefresh() {
+        if (refreshDue()) {
+            refreshing.lock();
+            try {
+                refreshAll();
+            } finally {
+                refreshing.unlock();
+            }
+        }
+    }
+
+    /**
+     * The scheduling decision (#991): nobody watching means nobody sees the result, so
+     * with no events-channel client connected the poll drops from every
+     * {@link #REFRESH_INTERVAL_MS} to once per idle interval ({@code
+     * locklane.github.issue-poll.idle-interval-ms}, 5 min by default) -- still often
+     * enough to keep the cache usable for the worktree sweeper and push notifications
+     * that read it. The first tick after startup is always due (#786).
+     */
+    boolean refreshDue() {
+        Instant last = lastRefreshStartedAt;
+        if (last == null || eventBroadcaster.connectedClientCount() > 0) {
+            return true;
+        }
+        return !Duration.between(last, clock.instant()).minus(idleInterval).isNegative();
+    }
+
+    /**
+     * A client just connected (#991): if the last poll is older than one active tick --
+     * i.e. the poll has been idling -- refresh right away, so the first thing it sees
+     * is current, rather than waiting up to a whole idle interval. Skipped while a
+     * refresh is already running, which is about to be current anyway.
+     */
+    void clientConnected() {
+        Instant last = lastRefreshStartedAt;
+        if (last != null && Duration.between(last, clock.instant()).compareTo(REFRESH_INTERVAL) < 0) {
+            return;
+        }
+        connectRefreshExecutor.execute(() -> {
+            if (!refreshing.tryLock()) {
+                return;
+            }
+            try {
+                refreshAll();
+            } catch (RuntimeException e) {
+                log.error("Issue/PR refresh on client connect failed", e);
+            } finally {
+                refreshing.unlock();
+            }
+        });
+    }
+
     void refreshAll() {
+        lastRefreshStartedAt = clock.instant();
         for (ProjectRecord project : projectRepository.findAll()) {
             if (project.status() != ProjectStatus.READY) {
                 continue;
