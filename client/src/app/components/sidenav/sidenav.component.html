@@ -79,10 +79,11 @@
             @if (visibleLabels.length === 0) {
               <div class="picker-option picker-empty">no labels</div>
             } @else {
-              <!-- Two checkbox columns (#999): Show narrows to a label, Hide drops it. -->
-              <div class="label-grid">
-                <span class="label-col-head">Show</span>
-                <span class="label-col-head">Hide</span>
+              <!-- Two checkbox columns (#999): Show narrows to a label, Hide drops it. The grid
+                   is inline because sidenav.component.css sits at its 8 kB component budget. -->
+              <div class="label-grid" style="display: grid; grid-template-columns: auto auto 1fr">
+                <span class="picker-option label-col-head">Show</span>
+                <span class="picker-option label-col-head">Hide</span>
                 <span></span>
                 @for (label of visibleLabels; track label) {
                   <label class="picker-option label-show">
@@ -101,7 +102,7 @@
                       (change)="toggleHideLabel(label)"
                     />
                   </label>
-                  <span class="label-name">{{ label }}</span>
+                  <span class="picker-option label-name">{{ label }}</span>
                 }
               </div>
             }

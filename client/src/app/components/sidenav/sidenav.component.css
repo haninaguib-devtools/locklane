@@ -139,30 +139,6 @@ app-usage-widget {
   white-space: nowrap;
 }
 
-/* The label picker's Show and Hide columns (#999): a checkbox under each, then the name. */
-.label-grid {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: center;
-}
-
-.label-col-head {
-  padding: 2px 10px;
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-}
-
-.label-grid .picker-option {
-  padding: 0 10px;
-}
-
-.label-name {
-  padding-right: 10px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .refresh {
   flex: none;
   width: 28px;
