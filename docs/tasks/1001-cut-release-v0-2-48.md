@@ -20,7 +20,8 @@ Cut release v0.2.48: land its CHANGELOG.md section on main together with the
 - none
 
 ## Deviations / notes
-- none
+- `<bump-version>` is the default patch bump, 0.2.49, confirmed by the human.
+- `scripts/check.sh` skipped Maven: no build input in this diff (commit 28a9121).
 
 ## Agents
 - work: claude-code / claude-opus-5-5
