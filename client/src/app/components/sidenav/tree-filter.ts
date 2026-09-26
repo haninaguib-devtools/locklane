@@ -19,6 +19,10 @@ import { TreeNode } from '../../models/issue.model';
  * itself like `tags`: a node matches if its GitHub author is any of the selected
  * logins, ANDed against the other filters the same way the tag filter is (and, like
  * tags, not exempted by an open agent session).
+ *
+ * `hiddenTags` (#999) is the label picker's Hide column, the inverse of `tags`: a node
+ * carrying *any* of them is dropped, ANDed against the other filters. It is part of
+ * the tag filter, so an open agent session does not exempt a node from it either.
  */
 export function filterNode(
   node: TreeNode,
@@ -27,12 +31,15 @@ export function filterNode(
   tags: string[] = [],
   hasOpenAgentSession: (n: TreeNode) => boolean = () => false,
   authors: string[] = [],
+  hiddenTags: string[] = [],
 ): TreeNode | null {
   const needle = filterText.trim().toLowerCase();
   const textOk = (n: TreeNode) =>
     !needle || `#${n.number} ${n.title}`.toLowerCase().includes(needle) || hasOpenAgentSession(n);
   const shipOk = (n: TreeNode) => !hideShipped || n.state !== 'CLOSED' || hasOpenAgentSession(n);
-  const tagOk = (n: TreeNode) => tags.length === 0 || n.labels.some((l) => tags.includes(l));
+  const tagOk = (n: TreeNode) =>
+    (tags.length === 0 || n.labels.some((l) => tags.includes(l))) &&
+    !n.labels.some((l) => hiddenTags.includes(l));
   const authorOk = (n: TreeNode) => authors.length === 0 || authors.includes(n.author);
   const selfOk = (n: TreeNode) => textOk(n) && shipOk(n) && tagOk(n) && authorOk(n);
 
@@ -55,9 +62,10 @@ export function filterTree(
   tags: string[] = [],
   hasOpenAgentSession: (n: TreeNode) => boolean = () => false,
   authors: string[] = [],
+  hiddenTags: string[] = [],
 ): TreeNode[] {
   return nodes
-    .map((n) => filterNode(n, filterText, hideShipped, tags, hasOpenAgentSession, authors))
+    .map((n) => filterNode(n, filterText, hideShipped, tags, hasOpenAgentSession, authors, hiddenTags))
     .filter((n): n is TreeNode => n !== null);
 }
 
@@ -67,7 +75,7 @@ export function filterTree(
  * all apply). `hasOpenAgentSession` (#263) exempts a node from the text filter too, on
  * top of the always-on ship exemption pinning already gives it. The author filter
  * (#930, a list since #947) follows the tag filter's rule for pins: it never removes
- * the pin itself.
+ * the pin itself, and neither does `hiddenTags` (#999), which drops hidden children only.
  */
 export function filterPinnedNode(
   node: TreeNode,
@@ -76,12 +84,15 @@ export function filterPinnedNode(
   tags: string[] = [],
   hasOpenAgentSession: (n: TreeNode) => boolean = () => false,
   authors: string[] = [],
+  hiddenTags: string[] = [],
 ): TreeNode | null {
   const needle = filterText.trim().toLowerCase();
   const textOk = (n: TreeNode) =>
     !needle || `#${n.number} ${n.title}`.toLowerCase().includes(needle) || hasOpenAgentSession(n);
   const shipOk = (n: TreeNode) => !hideShipped || n.state !== 'CLOSED' || hasOpenAgentSession(n);
-  const tagOk = (n: TreeNode) => tags.length === 0 || n.labels.some((l) => tags.includes(l));
+  const tagOk = (n: TreeNode) =>
+    (tags.length === 0 || n.labels.some((l) => tags.includes(l))) &&
+    !n.labels.some((l) => hiddenTags.includes(l));
   const authorOk = (n: TreeNode) => authors.length === 0 || authors.includes(n.author);
 
   if (!textOk(node)) {
@@ -100,8 +111,9 @@ export function filterPinnedTree(
   tags: string[] = [],
   hasOpenAgentSession: (n: TreeNode) => boolean = () => false,
   authors: string[] = [],
+  hiddenTags: string[] = [],
 ): TreeNode[] {
   return nodes
-    .map((n) => filterPinnedNode(n, filterText, hideShipped, tags, hasOpenAgentSession, authors))
+    .map((n) => filterPinnedNode(n, filterText, hideShipped, tags, hasOpenAgentSession, authors, hiddenTags))
     .filter((n): n is TreeNode => n !== null);
 }

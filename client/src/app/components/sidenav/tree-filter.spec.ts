@@ -142,6 +142,32 @@ describe('tree-filter', () => {
     expect(result[0].number).toBe(3);
   });
 
+  it('a hidden tag (#999) drops any node carrying it, ANDed with the shown tags', () => {
+    const tree = [
+      task(1, 'Bug', 'OPEN', ['bug']),
+      task(2, 'Wontfix bug', 'OPEN', ['bug', 'wontfix']),
+      task(3, 'Untagged', 'OPEN', []),
+    ];
+
+    expect(filterTree(tree, '', false, [], () => false, [], ['wontfix']).map((n) => n.number)).toEqual([1, 3]);
+    expect(filterTree(tree, '', false, ['bug'], () => false, [], ['wontfix']).map((n) => n.number)).toEqual([1]);
+  });
+
+  it('a hidden tag (#999) drops a hidden child but keeps its initiative when another child survives', () => {
+    const tree = [initiative(1, 'Umbrella', [task(2, 'Keep', 'OPEN', []), task(3, 'Drop', 'OPEN', ['wontfix'])])];
+
+    const result = filterTree(tree, '', false, [], () => false, [], ['wontfix']);
+
+    expect(result).toHaveSize(1);
+    expect(result[0].children.map((c) => c.number)).toEqual([2]);
+  });
+
+  it('an open agent session (#263) does not exempt a node from a hidden tag (#999)', () => {
+    const tree = [task(1, 'Hidden', 'OPEN', ['wontfix'])];
+
+    expect(filterTree(tree, '', false, [], () => true, [], ['wontfix'])).toEqual([]);
+  });
+
   it('with no author selected, the author filter (#930) is a no-op', () => {
     const tree = [task(1, 'A', 'OPEN', [], 'alice'), task(2, 'B', 'OPEN', [], 'bob')];
 
@@ -253,6 +279,24 @@ describe('filterPinnedTree', () => {
     const pinned = [task(1, 'Pinned, untagged', 'OPEN', [])];
 
     expect(filterPinnedTree(pinned, '', false, ['bug'])).toEqual(pinned);
+  });
+
+  it('unlike filterTree, a pinned entry carrying a hidden tag (#999) is never dropped, but its hidden children are', () => {
+    const pinned: TreeNode = {
+      number: 1,
+      title: 'Pinned, hidden tag',
+      kind: 'INITIATIVE',
+      state: 'OPEN',
+      hasActiveBranch: false,
+      labels: ['wontfix'],
+      author: '',
+      children: [task(2, 'Keep', 'OPEN', []), task(3, 'Drop', 'OPEN', ['wontfix'])],
+    };
+
+    const result = filterPinnedTree([pinned], '', false, [], () => false, [], ['wontfix']);
+
+    expect(result).toHaveSize(1);
+    expect(result[0].children.map((c) => c.number)).toEqual([2]);
   });
 
   it('unlike filterTree, a pinned entry another login opened is never dropped (#930)', () => {

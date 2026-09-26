@@ -624,14 +624,11 @@ describe('SidenavComponent', () => {
         (row) => Number(row.dataset['issueNumber']),
       );
     const listed = () =>
-      Array.from(
-        fixture.nativeElement.querySelectorAll('.label-picker .picker-option') as NodeListOf<HTMLLabelElement>,
-      ).map((o) => o.textContent!.trim());
+      Array.from(fixture.nativeElement.querySelectorAll('.label-picker .label-name') as NodeListOf<HTMLElement>).map(
+        (o) => o.textContent!.trim(),
+      );
     const tick = (label: string) => {
-      const box = Array.from(
-        fixture.nativeElement.querySelectorAll('.label-picker .picker-option') as NodeListOf<HTMLLabelElement>,
-      ).find((o) => o.textContent!.trim() === label)!.querySelector('input') as HTMLInputElement;
-      box.click();
+      (fixture.nativeElement.querySelector(`.label-picker input[aria-label="Show ${label}"]`) as HTMLInputElement).click();
       fixture.detectChanges();
     };
     expect(fixture.componentInstance.labels).toEqual(['bug', 'chore', 'feature', 'feature-request']);
@@ -659,7 +656,7 @@ describe('SidenavComponent', () => {
     expect(fixture.componentInstance.filterLabels).toEqual(['bug', 'feature']);
     // A matching initiative keeps its children, each still subject to the label filter.
     expect(shown()).toEqual([1, 2]);
-    expect((fixture.nativeElement.querySelector('.label-picker-button') as HTMLElement).textContent).toContain('2 labels');
+    expect((fixture.nativeElement.querySelector('.label-picker-button') as HTMLElement).textContent).toContain('2 shown');
 
     search.value = '';
     search.dispatchEvent(new Event('input'));
@@ -668,6 +665,68 @@ describe('SidenavComponent', () => {
     expect((listed().indexOf('bug') >= 0)).toBeTrue();
     tick('bug');
     tick('feature');
+    expect(shown()).toEqual([1, 2, 3, 4]);
+  });
+
+  it("the label picker's Hide column (#999) drops issues carrying a ticked label, exclusive of Show", () => {
+    const fixture = init();
+    const [initiative, standalone] = tree();
+    flushTree(1, [
+      {
+        ...initiative,
+        labels: ['feature'],
+        children: [
+          { ...initiative.children[0], labels: ['bug'] },
+          { ...initiative.children[1], state: 'OPEN', labels: ['feature-request'] },
+        ],
+      },
+      { ...standalone, labels: ['chore'] },
+    ]);
+    fixture.detectChanges();
+    const shown = () =>
+      Array.from(fixture.nativeElement.querySelectorAll('.project-section .row') as NodeListOf<HTMLElement>).map(
+        (row) => Number(row.dataset['issueNumber']),
+      );
+    const box = (column: 'Show' | 'Hide', label: string) =>
+      fixture.nativeElement.querySelector(`.label-picker input[aria-label="${column} ${label}"]`) as HTMLInputElement;
+    const click = (column: 'Show' | 'Hide', label: string) => {
+      box(column, label).click();
+      fixture.detectChanges();
+    };
+    const buttonText = () =>
+      (fixture.nativeElement.querySelector('.label-picker-button') as HTMLElement).textContent!;
+
+    (fixture.nativeElement.querySelector('.label-picker-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const heads = Array.from(
+      fixture.nativeElement.querySelectorAll('.label-picker .label-col-head') as NodeListOf<HTMLElement>,
+    ).map((h) => h.textContent!.trim());
+    expect(heads).toEqual(['Show', 'Hide']);
+
+    click('Hide', 'bug');
+    expect(fixture.componentInstance.hideLabels).toEqual(['bug']);
+    expect(shown()).toEqual([1, 3, 4]);
+    expect(buttonText()).toContain('1 hidden');
+
+    click('Hide', 'chore');
+    expect(shown()).toEqual([1, 3]);
+
+    // Ticking "bug" under Show unticks it under Hide.
+    click('Show', 'bug');
+    expect(fixture.componentInstance.filterLabels).toEqual(['bug']);
+    expect(fixture.componentInstance.hideLabels).toEqual(['chore']);
+    expect(box('Hide', 'bug').checked).toBeFalse();
+    expect(shown()).toEqual([1, 2]);
+    expect(buttonText()).toContain('1 shown, 1 hidden');
+
+    // And the other way round.
+    click('Hide', 'bug');
+    expect(fixture.componentInstance.filterLabels).toEqual([]);
+    expect(box('Show', 'bug').checked).toBeFalse();
+
+    click('Hide', 'bug');
+    click('Hide', 'chore');
+    expect(buttonText()).toContain('labels');
     expect(shown()).toEqual([1, 2, 3, 4]);
   });
 

@@ -59,10 +59,10 @@
         <button
           type="button"
           class="picker-button label-picker-button"
-          [class.active]="filterLabels.length > 0"
+          [class.active]="filterLabels.length > 0 || hideLabels.length > 0"
           [attr.aria-expanded]="openPicker === 'labels'"
           aria-label="Filter by label"
-          title="Show only issues carrying any ticked label"
+          title="Show only issues carrying a label ticked under Show; hide those carrying one ticked under Hide"
           (click)="togglePicker('labels', $event)"
         >
           {{ labelsButtonLabel }} <span class="caret">▾</span>
@@ -78,12 +78,32 @@
             />
             @if (visibleLabels.length === 0) {
               <div class="picker-option picker-empty">no labels</div>
-            }
-            @for (label of visibleLabels; track label) {
-              <label class="picker-option">
-                <input type="checkbox" [checked]="filterLabels.includes(label)" (change)="toggleLabel(label)" />
-                {{ label }}
-              </label>
+            } @else {
+              <!-- Two checkbox columns (#999): Show narrows to a label, Hide drops it. -->
+              <div class="label-grid">
+                <span class="label-col-head">Show</span>
+                <span class="label-col-head">Hide</span>
+                <span></span>
+                @for (label of visibleLabels; track label) {
+                  <label class="picker-option label-show">
+                    <input
+                      type="checkbox"
+                      [attr.aria-label]="'Show ' + label"
+                      [checked]="filterLabels.includes(label)"
+                      (change)="toggleLabel(label)"
+                    />
+                  </label>
+                  <label class="picker-option label-hide">
+                    <input
+                      type="checkbox"
+                      [attr.aria-label]="'Hide ' + label"
+                      [checked]="hideLabels.includes(label)"
+                      (change)="toggleHideLabel(label)"
+                    />
+                  </label>
+                  <span class="label-name">{{ label }}</span>
+                }
+              </div>
             }
           </div>
         }
