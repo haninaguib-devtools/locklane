@@ -20,6 +20,11 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.47 — 2026-09-25
+
+### Other
+- Make the sidenav refresh fast; full reload once a day (#995, #996)
+
 ## v0.2.46 — 2026-09-25
 
 ### Other
