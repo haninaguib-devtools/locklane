@@ -211,6 +211,8 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
   // Neither is stored in a workspace (#934): both are plain component state.
   filterAuthors: string[] = [];
   filterLabels: string[] = [];
+  // The label picker's Hide column (#999): issues carrying any of these are dropped.
+  hideLabels: string[] = [];
   // The label picker's find-as-you-type box (#947): it narrows the picker's own list,
   // never the tree, and a ticked label stays in effect while it is hidden.
   labelSearch = '';
@@ -1061,6 +1063,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
         this.filterLabels,
         (n) => this.hasOpenAgentSession(section.project.id, n.number),
         this.filterAuthors,
+        this.hideLabels,
       );
       if (nodes.length > 0) {
         groups.push({ project: section.project, nodes });
@@ -1093,6 +1096,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
       this.filterLabels,
       (n) => this.hasOpenAgentSession(section.project.id, n.number),
       this.filterAuthors,
+      this.hideLabels,
     );
   }
 
@@ -1113,7 +1117,7 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
 
   // The label picker's choices (#947), by the same rule as `authors`.
   get labels(): string[] {
-    const names = new Set<string>(this.filterLabels);
+    const names = new Set<string>([...this.filterLabels, ...this.hideLabels]);
     for (const section of this.sections) {
       for (const node of this.flatten(section.tree)) {
         for (const label of node.labels) {
@@ -1135,9 +1139,13 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
     return n === 0 ? 'authors' : n === 1 ? '1 author' : `${n} authors`;
   }
 
+  // Counts both columns of the label picker (#999): "2 shown", "1 hidden", or both.
   get labelsButtonLabel(): string {
-    const n = this.filterLabels.length;
-    return n === 0 ? 'labels' : n === 1 ? '1 label' : `${n} labels`;
+    const parts = [
+      this.filterLabels.length > 0 ? `${this.filterLabels.length} shown` : '',
+      this.hideLabels.length > 0 ? `${this.hideLabels.length} hidden` : '',
+    ].filter((p) => p);
+    return parts.length === 0 ? 'labels' : parts.join(', ');
   }
 
   togglePicker(picker: 'authors' | 'labels', event: Event): void {
@@ -1158,10 +1166,20 @@ export class SidenavComponent implements OnInit, OnChanges, OnDestroy {
       : [...this.filterAuthors, login];
   }
 
+  // A label sits in at most one of the picker's Show and Hide columns (#999):
+  // ticking it in one unticks it in the other.
   toggleLabel(label: string): void {
     this.filterLabels = this.filterLabels.includes(label)
       ? this.filterLabels.filter((l) => l !== label)
       : [...this.filterLabels, label];
+    this.hideLabels = this.hideLabels.filter((l) => l !== label);
+  }
+
+  toggleHideLabel(label: string): void {
+    this.hideLabels = this.hideLabels.includes(label)
+      ? this.hideLabels.filter((l) => l !== label)
+      : [...this.hideLabels, label];
+    this.filterLabels = this.filterLabels.filter((l) => l !== label);
   }
 
   // Counted off the raw tree, before the text filter and hideShipped run (#186):
