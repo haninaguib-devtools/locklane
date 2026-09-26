@@ -18,10 +18,24 @@ The sidenav's label filter picker (#947) today is a single checkbox list: tickin
 - Any engine/server change.
 
 ## Decisions made along the way
-- none
+- The two columns are one grid: a Show checkbox, a Hide checkbox, then the label name, under
+  `Show` / `Hide` headings. The label name appears once per row rather than twice, which fits
+  the narrow sidebar; the checkboxes carry `aria-label="Show <label>"` / `"Hide <label>"`.
+- The Hide list is a new trailing `hiddenTags` parameter on the tree-filter functions, folded
+  into the existing tag check, so it inherits the tag filter's rules for agent sessions and pins.
+- The picker's choices include hidden labels too, so a ticked Hide label never vanishes from
+  its own picker.
 
 ## Deviations / notes
-- none
+- `sidenav.component.css` was already at its 8 kB `anyComponentStyle` error budget
+  (`angular.json`); any added rule failed the build. The grid's one rule is an inline
+  `style` attribute on the grid, and headings and names reuse `.picker-option`. The budget
+  was not raised.
+- `scripts/check.sh`: client 1079/1079 pass; engine fails 16 tests (ProjectCheckoutServiceTest x3,
+  ProjectWorktreesServiceTest x4, WorktreeCleanupSweeperTest x3, WorktreeCreationServiceTest x1,
+  SessionRegistryReattachTest x1, ProjectAgentSessionWebSocketIntegrationTest x1,
+  BellHookCommandDetachedShapeTest x2 (`setsid` missing), ProcessTreesTest x1 (`/bin/true`
+  missing)) — the known local macOS environment failures; this diff touches no engine code.
 
 ## Agents
 - work: claude-code / claude-opus-5-5
