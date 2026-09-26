@@ -150,7 +150,7 @@ class ProjectGhResourcesSchedulingTest {
         ProjectRepository repository = TestSqliteDatabases.newProjectRepository(dataDir);
 
         new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
-                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, 300_000L);
+                new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster, 300_000L, 86_400_000L);
 
         verify(broadcaster).onClientConnected(any());
     }
@@ -161,11 +161,11 @@ class ProjectGhResourcesSchedulingTest {
         repository.createReady("myproj", "url", dataDir.resolve("myproj"), "main", 1L, Instant.now());
         return new ProjectGhResources(repository, TestSqliteDatabases.newGhAccountRepository(dataDir),
                 new TokenCipher(new EncryptionKeyProvider(dataDir.toString())), broadcaster,
-                (path, token) -> new CountingGhClient(fetches), clock, Duration.ofMinutes(5), executor);
+                (path, token) -> new CountingGhClient(fetches), clock, Duration.ofMinutes(5), Duration.ofDays(1), executor);
     }
 
     /** A clock a test moves by hand. */
-    private static final class MutableClock extends Clock {
+    static final class MutableClock extends Clock {
         private Instant now = Instant.parse("2026-09-25T12:00:00Z");
 
         void advance(Duration by) {
