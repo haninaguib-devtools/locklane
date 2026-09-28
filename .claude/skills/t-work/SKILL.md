@@ -62,12 +62,17 @@ only when the human asks by number. Note in the record what each change answers.
 
 ## 5. Checks
 
+Bring the record up to date, then commit (imperative message): checks run on the
+commit the PR will carry, and a later commit leaves them at a stale sha.
+
 1. `git -c core.quotePath=false diff --name-only origin/<base>...HEAD | .t-workflow/scripts/docs-only.sh`
    — exit 0 means check 1 is skipped: write `check 1 skipped: documentation-only diff`
-   in the record and the PR. Otherwise run the `check` command from `.t-workflow/config`
-   (none configured → say so).
+   in the record and the PR. Otherwise `.t-workflow/scripts/check.sh` runs the `check`
+   command from `.t-workflow/config` (none configured → say so), keeps its raw output
+   for the reviewer, and prints the `## Checks run` line; any other check goes through
+   `check.sh "<command>"` the same way.
 2. Read the whole diff (`git diff origin/<base>...HEAD`): scope drift, unintended
-   deletions, leftover scratch. An edit here re-runs check 1.
+   deletions, leftover scratch. An edit here is committed and re-runs check 1.
 3. Same file list through `.t-workflow/scripts/protected.sh`: protected and no plan →
    stop for `/t-plan <id>` instead of opening a PR `/t-ship` will refuse.
 
@@ -75,16 +80,15 @@ Report results as they are; a failure is a failure.
 
 ## 6. Commit and PR
 
-Commit with an imperative message. `git push -u origin <branch>`. Normal mode:
+`git push -u origin <branch>`. Normal mode:
 
 ```bash
 gh pr create --draft --base <base> --title "[<id>] <issue title>" --body-file <file>
 ```
 
 Body: `Closes #<id>`, what changed and why in plain language, what remains open, and a
-`## Checks run` section with one line per check:
-`` - `<command>` — PASS|FAIL — commit `<sha>` `` (or the skip line above). Fix mode
-pushes to the same branch and rewrites `## Checks run` for the new head
+`## Checks run` section with `check.sh`'s lines verbatim (or the skip line above). Fix
+mode pushes to the same branch and rewrites `## Checks run` for the new head
 (`gh pr edit <pr> --body-file`).
 
 ## 7. Stop
