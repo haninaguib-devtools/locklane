@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One call for what a cold reader needs.
-#   snapshot.sh review <id>   JSON: {issue, plan, children, pr:{number,url,title,headRefOid,headRefName,baseRefName,files,reviews,head_time,checks_run}, diff, local:{head,clean}}
+#   snapshot.sh review <id>   JSON: {issue, plan, children, pr:{number,url,title,headRefOid,headRefName,baseRefName,files,reviews,head_time,checks_run}, diff, local:{head,clean,check_outputs}}
+#                             local.check_outputs: [{path, readable}] for each `output` a checks_run line names (check.sh)
 #                             children: for an initiative, [{number,title,state,stateReason,plan,record}] — its plans and records are theirs
 #   snapshot.sh status        text: parents and their children, open tasks with blockers, branch, PR, checks, review; warnings
 set -uo pipefail
@@ -31,9 +32,11 @@ review)
     done < <(printf '%s' "$children" | jq -r '.[].number')
   fi
   clean=true; [ -z "$(git status --porcelain | grep -v '^??')" ] || clean=false
+  outputs=$(printf '%s' "$prv" | jq -r .checks_run | sed -n -E 's/.* — output `([^`]+)`[[:space:]]*$/\1/p' \
+    | while IFS= read -r o; do r=false; [ -r "$o" ] && r=true; jq -nc --arg p "$o" --argjson r "$r" '{path: $p, readable: $r}'; done | jq -sc .)
   jq -n --argjson issue "$issue" --arg plan "$plan" --argjson children "$children" --slurpfile pr "$tmp/pr" --rawfile diff "$tmp/diff" \
-        --arg head "$(git rev-parse HEAD)" --arg branch "$(git branch --show-current)" --argjson clean "$clean" \
-        '{issue: $issue, plan: $plan, children: $children, pr: $pr[0], diff: $diff, local: {head: $head, branch: $branch, clean: $clean}}' ;;
+        --arg head "$(git rev-parse HEAD)" --arg branch "$(git branch --show-current)" --argjson clean "$clean" --argjson outputs "$outputs" \
+        '{issue: $issue, plan: $plan, children: $children, pr: $pr[0], diff: $diff, local: {head: $head, branch: $branch, clean: $clean, check_outputs: $outputs}}' ;;
 
 status)
   issues=$(gh issue list --state open --limit 200 --json number,title,labels,blockedBy,parent \

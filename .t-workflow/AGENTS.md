@@ -82,9 +82,11 @@ globs in `.t-workflow/config`. `.t-workflow/scripts/protected.sh` is the executa
 
 ## Checks
 
-1. The `check` command in `.t-workflow/config`, run locally before a PR is opened,
+1. The `check` command in `.t-workflow/config`, run locally through
+   `.t-workflow/scripts/check.sh` on the committed head before a PR is opened,
    skipped when the whole diff is documentation (`.t-workflow/scripts/docs-only.sh`).
-   No command configured → say so.
+   No command configured → say so. The review reads the output `check.sh` kept
+   instead of running the suite again.
 2. `git diff <trunk>...HEAD`, read against the task's scope.
 
 CI runs the gate scripts (record, title, plan, review, blockers) from the pull

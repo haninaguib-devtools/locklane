@@ -14,7 +14,8 @@ it again, but a spawned reviewer always does.
 **A task:**
 1. `/t-plan <id>` when `gate.sh work <id>` reports a protected scope with no plan.
 2. `/t-work <id>`.
-3. `/t-review <id>` when the diff is protected, in a subagent. `not-ready` → one fix
+3. `/t-review <id>` when the diff is protected, in a subagent, told only the task id:
+   its step 3 decides what to re-run, not the hand-off. `not-ready` → one fix
    pass (`/t-work <id>`) and one re-review. Still not ready → stop and report.
 4. `/t-ship <id>` up to its confirmation gate. That question is the run's stop.
 

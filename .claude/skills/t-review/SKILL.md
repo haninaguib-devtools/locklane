@@ -42,10 +42,15 @@ attribution goes; this skill never touches the working tree:
    saying so), and for a document deliverable: consistency, ambiguity, completeness —
    not whether it is right, which is the human's call.
 3. Checks: `pr.files` through `.t-workflow/scripts/protected.sh` (exit 0 = protected)
-   and `docs-only.sh`. A check may be reported as reused only when `## Checks run`
-   names that exact command at a sha equal to `pr.headRefOid`, or the project's own CI
-   ran that same command at that sha (read its workflow to be sure — t-workflow's own
-   job runs the gates, never the build); anything less → run it yourself. A claimed
+   and `docs-only.sh`. A `## Checks run` line at a sha equal to `pr.headRefOid` whose
+   output is readable (`local.check_outputs`) is **reused by reading that output**,
+   never re-run: judge the raw output itself — its `# commit:` and `# exit:` lines,
+   totals, the build line, skipped and failed counts — not the one-line claim. The
+   project's own CI running that same command at that sha counts the same way (read
+   its workflow to be sure — t-workflow's own job runs the gates, never the build).
+   Re-run only when the sha differs, the output is missing or does not support the
+   claim, or you have a specific doubt; then run the narrowest command that settles
+   it (one test class, not the suite) and name which case applied. A claimed
    documentation-only skip is verified by running `docs-only.sh` on `pr.files`, never
    reused. A claim about what an external service accepts — an API's request shape, a
    permission, a branch rule — is settled by a read-only call when one can settle it,
@@ -62,7 +67,7 @@ attribution goes; this skill never touches the working tree:
 isolation: <line from above>
 model: <harness> / <model>
 ## Checks
-- reused — `<command>` PASS at `<sha>` (from /t-work)   |   - ran: `<command>` — PASS|FAIL
+- reused — `<command>` PASS at `<sha>` — read `<output>`   |   - ran: `<command>` — PASS|FAIL — <which case>
 ## Findings
 ### Blocker / High / Medium / Low
 - <what is wrong, what it would break, where>
@@ -79,4 +84,5 @@ in the body, never an issue you open.
    because no review existed; re-running the red runs is what turns them green. Say
    what it did.
 7. Stop. Do not fix, mark ready, or merge. A pass after a fix pass is scoped: verify the
-   named findings, inspect what the fixes touched, re-run only the checks they falsify.
+   named findings, inspect what the fixes touched, and reuse the fix pass's own
+   `## Checks run` by step 3 — never repeat the first pass's runs.
