@@ -944,6 +944,11 @@ describe('SidenavComponent', () => {
 
     fixture.componentInstance.refresh();
     expect(fixture.componentInstance.refreshing).toBeTrue();
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    // The icon spins, not the button (#1005).
+    expect(compiled.querySelector('.refresh-icon')?.classList).toContain('spinning');
+    expect(compiled.querySelector('button.refresh')?.classList).not.toContain('spinning');
 
     httpMock.expectOne('/api/projects').flush([PROJECT_A]);
     const updated: TreeNode[] = [
@@ -953,6 +958,8 @@ describe('SidenavComponent', () => {
     flushTree(1, updated, true);
 
     expect(fixture.componentInstance.refreshing).toBeFalse();
+    fixture.detectChanges();
+    expect(compiled.querySelector('.refresh-icon')?.classList).not.toContain('spinning');
     const section = fixture.componentInstance.projectSections[0];
     expect(fixture.componentInstance.mainNodesFor(section).map((n) => n.number)).toEqual([1, 4, 5]);
   });
