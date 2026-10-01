@@ -20,6 +20,12 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.49 — 2026-10-01
+
+### Other
+- Make the sidenav refresh icon larger and spin on its own centre (#1005, #1006)
+- Update t-workflow from v0.0.11 to v0.0.12 (#1003, #1004)
+
 ## v0.2.48 — 2026-09-26
 
 ### Other
