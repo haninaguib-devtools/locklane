@@ -20,6 +20,11 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.50 — 2026-10-18
+
+### Other
+- Keep the service running when the kernel kills one process for memory (OOMPolicy=continue) (#1009, #1010)
+
 ## v0.2.49 — 2026-10-01
 
 ### Other
