@@ -162,6 +162,21 @@ scenario_systemd_stop_graceful() {
   fi
 }
 
+# #1009: the unit keeps running when the OOM killer takes one of its processes, rather
+# than systemd's default OOMPolicy=stop taking down the engine and every session.
+scenario_systemd_unit_oom_policy_continue() {
+  local name="systemd-unit-oom-policy-continue" unit
+  if in_server_cgroup; then skipped "$name" "inside the locklane.service cgroup"; return; fi
+  new_home
+  register_as systemd || { bad "$name" "register"; return; }
+  unit="$HOME/.config/systemd/user/locklane.service"
+  if grep -qx 'OOMPolicy=continue' "$unit" && grep -qx 'Restart=always' "$unit"; then
+    ok "$name"
+  else
+    bad "$name" "unit lacks OOMPolicy=continue or Restart=always: $(cat "$unit" 2>/dev/null)"
+  fi
+}
+
 scenario_stop_cannot_finish() {
   local name="stop-cannot-finish" out rc pid
   new_home
@@ -566,6 +581,7 @@ scenario_launchd_stop_forced
 scenario_launchd_stop_kills_children
 scenario_systemd_stop_graceful
 scenario_systemd_stop_forced
+scenario_systemd_unit_oom_policy_continue
 scenario_stop_cannot_finish
 scenario_uninstall_refuses_live
 scenario_uninstall_clean

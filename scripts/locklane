@@ -419,6 +419,11 @@ Type=simple
 # The JVM exits 143 on the SIGTERM a stop sends; without this every stop is logged as a
 # failure and status shows the unit as failed rather than inactive (#647).
 SuccessExitStatus=143
+# The default OOMPolicy=stop takes the whole unit down -- engine and every session --
+# when the OOM killer picks any one of its processes, typically an agent's build JVM.
+# With continue only that process dies; an engine OOM still exits the main process and
+# Restart=always brings it back (#1009). systemd-only: launchd has no unit-wide stop.
+OOMPolicy=continue
 WorkingDirectory=$INSTALL_DIR
 Environment=PATH=$resolved_path
 ExecStart=$java_bin -jar $JAR_FILE
