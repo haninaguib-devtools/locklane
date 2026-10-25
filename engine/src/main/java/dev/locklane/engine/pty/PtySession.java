@@ -3,6 +3,7 @@ package dev.locklane.engine.pty;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
 import com.pty4j.WinSize;
+import dev.locklane.engine.agent.InstalledAgentDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -78,6 +80,14 @@ public final class PtySession {
     // compute an equivalent `nowMs` without a real sleep.
     static final long QUIESCENCE_THRESHOLD_MS = 3000;
 
+    // #1014: the OOM score every session starts at, above the engine's own (the systemd
+    // unit sets 100), so when memory runs out the kernel kills a session's process --
+    // and OOMPolicy=continue keeps the engine and every other session running -- rather
+    // than the engine, whose exit takes the unit down. Raising a score needs no
+    // privilege, and every process the session starts inherits it.
+    static final int SESSION_OOM_SCORE_ADJ = 500;
+    private static final boolean OOM_SCORE_ADJ_SUPPORTED = Files.exists(Path.of("/proc/self/oom_score_adj"));
+
     private final String sessionId;
     private final PtyProcess process;
     private final OutputBuffer output = new OutputBuffer();
@@ -112,7 +122,8 @@ public final class PtySession {
         this.quiescenceFallbackEnabled = quiescenceFallbackEnabled;
         try {
             this.process = new PtyProcessBuilder()
-                    .setCommand(command)
+                    .setCommand(spawnCommand(command, workingDirectory, environment.get("PATH"),
+                            OOM_SCORE_ADJ_SUPPORTED, SessionScope.prefix(sessionId, environment)))
                     .setDirectory(workingDirectory.toString())
                     .setEnvironment(withDefaultTerminalEnv(environment))
                     .setInitialColumns(initialColumns)
@@ -368,6 +379,56 @@ public final class PtySession {
     /** Tells the running process its terminal changed size (SIGWINCH on Unix). */
     public void resize(int columns, int rows) {
         process.setWinSize(new WinSize(columns, rows));
+    }
+
+    /**
+     * {@code command} as it is actually spawned. When its program is not an executable
+     * here, unchanged, so pty4j still refuses to start it ({@link
+     * PtySessionStartException}) rather than a wrapper starting and exiting 127.
+     * Otherwise, inside its own scope ({@code scopePrefix}, from {@link SessionScope};
+     * empty leaves it in the engine's own control group), behind the OOM score wrapper
+     * ({@link #withRaisedOomScore}) -- outermost, so the score is raised before the
+     * scope's {@code systemd-run} execs the command and the scope inherits it.
+     */
+    static String[] spawnCommand(String[] command, Path workingDirectory, String pathEnv, boolean oomScoreAdjSupported,
+            String[] scopePrefix) {
+        if (command.length == 0 || !isExecutable(command[0], workingDirectory, pathEnv)) {
+            return command;
+        }
+        String[] scoped = new String[scopePrefix.length + command.length];
+        System.arraycopy(scopePrefix, 0, scoped, 0, scopePrefix.length);
+        System.arraycopy(command, 0, scoped, scopePrefix.length, command.length);
+        return withRaisedOomScore(scoped, oomScoreAdjSupported);
+    }
+
+    /**
+     * {@code command} behind a {@code /bin/sh} that raises its own OOM score to {@link
+     * #SESSION_OOM_SCORE_ADJ} and then {@code exec}s {@code command} -- same pid, so the
+     * score is in place before the command can start anything, and everything it starts
+     * inherits it. A failed write is ignored and the command still runs. Where the kernel
+     * has no per-process OOM score ({@code /proc/self/oom_score_adj}, i.e. macOS), {@code
+     * command} unchanged.
+     */
+    static String[] withRaisedOomScore(String[] command, boolean oomScoreAdjSupported) {
+        if (!oomScoreAdjSupported) {
+            return command;
+        }
+        String[] wrapped = new String[command.length + 4];
+        wrapped[0] = "/bin/sh";
+        wrapped[1] = "-c";
+        wrapped[2] = "{ echo " + SESSION_OOM_SCORE_ADJ + " > /proc/self/oom_score_adj; } 2>/dev/null; exec \"$@\"";
+        wrapped[3] = "locklane-session";
+        System.arraycopy(command, 0, wrapped, 4, command.length);
+        return wrapped;
+    }
+
+    /** {@code program} as a shell's {@code exec} would find it: a path (relative to {@code workingDirectory}), or a name on {@code pathEnv}. */
+    private static boolean isExecutable(String program, Path workingDirectory, String pathEnv) {
+        if (program.contains("/")) {
+            Path path = workingDirectory.resolve(program);
+            return Files.isRegularFile(path) && Files.isExecutable(path);
+        }
+        return !InstalledAgentDetector.detect(pathEnv, new String[] {program}).isEmpty();
     }
 
     private static Map<String, String> withDefaultTerminalEnv(Map<String, String> environment) {

@@ -19,11 +19,11 @@ unset LOCKLANE_SERVICE_KIND LOCKLANE_UPDATE_REEXEC
 # cgroup, and the control program's own refusal (correctly) fires for every systemd
 # stop. Move out into a transient scope first, when systemd can; otherwise the systemd
 # scenarios are skipped, saying so.
-in_server_cgroup() { grep -qs 'locklane\.service' /proc/self/cgroup; }
+in_server_cgroup() { grep -Eqs 'locklane\.service|/locklane-sessions\.slice/' /proc/self/cgroup; }
 if in_server_cgroup && [ -z "${LIFECYCLE_REEXEC:-}" ] && command -v systemd-run >/dev/null 2>&1; then
   if LIFECYCLE_REEXEC=1 exec systemd-run --user --scope --quiet --collect \
       env LIFECYCLE_REEXEC=1 bash "$0" "$@"; then :; fi
-  echo "note: could not leave the locklane.service cgroup; systemd scenarios will be skipped." >&2
+  echo "note: could not leave the server's cgroup; systemd scenarios will be skipped." >&2
 fi
 
 export PATH="$STUBS:$PATH"
@@ -135,7 +135,7 @@ scenario_launchd_stop_kills_children() {
 
 scenario_systemd_stop_forced() {
   local name="systemd-stop-forced" out rc pid
-  if in_server_cgroup; then skipped "$name" "inside the locklane.service cgroup"; return; fi
+  if in_server_cgroup; then skipped "$name" "inside the server's cgroup"; return; fi
   new_home
   touch "$STUB_STATE/systemd-no-escalate"
   register_as systemd ignore-term || { bad "$name" "register"; return; }
@@ -150,7 +150,7 @@ scenario_systemd_stop_forced() {
 
 scenario_systemd_stop_graceful() {
   local name="systemd-stop-graceful" out rc pid
-  if in_server_cgroup; then skipped "$name" "inside the locklane.service cgroup"; return; fi
+  if in_server_cgroup; then skipped "$name" "inside the server's cgroup"; return; fi
   new_home
   register_as systemd || { bad "$name" "register"; return; }
   pid="$(server_pid systemd)"
@@ -166,7 +166,7 @@ scenario_systemd_stop_graceful() {
 # than systemd's default OOMPolicy=stop taking down the engine and every session.
 scenario_systemd_unit_oom_policy_continue() {
   local name="systemd-unit-oom-policy-continue" unit
-  if in_server_cgroup; then skipped "$name" "inside the locklane.service cgroup"; return; fi
+  if in_server_cgroup; then skipped "$name" "inside the server's cgroup"; return; fi
   new_home
   register_as systemd || { bad "$name" "register"; return; }
   unit="$HOME/.config/systemd/user/locklane.service"
@@ -174,6 +174,113 @@ scenario_systemd_unit_oom_policy_continue() {
     ok "$name"
   else
     bad "$name" "unit lacks OOMPolicy=continue or Restart=always: $(cat "$unit" 2>/dev/null)"
+  fi
+}
+
+# #1014: the engine runs at the lowest OOM score a user unit may set, below the score the
+# engine gives each session, so the OOM killer picks a session's process before the engine.
+scenario_systemd_unit_oom_score_adjust() {
+  local name="systemd-unit-oom-score-adjust" unit
+  if in_server_cgroup; then skipped "$name" "inside the server's cgroup"; return; fi
+  new_home
+  register_as systemd || { bad "$name" "register"; return; }
+  unit="$HOME/.config/systemd/user/locklane.service"
+  if grep -qx 'OOMScoreAdjust=100' "$unit"; then
+    ok "$name"
+  else
+    bad "$name" "unit lacks OOMScoreAdjust=100: $(cat "$unit" 2>/dev/null)"
+  fi
+}
+
+# #1014: an install whose unit predates a setting gets it on update -- the unit is
+# rewritten and systemd told to reload it, with no manual step.
+scenario_systemd_update_rewrites_unit() {
+  local name="systemd-update-rewrites-unit" unit out rc
+  if in_server_cgroup; then skipped "$name" "inside the server's cgroup"; return; fi
+  new_home
+  register_as systemd || { bad "$name" "register"; return; }
+  unit="$HOME/.config/systemd/user/locklane.service"
+  sed -i.bak '/^OOMScoreAdjust=/d' "$unit" && rm -f "$unit.bak"
+  rm -f "$STUB_STATE/systemctl-calls"
+  rm -f "$HOME/.config/systemd/user/locklane-sessions.slice"
+  out="$("$LL" update 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -qx 'OOMScoreAdjust=100' "$unit" \
+      && grep -qx 'MemoryMax=75%' "$HOME/.config/systemd/user/locklane-sessions.slice" \
+      && grep -qx 'daemon-reload' "$STUB_STATE/systemctl-calls" \
+      && grep -qx 'stop locklane-sessions.slice' "$STUB_STATE/systemctl-calls" \
+      && alive "$(server_pid systemd)"; then
+    ok "$name"
+  else
+    bad "$name" "rc=$rc calls=$(tr '\n' ' ' < "$STUB_STATE/systemctl-calls" 2>/dev/null) out=$out"
+  fi
+}
+
+# #1015: register writes the sessions slice with the shared memory limit, and the unit
+# stops the slice whenever the engine stops, crash included -- a session cannot outlive
+# the engine that holds its terminal.
+scenario_systemd_sessions_slice() {
+  local name="systemd-sessions-slice" unit slice
+  if in_server_cgroup; then skipped "$name" "inside the server's cgroup"; return; fi
+  new_home
+  register_as systemd || { bad "$name" "register"; return; }
+  unit="$HOME/.config/systemd/user/locklane.service"
+  slice="$HOME/.config/systemd/user/locklane-sessions.slice"
+  if grep -qx 'MemoryHigh=65%' "$slice" && grep -qx 'MemoryMax=75%' "$slice" \
+      && grep -Eqx 'ExecStopPost=-/[^ ]*systemctl --user --no-block stop locklane-sessions\.slice' "$unit"; then
+    ok "$name"
+  else
+    bad "$name" "slice=$(cat "$slice" 2>/dev/null) unit=$(cat "$unit" 2>/dev/null)"
+  fi
+}
+
+# #1015: sessions run outside the service's cgroup, so stop and restart end them by
+# stopping the sessions slice after the service, as the service's own stop used to.
+scenario_systemd_stop_ends_sessions() {
+  local name="systemd-stop-ends-sessions" sub out rc
+  if in_server_cgroup; then skipped "$name" "inside the server's cgroup"; return; fi
+  for sub in stop restart; do
+    new_home
+    register_as systemd || { bad "$name ($sub)" "register"; return; }
+    rm -f "$STUB_STATE/systemctl-calls"
+    out="$("$LL" "$sub" 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] && grep -qx 'stop locklane-sessions.slice' "$STUB_STATE/systemctl-calls" \
+        && [ "$(grep -nx 'stop locklane' "$STUB_STATE/systemctl-calls" | head -n 1 | cut -d: -f1)" \
+            -lt "$(grep -nx 'stop locklane-sessions.slice' "$STUB_STATE/systemctl-calls" | head -n 1 | cut -d: -f1)" ]; then
+      ok "$name ($sub)"
+    else
+      bad "$name ($sub)" "rc=$rc calls=$(tr '\n' ' ' < "$STUB_STATE/systemctl-calls" 2>/dev/null) out=$out"
+    fi
+  done
+}
+
+scenario_systemd_uninstall_removes_slice() {
+  local name="systemd-uninstall-removes-slice" out rc
+  if in_server_cgroup; then skipped "$name" "inside the server's cgroup"; return; fi
+  new_home
+  register_as systemd || { bad "$name" "register"; return; }
+  out="$("$LL" uninstall --service-only 2>&1 < /dev/null)"; rc=$?
+  if [ "$rc" -eq 0 ] && [ ! -e "$HOME/.config/systemd/user/locklane-sessions.slice" ] \
+      && [ ! -e "$HOME/.config/systemd/user/locklane.service" ]; then
+    ok "$name"
+  else
+    bad "$name" "rc=$rc out=$out"
+  fi
+}
+
+# #1015: a shell tab on Linux now sits in its own scope under the sessions slice, not in
+# locklane.service -- the refusal must still recognise it as inside the server.
+scenario_console_tab_refusal_in_sessions_slice() {
+  local name="console-tab-refusal-in-sessions-slice" out rc
+  new_home
+  printf 'SERVICE_KIND=systemd\nREG_FILE=%s\n' "$HOME/.config/systemd/user/locklane.service" > "$HOME/.locklane/service.env"
+  echo "0::/user.slice/user-1000.slice/user@1000.service/locklane.slice/locklane-sessions.slice/run-u42.scope" \
+    > "$T/cgroup"
+  out="$(LOCKLANE_CGROUP_FILE="$T/cgroup" "$LL" stop 2>&1)"; rc=$?
+  if [ "$rc" = 2 ] && contains "$out" "^error: not run" && contains "$out" "console tab" \
+      && ! [ -s "$STUB_STATE/systemctl-calls" ]; then
+    ok "$name"
+  else
+    bad "$name" "rc=$rc out=$out"
   fi
 }
 
@@ -247,7 +354,7 @@ scenario_uninstall_unregistered_but_loaded() {
   local name="uninstall-unregistered-but-loaded" out rc pid kind
   for kind in launchd systemd; do
     if [ "$kind" = systemd ] && in_server_cgroup; then
-      skipped "$name ($kind)" "inside the locklane.service cgroup"
+      skipped "$name ($kind)" "inside the server's cgroup"
       continue
     fi
 
@@ -582,12 +689,18 @@ scenario_launchd_stop_kills_children
 scenario_systemd_stop_graceful
 scenario_systemd_stop_forced
 scenario_systemd_unit_oom_policy_continue
+scenario_systemd_unit_oom_score_adjust
+scenario_systemd_update_rewrites_unit
+scenario_systemd_sessions_slice
+scenario_systemd_stop_ends_sessions
+scenario_systemd_uninstall_removes_slice
 scenario_stop_cannot_finish
 scenario_uninstall_refuses_live
 scenario_uninstall_clean
 scenario_uninstall_service_only_keeps_data
 scenario_uninstall_unregistered_but_loaded
 scenario_console_tab_refusal
+scenario_console_tab_refusal_in_sessions_slice
 scenario_no_wrappers
 scenario_foreign_file_kept
 scenario_migrate_old_layout

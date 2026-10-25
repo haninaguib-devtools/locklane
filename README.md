@@ -43,6 +43,23 @@ the IDE terminal opened from one) for that reason.
   PATH and restart: run it after editing `application-locklane.properties`, or when a
   CLI the server needs is newly on your PATH.
 
+On Linux, agent and shell tabs share a memory limit, so one runaway agent cannot take
+the machine — or the server — down with it. Each tab runs in its own systemd scope
+under `locklane-sessions.slice`, which allows all tabs together up to 75% of physical
+memory (`MemoryMax`) and starts reclaiming from them at 65% (`MemoryHigh`). When they
+reach the limit, the kernel kills a process inside one tab; the server and the other
+tabs keep running. The tabs' processes also carry a higher OOM score than the server,
+so a machine-wide memory shortage takes a tab's process before the server. To change
+the limit, for example on a machine whose other services already hold much of its
+memory:
+
+```
+systemctl --user set-property locklane-sessions.slice MemoryHigh=20G MemoryMax=24G
+```
+
+That setting persists and survives `locklane update`. Stopping, restarting or updating
+the server still ends every tab, as it always has.
+
 An install made before v0.2.10 moves onto this layout by itself the first time its own
 `update.sh` (or the install one-liner) runs; one older than v0.2.8 needs the one-liner.
 

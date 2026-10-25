@@ -35,6 +35,12 @@ PID_FILE="$INSTALL_DIR/locklane.pid"
 # no reason to sit through 30 real seconds.
 STOP_GRACE="${LOCKLANE_STOP_GRACE:-30}"
 FORCE_WAIT="${LOCKLANE_FORCE_WAIT:-10}"
+# The control-group file the console-tab refusal reads. Overridable for the test
+# harness, which cannot put itself inside the server's real control group.
+CGROUP_FILE="${LOCKLANE_CGROUP_FILE:-/proc/self/cgroup}"
+# The systemd slice every session's scope runs under (#1015), with the memory limit
+# the sessions share. The engine names the same slice (SessionScope.SLICE).
+SESSIONS_SLICE="locklane-sessions.slice"
 
 SERVICE_KIND=""
 REG_FILE=""
@@ -233,8 +239,9 @@ service_state_line() {
 
 # --- Refusing to run from inside the server (#647) ----------------------------------
 # A Locklane console tab's shell is a child of the server JVM. On Linux it sits in the
-# locklane.service cgroup, which `systemctl --user stop` sweeps wholesale; on macOS it
-# descends from the agent's pid, which `launchctl bootout` takes down with the agent.
+# locklane.service cgroup, which `systemctl --user stop` sweeps wholesale, or -- since
+# #1015 -- in its own scope under the sessions slice, which a stop sweeps too; on macOS
+# it descends from the agent's pid, which `launchctl bootout` takes down with the agent.
 # A command that stops the server from such a shell kills itself at its own stop step,
 # and the server stays down with nothing left to restart it. So every command that
 # stops the server refuses to start from there. Exit 2, distinct from the 1 a stop
@@ -243,7 +250,7 @@ refuse_inside_server() {
   local what="$1" agent_pid p
   case "$SERVICE_KIND" in
     systemd)
-      grep -qs 'locklane\.service' /proc/self/cgroup || return 0
+      grep -Eqs 'locklane\.service|/locklane-sessions\.slice/' "$CGROUP_FILE" || return 0
       ;;
     launchd)
       agent_pid="$(main_pid)"
@@ -360,6 +367,15 @@ stop_server() {
   done
   [ -n "$survivors" ] && sleep 1
 
+  # Every session runs in its own scope under the sessions slice (#1015), outside the
+  # service's control group, so the service's own stop no longer sweeps them: whatever
+  # the engine's shutdown and the descendants above did not end -- a process that left
+  # the tree, say -- goes with the slice. The unit's ExecStopPost does the same when the
+  # engine exits on its own.
+  if [ "$SERVICE_KIND" = systemd ]; then
+    systemctl --user stop "$SESSIONS_SLICE" 2>/dev/null || true
+  fi
+
   # Verify, then report -- never the other way round.
   survivors=""
   for k in $kids; do
@@ -407,7 +423,8 @@ resolve_login_path() {
 
 # --- Registration -----------------------------------------------------------------
 write_systemd_unit() {
-  local java_bin="$1" resolved_path="$2"
+  local java_bin="$1" resolved_path="$2" systemctl_bin
+  systemctl_bin="$(command -v systemctl)"
   mkdir -p "$(dirname "$REG_FILE")"
   cat > "$REG_FILE" <<EOF
 [Unit]
@@ -424,6 +441,18 @@ SuccessExitStatus=143
 # With continue only that process dies; an engine OOM still exits the main process and
 # Restart=always brings it back (#1009). systemd-only: launchd has no unit-wide stop.
 OOMPolicy=continue
+# Every process in the unit otherwise shares systemd's user-unit default of 200, and with
+# equal scores the OOM killer takes the largest -- often the engine, whose exit stops the
+# unit and every session with it. 100 is the lowest an unprivileged user unit may set (the
+# user manager itself runs at 100); the engine starts each session at a higher score, so
+# the kernel picks a session's process first (#1014).
+OOMScoreAdjust=100
+# Sessions run in their own scopes under $SESSIONS_SLICE, outside this unit's control
+# group (#1015), so they no longer die with it. A session cannot outlive the engine that
+# holds its terminal, so whenever the engine stops -- a stop, a restart, a crash -- they
+# are stopped too, as they were when the unit's own stop swept them. --no-block: queued,
+# never waited on from inside this unit's own stop.
+ExecStopPost=-$systemctl_bin --user --no-block stop $SESSIONS_SLICE
 WorkingDirectory=$INSTALL_DIR
 Environment=PATH=$resolved_path
 ExecStart=$java_bin -jar $JAR_FILE
@@ -434,6 +463,25 @@ StandardError=append:$LOG_FILE
 
 [Install]
 WantedBy=default.target
+EOF
+}
+
+# The slice every session's scope runs under (#1015). Its memory limit is shared by all
+# sessions together: when they reach it the kernel kills a process inside the slice and
+# systemd-oomd picks one session's scope, so a runaway agent's memory pressure never
+# falls on the engine, the desktop or the machine's other services. The default is
+# relative to physical memory; `systemctl --user set-property` writes a drop-in that
+# takes precedence and survives this file being rewritten.
+write_systemd_slice() {
+  local slice_file="$HOME/.config/systemd/user/$SESSIONS_SLICE"
+  mkdir -p "$(dirname "$slice_file")"
+  cat > "$slice_file" <<EOF
+[Unit]
+Description=locklane sessions
+
+[Slice]
+MemoryHigh=65%
+MemoryMax=75%
 EOF
 }
 
@@ -562,6 +610,7 @@ register_cmd() {
   case "$kind" in
     systemd)
       write_systemd_unit "$java_bin" "$resolved_path"
+      write_systemd_slice
       echo "Registering the systemd user service..."
       systemctl --user daemon-reload 2>/dev/null || true
       if ! systemctl --user enable --now locklane; then
@@ -862,6 +911,7 @@ uninstall_cmd() {
   # an install that set up one and later moved would otherwise leave the first behind.
   rm -f "${REG_FILE:-/nonexistent}"
   rm -f "$HOME/.config/systemd/user/locklane.service"
+  rm -f "$HOME/.config/systemd/user/$SESSIONS_SLICE"
   rm -f "$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
   if [ "$SERVICE_KIND" = systemd ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload 2>/dev/null || true
