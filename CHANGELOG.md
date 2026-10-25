@@ -20,6 +20,11 @@ here.
 - Fable weekly usage never shows: read `percent` from usage API `limits` entries (#848)
 - Ring the bell from Claude Code and Codex hooks by terminal path, not `/dev/tty` (#904)
 
+## v0.2.51 — 2026-10-24
+
+### Other
+- Keep the engine and other sessions alive when agents exhaust memory (#1013, #1018)
+
 ## v0.2.50 — 2026-10-18
 
 ### Other
