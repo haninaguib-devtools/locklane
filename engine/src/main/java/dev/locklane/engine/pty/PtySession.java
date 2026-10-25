@@ -122,8 +122,8 @@ public final class PtySession {
         this.quiescenceFallbackEnabled = quiescenceFallbackEnabled;
         try {
             this.process = new PtyProcessBuilder()
-                    .setCommand(withRaisedOomScore(command, OOM_SCORE_ADJ_SUPPORTED, workingDirectory,
-                            environment.get("PATH")))
+                    .setCommand(spawnCommand(command, workingDirectory, environment.get("PATH"),
+                            OOM_SCORE_ADJ_SUPPORTED, SessionScope.prefix(sessionId, environment)))
                     .setDirectory(workingDirectory.toString())
                     .setEnvironment(withDefaultTerminalEnv(environment))
                     .setInitialColumns(initialColumns)
@@ -382,18 +382,35 @@ public final class PtySession {
     }
 
     /**
-     * {@code command} as it is actually spawned: where the kernel has a per-process OOM
-     * score ({@code /proc/self/oom_score_adj}, i.e. Linux), behind a {@code /bin/sh}
-     * that raises its own score to {@link #SESSION_OOM_SCORE_ADJ} and then {@code exec}s
-     * {@code command} -- same pid, so the score is in place before the command can start
-     * anything, and everything it starts inherits it. A failed write is ignored and the
-     * command still runs. Elsewhere (macOS), {@code command} unchanged -- and likewise
-     * when its program is not an executable here, so pty4j still refuses to start it
-     * ({@link PtySessionStartException}) rather than the shell starting and exiting 127.
+     * {@code command} as it is actually spawned. When its program is not an executable
+     * here, unchanged, so pty4j still refuses to start it ({@link
+     * PtySessionStartException}) rather than a wrapper starting and exiting 127.
+     * Otherwise, inside its own scope ({@code scopePrefix}, from {@link SessionScope};
+     * empty leaves it in the engine's own control group), behind the OOM score wrapper
+     * ({@link #withRaisedOomScore}) -- outermost, so the score is raised before the
+     * scope's {@code systemd-run} execs the command and the scope inherits it.
      */
-    static String[] withRaisedOomScore(String[] command, boolean oomScoreAdjSupported, Path workingDirectory,
-            String pathEnv) {
-        if (!oomScoreAdjSupported || command.length == 0 || !isExecutable(command[0], workingDirectory, pathEnv)) {
+    static String[] spawnCommand(String[] command, Path workingDirectory, String pathEnv, boolean oomScoreAdjSupported,
+            String[] scopePrefix) {
+        if (command.length == 0 || !isExecutable(command[0], workingDirectory, pathEnv)) {
+            return command;
+        }
+        String[] scoped = new String[scopePrefix.length + command.length];
+        System.arraycopy(scopePrefix, 0, scoped, 0, scopePrefix.length);
+        System.arraycopy(command, 0, scoped, scopePrefix.length, command.length);
+        return withRaisedOomScore(scoped, oomScoreAdjSupported);
+    }
+
+    /**
+     * {@code command} behind a {@code /bin/sh} that raises its own OOM score to {@link
+     * #SESSION_OOM_SCORE_ADJ} and then {@code exec}s {@code command} -- same pid, so the
+     * score is in place before the command can start anything, and everything it starts
+     * inherits it. A failed write is ignored and the command still runs. Where the kernel
+     * has no per-process OOM score ({@code /proc/self/oom_score_adj}, i.e. macOS), {@code
+     * command} unchanged.
+     */
+    static String[] withRaisedOomScore(String[] command, boolean oomScoreAdjSupported) {
+        if (!oomScoreAdjSupported) {
             return command;
         }
         String[] wrapped = new String[command.length + 4];
