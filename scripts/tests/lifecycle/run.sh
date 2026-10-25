@@ -177,6 +177,41 @@ scenario_systemd_unit_oom_policy_continue() {
   fi
 }
 
+# #1014: the engine runs at the lowest OOM score a user unit may set, below the score the
+# engine gives each session, so the OOM killer picks a session's process before the engine.
+scenario_systemd_unit_oom_score_adjust() {
+  local name="systemd-unit-oom-score-adjust" unit
+  if in_server_cgroup; then skipped "$name" "inside the locklane.service cgroup"; return; fi
+  new_home
+  register_as systemd || { bad "$name" "register"; return; }
+  unit="$HOME/.config/systemd/user/locklane.service"
+  if grep -qx 'OOMScoreAdjust=100' "$unit"; then
+    ok "$name"
+  else
+    bad "$name" "unit lacks OOMScoreAdjust=100: $(cat "$unit" 2>/dev/null)"
+  fi
+}
+
+# #1014: an install whose unit predates a setting gets it on update -- the unit is
+# rewritten and systemd told to reload it, with no manual step.
+scenario_systemd_update_rewrites_unit() {
+  local name="systemd-update-rewrites-unit" unit out rc
+  if in_server_cgroup; then skipped "$name" "inside the locklane.service cgroup"; return; fi
+  new_home
+  register_as systemd || { bad "$name" "register"; return; }
+  unit="$HOME/.config/systemd/user/locklane.service"
+  sed -i.bak '/^OOMScoreAdjust=/d' "$unit" && rm -f "$unit.bak"
+  rm -f "$STUB_STATE/systemctl-calls"
+  out="$("$LL" update 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] && grep -qx 'OOMScoreAdjust=100' "$unit" \
+      && grep -qx 'daemon-reload' "$STUB_STATE/systemctl-calls" \
+      && alive "$(server_pid systemd)"; then
+    ok "$name"
+  else
+    bad "$name" "rc=$rc calls=$(tr '\n' ' ' < "$STUB_STATE/systemctl-calls" 2>/dev/null) out=$out"
+  fi
+}
+
 scenario_stop_cannot_finish() {
   local name="stop-cannot-finish" out rc pid
   new_home
@@ -582,6 +617,8 @@ scenario_launchd_stop_kills_children
 scenario_systemd_stop_graceful
 scenario_systemd_stop_forced
 scenario_systemd_unit_oom_policy_continue
+scenario_systemd_unit_oom_score_adjust
+scenario_systemd_update_rewrites_unit
 scenario_stop_cannot_finish
 scenario_uninstall_refuses_live
 scenario_uninstall_clean
