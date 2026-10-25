@@ -24,19 +24,21 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  */
 class PtySessionOomScoreTest {
 
+    private static final String[] NO_SCOPE = new String[0];
+
     @Test
     void leavesTheCommandUnchangedWhereTheKernelHasNoOomScore(@TempDir Path workDir) throws IOException {
         Path bin = agentOnPath(workDir);
         String[] command = {"agent", "--resume", "abc"};
 
-        assertThat(PtySession.withRaisedOomScore(command, false, workDir, bin.toString())).containsExactly(command);
+        assertThat(PtySession.spawnCommand(command, workDir, bin.toString(), false, NO_SCOPE)).containsExactly(command);
     }
 
     @Test
     void wrapsTheCommandInAShellThatRaisesTheScoreThenExecsIt(@TempDir Path workDir) throws IOException {
         Path bin = agentOnPath(workDir);
-        String[] wrapped = PtySession.withRaisedOomScore(new String[] {"agent", "--resume", "abc"}, true, workDir,
-                bin.toString());
+        String[] wrapped = PtySession.spawnCommand(new String[] {"agent", "--resume", "abc"}, workDir, bin.toString(),
+                true, NO_SCOPE);
 
         assertThat(wrapped).hasSize(7);
         assertThat(wrapped[0]).isEqualTo("/bin/sh");
@@ -51,9 +53,9 @@ class PtySessionOomScoreTest {
         Path bin = agentOnPath(workDir);
         String absolute = bin.resolve("agent").toString();
 
-        assertThat(PtySession.withRaisedOomScore(new String[] {absolute}, true, workDir, null)).endsWith(absolute);
-        assertThat(PtySession.withRaisedOomScore(new String[] {absolute}, true, workDir, null)[0]).isEqualTo("/bin/sh");
-        assertThat(PtySession.withRaisedOomScore(new String[] {"./bin/agent"}, true, workDir, null)[0])
+        assertThat(PtySession.spawnCommand(new String[] {absolute}, workDir, null, true, NO_SCOPE)).endsWith(absolute);
+        assertThat(PtySession.spawnCommand(new String[] {absolute}, workDir, null, true, NO_SCOPE)[0]).isEqualTo("/bin/sh");
+        assertThat(PtySession.spawnCommand(new String[] {"./bin/agent"}, workDir, null, true, NO_SCOPE)[0])
                 .isEqualTo("/bin/sh");
     }
 
@@ -63,7 +65,7 @@ class PtySessionOomScoreTest {
         Path bin = agentOnPath(workDir);
         String[] missing = {"no-such-agent", "--resume", "abc"};
 
-        assertThat(PtySession.withRaisedOomScore(missing, true, workDir, bin.toString())).containsExactly(missing);
+        assertThat(PtySession.spawnCommand(missing, workDir, bin.toString(), true, NO_SCOPE)).containsExactly(missing);
         assertThatThrownBy(() -> new PtySession("oom-score-missing", workDir, missing, Map.of("PATH", bin.toString()),
                 80, 24)).isInstanceOf(PtySessionStartException.class);
     }

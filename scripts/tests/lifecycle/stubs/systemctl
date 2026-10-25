@@ -3,7 +3,8 @@
 # $STUB_STATE: systemd.pid (the "server"), server-mode as for the launchctl stub, and
 # systemd-no-escalate -- when present, `stop` sends SIGTERM and returns at once
 # without systemd's own SIGKILL escalation, so the control program's is exercised.
-# Every call (without --user) is appended to $STUB_STATE/systemctl-calls.
+# Every call (without --user) is appended to $STUB_STATE/systemctl-calls. Stopping
+# the sessions slice (#1015) is recorded and otherwise does nothing.
 set -uo pipefail
 S="${STUB_STATE:?}"
 [ "${1:-}" = "--user" ] && shift
@@ -29,6 +30,7 @@ case "${1:-}" in
     exit 0
     ;;
   stop)
+    [ "${2:-}" = locklane-sessions.slice ] && exit 0
     if pid_alive; then
       /bin/kill -TERM "$pid" 2>/dev/null
       if [ ! -f "$S/systemd-no-escalate" ]; then
