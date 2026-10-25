@@ -3,9 +3,11 @@
 # $STUB_STATE: systemd.pid (the "server"), server-mode as for the launchctl stub, and
 # systemd-no-escalate -- when present, `stop` sends SIGTERM and returns at once
 # without systemd's own SIGKILL escalation, so the control program's is exercised.
+# Every call (without --user) is appended to $STUB_STATE/systemctl-calls.
 set -uo pipefail
 S="${STUB_STATE:?}"
 [ "${1:-}" = "--user" ] && shift
+printf '%s\n' "$*" >> "$S/systemctl-calls"
 pid="$(cat "$S/systemd.pid" 2>/dev/null || true)"
 pid_alive() { [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; }
 spawn_server() {

@@ -424,6 +424,12 @@ SuccessExitStatus=143
 # With continue only that process dies; an engine OOM still exits the main process and
 # Restart=always brings it back (#1009). systemd-only: launchd has no unit-wide stop.
 OOMPolicy=continue
+# Every process in the unit otherwise shares systemd's user-unit default of 200, and with
+# equal scores the OOM killer takes the largest -- often the engine, whose exit stops the
+# unit and every session with it. 100 is the lowest an unprivileged user unit may set (the
+# user manager itself runs at 100); the engine starts each session at a higher score, so
+# the kernel picks a session's process first (#1014).
+OOMScoreAdjust=100
 WorkingDirectory=$INSTALL_DIR
 Environment=PATH=$resolved_path
 ExecStart=$java_bin -jar $JAR_FILE
