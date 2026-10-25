@@ -101,8 +101,11 @@ no plan stage ran, and they are settled here.
   `/proc/<agent pid>/cgroup` shows the slice and scope; `systemctl --user show
   locklane-sessions.slice -p MemoryHigh,MemoryMax` shows the limit; and a session
   pushing the slice past its limit is killed inside it while the engine and other
-  sessions survive. `ExecStopPost` behaviour on a real engine crash is likewise
-  unexercised: the stub harness does not run unit hooks.
+  sessions survive. The stub harness does not run unit hooks, so the `ExecStopPost`
+  line was checked once against this host's real systemd 255 with throwaway units: a
+  `sleep 300` in a scope under `lltest-sessions.slice` was terminated when a transient
+  `lltest-engine` service carrying the same `ExecStopPost=-<systemctl> --user
+  --no-block stop lltest-sessions.slice` exited on its own after 2 s.
 
 ## Agents
 - work: claude-code / claude-opus-5-5
