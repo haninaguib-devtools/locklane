@@ -413,6 +413,17 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
   }
 
   private copyFallback(text: string): void {
+    // The textarea below has to take focus for execCommand('copy') to act on it, and
+    // removing a focused element leaves focus on <body> -- so without this the
+    // terminal lost the keyboard on every fallback copy and the next paste reached
+    // nothing (#1021). On a plain-http page (locklane opened from another machine)
+    // navigator.clipboard is absent and *every* copy lands here, including OSC 52
+    // writes arriving with server output at arbitrary moments.
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousRange =
+      previousFocus instanceof HTMLTextAreaElement || previousFocus instanceof HTMLInputElement
+        ? { element: previousFocus, start: previousFocus.selectionStart, end: previousFocus.selectionEnd }
+        : null;
     const textarea = document.createElement('textarea');
     textarea.value = text;
     // Off-screen but still focusable/selectable -- execCommand('copy') acts on
@@ -433,6 +444,24 @@ export class TerminalComponent implements AfterViewInit, OnChanges, OnDestroy {
       console.error('Terminal copy failed', err);
     } finally {
       document.body.removeChild(textarea);
+      this.restoreFocus(previousFocus, previousRange);
+    }
+  }
+
+  private restoreFocus(
+    element: HTMLElement | null,
+    range: { element: HTMLTextAreaElement | HTMLInputElement; start: number | null; end: number | null } | null,
+  ): void {
+    if (element === null || element === document.body || !element.isConnected) {
+      return;
+    }
+    element.focus({ preventScroll: true });
+    if (range !== null && range.start !== null && range.end !== null) {
+      try {
+        range.element.setSelectionRange(range.start, range.end);
+      } catch {
+        // Some input types (email, number) do not support selection ranges.
+      }
     }
   }
 

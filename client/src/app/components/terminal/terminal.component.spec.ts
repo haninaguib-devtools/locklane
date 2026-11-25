@@ -178,6 +178,44 @@ describe('TerminalComponent', () => {
     expect(execCommandSpy).toHaveBeenCalledWith('copy');
   }));
 
+  it('gives the keyboard back to the terminal after a fallback copy from Cmd/Ctrl+C, so the next paste lands (#1021)', fakeAsync(() => {
+    const { component, handler } = createTerminal();
+    spyOn(term(component), 'hasSelection').and.returnValue(true);
+    spyOn(term(component), 'getSelection').and.returnValue('selected text');
+    spyOnProperty(navigator, 'clipboard', 'get').and.returnValue(undefined as unknown as Clipboard);
+    let focusedDuringCopy = null as Element | null;
+    spyOn(document, 'execCommand').and.callFake(() => {
+      focusedDuringCopy = document.activeElement;
+      return true;
+    });
+    // Let the mount's deferred fit/focus/connect timers run first -- otherwise the
+    // mount's own term.focus() would re-focus the terminal after the copy and hide
+    // a fallback that left focus on <body>.
+    tick(1000);
+    term(component).focus();
+    const xtermInput = document.activeElement;
+    expect(xtermInput).withContext('xterm must hold focus before the copy').toBe(term(component).textarea!);
+
+    handler(copyChordEvent(true));
+
+    expect(focusedDuringCopy).withContext('the fallback textarea must hold focus for execCommand').not.toBe(xtermInput);
+    expect(document.activeElement).toBe(xtermInput);
+  }));
+
+  it('gives the keyboard back to the terminal after a fallback copy from an OSC 52 write (#1021)', (done) => {
+    spyOnProperty(navigator, 'clipboard', 'get').and.returnValue(undefined as unknown as Clipboard);
+    const execCommandSpy = spyOn(document, 'execCommand').and.returnValue(true);
+
+    const component = mountTab(true);
+    term(component).focus();
+    const xtermInput = document.activeElement;
+    term(component).write('\x1b]52;c;aGVsbG8=\x07', () => {
+      expect(execCommandSpy).toHaveBeenCalledWith('copy');
+      expect(document.activeElement).toBe(xtermInput);
+      done();
+    });
+  });
+
   it('falls back to execCommand(copy) when writeText rejects (Safari: no user-gesture credit for a keydown; Chrome: blocked clipboard permission)', fakeAsync(() => {
     const { component, handler } = createTerminal();
     spyOn(term(component), 'hasSelection').and.returnValue(true);
